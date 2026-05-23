@@ -84,7 +84,7 @@ def test_show_missing_task_prints_error_message() -> None:
         mock_cls.return_value = mock_q
         mock_q.get.side_effect = BeadsError("task not found: missing-task")
         result = runner.invoke(app, ["show", "missing-task"])
-    assert "missing-task" in result.stderr or "not found" in result.stderr
+    assert "missing-task" in result.output or "not found" in result.output
 
 
 def test_show_existing_task_prints_fields() -> None:
@@ -111,8 +111,7 @@ def test_run_unknown_coder_exits_nonzero() -> None:
 
 def test_run_unknown_coder_lists_available_coders() -> None:
     result = runner.invoke(app, ["run", "--coder", "does-not-exist"])
-    combined = result.output + result.stderr
-    assert "Available" in combined or "claude" in combined
+    assert "Available" in result.output or "claude" in result.output
 
 
 def test_run_missing_coder_flag_falls_back_to_config(tmp_path, monkeypatch) -> None:
@@ -340,7 +339,7 @@ def test_log_errors_when_no_log_dir(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     result = runner.invoke(app, ["log"])
     assert result.exit_code != 0
-    assert "No log" in (result.stderr or result.output)
+    assert "No log" in result.output
 
 
 def test_log_errors_when_log_dir_empty(tmp_path, monkeypatch) -> None:
@@ -348,7 +347,7 @@ def test_log_errors_when_log_dir_empty(tmp_path, monkeypatch) -> None:
     (tmp_path / "logging").mkdir()
     result = runner.invoke(app, ["log"])
     assert result.exit_code != 0
-    assert "No log files" in (result.stderr or result.output)
+    assert "No log files" in result.output
 
 
 def test_log_rejects_non_positive_tail(tmp_path, monkeypatch) -> None:
@@ -465,7 +464,7 @@ def test_tasks_beads_error_exits_nonzero() -> None:
         mock_q.list_in_progress.side_effect = BeadsError("bd boom")
         result = runner.invoke(app, ["tasks"])
     assert result.exit_code != 0
-    assert "bd boom" in (result.stderr or result.output)
+    assert "bd boom" in result.output
 
 
 def test_task_plan_prints_plan_file(tmp_path, monkeypatch) -> None:
@@ -504,7 +503,7 @@ def test_task_missing_task_dir_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     result = runner.invoke(app, ["task", "t-missing", "plan"])
     assert result.exit_code != 0
-    assert "No task directory" in (result.stderr or result.output)
+    assert "No task directory" in result.output
 
 
 def test_task_plan_missing_file_errors(tmp_path, monkeypatch) -> None:
@@ -512,7 +511,7 @@ def test_task_plan_missing_file_errors(tmp_path, monkeypatch) -> None:
     _seed_task_dir(tmp_path, "t-001")
     result = runner.invoke(app, ["task", "t-001", "plan"])
     assert result.exit_code != 0
-    assert "PLAN_AND_STATUS" in (result.stderr or result.output)
+    assert "PLAN_AND_STATUS" in result.output
 
 
 def test_task_log_missing_file_errors(tmp_path, monkeypatch) -> None:
@@ -520,7 +519,7 @@ def test_task_log_missing_file_errors(tmp_path, monkeypatch) -> None:
     _seed_task_dir(tmp_path, "t-001")
     result = runner.invoke(app, ["task", "t-001", "log"])
     assert result.exit_code != 0
-    assert "No log for task" in (result.stderr or result.output)
+    assert "No log for task" in result.output
 
 
 def test_task_invalid_action_errors(tmp_path, monkeypatch) -> None:

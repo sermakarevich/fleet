@@ -36,7 +36,7 @@ def test_load_partial_toml_overlays_defaults(tmp_path):
     # Unset fields fall back to defaults
     assert cfg.rate_limit_threshold_pct == 90
     assert cfg.retry_limit == 3
-    assert cfg.log_root == "logs"
+    assert cfg.log_root == "logging"
 
 
 def test_write_atomic_round_trips_value(tmp_path):

@@ -79,6 +79,11 @@ class ClaudeCoder(Coder):
         # Soft rate-limit warning (periodic usage envelope)
         if t == "rate_limit_event":
             info = data.get("rate_limit_info", {})
+            # Claude CLI emits one event per rateLimitType (five_hour, weekly, …).
+            # Weekly events reflect the longer-horizon budget, not the current
+            # session cap — skip them so the gauge tracks the session limit.
+            if info.get("rateLimitType") == "weekly":
+                return None
             return Event(
                 kind="rate_limit_info",
                 raw=data,

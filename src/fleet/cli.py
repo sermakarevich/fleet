@@ -494,7 +494,7 @@ def _task_runtime_stats(task_id: str) -> _TaskRuntimeStats:
                         if parsed is not None:
                             last_event_at = parsed
                     usage = row.get("usage")
-                    if isinstance(usage, dict):
+                    if isinstance(usage, dict) and row.get("kind") != "session_ended":
                         prompt = (
                             _safe_int(usage.get("input_tokens"))
                             + _safe_int(usage.get("cache_creation_input_tokens"))

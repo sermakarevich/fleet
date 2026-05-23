@@ -1,7 +1,7 @@
 # fleet — Python supervisor for headless agent fleets
 
 <p align="center">
-  <img src="assets/fleet_mini.png" alt="fleet logo" width="600">
+  <img src="assets/fleet_mini.png" alt="fleet logo">
 </p>
 
 `fleet` is a lightweight Python supervisor that claims tasks from a

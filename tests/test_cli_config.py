@@ -107,8 +107,7 @@ def test_config_set_unknown_key_exits_nonzero(tmp_path: Path) -> None:
 def test_config_set_unknown_key_message_contains_unknown(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
         result = runner.invoke(app, ["config", "set", "unknown_key=1"])
-    combined = result.output + result.stderr
-    assert "unknown" in combined.lower()
+    assert "unknown" in result.output.lower()
 
 
 def test_config_set_multiple_keys(tmp_path: Path) -> None:

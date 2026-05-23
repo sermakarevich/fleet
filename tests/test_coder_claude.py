@@ -296,6 +296,30 @@ def test_normalize_rate_limit_info_utilization_overage_above_one():
     assert evt.rate_info["usage_pct"] == pytest.approx(107.0)
 
 
+def test_normalize_rate_limit_weekly_returns_none():
+    """Weekly rate-limit events must be ignored; only session-level usage counts."""
+    coder = _coder()
+    [line] = _lines("claude_stream_rate_limit_weekly.jsonl")
+    evt = coder.normalize_event(line)
+    assert evt is None
+
+
+def test_normalize_rate_limit_weekly_ignored_inline():
+    """Inline weekly event also returns None."""
+    coder = _coder()
+    raw = json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "status": "allowed_warning",
+            "rateLimitType": "weekly",
+            "utilization": 0.72,
+            "resetsAt": 1779564600,
+        },
+    })
+    evt = coder.normalize_event(raw)
+    assert evt is None
+
+
 def test_normalize_rate_limit_info_missing_usage_fields():
     """No usage_pct, usagePct, or utilization -> rate_info['usage_pct'] is None."""
     coder = _coder()
