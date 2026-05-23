@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess_xyz789","model":"claude-sonnet-4-6","tools":["Read","Write","Bash"]}
+{"type":"result","subtype":"success","session_id":"sess_xyz789","duration_ms":42150,"is_error":false,"result":"Task completed.","usage":{"input_tokens":2500,"output_tokens":300,"cache_creation_input_tokens":0,"cache_read_input_tokens":2000}}

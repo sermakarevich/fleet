@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import signal
+from pathlib import Path
+from typing import Protocol
+
+import structlog
+
+from fleet.coder import Coder
+from fleet.logging_setup import append_event, open_task_log
+from fleet.queue import Queue
+from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+
+_STDERR_TAIL_BYTES = 2048
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
+    """Create PLAN_AND_STATUS.md and KNOWLEDGE.md stubs if missing.
+
+    Never overwrites existing content — agents own these files after the
+    first run.
+    """
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    plan_and_status = artifacts_dir / "PLAN_AND_STATUS.md"
+    if not plan_and_status.exists():
+        tmpl = (_TEMPLATES_DIR / "PLAN_AND_STATUS.md.tmpl").read_text(encoding="utf-8")
+        plan_and_status.write_text(tmpl.format(task_id=task_id))
+    knowledge = artifacts_dir / "KNOWLEDGE.md"
+    if not knowledge.exists():
+        tmpl = (_TEMPLATES_DIR / "KNOWLEDGE.md.tmpl").read_text(encoding="utf-8")
+        knowledge.write_text(tmpl.format(task_id=task_id))
+
+
+class RateGauge(Protocol):
+    def update(self, evt: Event) -> None: ...
+
+
+class TaskRunner:
+    def __init__(
+        self,
+        task: Task,
+        coder: Coder,
+        queue: Queue,
+        config: RuntimeConfig,
+        rate_gauge: RateGauge,
+        project_root: Path,
+        fleet_home: Path,
+        log: structlog.BoundLogger,
+    ) -> None:
+        self._task = task
+        self._coder = coder
+        self._queue = queue
+        self._config = config
+        self._rate_gauge = rate_gauge
+        self._project_root = project_root
+        self._fleet_home = fleet_home
+        self._log = log
+        self._proc: asyncio.subprocess.Process | None = None
+        self._cancelled = False
+
+    async def run(self) -> TaskOutcomeRecord:
+        task = self._task
+
+        task_dir = self._fleet_home / "tasks" / task.id
+        artifacts_dir = task_dir / "artifacts"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_artifact_stubs(artifacts_dir, task.id)
+
+        with open_task_log(task_dir, task.id) as task_log:
+            stderr_path = Path(task_log.stderr_file.name)
+
+            argv = self._coder.build_argv(task, task_dir)
+            extra_env = self._coder.env(task, task_dir)
+            proc_env = {**os.environ, **extra_env}
+
+            task_log.log.info(
+                "subprocess_started",
+                task_id=task.id,
+                argv=argv,
+            )
+
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                env=proc_env,
+                cwd=self._project_root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=task_log.stderr_file,
+                stdin=asyncio.subprocess.DEVNULL,
+            )
+            self._proc = proc
+
+            # cancel() may have run while we were awaiting create_subprocess_exec
+            # — at that moment `self._proc` was still None, so cancel() returned
+            # without signalling. Close the race by sending SIGTERM here.
+            if self._cancelled:
+                try:
+                    proc.send_signal(signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+
+            outcome: TaskOutcomeRecord | None = None
+
+            assert proc.stdout is not None
+            async for raw_bytes in proc.stdout:
+                raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
+                evt = self._coder.normalize_event(raw_line)
+                if evt is None:
+                    continue
+
+                append_event(task_dir, evt)
+
+                if evt.kind == "session_started":
+                    self._log.info("agent_session_started")
+                elif evt.kind == "tool_use":
+                    self._log.info(
+                        "agent_tool_use",
+                        tool=evt.raw.get("tool_name") or evt.raw.get("name"),
+                    )
+                elif evt.kind == "session_ended":
+                    self._log.info("agent_session_ended")
+
+                if evt.kind == "rate_limit_info":
+                    self._rate_gauge.update(evt)
+                elif (
+                    evt.kind == "rate_limit"
+                    and evt.rate_info is not None
+                    and evt.rate_info.get("status") == "rejected"
+                ):
+                    resets_at = evt.rate_info.get("resets_at")
+                    reason = (
+                        f"rate_limit, sleep until {resets_at}"
+                        if resets_at is not None
+                        else "rate_limit"
+                    )
+                    task_log.log.warning(
+                        "rate_limit_rejected",
+                        task_id=task.id,
+                        resets_at=resets_at,
+                    )
+                    self._queue.release(task.id, reason=reason)
+                    try:
+                        proc.send_signal(signal.SIGTERM)
+                    except (ProcessLookupError, OSError):
+                        pass
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        try:
+                            proc.send_signal(signal.SIGKILL)
+                        except (ProcessLookupError, OSError):
+                            pass
+                        await proc.wait()
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.RATE_LIMIT,
+                        exit_code=proc.returncode,
+                        reason=reason,
+                        resets_at=resets_at,
+                    )
+                    break
+
+            exit_code = await proc.wait()
+
+            if outcome is None:
+                cp_flag = task_dir / ".context_pressure"
+                if cp_flag.exists():
+                    cp_flag.unlink()
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.CONTEXT_PRESSURE,
+                        exit_code=exit_code,
+                        reason="context_pressure hook fired",
+                    )
+                elif self._cancelled:
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.FAILURE,
+                        exit_code=exit_code,
+                        reason="supervisor_shutdown",
+                    )
+                elif exit_code == 0:
+                    blocked = False
+                    try:
+                        current = self._queue.get(task.id)
+                        blocked = current.status == "blocked"
+                    except Exception:
+                        pass
+                    if blocked:
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.BLOCKED_BY_AGENT,
+                            exit_code=exit_code,
+                            reason="agent set task to blocked",
+                        )
+                    else:
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.SUCCESS,
+                            exit_code=exit_code,
+                            reason="",
+                        )
+                else:
+                    stderr_tail = _read_file_tail(stderr_path)
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.FAILURE,
+                        exit_code=exit_code,
+                        reason=f"subprocess exited with rc={exit_code}",
+                        stderr_tail=stderr_tail,
+                    )
+
+            task_log.log.info(
+                "subprocess_exited",
+                task_id=task.id,
+                exit_code=exit_code,
+                outcome=outcome.outcome.value,
+            )
+            return outcome
+
+    async def cancel(self) -> None:
+        """Send SIGTERM to the child; escalate to SIGKILL after grace period."""
+        self._cancelled = True
+        proc = self._proc
+        if proc is None or proc.returncode is not None:
+            return
+        try:
+            proc.send_signal(signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            return
+        try:
+            await asyncio.wait_for(
+                proc.wait(),
+                timeout=float(self._config.shutdown_grace_sec),
+            )
+        except asyncio.TimeoutError:
+            try:
+                proc.send_signal(signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            await proc.wait()
+
+
+def _read_file_tail(path: Path, max_bytes: int = _STDERR_TAIL_BYTES) -> str | None:
+    if not path.exists():
+        return None
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        f.seek(max(0, size - max_bytes))
+        return f.read().decode("utf-8", errors="replace")

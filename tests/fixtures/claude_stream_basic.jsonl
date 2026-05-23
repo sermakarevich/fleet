@@ -1,0 +1,3 @@
+{"type":"assistant","message":{"id":"msg_01abc","type":"message","role":"assistant","content":[{"type":"text","text":"I'll read the file for you."}],"model":"claude-sonnet-4-6","stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"session_id":"sess_abc123"}
+{"type":"tool_use","name":"Read","input":{"file_path":"/foo.py"},"id":"toolu_01xyz"}
+{"type":"tool_result","name":"Read","content":"# foo.py\nprint('hello')","tool_use_id":"toolu_01xyz"}

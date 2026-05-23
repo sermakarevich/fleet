@@ -1,0 +1,1 @@
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","resetsAt":1779564600,"rateLimitType":"five_hour","overageStatus":null,"overageDisabledReason":"out_of_credits","isUsingOverage":false,"utilization":0.9,"surpassedThreshold":0.9}}

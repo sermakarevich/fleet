@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess-clean","model":"claude-sonnet-4-6","tools":[]}
+{"type":"result","subtype":"success","session_id":"sess-clean","duration_ms":100,"is_error":false,"result":"Done."}

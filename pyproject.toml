@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fleet"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "structlog>=24",
+]
+
+[project.scripts]
+fleet = "fleet.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fleet*"]
+
+[tool.setuptools.package-data]
+fleet = ["templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
