@@ -6,9 +6,10 @@
 
 `fleet` is a lightweight Python supervisor that claims tasks from a
 **centralized** [beads](https://github.com/gastownhall/beads) queue and runs
-them through a coder (e.g. `claude` CLI) in a headless loop. Each task
-remembers the project working directory it was created in, so a single
-supervisor can drive work across many projects from one machine.
+them through a coder (`claude` or `agy` CLI) in a headless loop. Each task
+remembers the project working directory it was created in, plus an optional
+per-task coder/model override, so a single supervisor can drive work across
+many projects — and across multiple agent backends — from one machine.
 
 ---
 
@@ -41,19 +42,31 @@ override with `$FLEET_HOME` if you like.
 
 ```
 ~/.fleet/
-├── .beads/                 # the centralized bd queue (single Dolt DB)
-├── runtime.toml            # supervisor config
-├── tasks/<task_id>.json    # per-task metadata: {"cwd": "/abs/path/to/project"}
-└── logs/                   # supervisor logs
+├── .beads/                       # the centralized bd queue (single Dolt DB)
+├── runtime.toml                  # supervisor config
+├── logging/                      # supervisor logs (fleet-<date>.jsonl)
+└── tasks/<task_id>/
+    ├── task.json                 # per-task metadata: cwd, coder, model
+    ├── log.jsonl                 # per-task supervisor log
+    ├── log.stderr                # raw subprocess stderr
+    ├── events.jsonl              # per-task structured events (agent reads on resume)
+    ├── .failures                 # failure counter (drives retry_limit)
+    └── artifacts/
+        ├── PLAN_AND_STATUS.md    # agent-owned plan + progress
+        ├── KNOWLEDGE.md          # agent-owned persistent notes
+        └── Q&A.md                # agent ↔ human Q&A thread (when blocked)
 ```
 
-Each task records the project working directory the agent should run in
-inside `$FLEET_HOME/tasks/<task_id>/task.json` (`{"cwd": "/abs/path"}`).
+Each task records the project working directory the agent should run in,
+plus the optional coder/model override, inside
+`$FLEET_HOME/tasks/<task_id>/task.json`
+(`{"cwd": "/abs/path", "coder": "claude", "model": "sonnet"}`).
 The supervisor — which can be started from anywhere — claims tasks from
-the central queue and runs each agent subprocess in that cwd. Per-task
-artifacts (`.claude/tasks/<id>/`) and logs land inside the project the
-task points at. If no `task.json` exists for a task, the supervisor falls
-back to running the agent in `$FLEET_HOME` itself.
+the central queue and runs each agent subprocess in that cwd. All per-task
+artifacts and logs live under `$FLEET_HOME/tasks/<task_id>/`, so they're
+preserved across project moves and shared between coders. If no `task.json`
+exists for a task, the supervisor falls back to running the agent in
+`$FLEET_HOME` itself.
 
 Create tasks with the `fleet bd` passthrough and write `task.json` next to
 the new task ID (see "Create your first task" below).
@@ -91,15 +104,38 @@ also writes `$FLEET_HOME/tasks/<id>/task.json` with `{"cwd": "<your cwd>"}`
 so the supervisor knows where to spawn the agent. Pass `--json` to get the
 raw bd envelope back instead of the human-friendly summary line.
 
-### 3. Start the supervisor
+### 3. (Optional) Override coder/model for specific tasks
+
+By default the supervisor uses `config.coder` (default `claude`) and
+`config.model` (default `sonnet`) for every task. To pin a single task to a
+different coder or model — e.g. route a heavy refactor to `agy` while
+leaving everyday tasks on `claude` — use `fleet task-set`:
 
 ```bash
-fleet run --coder claude        # foreground; Ctrl+C to stop
-fleet run --coder claude --once # exit when the in-flight queue drains
+fleet task-set fleet-abc --coder agy                  # switch coder only
+fleet task-set fleet-abc --model opus                 # switch model only
+fleet task-set fleet-abc --coder claude --model opus  # both at once
+fleet task-set fleet-abc --coder "" --model ""        # clear overrides
+```
+
+The override is persisted in `$FLEET_HOME/tasks/<task_id>/task.json` and is
+applied the next time the supervisor claims the task. Resolution order is
+`task.coder` → `--coder` CLI flag on `fleet run` → `config.coder`
+(similarly for `model`). Confirm what the supervisor will pick with
+`fleet show <task_id>` — explicit overrides are bare, while inherited
+values are tagged ` (default)`.
+
+### 4. Start the supervisor
+
+```bash
+fleet run                       # uses config.coder / config.model
+fleet run --coder claude        # override default coder for this process
+fleet run --once                # exit when the in-flight queue drains
 ```
 
 The supervisor reads from `$FLEET_HOME/.beads`, claims ready tasks, and spawns
-each agent subprocess in **that task's** working directory.
+each agent subprocess in **that task's** working directory with the
+per-task (or default) coder/model resolved as described above.
 
 ---
 
@@ -130,6 +166,59 @@ Lists ready tasks. Each line shows the task ID, title, and recorded cwd.
 fleet show fleet-abc
 fleet show fleet-abc --json       # raw bd show JSON envelope
 ```
+
+Prints id, title, status, cwd, effective coder, effective model, and
+description. The `coder:` and `model:` lines are tagged ` (default)` when
+they come from `runtime.toml` rather than a per-task override.
+
+### `fleet task-set <id>`
+
+```bash
+fleet task-set fleet-abc --coder agy
+fleet task-set fleet-abc --model opus
+fleet task-set fleet-abc --coder claude --model sonnet
+fleet task-set fleet-abc --coder "" --model ""      # clear both overrides
+```
+
+Sets the per-task coder/model override in
+`$FLEET_HOME/tasks/<id>/task.json`. Pass an empty string to clear an
+override and fall back to the config default. Unknown coder names fail
+fast; the registered coders are `claude` and `agy`.
+
+### `fleet tasks`
+
+```bash
+fleet tasks
+fleet tasks --limit 20
+```
+
+Renders a rich table of currently in-progress tasks with: ID, started
+time, elapsed, idle, peak context-window usage, event count, coder,
+model, title, and cwd. Per-task overrides are bolded; values inherited
+from `runtime.toml` are dim.
+
+### `fleet task <id> {log|plan|knowledge}`
+
+```bash
+fleet task fleet-abc log         # → $FLEET_HOME/tasks/fleet-abc/log.jsonl
+fleet task fleet-abc plan        # → artifacts/PLAN_AND_STATUS.md
+fleet task fleet-abc knowledge   # → artifacts/KNOWLEDGE.md
+```
+
+Prints the named artifact for one task. `fleet task --help` additionally
+lists currently running tasks with their effective `[coder/model]`, so
+you can scan valid IDs without leaving the help screen.
+
+### `fleet log [N]`
+
+```bash
+fleet log                        # whole most-recent supervisor log file
+fleet log 200                    # tail the last 200 lines
+```
+
+Prints the most recently modified `fleet-<date>.jsonl` from
+`$FLEET_HOME/logging/` (or the absolute `log_root` if you've overridden
+it). `N` must be a positive integer when supplied.
 
 ### `fleet bd <args...>`
 
@@ -163,13 +252,14 @@ the task.json write (useful if you're driving bd test runs).
 ### `fleet run`
 
 ```bash
-fleet run --coder claude
-fleet run --coder claude --once
+fleet run
+fleet run --coder claude         # override the default coder for this run
+fleet run --once
 ```
 
 | Option | Description |
 |---|---|
-| `--coder` | Coder name (required). Use `claude` for the Claude CLI coder. |
+| `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set with `fleet task-set` still win. Registered values: `claude`, `agy`. |
 | `--once` | Exit after all currently in-flight tasks finish (no new claims). |
 
 ### `fleet config show` / `fleet config set`
@@ -201,8 +291,9 @@ directly in the file.
 | `shutdown_grace_sec` | `30` | How long (seconds) to wait for in-flight tasks to finish on graceful shutdown. |
 | `rate_limit_default_sleep_sec` | `300` | Sleep duration (seconds) when a rate-limit pause is triggered. |
 | `status_log_interval_sec` | `30` | How often (seconds) the supervisor emits a `supervisor_status` heartbeat with the live in-flight count and rate-limit usage. |
-| `artifact_root` | `.claude/tasks` | Directory root where per-task artifact directories are created (relative paths resolve against the task's cwd). |
-| `log_root` | `logs` | Root directory for log files (relative paths resolve against the task's cwd). |
+| `log_root` | `logging` | Root directory for supervisor log files. Relative paths resolve against `$FLEET_HOME`; absolute paths are used as-is. |
+| `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`. |
+| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file). |
 
 ---
 
@@ -223,10 +314,9 @@ When an agent is blocked by ambiguity, it will:
    fleet show <task_id>         # see the question summary
    ```
 
-2. Locate the artifact directory (inside the task's project, default
-   `.claude/tasks/<task_id>/`):
+2. Read the Q&A file from the task's artifact directory:
    ```bash
-   cat <project>/.claude/tasks/<task_id>/Q\&A.md
+   cat $FLEET_HOME/tasks/<task_id>/artifacts/Q\&A.md
    ```
 
 3. Append your answer directly below the `## Q:` block:
@@ -249,24 +339,25 @@ reads `Q&A.md` on startup (per the resume protocol inlined from
 
 ## Logs reference
 
-Artifact and log paths are resolved relative to **each task's** cwd (the
-project that task targets), so artifacts land next to the code the task is
-operating on.
+All artifact and log paths live under `$FLEET_HOME` so they survive
+project moves, are shared across coders, and don't litter the working
+projects with `.claude/`-style state directories.
 
 | Path | Contents |
 |---|---|
-| `<project>/logs/fleet-<date>.jsonl` | Structured supervisor events: claims, releases, retries, rate-limit pauses, shutdowns. |
-| `<project>/.claude/tasks/<task_id>/log.jsonl` | Structured per-task supervisor log, appended across every run of the task (subprocess stdout is parsed and re-emitted here). |
-| `<project>/.claude/tasks/<task_id>/log.stderr` | Raw subprocess stderr, appended across every run of the task. |
-| `<project>/.claude/tasks/<task_id>/.failures` | Per-task counter of FAILURE outcomes; drives `retry_limit` exhaustion. |
-| `<project>/.claude/tasks/<task_id>/events.jsonl` | Per-task structured events (subset of supervisor events scoped to this task). Agents read this on startup to understand why a previous run was interrupted. |
-| `<project>/.claude/tasks/<task_id>/PLAN_AND_STATUS.md` | Combined task restatement, plan, and progress marker. Fleet pre-creates a stub; agent populates it and updates after each substantive step. |
-| `<project>/.claude/tasks/<task_id>/KNOWLEDGE.md` | Persistent task knowledge (surface area, invariants, gotchas). Fleet pre-creates a stub; agent appends as it learns. |
-| `<project>/.claude/tasks/<task_id>/Q&A.md` | Q&A thread between agent and human (append-only). |
+| `$FLEET_HOME/logging/fleet-<date>.jsonl` | Structured supervisor events: claims, releases, retries, rate-limit pauses, shutdowns. Print with `fleet log`. |
+| `$FLEET_HOME/tasks/<task_id>/task.json` | Per-task metadata: cwd, optional `coder` and `model` overrides. Managed by `fleet bd create` and `fleet task-set`. |
+| `$FLEET_HOME/tasks/<task_id>/log.jsonl` | Structured per-task supervisor log, appended across every run of the task (subprocess stdout is parsed and re-emitted here). Print with `fleet task <id> log`. |
+| `$FLEET_HOME/tasks/<task_id>/log.stderr` | Raw subprocess stderr, appended across every run of the task. |
+| `$FLEET_HOME/tasks/<task_id>/.failures` | Per-task counter of FAILURE outcomes; drives `retry_limit` exhaustion. |
+| `$FLEET_HOME/tasks/<task_id>/events.jsonl` | Per-task structured events (subset of supervisor events scoped to this task). Agents read this on startup to understand why a previous run was interrupted. |
+| `$FLEET_HOME/tasks/<task_id>/artifacts/PLAN_AND_STATUS.md` | Combined task restatement, plan, and progress marker. Fleet pre-creates a stub; agent populates it and updates after each substantive step. Print with `fleet task <id> plan`. |
+| `$FLEET_HOME/tasks/<task_id>/artifacts/KNOWLEDGE.md` | Persistent task knowledge (surface area, invariants, gotchas). Fleet pre-creates a stub; agent appends as it learns. Print with `fleet task <id> knowledge`. |
+| `$FLEET_HOME/tasks/<task_id>/artifacts/Q&A.md` | Q&A thread between agent and human (append-only). |
 
-Change the defaults with `fleet config set artifact_root=<path>` or
-`fleet config set log_root=<path>`. Absolute paths skip the per-task
-resolution.
+Override the supervisor-log location with
+`fleet config set log_root=<path>`. Relative paths resolve against
+`$FLEET_HOME`; absolute paths are used as-is.
 
 ### Live fleet status (`supervisor_status` heartbeat)
 
@@ -301,10 +392,10 @@ lifecycle line is self-describing.
 
 The supervisor moves the task to `blocked` with a reason of the form
 `"retry limit (N) exhausted; last failure: …"` and posts a comment with
-the last exit code and a tail of stderr. Inspect the failure logs in
-`<project>/.claude/tasks/<task_id>/log.jsonl` and
-`<project>/.claude/tasks/<task_id>/log.stderr` (the project is shown by
-`fleet show <task_id>`). Fix the underlying issue, then:
+the last exit code and a tail of stderr. Inspect the failure logs with
+`fleet task <task_id> log` (or directly at
+`$FLEET_HOME/tasks/<task_id>/log.jsonl` and
+`$FLEET_HOME/tasks/<task_id>/log.stderr`). Fix the underlying issue, then:
 
 ```bash
 fleet bd update <task_id> --status open --assignee ""
