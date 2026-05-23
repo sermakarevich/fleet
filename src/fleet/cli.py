@@ -148,52 +148,6 @@ def show(
         typer.echo(f"desc:   {task.description}")
 
 
-@app.command("task-set")
-def task_set(
-    task_id: Annotated[str, typer.Argument(help="Task ID.")],
-    coder: Annotated[
-        str | None,
-        typer.Option(
-            "--coder",
-            help="Per-task coder override; pass empty string to clear.",
-        ),
-    ] = None,
-    model: Annotated[
-        str | None,
-        typer.Option(
-            "--model",
-            help="Per-task model override; pass empty string to clear.",
-        ),
-    ] = None,
-) -> None:
-    """Set per-task coder/model override in the task's task.json."""
-    if coder is None and model is None:
-        typer.echo("Error: provide at least one of --coder/--model.", err=True)
-        raise typer.Exit(1)
-
-    q = _queue()
-    try:
-        task = q.get(task_id)
-    except BeadsError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1)
-
-    if coder is not None:
-        normalized = coder.strip() or None
-        if normalized is not None:
-            try:
-                get_coder(normalized)
-            except ValueError as exc:
-                typer.echo(str(exc), err=True)
-                raise typer.Exit(1)
-        q.set_coder(task.id, normalized)
-    if model is not None:
-        normalized_model = model.strip() or None
-        q.set_model(task.id, normalized_model)
-
-    typer.echo(f"Updated task.json for {task.id}.")
-
-
 # ---------------------------------------------------------------------------
 # bd passthrough
 # ---------------------------------------------------------------------------
@@ -297,13 +251,6 @@ def bd_passthrough(ctx: typer.Context) -> None:
 
 @app.command()
 def run(
-    coder: Annotated[
-        str | None,
-        typer.Option(
-            "--coder",
-            help="Override the default coder for this run (else use config 'coder').",
-        ),
-    ] = None,
     once: Annotated[bool, typer.Option("--once", help="Exit after in-flight count reaches 0.")] = False,
 ) -> None:
     """Start the fleet supervisor."""
@@ -311,10 +258,9 @@ def run(
     runtime_toml = _runtime_toml_path()
     cfg = load_config(runtime_toml)
 
-    # Validate the resolved coder name up-front so a typo fails fast.
-    resolved_coder_name = coder or cfg.coder
+    # Validate the configured default coder up-front so a typo fails fast.
     try:
-        get_coder(resolved_coder_name)
+        get_coder(cfg.coder)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1)
@@ -330,7 +276,6 @@ def run(
         project_root=home,
         log=log,
         once=once,
-        coder_override=coder,
     )
     try:
         rc = asyncio.run(supervisor.run())
@@ -415,9 +360,6 @@ def _print_file_or_exit(path: Path, missing_msg: str) -> None:
         typer.echo(missing_msg, err=True)
         raise typer.Exit(1)
     sys.stdout.write(path.read_text(encoding="utf-8"))
-
-
-_CONTEXT_WINDOW_TOKENS = 200_000
 
 
 @dataclass
@@ -563,10 +505,10 @@ def _format_tokens(count: int) -> str:
     return f"{count / 1_000_000:.2f}M"
 
 
-def _format_context(tokens: int | None) -> Text:
+def _format_context(tokens: int | None, context_limit: int = 200_000) -> Text:
     if tokens is None or tokens <= 0:
         return Text("-", style="dim")
-    pct = tokens / _CONTEXT_WINDOW_TOKENS * 100
+    pct = tokens / context_limit * 100
     label = f"{_format_tokens(tokens)} ({pct:.0f}%)"
     if pct >= 80:
         return Text(label, style="bold red")
@@ -607,12 +549,16 @@ def _render_tasks_table(tasks: list[Task], now: datetime) -> Table:
 
     for t in tasks:
         stats = _task_runtime_stats(t.id)
+        try:
+            context_limit = get_coder(t.coder or default_coder).context_limit
+        except ValueError:
+            context_limit = 200_000
         table.add_row(
             t.id,
             _format_started(stats.started_at, now),
             _format_elapsed(stats.started_at, now),
             _format_idle(stats.last_event_at, now),
-            _format_context(stats.context_tokens),
+            _format_context(stats.context_tokens, context_limit),
             _format_events(stats.events),
             _format_override(t.coder, default_coder),
             _format_override(t.model, default_model),

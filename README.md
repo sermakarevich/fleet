@@ -197,6 +197,10 @@ time, elapsed, idle, peak context-window usage, event count, coder,
 model, title, and cwd. Per-task overrides are bolded; values inherited
 from `runtime.toml` are dim.
 
+<p align="center">
+  <img src="assets/tasks.png" alt="fleet tasks output">
+</p>
+
 ### `fleet task <id> {log|plan|knowledge}`
 
 ```bash
@@ -347,10 +351,10 @@ projects with `.claude/`-style state directories.
 |---|---|
 | `$FLEET_HOME/logging/fleet-<date>.jsonl` | Structured supervisor events: claims, releases, retries, rate-limit pauses, shutdowns. Print with `fleet log`. |
 | `$FLEET_HOME/tasks/<task_id>/task.json` | Per-task metadata: cwd, optional `coder` and `model` overrides. Managed by `fleet bd create` and `fleet task-set`. |
-| `$FLEET_HOME/tasks/<task_id>/log.jsonl` | Structured per-task supervisor log, appended across every run of the task (subprocess stdout is parsed and re-emitted here). Print with `fleet task <id> log`. |
+| `$FLEET_HOME/tasks/<task_id>/log.jsonl` | Structured per-task process log, appended across every run of the task (subprocess lifecycle events: `subprocess_started`, `rate_limit_rejected`, `subprocess_exited`). Print with `fleet task <id> log`. |
 | `$FLEET_HOME/tasks/<task_id>/log.stderr` | Raw subprocess stderr, appended across every run of the task. |
 | `$FLEET_HOME/tasks/<task_id>/.failures` | Per-task counter of FAILURE outcomes; drives `retry_limit` exhaustion. |
-| `$FLEET_HOME/tasks/<task_id>/events.jsonl` | Per-task structured events (subset of supervisor events scoped to this task). Agents read this on startup to understand why a previous run was interrupted. |
+| `$FLEET_HOME/tasks/<task_id>/events.jsonl` | Normalized agent output events parsed from subprocess stdout (assistant messages, tool calls, rate-limit signals, session boundaries). Agents read this on startup to pick up prior session context. |
 | `$FLEET_HOME/tasks/<task_id>/artifacts/PLAN_AND_STATUS.md` | Combined task restatement, plan, and progress marker. Fleet pre-creates a stub; agent populates it and updates after each substantive step. Print with `fleet task <id> plan`. |
 | `$FLEET_HOME/tasks/<task_id>/artifacts/KNOWLEDGE.md` | Persistent task knowledge (surface area, invariants, gotchas). Fleet pre-creates a stub; agent appends as it learns. Print with `fleet task <id> knowledge`. |
 | `$FLEET_HOME/tasks/<task_id>/artifacts/Q&A.md` | Q&A thread between agent and human (append-only). |

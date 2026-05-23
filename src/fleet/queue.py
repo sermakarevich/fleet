@@ -37,6 +37,9 @@ class Queue(ABC):
     def list_in_progress(self, limit: int = 50) -> list[Task]: ...
 
     @abstractmethod
+    def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None: ...
+
+    @abstractmethod
     def create_task(
         self,
         title: str,
@@ -76,22 +79,15 @@ class BeadsQueue(Queue):
         meta["cwd"] = cwd
         self._write_meta(task_id, meta)
 
-    def set_coder(self, task_id: str, coder: str | None) -> None:
-        """Persist per-task coder override in task.json (pass None to clear)."""
-        meta = self._load_meta(task_id) or {"id": task_id}
-        if coder is None:
-            meta.pop("coder", None)
-        else:
-            meta["coder"] = coder
-        self._write_meta(task_id, meta)
+    def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
+        """Lock the effective coder and model into task.json at first spawn.
 
-    def set_model(self, task_id: str, model: str | None) -> None:
-        """Persist per-task model override in task.json (pass None to clear)."""
+        Called once per execution start so that config changes to runtime.toml
+        after a task begins do not affect retries or context-pressure reclaims.
+        """
         meta = self._load_meta(task_id) or {"id": task_id}
-        if model is None:
-            meta.pop("model", None)
-        else:
-            meta["model"] = model
+        meta["coder"] = coder
+        meta["model"] = model
         self._write_meta(task_id, meta)
 
     def _snapshot_meta(

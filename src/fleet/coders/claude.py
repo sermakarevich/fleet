@@ -31,6 +31,7 @@ def _extract_usage_pct(info: dict) -> float | None:
 
 class ClaudeCoder(Coder):
     name = "claude"
+    context_limit = 200_000
 
     def __init__(self, model: str = "sonnet") -> None:
         self.model = model
@@ -79,10 +80,12 @@ class ClaudeCoder(Coder):
         # Soft rate-limit warning (periodic usage envelope)
         if t == "rate_limit_event":
             info = data.get("rate_limit_info", {})
-            # Claude CLI emits one event per rateLimitType (five_hour, weekly, …).
-            # Weekly events reflect the longer-horizon budget, not the current
-            # session cap — skip them so the gauge tracks the session limit.
-            if info.get("rateLimitType") == "weekly":
+            # Claude CLI emits one event per rateLimitType (five_hour, weekly,
+            # overage, …). Only the session-cap (five_hour) bound should gate
+            # the supervisor's spawn loop; longer-horizon budgets (weekly,
+            # overage) reset days from now and would freeze claims if mirrored
+            # into the gauge.
+            if info.get("rateLimitType") != "five_hour":
                 return None
             return Event(
                 kind="rate_limit_info",

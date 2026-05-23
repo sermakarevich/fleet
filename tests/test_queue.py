@@ -115,6 +115,55 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
     assert task.cwd == "/some/project"
 
 
+def test_freeze_coder_model_writes_coder_and_model(tmp_path: Path) -> None:
+    """freeze_coder_model persists the effective coder and model into task.json."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-001"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        '{"id": "t-001", "cwd": "/some/project"}', encoding="utf-8"
+    )
+
+    q.freeze_coder_model("t-001", "claude", "opus")
+
+    import json
+    meta = json.loads((task_dir / "task.json").read_text())
+    assert meta["coder"] == "claude"
+    assert meta["model"] == "opus"
+    assert meta["cwd"] == "/some/project"  # existing fields preserved
+
+
+def test_freeze_coder_model_creates_meta_if_missing(tmp_path: Path) -> None:
+    """freeze_coder_model works even when task.json does not yet exist."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-002"
+    task_dir.mkdir(parents=True)
+
+    q.freeze_coder_model("t-002", "agy", "GPT-OSS 120B")
+
+    import json
+    meta = json.loads((task_dir / "task.json").read_text())
+    assert meta["coder"] == "agy"
+    assert meta["model"] == "GPT-OSS 120B"
+
+
+def test_freeze_coder_model_overwrites_prior_values(tmp_path: Path) -> None:
+    """A second freeze_coder_model call updates the stored values."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-003"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        '{"id": "t-003", "coder": "agy", "model": "GPT-OSS 120B"}', encoding="utf-8"
+    )
+
+    q.freeze_coder_model("t-003", "claude", "sonnet")
+
+    import json
+    meta = json.loads((task_dir / "task.json").read_text())
+    assert meta["coder"] == "claude"
+    assert meta["model"] == "sonnet"
+
+
 def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
     """BeadsError is raised when the bd subprocess exits with non-zero status."""
     q = BeadsQueue(repo_root=tmp_path)

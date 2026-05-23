@@ -6,6 +6,7 @@ from fleet.schemas import Event, Task
 
 class Coder(ABC):
     name: str
+    context_limit: int = 200_000
 
     @abstractmethod
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:

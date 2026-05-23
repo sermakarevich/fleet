@@ -1,1 +1,1 @@
-{"type":"rate_limit_event","rate_limit_info":{"status":"approaching","usage_pct":85.5,"resetsAt":1748001000}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"approaching","usage_pct":85.5,"resetsAt":1748001000,"rateLimitType":"five_hour"}}

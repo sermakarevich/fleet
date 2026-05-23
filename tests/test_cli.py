@@ -104,18 +104,20 @@ def test_show_existing_task_prints_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_run_unknown_coder_exits_nonzero() -> None:
-    result = runner.invoke(app, ["run", "--coder", "does-not-exist"])
+def test_run_invalid_config_coder_exits_nonzero(tmp_path, monkeypatch) -> None:
+    """`fleet run` fails fast if the configured default coder is unknown."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    cfg_dir = tmp_path
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "runtime.toml").write_text('coder = "does-not-exist"\n')
+    with patch("fleet.cli.BeadsQueue"):
+        result = runner.invoke(app, ["run", "--once"])
     assert result.exit_code != 0
-
-
-def test_run_unknown_coder_lists_available_coders() -> None:
-    result = runner.invoke(app, ["run", "--coder", "does-not-exist"])
     assert "Available" in result.output or "claude" in result.output
 
 
-def test_run_missing_coder_flag_falls_back_to_config(tmp_path, monkeypatch) -> None:
-    """`fleet run` without --coder uses the configured default coder."""
+def test_run_uses_configured_coder(tmp_path, monkeypatch) -> None:
+    """`fleet run` constructs Supervisor with no per-run coder override."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     with patch("fleet.cli.BeadsQueue"):
         with patch("fleet.cli.Supervisor") as mock_cls:
@@ -124,20 +126,8 @@ def test_run_missing_coder_flag_falls_back_to_config(tmp_path, monkeypatch) -> N
             mock_cls.return_value = mock_sup
             result = runner.invoke(app, ["run", "--once"])
     assert result.exit_code == 0, result.output + (result.stderr or "")
-    # Supervisor should be constructed with no --coder override.
     _, kwargs = mock_cls.call_args
-    assert kwargs.get("coder_override") is None
-
-
-def test_run_once_known_coder_exits_zero() -> None:
-    """fleet run --coder claude --once runs through supervisor and exits 0."""
-    with patch("fleet.cli.BeadsQueue"):
-        with patch("fleet.cli.Supervisor") as mock_cls:
-            mock_sup = MagicMock()
-            mock_sup.run = AsyncMock(return_value=0)
-            mock_cls.return_value = mock_sup
-            result = runner.invoke(app, ["run", "--coder", "claude", "--once"])
-    assert result.exit_code == 0
+    assert "coder_override" not in kwargs
 
 
 # ---------------------------------------------------------------------------

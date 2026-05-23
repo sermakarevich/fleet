@@ -278,8 +278,26 @@ def test_normalize_rate_limit_info_utilization_fraction():
     assert evt.rate_info["status"] == "allowed_warning"
 
 
-def test_normalize_rate_limit_info_utilization_overage_above_one():
-    """`utilization` can exceed 1.0 during overage; gauge must accept it."""
+def test_normalize_rate_limit_info_utilization_above_one():
+    """`utilization` can exceed 1.0 for the session cap; gauge must accept it."""
+    coder = _coder()
+    raw = json.dumps({
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+            "status": "allowed_warning",
+            "utilization": 1.07,
+            "rateLimitType": "five_hour",
+            "resetsAt": 1779564600,
+        },
+    })
+    evt = coder.normalize_event(raw)
+    assert evt is not None
+    assert evt.rate_info is not None
+    assert evt.rate_info["usage_pct"] == pytest.approx(107.0)
+
+
+def test_normalize_rate_limit_overage_returns_none():
+    """Overage events track a long-horizon budget and must not gate spawning."""
     coder = _coder()
     raw = json.dumps({
         "type": "rate_limit_event",
@@ -291,9 +309,7 @@ def test_normalize_rate_limit_info_utilization_overage_above_one():
         },
     })
     evt = coder.normalize_event(raw)
-    assert evt is not None
-    assert evt.rate_info is not None
-    assert evt.rate_info["usage_pct"] == pytest.approx(107.0)
+    assert evt is None
 
 
 def test_normalize_rate_limit_weekly_returns_none():
@@ -325,7 +341,11 @@ def test_normalize_rate_limit_info_missing_usage_fields():
     coder = _coder()
     raw = json.dumps({
         "type": "rate_limit_event",
-        "rate_limit_info": {"status": "allowed", "resetsAt": 1779564600},
+        "rate_limit_info": {
+            "status": "allowed",
+            "resetsAt": 1779564600,
+            "rateLimitType": "five_hour",
+        },
     })
     evt = coder.normalize_event(raw)
     assert evt is not None

@@ -26,14 +26,12 @@ class Supervisor:
         project_root: Path,
         log: structlog.BoundLogger,
         once: bool = False,
-        coder_override: str | None = None,
         coder: Coder | None = None,
     ) -> None:
         # Tests inject a single Coder instance via `coder=`; production callers
-        # leave it None and pass a name override via `coder_override` so the
-        # supervisor can pick the right (coder, model) per task.
+        # leave it None so the supervisor resolves (coder, model) per task
+        # from task.coder / task.model, falling back to config defaults.
         self._coder_pin = coder
-        self._coder_override = coder_override
         self._queue = queue
         self._runtime_toml_path = Path(runtime_toml_path)
         self._project_root = Path(project_root)
@@ -118,13 +116,12 @@ class Supervisor:
         """Pick (coder, coder_name, model) for a task.
 
         If the Supervisor was constructed with a pinned `coder=` instance (used
-        in unit tests), reuse it as-is. Otherwise build a fresh coder using the
-        overlay: task.coder > CLI override > config.coder, with model resolved
-        analogously.
+        in unit tests), reuse it as-is. Otherwise build a fresh coder using
+        task.coder / task.model, falling back to config defaults.
         """
         if self._coder_pin is not None:
             return self._coder_pin, self._coder_pin.name, getattr(self._coder_pin, "model", None)
-        coder_name = task.coder or self._coder_override or self.config.coder
+        coder_name = task.coder or self.config.coder
         model = task.model or self.config.model
         coder_cls = get_coder(coder_name)
         return coder_cls(model=model), coder_name, model
@@ -132,6 +129,10 @@ class Supervisor:
     def _spawn_runner(self, task: Task) -> None:
         task_root = Path(task.cwd) if task.cwd else self._project_root
         coder, coder_name, model = self._resolve_coder(task)
+        if self._coder_pin is None:
+            # Freeze the resolved coder/model into task.json so that config
+            # changes after first spawn don't affect retries or reclaims.
+            self._queue.freeze_coder_model(task.id, coder_name, model)
         self._log.info(
             "task_coder_selected",
             task_id=task.id,
