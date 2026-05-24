@@ -29,7 +29,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
     )
     task_id = task.id
 
-    config = fast_config(claim_poll_interval_sec=1)
+    config = fast_config()
 
     # Run 1: block_via_bd — agent writes Q block and marks blocked via bd
     # Run 2: read_qa_and_close — agent reads A block and closes via bd
@@ -169,7 +169,7 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
         scenario="block_via_bd",
         FAKE_CLAUDE_BD_ROOT=str(tmp_path),
     )
-    config = fast_config(claim_poll_interval_sec=1)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()

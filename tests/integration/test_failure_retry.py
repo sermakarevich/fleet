@@ -30,7 +30,7 @@ def test_failure_retry_exhaustion(tmp_path: Path) -> None:
     queue = MemoryQueue()
     queue.add_task(_task())
 
-    config = fast_config(retry_limit=2)
+    config = fast_config()
     coder = FakeClaudeCoder(scenario="crash")
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
@@ -69,7 +69,7 @@ def test_failure_transitions(tmp_path: Path) -> None:
 
     queue.add_listener(on_event)
 
-    config = fast_config(retry_limit=2)
+    config = fast_config()
     coder = FakeClaudeCoder(scenario="crash")
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
@@ -104,7 +104,7 @@ def test_non_failures_dont_burn_retries(tmp_path: Path) -> None:
     coder = FakeClaudeCoder(
         scenarios=["rate_limit_rejected", "context_pressure", "crash", "crash"],
     )
-    config = fast_config(retry_limit=2)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()

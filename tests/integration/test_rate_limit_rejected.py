@@ -5,6 +5,8 @@ import asyncio
 import time
 from pathlib import Path
 
+import pytest
+
 from fleet.schemas import Task
 
 from tests.integration.conftest import (
@@ -34,7 +36,7 @@ def test_rate_limit_rejected_terminates_subprocess(tmp_path: Path) -> None:
             return super().build_argv(task, artifact_dir)
 
     coder = TimingCoder(scenario="rate_limit_rejected")
-    config = fast_config(claim_poll_interval_sec=1)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()
@@ -63,7 +65,7 @@ def test_rate_limit_rejected_sets_paused_until(tmp_path: Path) -> None:
     queue.add_task(_task())
 
     coder = FakeClaudeCoder(scenario="rate_limit_rejected")
-    config = fast_config(claim_poll_interval_sec=1, rate_limit_default_sleep_sec=60)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()
@@ -91,7 +93,7 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
         scenario="rate_limit_rejected",
         FAKE_CLAUDE_RESETS_AT=str(future_ts),
     )
-    config = fast_config(claim_poll_interval_sec=1, rate_limit_default_sleep_sec=0)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()
@@ -108,14 +110,16 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
     assert sup._paused_until.timestamp() >= future_ts
 
 
-def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path) -> None:
+def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without resetsAt, supervisor falls back to rate_limit_default_sleep_sec. (FR-21)"""
+    sleep_sec = 45
+    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", sleep_sec)
+
     queue = MemoryQueue()
     queue.add_task(_task())
 
     coder = FakeClaudeCoder(scenario="rate_limit_rejected")
-    sleep_sec = 45
-    config = fast_config(claim_poll_interval_sec=1, rate_limit_default_sleep_sec=sleep_sec)
+    config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     done = asyncio.Event()

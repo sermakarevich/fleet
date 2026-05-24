@@ -95,24 +95,27 @@ def _outcome(
 # ---------------------------------------------------------------------------
 
 
-def test_failure_under_limit_calls_release(tmp_path: Path) -> None:
+def test_failure_under_limit_calls_release(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=3))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
     assert len(queue.released) == 1
     assert "rc=1" in queue.released[0][1]
 
 
-def test_failure_under_limit_calls_comment(tmp_path: Path) -> None:
+def test_failure_under_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=3))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.comments) == 1
 
 
-def test_failure_under_limit_no_set_blocked(tmp_path: Path) -> None:
+def test_failure_under_limit_no_set_blocked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=3))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 0
 
@@ -124,29 +127,33 @@ def test_failure_under_limit_no_set_blocked(tmp_path: Path) -> None:
 
 def test_failure_at_limit_calls_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=2))
+    s = _make_supervisor(tmp_path, queue)
+    # RETRY_LIMIT=2 by default; trigger two failures to exhaust
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 1
 
 
-def test_failure_at_limit_no_release(tmp_path: Path) -> None:
+def test_failure_at_limit_no_release(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=1))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.released) == 0
 
 
-def test_failure_at_limit_calls_comment(tmp_path: Path) -> None:
+def test_failure_at_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=1))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.comments) == 1
 
 
-def test_failure_exhausted_reason_in_blocked(tmp_path: Path) -> None:
+def test_failure_exhausted_reason_in_blocked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(retry_limit=1))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash"))
     assert "retry limit" in queue.blocked[0][1]
 
@@ -156,19 +163,21 @@ def test_failure_exhausted_reason_in_blocked(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_rate_limit_sets_paused_until(tmp_path: Path) -> None:
+def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(rate_limit_default_sleep_sec=300))
+    s = _make_supervisor(tmp_path, queue)
     before = datetime.now(tz=timezone.utc)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=None))
     assert s._paused_until is not None
     assert s._paused_until > before
 
 
-def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path) -> None:
+def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 5)
     queue = StubQueue()
     far_future = int(datetime.now(tz=timezone.utc).timestamp()) + 9999
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(rate_limit_default_sleep_sec=5))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=far_future))
     assert s._paused_until is not None
     # paused_until should be >= far_future (resets_at wins)
@@ -182,12 +191,11 @@ def test_rate_limit_does_not_increment_failure_count(tmp_path: Path) -> None:
     assert failure_count(s._task_dir_for(_task())) == 0
 
 
-def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path) -> None:
+def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -> None:
     """After a RATE_LIMIT outcome, _paused_until is set and claim loop skips spawning."""
-    from datetime import timedelta
-
+    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
     queue = StubQueue()
-    s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(rate_limit_default_sleep_sec=300))
+    s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
     # Confirm paused_until is in the future
     assert s._paused_until > datetime.now(tz=timezone.utc)

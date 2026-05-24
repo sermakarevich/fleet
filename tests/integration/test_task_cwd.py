@@ -47,7 +47,7 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
         fleet_home,
         queue,
         coder=coder,
-        config=fast_config(retry_limit=1),
+        config=fast_config(),
     )
 
     # Stop as soon as the task completes successfully.

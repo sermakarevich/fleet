@@ -195,7 +195,6 @@ def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
     runner, queue, _ = _make_runner(
         tmp_path,
         argv=[sys.executable, "-c", script],
-        config=RuntimeConfig(shutdown_grace_sec=5),
     )
 
     result = asyncio.run(runner.run())
@@ -215,7 +214,6 @@ def test_rate_limit_calls_queue_release(tmp_path: Path) -> None:
     runner, queue, _ = _make_runner(
         tmp_path,
         argv=[sys.executable, "-c", script],
-        config=RuntimeConfig(shutdown_grace_sec=5),
     )
 
     asyncio.run(runner.run())
@@ -331,7 +329,6 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
     runner, _, _ = _make_runner(
         tmp_path,
         argv=[sys.executable, "-c", script],
-        config=RuntimeConfig(shutdown_grace_sec=1),
     )
 
     async def _run() -> None:
@@ -369,7 +366,7 @@ def test_context_pressure_from_usage_returns_context_pressure(tmp_path: Path) ->
     runner, _, _ = _make_runner(
         tmp_path,
         argv=[sys.executable, "-c", _usage_script(950)],
-        config=RuntimeConfig(shutdown_grace_sec=5, context_pressure_threshold_pct=90),
+        config=RuntimeConfig(context_pressure_threshold_pct=90),
         context_limit=1_000,  # threshold = 900; 950 >= 900 → context pressure
     )
 
@@ -383,7 +380,7 @@ def test_context_pressure_from_usage_flag_removed(tmp_path: Path) -> None:
     runner, _, _ = _make_runner(
         tmp_path,
         argv=[sys.executable, "-c", _usage_script(950)],
-        config=RuntimeConfig(shutdown_grace_sec=5, context_pressure_threshold_pct=90),
+        config=RuntimeConfig(context_pressure_threshold_pct=90),
         context_limit=1_000,
     )
 

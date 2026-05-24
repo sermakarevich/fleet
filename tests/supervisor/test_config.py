@@ -33,9 +33,8 @@ def test_load_partial_toml_overlays_defaults(tmp_path):
     cfg = load(cfg_path)
 
     assert cfg.max_concurrent == 8
-    # Unset fields fall back to defaults
-    assert cfg.rate_limit_threshold_pct == 90
-    assert cfg.retry_limit == 2
+    # Unset fields fall back to defaults — now represented as module constants
+    # (rate_limit_threshold_pct and retry_limit are no longer RuntimeConfig fields)
 
 
 def test_write_atomic_round_trips_value(tmp_path):
@@ -68,7 +67,7 @@ def test_write_atomic_concurrent_writes_produce_valid_toml(tmp_path):
     def writer_b():
         try:
             for _ in range(10):
-                write_atomic(cfg_path, {"claim_poll_interval_sec": "5"})
+                write_atomic(cfg_path, {"context_pressure_threshold_pct": "85"})
                 time.sleep(0.001)
         except Exception as exc:
             errors.append(exc)

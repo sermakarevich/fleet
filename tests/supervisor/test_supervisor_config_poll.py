@@ -7,7 +7,7 @@ from pathlib import Path
 import structlog
 
 from fleet.config import write_atomic
-from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.schemas import Event, RATE_LIMIT_THRESHOLD_PCT, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.supervisor import Supervisor
 from fleet.supervisor_spawn import SpawnDecision
 
@@ -106,7 +106,7 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
         decision = s.spawn_controller.decide(
             in_flight=len(s.in_flight),
             max_concurrent=s.config.max_concurrent,
-            threshold_pct=float(s.config.rate_limit_threshold_pct),
+            threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
             gauge=s.rate_gauge,
         )
         assert decision == SpawnDecision.PAUSED_FULL
@@ -144,7 +144,7 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
         decision = s.spawn_controller.decide(
             in_flight=len(s.in_flight),
             max_concurrent=s.config.max_concurrent,
-            threshold_pct=float(s.config.rate_limit_threshold_pct),
+            threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
             gauge=s.rate_gauge,
         )
         assert decision == SpawnDecision.PAUSED_FULL
@@ -162,7 +162,7 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
         decision = s.spawn_controller.decide(
             in_flight=len(s.in_flight),
             max_concurrent=s.config.max_concurrent,
-            threshold_pct=float(s.config.rate_limit_threshold_pct),
+            threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
             gauge=s.rate_gauge,
         )
         assert decision == SpawnDecision.PAUSED_FULL
@@ -180,7 +180,7 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
         decision = s.spawn_controller.decide(
             in_flight=len(s.in_flight),
             max_concurrent=s.config.max_concurrent,
-            threshold_pct=float(s.config.rate_limit_threshold_pct),
+            threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
             gauge=s.rate_gauge,
         )
         assert decision == SpawnDecision.SPAWN
@@ -201,13 +201,13 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
 # ---------------------------------------------------------------------------
 
 
-def test_lowered_rate_threshold_blocks_spawning(tmp_path: Path) -> None:
-    """After lowering threshold while gauge > new threshold, controller pauses."""
+def test_rate_threshold_blocks_spawning_when_gauge_above_threshold(tmp_path: Path) -> None:
+    """When gauge > RATE_LIMIT_THRESHOLD_PCT, controller returns PAUSED_RATE_LIMIT."""
     queue = TrackingQueue()
     s = _make_supervisor(tmp_path, queue)
-    s.config = RuntimeConfig(max_concurrent=4, rate_limit_threshold_pct=90)
+    s.config = RuntimeConfig(max_concurrent=4)
 
-    # Set gauge to 85% (below old threshold of 90 → SPAWN)
+    # Set gauge to 85% (below constant threshold of 90 → SPAWN)
     s.rate_gauge.update(
         Event(
             kind="rate_limit_info",
@@ -220,18 +220,25 @@ def test_lowered_rate_threshold_blocks_spawning(tmp_path: Path) -> None:
     decision = s.spawn_controller.decide(
         in_flight=0,
         max_concurrent=4,
-        threshold_pct=90.0,
+        threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
         gauge=s.rate_gauge,
     )
     assert decision == SpawnDecision.SPAWN
 
-    # Lower threshold to 80 — now 85% > 80% → PAUSED_RATE_LIMIT
-    s.config = RuntimeConfig(max_concurrent=4, rate_limit_threshold_pct=80)
+    # Raise gauge above constant threshold (90) → PAUSED_RATE_LIMIT
+    s.rate_gauge.update(
+        Event(
+            kind="rate_limit_info",
+            raw={},
+            ts=datetime.now(tz=timezone.utc),
+            rate_info={"usage_pct": 92.0},
+        )
+    )
 
     decision = s.spawn_controller.decide(
         in_flight=0,
         max_concurrent=s.config.max_concurrent,
-        threshold_pct=float(s.config.rate_limit_threshold_pct),
+        threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
         gauge=s.rate_gauge,
     )
     assert decision == SpawnDecision.PAUSED_RATE_LIMIT
@@ -241,7 +248,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
     """Changing rate threshold while tasks are in-flight does not cancel them."""
     queue = TrackingQueue()
     s = _make_supervisor(tmp_path, queue)
-    s.config = RuntimeConfig(max_concurrent=4, rate_limit_threshold_pct=90)
+    s.config = RuntimeConfig(max_concurrent=4)
 
     async def _run() -> None:
         for i in range(3):
@@ -266,7 +273,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
                 rate_info={"usage_pct": 85.0},
             )
         )
-        s.config = RuntimeConfig(max_concurrent=4, rate_limit_threshold_pct=80)
+        s.config = RuntimeConfig(max_concurrent=4)
 
         # In-flight count unchanged
         assert len(s.in_flight) == initial_count == 3
@@ -282,33 +289,9 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
     asyncio.run(_run())
 
 
-# ---------------------------------------------------------------------------
-# Updating retry_limit mid-flight: applied on the next failure
-# ---------------------------------------------------------------------------
-
-
-def test_updated_retry_limit_applies_on_next_failure(tmp_path: Path) -> None:
-    """After changing retry_limit, the new value governs the next failure outcome."""
-    queue = TrackingQueue()
-    s = _make_supervisor(tmp_path, queue)
-    s.config = RuntimeConfig(retry_limit=5)  # high limit initially
-
-    task = Task(id="t-001", title="Test", description=None, status="in_progress")
-    failure = TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, exit_code=1, reason="crash")
-
-    # First failure — below limit (1 < 5) → release
-    s._handle_outcome(task, failure)
-    assert len(queue.released) == 1
-    assert len(queue.blocked) == 0
-
-    # Lower retry_limit to 1 — second failure (count=2 >= 1) → set_blocked
-    s.config = RuntimeConfig(retry_limit=1)
-    s._handle_outcome(task, failure)
-    assert len(queue.blocked) == 1
-
-
-def test_config_poll_loop_detects_file_change(tmp_path: Path) -> None:
+def test_config_poll_loop_detects_file_change(tmp_path: Path, monkeypatch) -> None:
     """_config_poll_loop updates self.config when runtime.toml changes on disk."""
+    monkeypatch.setattr("fleet.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
     queue = TrackingQueue()
     toml_path = tmp_path / "runtime.toml"
     write_atomic(toml_path, {"max_concurrent": "3"})
@@ -320,8 +303,7 @@ def test_config_poll_loop_detects_file_change(tmp_path: Path) -> None:
         project_root=tmp_path,
         log=structlog.get_logger(),
     )
-    # Use short poll interval for the test
-    s.config = RuntimeConfig(config_poll_interval_sec=1, max_concurrent=3)
+    s.config = RuntimeConfig(max_concurrent=3)
 
     async def _run() -> None:
         s._done = asyncio.Event()

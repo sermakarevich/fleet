@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from fleet.config import write_atomic
 from fleet.schemas import Event, Task
 
 from tests.integration.conftest import (
@@ -121,58 +120,3 @@ def test_rate_limit_resume_after_gauge_drop(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_threshold_config_change_no_kill(tmp_path: Path) -> None:
-    """FR-27: Lowering threshold_pct mid-run does not kill in-flight subprocesses."""
-    queue = MemoryQueue()
-    queue.add_task(_task("t-000"))
-
-    # slow scenario: subprocess stays alive for several seconds
-    coder = _CountingCoder(
-        scenario="slow",
-        FAKE_CLAUDE_SLEEP_SEC="6",
-    )
-    config = fast_config(
-        max_concurrent=1,
-        rate_limit_threshold_pct=_THRESHOLD,
-        claim_poll_interval_sec=1,
-        config_poll_interval_sec=1,
-    )
-    sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
-
-    async def _run() -> None:
-        sup_task = asyncio.create_task(sup.run())
-        try:
-            # Wait for task to be claimed and in-flight
-            await asyncio.sleep(1.5)
-            assert len(sup.in_flight) == 1, "expected 1 in-flight task"
-
-            # Raise gauge above threshold, then lower threshold — should not kill subprocess
-            sup.rate_gauge.update(Event(
-                kind="rate_limit_info",
-                raw={},
-                ts=datetime.now(tz=timezone.utc),
-                rate_info={"usage_pct": _USAGE_PCT, "resets_at": None},
-            ))
-            # Write a lower threshold to runtime.toml
-            runtime_toml = tmp_path / ".fleet" / "runtime.toml"
-            write_atomic(runtime_toml, {"rate_limit_threshold_pct": "80"})
-
-            # Wait for config reload
-            await asyncio.sleep(2.0)
-            assert sup.config.rate_limit_threshold_pct == 80, "config should have reloaded"
-
-            # Subprocess must still be alive (in_flight not emptied)
-            assert len(sup.in_flight) == 1, "in-flight subprocess must not be killed"
-
-        finally:
-            await sup._shutdown()
-            try:
-                await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                sup_task.cancel()
-                try:
-                    await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-    asyncio.run(_run())

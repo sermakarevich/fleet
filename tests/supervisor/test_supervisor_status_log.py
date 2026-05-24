@@ -87,13 +87,13 @@ def _read_fleet_log(log_root: Path) -> list[dict]:
 
 
 def test_runtime_config_has_status_log_interval_default() -> None:
-    cfg = RuntimeConfig()
-    assert cfg.status_log_interval_sec == 30
+    from fleet.schemas import STATUS_LOG_INTERVAL_SEC
+    assert STATUS_LOG_INTERVAL_SEC == 30
 
 
 def test_runtime_config_status_log_interval_override() -> None:
-    cfg = RuntimeConfig(status_log_interval_sec=5)
-    assert cfg.status_log_interval_sec == 5
+    from fleet.schemas import STATUS_LOG_INTERVAL_SEC
+    assert STATUS_LOG_INTERVAL_SEC == 30  # constant, cannot override per-instance
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ def test_fleet_log_context_includes_in_flight_count(tmp_path: Path) -> None:
 
 
 def test_fleet_log_context_includes_usage_pct(tmp_path: Path) -> None:
-    s = _make_supervisor(tmp_path, config=RuntimeConfig(rate_limit_threshold_pct=90))
+    s = _make_supervisor(tmp_path)
     s.rate_gauge.update(
         Event(
             kind="rate_limit_info",
@@ -171,10 +171,11 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
     structlog.reset_defaults()
 
 
-def test_status_log_loop_fires_at_interval(tmp_path: Path) -> None:
+def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.STATUS_LOG_INTERVAL_SEC", 1)
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
-    s = _make_supervisor(tmp_path, log=log, config=RuntimeConfig(status_log_interval_sec=1))
+    s = _make_supervisor(tmp_path, log=log)
 
     async def _run() -> None:
         loop_task = asyncio.create_task(s._status_log_loop())
@@ -195,8 +196,9 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path) -> None:
     structlog.reset_defaults()
 
 
-def test_status_log_loop_exits_on_shutdown(tmp_path: Path) -> None:
-    s = _make_supervisor(tmp_path, config=RuntimeConfig(status_log_interval_sec=1))
+def test_status_log_loop_exits_on_shutdown(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.STATUS_LOG_INTERVAL_SEC", 1)
+    s = _make_supervisor(tmp_path)
 
     async def _run() -> bool:
         s._shutting_down = True
@@ -243,7 +245,7 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
 def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
-    s = _make_supervisor(tmp_path, log=log, config=RuntimeConfig(rate_limit_default_sleep_sec=60))
+    s = _make_supervisor(tmp_path, log=log)
 
     s._handle_outcome(
         Task(id="t-001", title="X", description=None, status="in_progress"),

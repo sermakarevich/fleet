@@ -64,11 +64,7 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
         queue.add_task(_task(f"t-{i:03d}"))
 
     coder = FakeClaudeCoder(scenario="slow", FAKE_CLAUDE_SLEEP_SEC="10")
-    config = fast_config(
-        max_concurrent=3,
-        claim_poll_interval_sec=1,
-        shutdown_grace_sec=3,
-    )
+    config = fast_config(max_concurrent=3)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -109,7 +105,7 @@ def test_shutdown_all_tasks_back_to_open(tmp_path: Path) -> None:
         queue.add_task(_task(f"t-{i:03d}"))
 
     coder = FakeClaudeCoder(scenario="slow", FAKE_CLAUDE_SLEEP_SEC="10")
-    config = fast_config(max_concurrent=3, claim_poll_interval_sec=1, shutdown_grace_sec=3)
+    config = fast_config(max_concurrent=3)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -151,11 +147,7 @@ def test_shutdown_stubborn_child_gets_sigkill(tmp_path: Path) -> None:
             return base
 
     coder = MixedCoder()
-    config = fast_config(
-        max_concurrent=3,
-        claim_poll_interval_sec=1,
-        shutdown_grace_sec=2,  # short grace so SIGKILL fires quickly
-    )
+    config = fast_config(max_concurrent=3)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -189,7 +181,7 @@ def test_shutdown_exit_code_zero(tmp_path: Path) -> None:
     queue.add_task(_task("t-000"))
 
     coder = FakeClaudeCoder(scenario="slow", FAKE_CLAUDE_SLEEP_SEC="10")
-    config = fast_config(max_concurrent=1, claim_poll_interval_sec=1, shutdown_grace_sec=2)
+    config = fast_config(max_concurrent=1)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> int:

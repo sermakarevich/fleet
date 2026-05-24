@@ -67,8 +67,21 @@ Requires:
 
 ```bash
 fleet init                                          # initialize ~/.fleet (beads DB + default config)
+fleet config set max_concurrent=3                   # cap how many agents run in parallel
 cd /path/to/your/project                            # any project you want the agent to work in
-fleet bd create "context for other coders"          # queue a task (cwd is captured automatically)
+
+# Title + description:
+fleet bd create --title "add codex coder" \
+    --description "wire the OpenAI codex CLI into fleet"
+
+# Pin coder/model for this task only:
+fleet bd create --coder agy --model "GPT-OSS 120B" \
+    --title "insert task.png from assets into README.md" \
+    --description "promote the screenshot to the Quick start section"
+
+# Positional-title shortcut (cwd is captured automatically):
+fleet bd create "context for other coders"
+
 fleet run &                                         # start the supervisor in the background
 fleet tasks                                         # render a live table of in-progress tasks
 ```
@@ -330,10 +343,9 @@ directly in the file.
 | Key | Default | Description |
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `claim_poll_interval_sec` | `5` | How often (seconds) the supervisor polls for new claimable tasks. |
 | `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`, `codex`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
-| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the model's limit. |
+| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
 
 ---
 
