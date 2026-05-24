@@ -111,7 +111,7 @@ def test_run_invalid_config_coder_exits_nonzero(tmp_path, monkeypatch) -> None:
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "runtime.toml").write_text('coder = "does-not-exist"\n')
     with patch("fleet.cli.BeadsQueue"):
-        result = runner.invoke(app, ["run", "--once"])
+        result = runner.invoke(app, ["run"])
     assert result.exit_code != 0
     assert "Available" in result.output or "claude" in result.output
 
@@ -124,7 +124,7 @@ def test_run_uses_configured_coder(tmp_path, monkeypatch) -> None:
             mock_sup = MagicMock()
             mock_sup.run = AsyncMock(return_value=0)
             mock_cls.return_value = mock_sup
-            result = runner.invoke(app, ["run", "--once"])
+            result = runner.invoke(app, ["run"])
     assert result.exit_code == 0, result.output + (result.stderr or "")
     _, kwargs = mock_cls.call_args
     assert "coder_override" not in kwargs

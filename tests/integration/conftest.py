@@ -218,8 +218,6 @@ def make_supervisor(
     queue: Queue,
     coder: ClaudeCoder | None = None,
     config: RuntimeConfig | None = None,
-    *,
-    once: bool = False,
 ) -> Supervisor:
     """Create a Supervisor wired to tmp_path with optional config override."""
     runtime_toml = tmp_path / ".fleet" / "runtime.toml"
@@ -232,7 +230,6 @@ def make_supervisor(
         runtime_toml_path=runtime_toml,
         project_root=tmp_path,
         log=structlog.get_logger(),
-        once=once,
     )
 
 

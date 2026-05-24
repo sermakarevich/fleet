@@ -13,6 +13,28 @@ many projects — and across multiple agent backends — from one machine.
 
 ---
 
+## Contents
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [How it works (centralized model)](#how-it-works-centralized-model)
+- [First-run setup](#first-run-setup)
+- [Command reference](#command-reference)
+  - [`fleet init`](#fleet-init)
+  - [`fleet ready`](#fleet-ready)
+  - [`fleet show <id>`](#fleet-show-id)
+  - [`fleet tasks`](#fleet-tasks)
+  - [`fleet task <id> {log|plan|knowledge}`](#fleet-task-id-logplanknowledge)
+  - [`fleet log [N]`](#fleet-log-n)
+  - [`fleet bd <args...>`](#fleet-bd-args)
+  - [`fleet run`](#fleet-run)
+  - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
+- [Configuration reference](#configuration-reference)
+- [Q&A protocol — for the human](#qa-protocol--for-the-human)
+- [FAQ](#faq)
+
+---
+
 ## Installation
 
 Install `fleet` as a global tool so it is on `$PATH` from any directory:
@@ -71,7 +93,7 @@ override with `$FLEET_HOME` if you like.
     ├── log.jsonl                 # per-task supervisor log
     ├── log.stderr                # raw subprocess stderr
     ├── events.jsonl              # per-task structured events (agent reads on resume)
-    ├── .failures                 # failure counter (drives retry_limit)
+    ├── .failures                 # failure counter (drives retries)
     └── artifacts/
         ├── PLAN_AND_STATUS.md    # agent-owned plan + progress
         ├── KNOWLEDGE.md          # agent-owned persistent notes
@@ -162,7 +184,6 @@ edit `$FLEET_HOME/tasks/<task_id>/task.json` directly.
 ```bash
 fleet run                       # uses config.coder / config.model
 fleet run --coder claude        # override default coder for this process
-fleet run --once                # exit when the in-flight queue drains
 ```
 
 The supervisor reads from `$FLEET_HOME/.beads`, claims ready tasks, and spawns
@@ -235,8 +256,7 @@ fleet log 200                    # tail the last 200 lines
 ```
 
 Prints the most recently modified `fleet-<date>.jsonl` from
-`$FLEET_HOME/logging/` (or the absolute `log_root` if you've overridden
-it). `N` must be a positive integer when supplied.
+`$FLEET_HOME/logging/`. `N` must be a positive integer when supplied.
 
 ### `fleet bd <args...>`
 
@@ -279,13 +299,11 @@ model: opus]`.
 ```bash
 fleet run
 fleet run --coder claude         # override the default coder for this run
-fleet run --once
 ```
 
 | Option | Description |
 |---|---|
 | `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set on `fleet bd create` still win. Registered values: `claude`, `agy`, `codex`. |
-| `--once` | Exit after all currently in-flight tasks finish (no new claims). |
 
 ### `fleet config show` / `fleet config set`
 
@@ -308,21 +326,9 @@ directly in the file.
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
 | `claim_poll_interval_sec` | `5` | How often (seconds) the supervisor polls for new claimable tasks. |
-| `log_root` | `logging` | Root directory for supervisor log files. Relative paths resolve against `$FLEET_HOME`; absolute paths are used as-is. |
 | `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`, `codex`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the model's limit. |
-
-The following values are hardcoded constants and cannot be changed via config:
-
-| Constant | Value | Description |
-|---|---|---|
-| `retry_limit` | `2` | Failure-count cap per task on non-zero exit (i.e. one retry after the first attempt). |
-| `rate_limit_threshold_pct` | `90` | Pause claiming when rate-limit usage exceeds this percentage. |
-| `shutdown_grace_sec` | `30` | Seconds to wait for in-flight tasks on graceful shutdown. |
-| `rate_limit_default_sleep_sec` | `300` | Sleep duration (seconds) when a rate-limit pause is triggered. |
-| `status_log_interval_sec` | `30` | Interval (seconds) for `supervisor_status` heartbeat. |
-| `config_poll_interval_sec` | `5` | How often the supervisor re-reads `runtime.toml`. |
 
 ---
 
@@ -366,55 +372,6 @@ reads `Q&A.md` on startup (per the resume protocol inlined from
 
 ---
 
-## Logs reference
-
-All artifact and log paths live under `$FLEET_HOME` so they survive
-project moves, are shared across coders, and don't litter the working
-projects with `.claude/`-style state directories.
-
-| Path | Contents |
-|---|---|
-| `$FLEET_HOME/logging/fleet-<date>.jsonl` | Structured supervisor events: claims, releases, retries, rate-limit pauses, shutdowns. Print with `fleet log`. |
-| `$FLEET_HOME/tasks/<task_id>/task.json` | Per-task metadata: cwd, optional `coder` and `model` overrides. Written by `fleet bd create` (cwd + any `--coder` / `--model` flags) and frozen by the supervisor on first spawn. |
-| `$FLEET_HOME/tasks/<task_id>/log.jsonl` | Structured per-task process log, appended across every run of the task (subprocess lifecycle events: `subprocess_started`, `rate_limit_rejected`, `subprocess_exited`). Print with `fleet task <id> log`. |
-| `$FLEET_HOME/tasks/<task_id>/log.stderr` | Raw subprocess stderr, appended across every run of the task. |
-| `$FLEET_HOME/tasks/<task_id>/.failures` | Per-task counter of FAILURE outcomes; drives `retry_limit` exhaustion. |
-| `$FLEET_HOME/tasks/<task_id>/events.jsonl` | Normalized agent output events parsed from subprocess stdout (assistant messages, tool calls, rate-limit signals, session boundaries). Agents read this on startup to pick up prior session context. |
-| `$FLEET_HOME/tasks/<task_id>/artifacts/PLAN_AND_STATUS.md` | Combined task restatement, plan, and progress marker. Fleet pre-creates a stub; agent populates it and updates after each substantive step. Print with `fleet task <id> plan`. |
-| `$FLEET_HOME/tasks/<task_id>/artifacts/KNOWLEDGE.md` | Persistent task knowledge (surface area, invariants, gotchas). Fleet pre-creates a stub; agent appends as it learns. Print with `fleet task <id> knowledge`. |
-| `$FLEET_HOME/tasks/<task_id>/artifacts/Q&A.md` | Q&A thread between agent and human (append-only). |
-
-Override the supervisor-log location with
-`fleet config set log_root=<path>`. Relative paths resolve against
-`$FLEET_HOME`; absolute paths are used as-is.
-
-### Live fleet status (`supervisor_status` heartbeat)
-
-Every 30 seconds the supervisor emits a
-`supervisor_status` event to its log and stderr so an operator can answer
-"how many tasks are running right now and how close are we to the hourly rate
-limit" without re-reading the entire log. Example line (formatted):
-
-```json
-{
-  "event": "supervisor_status",
-  "in_flight": 2,
-  "cap": 5,
-  "usage_pct": 42.5,
-  "threshold_pct": 90,
-  "paused_until": null,
-  "task_ids": ["fleet-1ps", "fleet-3cg"]
-}
-```
-
-The same `in_flight` / `usage_pct` fields are also attached to each
-`task_claimed`, `task_completed_success`, `task_failure_release`,
-`task_retry_exhausted`, `task_context_pressure_release`,
-`task_blocked_by_agent`, and `task_rate_limit_release` event so every
-lifecycle line is self-describing.
-
----
-
 ## FAQ
 
 **Q: A task exhausted its retries. What now?**
@@ -436,11 +393,10 @@ The supervisor will re-claim it with a fresh retry counter.
 
 **Q: How do rate-limit pauses work?**
 
-When the Claude API rate-limit usage exceeds 90 % (`rate_limit_threshold_pct`),
-the supervisor stops claiming new tasks. In-flight tasks continue running. The
-supervisor resumes claiming after 300 seconds (`rate_limit_default_sleep_sec`)
-or when the rate gauge drops below the threshold. Rate-limit exits do NOT
-consume a retry.
+When the Claude API rate-limit usage exceeds 90 %, the supervisor stops
+claiming new tasks. In-flight tasks continue running. The supervisor
+resumes claiming after 5 minutes or when the rate gauge drops below the
+threshold. Rate-limit exits do NOT consume a retry.
 
 ---
 

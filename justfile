@@ -20,10 +20,6 @@ init:
 run coder="claude":
     uv run fleet run --coder {{coder}}
 
-# start the supervisor and exit when the queue drains
-run-once coder="claude":
-    uv run fleet run --coder {{coder}} --once
-
 # list ready tasks
 ready:
     uv run fleet ready

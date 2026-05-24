@@ -25,7 +25,6 @@ class Supervisor:
         runtime_toml_path: Path,
         project_root: Path,
         log: structlog.BoundLogger,
-        once: bool = False,
         coder: Coder | None = None,
     ) -> None:
         # Tests inject a single Coder instance via `coder=`; production callers
@@ -36,7 +35,6 @@ class Supervisor:
         self._runtime_toml_path = Path(runtime_toml_path)
         self._project_root = Path(project_root)
         self._log = log
-        self._once = once
 
         self.config: RuntimeConfig = load(runtime_toml_path)
         self._config_mtime: float | None = None
@@ -73,15 +71,10 @@ class Supervisor:
         return 0
 
     async def _claim_and_spawn_loop(self) -> None:
-        _once_claimed = False
         while not self._shutting_down:
             await asyncio.sleep(self.config.claim_poll_interval_sec)
             if self._shutting_down:
                 break
-
-            if self._once and _once_claimed:
-                # once-mode: don't claim more tasks; idle until reap loop triggers shutdown
-                continue
 
             now = datetime.now(tz=timezone.utc)
             if self._paused_until is not None:
@@ -108,9 +101,6 @@ class Supervisor:
                         usage_pct=self.rate_gauge.current_pct(),
                     )
                     self._spawn_runner(task)
-
-            if self._once:
-                _once_claimed = True
 
     def _resolve_coder(self, task: Task):
         """Pick (coder, coder_name, model) for a task.
@@ -177,9 +167,6 @@ class Supervisor:
     async def _reap_loop(self) -> None:
         while not self._shutting_down or self.in_flight:
             if not self.in_flight:
-                if self._once and not self._shutting_down:
-                    # once-mode: no tasks left → shut down
-                    asyncio.ensure_future(self._shutdown())
                 await asyncio.sleep(0.1)
                 continue
 

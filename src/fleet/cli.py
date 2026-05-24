@@ -301,9 +301,7 @@ def bd_passthrough(ctx: typer.Context) -> None:
 
 
 @app.command()
-def run(
-    once: Annotated[bool, typer.Option("--once", help="Exit after in-flight count reaches 0.")] = False,
-) -> None:
+def run() -> None:
     """Start the fleet supervisor."""
     home = _fleet_home()
     runtime_toml = _runtime_toml_path()
@@ -326,7 +324,6 @@ def run(
         runtime_toml_path=runtime_toml,
         project_root=home,
         log=log,
-        once=once,
     )
     try:
         rc = asyncio.run(supervisor.run())
