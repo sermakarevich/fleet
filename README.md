@@ -18,8 +18,8 @@ many projects — and across multiple agent backends — from one machine.
 Install `fleet` as a global tool so it is on `$PATH` from any directory:
 
 ```bash
-cd /path/to/fleet
-uv tool install --editable .
+git clone https://github.com/sermakarevich/fleet.git
+uv tool install --editable ./fleet
 uv tool update-shell      # if ~/.local/bin is not on PATH yet
 ```
 
@@ -32,6 +32,27 @@ Requires:
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH`
 - [beads (`bd`)](https://github.com/gastownhall/beads) on your `PATH`
 - `git` on your `PATH` (beads stores its database inside a git repo)
+- At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, or `codex` (OpenAI Codex CLI)
+
+---
+
+## Quick start
+
+```bash
+fleet init                                          # initialize ~/.fleet (beads DB + default config)
+cd /path/to/your/project                            # any project you want the agent to work in
+fleet bd create "context for other coders"          # queue a task (cwd is captured automatically)
+fleet run &                                         # start the supervisor in the background
+fleet tasks                                         # render a live table of in-progress tasks
+```
+
+<p align="center">
+  <img src="assets/tasks.png" alt="fleet tasks output">
+</p>
+
+See [First-run setup](#first-run-setup) and the [Command reference](#command-reference)
+for the full story (per-task coder/model overrides, Q&A protocol, log
+locations, …).
 
 ---
 
@@ -111,20 +132,21 @@ raw bd envelope back instead of the human-friendly summary line.
 `--coder` and `--model` are intercepted by fleet (not forwarded to `bd`):
 they're validated against the registered coders (`claude`, `agy`, `codex`)
 and persisted as per-task overrides in `task.json`, applied next time the
-supervisor claims the task. Omit them to inherit the config defaults.
+supervisor claims the task. Always pass both together when overriding —
+or omit both to inherit the config defaults.
 
 ### 3. (Optional) Override coder/model for specific tasks
 
 By default the supervisor uses `config.coder` (default `claude`) and
 `config.model` (default `sonnet`) for every task. To pin a single task to a
-different coder or model — e.g. route a heavy refactor to `agy` while
-leaving everyday tasks on `claude` — pass `--coder` / `--model` at
-create time:
+different coder/model — e.g. route a heavy refactor to `agy` while leaving
+everyday tasks on `claude` — pass `--coder` **and** `--model` together at
+create time (always specify both so the override is unambiguous):
 
 ```bash
-fleet bd create --coder agy --title "Heavy refactor"                # coder only
-fleet bd create --model opus --title "Tricky task"                  # model only
-fleet bd create --coder claude --model opus --title "Both at once"  # both
+fleet bd create --coder agy    --model opus --title "Heavy refactor"
+fleet bd create --coder codex  --model o3   --title "OpenAI task on o3"
+fleet bd create --coder claude --model opus --title "Tricky task on Opus"
 ```
 
 The override is persisted in `$FLEET_HOME/tasks/<task_id>/task.json` and is
@@ -191,11 +213,7 @@ fleet tasks --limit 20
 Renders a rich table of currently in-progress tasks with: ID, started
 time, elapsed, idle, peak context-window usage, event count, coder,
 model, title, and cwd. Per-task overrides are bolded; values inherited
-from `runtime.toml` are dim.
-
-<p align="center">
-  <img src="assets/tasks.png" alt="fleet tasks output">
-</p>
+from `runtime.toml` are dim. See the screenshot in [Quick start](#quick-start).
 
 ### `fleet task <id> {log|plan|knowledge}`
 
