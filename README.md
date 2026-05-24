@@ -1,4 +1,4 @@
-# fleet — Python supervisor for headless agent fleets
+# fleet — Python supervisor for running coding agents in parallel
 
 <p align="center">
   <img src="assets/fleet_mini.png" alt="fleet logo">
