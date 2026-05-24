@@ -79,6 +79,26 @@ class BeadsQueue(Queue):
         meta["cwd"] = cwd
         self._write_meta(task_id, meta)
 
+    def set_overrides(
+        self,
+        task_id: str,
+        coder: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        """Persist per-task coder/model overrides into task.json.
+
+        Only the non-None fields are written; existing meta keys are preserved.
+        Distinct from freeze_coder_model, which writes both fields at spawn time.
+        """
+        if coder is None and model is None:
+            return
+        meta = self._load_meta(task_id) or {"id": task_id}
+        if coder is not None:
+            meta["coder"] = coder
+        if model is not None:
+            meta["model"] = model
+        self._write_meta(task_id, meta)
+
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
         """Lock the effective coder and model into task.json at first spawn.
 

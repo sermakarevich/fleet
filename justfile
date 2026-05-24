@@ -36,7 +36,7 @@ show task_id:
 config:
     uv run fleet config show
 
-# set runtime config key(s): just set max_concurrent=2 retry_limit=5
+# set runtime config key(s): just set max_concurrent=2 claim_poll_interval_sec=3
 set +PAIRS:
     uv run fleet config set {{PAIRS}}
 

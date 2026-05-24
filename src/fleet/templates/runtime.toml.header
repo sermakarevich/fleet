@@ -1,5 +1,4 @@
 # Runtime configuration for the fleet supervisor.
 # Edit via `fleet config set <key>=<value>`. The supervisor re-reads this
-# file every `config_poll_interval_sec` seconds and applies changes without
-# restart (FR-25). In-flight subprocesses are NEVER killed by a config
-# change (FR-26, FR-27).
+# file periodically and applies changes without restart.
+# In-flight subprocesses are NEVER killed by a config change.

@@ -1,8 +1,9 @@
 import json
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fleet.coder import Coder
+from fleet.coders.base import Coder
 from fleet.schemas import Event, Task
 
 
@@ -64,6 +65,53 @@ class ClaudeCoder(Coder):
             "FLEET_TASK_DIR": str(task_dir),
             "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
+
+    @staticmethod
+    def _shipped_hooks_dir() -> Path:
+        return Path(__file__).parent / "hooks"
+
+    def write_runtime_config(self, project: Path, task: object) -> None:
+        """Write fleet-managed .claude/settings.json and hook scripts into project root."""
+        hooks_src = self._shipped_hooks_dir()
+        hooks_dst = project / ".fleet" / "hooks"
+        hooks_dst.mkdir(parents=True, exist_ok=True)
+
+        for name in ("precompact.sh", "pretool_askuserquestion.sh"):
+            dest = hooks_dst / name
+            dest.write_bytes((hooks_src / name).read_bytes())
+            dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+        claude_dir = project / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        settings_path = claude_dir / "settings.json"
+
+        existing: dict = {}
+        if settings_path.exists():
+            try:
+                existing = json.loads(settings_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
+        fleet_hook_entries: dict[str, dict] = {
+            "PreCompact": {
+                "_fleet_managed": True,
+                "matcher": "",
+                "hooks": [{"type": "command", "command": ".fleet/hooks/precompact.sh"}],
+            },
+            "PreToolUse": {
+                "_fleet_managed": True,
+                "matcher": "AskUserQuestion",
+                "hooks": [{"type": "command", "command": ".fleet/hooks/pretool_askuserquestion.sh"}],
+            },
+        }
+
+        hooks: dict = dict(existing.get("hooks", {}))
+        for event_type, fleet_entry in fleet_hook_entries.items():
+            non_fleet = [e for e in hooks.get(event_type, []) if not e.get("_fleet_managed")]
+            hooks[event_type] = non_fleet + [fleet_entry]
+
+        result = {**existing, "hooks": hooks}
+        settings_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
     def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
         try:

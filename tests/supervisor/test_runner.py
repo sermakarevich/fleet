@@ -9,7 +9,7 @@ from fleet.coders.claude import ClaudeCoder
 from fleet.runner import TaskRunner
 from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
@@ -18,9 +18,11 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 class StubCoder:
     name = "stub"
+    context_limit: int = 200_000
 
-    def __init__(self, argv: list[str]) -> None:
+    def __init__(self, argv: list[str], context_limit: int = 200_000) -> None:
         self._argv = argv
+        self.context_limit = context_limit
         self._cli = ClaudeCoder()
 
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
@@ -79,13 +81,14 @@ def _make_runner(
     task_id: str = "t-001",
     task_status: str = "in_progress",
     config: RuntimeConfig | None = None,
+    context_limit: int = 200_000,
 ) -> tuple[TaskRunner, StubQueue, StubRateGauge]:
     task = Task(id=task_id, title="Test task", description="Do the thing.", status="in_progress")
     queue = StubQueue(task_status=task_status)
     gauge = StubRateGauge()
     runner = TaskRunner(
         task=task,
-        coder=StubCoder(argv=argv),
+        coder=StubCoder(argv=argv, context_limit=context_limit),
         queue=queue,
         config=config or RuntimeConfig(),
         rate_gauge=gauge,
@@ -340,3 +343,103 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
         assert result.reason == "supervisor_shutdown"
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Test: Context pressure from usage (works for any coder emitting usage data)
+# ---------------------------------------------------------------------------
+
+def _usage_script(input_tokens: int) -> str:
+    """Script that emits one assistant event with the given input_tokens then sleeps."""
+    event = json.dumps({
+        "type": "assistant",
+        "message": {"content": [], "usage": {"input_tokens": input_tokens}},
+        "session_id": "s-ctx",
+    })
+    return (
+        "import sys\n"
+        f"sys.stdout.write({event!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "import time; time.sleep(60)\n"
+    )
+
+
+def test_context_pressure_from_usage_returns_context_pressure(tmp_path: Path) -> None:
+    """Runner signals CONTEXT_PRESSURE when usage exceeds context_limit * threshold."""
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", _usage_script(950)],
+        config=RuntimeConfig(shutdown_grace_sec=5, context_pressure_threshold_pct=90),
+        context_limit=1_000,  # threshold = 900; 950 >= 900 → context pressure
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
+
+
+def test_context_pressure_from_usage_flag_removed(tmp_path: Path) -> None:
+    """Runner removes the .context_pressure flag after detecting it from usage."""
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", _usage_script(950)],
+        config=RuntimeConfig(shutdown_grace_sec=5, context_pressure_threshold_pct=90),
+        context_limit=1_000,
+    )
+
+    asyncio.run(runner.run())
+
+    cp_flag = tmp_path / "tasks" / "t-001" / ".context_pressure"
+    assert not cp_flag.exists()
+
+
+def test_context_pressure_from_usage_not_triggered_below_threshold(tmp_path: Path) -> None:
+    """Usage below threshold does not trigger context pressure; process exits normally."""
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", _usage_script(800)],
+        config=RuntimeConfig(context_pressure_threshold_pct=90),
+        context_limit=1_000,  # threshold = 900; 800 < 900 → no context pressure
+    )
+
+    # The script would sleep indefinitely if not terminated, but for this test we
+    # use a script that exits cleanly after emitting low-usage events.
+    clean_script = (
+        "import sys, json\n"
+        f"event = json.dumps({{'type': 'assistant', 'message': {{'content': [], 'usage': {{'input_tokens': 800}}}}, 'session_id': 's1'}})\n"
+        "sys.stdout.write(event + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.exit(0)\n"
+    )
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", clean_script],
+        config=RuntimeConfig(context_pressure_threshold_pct=90),
+        context_limit=1_000,
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+
+
+def test_context_pressure_from_usage_uses_coder_context_limit(tmp_path: Path) -> None:
+    """Threshold scales with coder.context_limit; same token count triggers at 1k but not 200k."""
+    # 950 tokens: triggers at limit=1_000 (threshold=900) but not at limit=200_000
+    clean_script = (
+        "import sys, json\n"
+        "event = json.dumps({'type': 'assistant', 'message': {'content': [], 'usage': {'input_tokens': 950}}, 'session_id': 's1'})\n"
+        "sys.stdout.write(event + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.exit(0)\n"
+    )
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", clean_script],
+        config=RuntimeConfig(context_pressure_threshold_pct=90),
+        context_limit=200_000,  # threshold = 180_000; 950 is nowhere near → SUCCESS
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS

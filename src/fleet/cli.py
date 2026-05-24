@@ -21,9 +21,9 @@ from typer.core import TyperCommand
 from fleet.coders import get_coder
 from fleet.config import load as load_config
 from fleet.config import write_atomic
-from fleet.logging_setup import setup_supervisor_logger
+from fleet.logging import setup_supervisor_logger
 from fleet.queue import BeadsError, BeadsQueue
-from fleet.schemas import Task
+from fleet.schemas import LOG_ROOT, Task
 from fleet.supervisor import Supervisor
 
 app = typer.Typer(no_args_is_help=True)
@@ -168,6 +168,34 @@ def _first_positional(args: list[str]) -> str | None:
     return None
 
 
+def _extract_flag(args: list[str], flag: str) -> tuple[list[str], str | None]:
+    """Strip `--flag <value>` and `--flag=value` from args.
+
+    Returns (new_args, value). If the flag appears multiple times the last
+    occurrence wins. A bare `--flag` with no value is dropped silently.
+    """
+    out: list[str] = []
+    value: str | None = None
+    eq_prefix = flag + "="
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == flag:
+            if i + 1 < len(args):
+                value = args[i + 1]
+                i += 2
+            else:
+                i += 1
+            continue
+        if token.startswith(eq_prefix):
+            value = token[len(eq_prefix):]
+            i += 1
+            continue
+        out.append(token)
+        i += 1
+    return out, value
+
+
 @app.command(
     "bd",
     context_settings={
@@ -175,7 +203,11 @@ def _first_positional(args: list[str]) -> str | None:
         "ignore_unknown_options": True,
         "help_option_names": [],
     },
-    help="Run a `bd` command against the centralized fleet database in $FLEET_HOME.",
+    help=(
+        "Run a `bd` command against the centralized fleet database in $FLEET_HOME. "
+        "For `bd create`/`bd new`, `--coder` and `--model` are intercepted and "
+        "stored as per-task overrides instead of being forwarded to bd."
+    ),
 )
 def bd_passthrough(ctx: typer.Context) -> None:
     """Forward all trailing args verbatim to `bd`, with cwd=$FLEET_HOME.
@@ -183,18 +215,30 @@ def bd_passthrough(ctx: typer.Context) -> None:
     For `bd create` / `bd new`, also captures the user's invocation directory
     (the shell cwd from which `fleet bd create` was run) and persists it into
     the task's `task.json` so downstream agents see where the human filed it.
+    `--coder` / `--model` flags are intercepted (not forwarded to bd) and
+    persisted as per-task overrides on task.json.
     """
     home = _fleet_home()
     bd_args = list(ctx.args)
 
     sub = _first_positional(bd_args)
     is_create = sub in ("create", "new")
-    user_wants_json = "--json" in bd_args
-    user_wants_dry_run = "--dry-run" in bd_args
 
     if not is_create:
         result = subprocess.run(["bd", *bd_args], cwd=home)
         raise typer.Exit(result.returncode)
+
+    bd_args, coder_override = _extract_flag(bd_args, "--coder")
+    bd_args, model_override = _extract_flag(bd_args, "--model")
+    if coder_override is not None:
+        try:
+            get_coder(coder_override)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+
+    user_wants_json = "--json" in bd_args
+    user_wants_dry_run = "--dry-run" in bd_args
 
     # typer/click do not chdir, so os.getcwd() here is the shell cwd from
     # which the user invoked us — capture before any subprocess work.
@@ -232,12 +276,19 @@ def bd_passthrough(ctx: typer.Context) -> None:
             task_title = body.get("title")
 
     if task_id and not user_wants_dry_run:
-        BeadsQueue(home).set_cwd(task_id, invocation_cwd)
+        queue = BeadsQueue(home)
+        queue.set_cwd(task_id, invocation_cwd)
+        queue.set_overrides(task_id, coder=coder_override, model=model_override)
 
     if user_wants_json:
         typer.echo(result.stdout, nl=False)
     elif task_id:
-        typer.echo(f"Created {task_id}: {task_title or ''}  [cwd: {invocation_cwd}]")
+        extras = [f"cwd: {invocation_cwd}"]
+        if coder_override:
+            extras.append(f"coder: {coder_override}")
+        if model_override:
+            extras.append(f"model: {model_override}")
+        typer.echo(f"Created {task_id}: {task_title or ''}  [{', '.join(extras)}]")
     else:
         typer.echo(result.stdout, nl=False)
 
@@ -266,7 +317,7 @@ def run(
         raise typer.Exit(1)
 
     q = BeadsQueue(home)
-    log_root = Path(cfg.log_root)
+    log_root = Path(LOG_ROOT)
     if not log_root.is_absolute():
         log_root = home / log_root
     log = setup_supervisor_logger(log_root)
@@ -291,8 +342,7 @@ def run(
 
 
 def _resolve_log_dir() -> Path:
-    cfg = load_config(_runtime_toml_path())
-    log_root = Path(cfg.log_root)
+    log_root = Path(LOG_ROOT)
     if not log_root.is_absolute():
         log_root = _fleet_home() / log_root
     return log_root

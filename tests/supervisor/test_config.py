@@ -35,8 +35,7 @@ def test_load_partial_toml_overlays_defaults(tmp_path):
     assert cfg.max_concurrent == 8
     # Unset fields fall back to defaults
     assert cfg.rate_limit_threshold_pct == 90
-    assert cfg.retry_limit == 3
-    assert cfg.log_root == "logging"
+    assert cfg.retry_limit == 2
 
 
 def test_write_atomic_round_trips_value(tmp_path):
@@ -69,7 +68,7 @@ def test_write_atomic_concurrent_writes_produce_valid_toml(tmp_path):
     def writer_b():
         try:
             for _ in range(10):
-                write_atomic(cfg_path, {"retry_limit": "5"})
+                write_atomic(cfg_path, {"claim_poll_interval_sec": "5"})
                 time.sleep(0.001)
         except Exception as exc:
             errors.append(exc)
@@ -120,9 +119,22 @@ def test_write_atomic_unknown_key_raises(tmp_path):
         write_atomic(cfg_path, {"not_a_real_key": "42"})
 
 
-def test_write_atomic_rejects_config_poll_interval_above_10(tmp_path):
+def test_write_atomic_unknown_coder_raises(tmp_path):
     cfg_path = tmp_path / "runtime.toml"
     load(cfg_path)
 
-    with pytest.raises(ValueError, match="config_poll_interval_sec"):
-        write_atomic(cfg_path, {"config_poll_interval_sec": "15"})
+    with pytest.raises(ValueError, match="Unknown coder"):
+        write_atomic(cfg_path, {"coder": "garbage_typo"})
+
+    # File on disk must not have been mutated.
+    reloaded = load(cfg_path)
+    assert reloaded.coder == RuntimeConfig().coder
+
+
+def test_write_atomic_valid_coder_round_trips(tmp_path):
+    cfg_path = tmp_path / "runtime.toml"
+    load(cfg_path)
+
+    result = write_atomic(cfg_path, {"coder": "codex"})
+    assert result.coder == "codex"
+    assert load(cfg_path).coder == "codex"

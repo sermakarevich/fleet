@@ -59,7 +59,7 @@ def main() -> None:
     elif scenario == "rate_limit_info":
         usage_pct = float(os.environ.get("FAKE_CLAUDE_USAGE_PCT", "92"))
         resets_at = os.environ.get("FAKE_CLAUDE_RESETS_AT")
-        info: dict = {"usage_pct": usage_pct}
+        info: dict = {"usage_pct": usage_pct, "rateLimitType": "five_hour"}
         if resets_at:
             info["resetsAt"] = int(resets_at)
         emit({"type": "rate_limit_event", "rate_limit_info": info})

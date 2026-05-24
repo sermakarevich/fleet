@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "_fleet_managed": true,
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".fleet/hooks/precompact.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "_fleet_managed": true,
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".fleet/hooks/pretool_askuserquestion.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

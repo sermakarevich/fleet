@@ -7,14 +7,14 @@ from pathlib import Path
 
 import structlog
 
-from fleet.coder import Coder
+from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.failures import increment_failure
 from fleet.config import load, reload_if_changed
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
 from fleet.runner import TaskRunner
-from fleet.schemas import RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.schemas import LOG_ROOT, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.supervisor_spawn import SpawnController, SpawnDecision
 
 
@@ -128,7 +128,27 @@ class Supervisor:
 
     def _spawn_runner(self, task: Task) -> None:
         task_root = Path(task.cwd) if task.cwd else self._project_root
-        coder, coder_name, model = self._resolve_coder(task)
+        try:
+            coder, coder_name, model = self._resolve_coder(task)
+        except ValueError as exc:
+            # Effective coder name is unknown — typo in config.coder, typo in
+            # task.coder override, or runtime.toml hand-edited to an invalid
+            # value mid-run. claim_next has already flipped the task to
+            # in_progress, so block it explicitly to stop the supervisor
+            # from re-claiming it on every poll.
+            self._log.error(
+                "task_coder_invalid",
+                task_id=task.id,
+                task_coder=task.coder,
+                default_coder=self.config.coder,
+                error=str(exc),
+            )
+            self._queue.set_blocked(task.id, reason=f"invalid coder: {exc}")
+            self._queue.comment(
+                task.id,
+                f"[fleet] {exc}. Fix `coder` in runtime.toml or set --coder on this task.",
+            )
+            return
         if self._coder_pin is None:
             # Freeze the resolved coder/model into task.json so that config
             # changes after first spawn don't affect retries or reclaims.
@@ -386,7 +406,7 @@ class Supervisor:
             self._done.set()
 
     def _resolve_log_root(self) -> Path:
-        log_root = Path(self.config.log_root)
+        log_root = Path(LOG_ROOT)
         if not log_root.is_absolute():
             log_root = self._project_root / log_root
         return log_root

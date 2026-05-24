@@ -7,17 +7,8 @@ from pathlib import Path
 from fleet.schemas import RuntimeConfig
 
 _KEY_TYPES: dict[str, type] = {
-    "max_concurrent": int,
-    "rate_limit_threshold_pct": int,
-    "retry_limit": int,
-    "config_poll_interval_sec": int,
-    "claim_poll_interval_sec": int,
-    "shutdown_grace_sec": int,
-    "rate_limit_default_sleep_sec": int,
-    "status_log_interval_sec": int,
-    "log_root": str,
-    "model": str,
-    "coder": str,
+    f.name: f.type  # type: ignore[misc]
+    for f in fields(RuntimeConfig())
 }
 
 _TOML_HEADER_PATH = Path(__file__).parent / "templates" / "runtime.toml.header"
@@ -25,7 +16,7 @@ _TOML_HEADER_PATH = Path(__file__).parent / "templates" / "runtime.toml.header"
 
 def _defaults() -> dict:
     cfg = RuntimeConfig()
-    return {f.name: getattr(cfg, f.name) for f in fields(cfg)}
+    return {f.name: getattr(cfg, f.name) for f in fields(cfg) if f.name in _KEY_TYPES}
 
 
 def _write_toml_str(data: dict) -> str:
@@ -81,13 +72,11 @@ def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
     if unknown:
         raise ValueError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
 
-    # Validate config_poll_interval_sec constraint (FR-25)
-    if "config_poll_interval_sec" in updates:
-        val = int(updates["config_poll_interval_sec"])
-        if val > 10:
-            raise ValueError(
-                f"config_poll_interval_sec must be ≤ 10 (got {val})"
-            )
+    if "coder" in updates:
+        # Lazy import: avoid any chance of a circular import with the coders package.
+        from fleet.coders import get_coder
+
+        get_coder(updates["coder"])  # raises ValueError on unknown coder name
 
     # Load existing or start from defaults
     if path.exists():

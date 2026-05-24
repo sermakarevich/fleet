@@ -277,6 +277,94 @@ def test_bd_non_create_subcommand_uses_simple_passthrough(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
+# fleet bd create — --coder / --model interception
+# ---------------------------------------------------------------------------
+
+
+def test_bd_create_strips_coder_and_model_from_bd_args(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch(
+        "fleet.cli.subprocess.run",
+        return_value=_fake_create_result("fleet-c1", "T"),
+    ) as mock_run:
+        result = runner.invoke(
+            app,
+            ["bd", "create", "--coder", "agy", "--model", "opus", "T"],
+        )
+    assert result.exit_code == 0, result.output
+    args, _ = mock_run.call_args
+    forwarded = args[0]
+    assert "--coder" not in forwarded
+    assert "--model" not in forwarded
+    assert "agy" not in forwarded
+    assert "opus" not in forwarded
+
+
+def test_bd_create_persists_coder_and_model_overrides(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c2", "T")):
+        result = runner.invoke(
+            app,
+            ["bd", "create", "--coder", "agy", "--model", "opus", "T"],
+        )
+    assert result.exit_code == 0, result.output
+    import json as _json
+    meta = _json.loads((tmp_path / "tasks" / "fleet-c2" / "task.json").read_text())
+    assert meta["coder"] == "agy"
+    assert meta["model"] == "opus"
+
+
+def test_bd_create_accepts_equals_form_for_coder(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch(
+        "fleet.cli.subprocess.run",
+        return_value=_fake_create_result("fleet-c3", "T"),
+    ) as mock_run:
+        result = runner.invoke(app, ["bd", "create", "--coder=agy", "T"])
+    assert result.exit_code == 0, result.output
+    forwarded = mock_run.call_args[0][0]
+    assert not any(a.startswith("--coder") for a in forwarded)
+    import json as _json
+    meta = _json.loads((tmp_path / "tasks" / "fleet-c3" / "task.json").read_text())
+    assert meta["coder"] == "agy"
+
+
+def test_bd_create_rejects_unknown_coder(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch("fleet.cli.subprocess.run") as mock_run:
+        result = runner.invoke(
+            app,
+            ["bd", "create", "--coder", "does-not-exist", "T"],
+        )
+    # bd must not be called when the coder is invalid.
+    mock_run.assert_not_called()
+    assert result.exit_code != 0
+    assert "does-not-exist" in result.output or "Available" in result.output
+
+
+def test_bd_create_without_overrides_does_not_write_them(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c4", "T")):
+        runner.invoke(app, ["bd", "create", "T"])
+    import json as _json
+    meta = _json.loads((tmp_path / "tasks" / "fleet-c4" / "task.json").read_text())
+    assert "coder" not in meta or meta["coder"] is None
+    assert "model" not in meta or meta["model"] is None
+
+
+def test_bd_create_human_summary_includes_overrides(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c5", "Do")):
+        result = runner.invoke(
+            app,
+            ["bd", "create", "--coder", "agy", "--model", "opus", "Do"],
+        )
+    assert result.exit_code == 0, result.output
+    assert "coder: agy" in result.output
+    assert "model: opus" in result.output
+
+
+# ---------------------------------------------------------------------------
 # fleet log
 # ---------------------------------------------------------------------------
 

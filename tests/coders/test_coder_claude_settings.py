@@ -8,7 +8,7 @@ import pytest
 from fleet.coders.claude import ClaudeCoder
 
 EXPECTED_SETTINGS = (
-    Path(__file__).parent / "fixtures" / "expected_settings.json"
+    Path(__file__).parent.parent / "fixtures" / "expected_settings.json"
 )
 
 

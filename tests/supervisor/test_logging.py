@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import structlog
 
-from fleet.logging_setup import TaskLog, append_event, open_task_log, setup_supervisor_logger
+from fleet.logging import TaskLog, append_event, open_task_log, setup_supervisor_logger
 from fleet.schemas import Event
 
 

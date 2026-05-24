@@ -30,7 +30,6 @@ def test_config_show_prints_expected_keys(tmp_path: Path) -> None:
         "retry_limit",
         "config_poll_interval_sec",
         "claim_poll_interval_sec",
-        "log_root",
     ):
         assert key in result.output, f"Expected '{key}' in config show output"
 
@@ -89,7 +88,7 @@ def test_config_set_atomicity_bad_value_leaves_file_unchanged(tmp_path: Path) ->
     config_path.write_text("max_concurrent = 4\n", encoding="utf-8")
 
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=2", "retry_limit=garbage"])
+        result = runner.invoke(app, ["config", "set", "max_concurrent=2", "claim_poll_interval_sec=garbage"])
 
     assert result.exit_code != 0
     content = config_path.read_text(encoding="utf-8")
@@ -112,16 +111,9 @@ def test_config_set_unknown_key_message_contains_unknown(tmp_path: Path) -> None
 
 def test_config_set_multiple_keys(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=4", "retry_limit=5"])
+        result = runner.invoke(app, ["config", "set", "max_concurrent=4", "claim_poll_interval_sec=5"])
     assert result.exit_code == 0
     toml_path = tmp_path / "runtime.toml"
     content = toml_path.read_text(encoding="utf-8")
     assert "max_concurrent = 4" in content
-    assert "retry_limit = 5" in content
-
-
-def test_config_set_config_poll_interval_too_large_exits_nonzero(tmp_path: Path) -> None:
-    """config_poll_interval_sec > 10 is rejected (FR-25 constraint)."""
-    with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "config_poll_interval_sec=20"])
-    assert result.exit_code != 0
+    assert "claim_poll_interval_sec = 5" in content

@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from fleet.coder import Coder
+from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.coders.claude import ClaudeCoder
 from fleet.schemas import Task
 
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _coder() -> ClaudeCoder:
@@ -394,7 +394,7 @@ def test_normalize_thinking_event():
 # ---------------------------------------------------------------------------
 
 def test_no_anthropic_import_in_coder_module():
-    import fleet.coder as coder_mod
+    import fleet.coders.base as coder_mod
     import fleet.coders.claude as cli_mod
     import fleet.schemas as schemas_mod
 

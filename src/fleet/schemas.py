@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
+LOG_ROOT = "logging"
+
 
 @dataclass
 class Task:
@@ -65,12 +67,12 @@ class TaskOutcomeRecord:
 class RuntimeConfig:
     max_concurrent: int = 3
     rate_limit_threshold_pct: int = 90
-    retry_limit: int = 3
+    retry_limit: int = 2
     config_poll_interval_sec: int = 5
     claim_poll_interval_sec: int = 5
     shutdown_grace_sec: int = 30
     rate_limit_default_sleep_sec: int = 300
     status_log_interval_sec: int = 30
-    log_root: str = "logging"
     model: str = "sonnet"
     coder: str = "claude"
+    context_pressure_threshold_pct: int = 90

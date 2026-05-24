@@ -8,14 +8,25 @@ from typing import Protocol
 
 import structlog
 
-from fleet.coder import Coder
-from fleet.logging_setup import append_event, open_task_log
+from fleet.coders.base import Coder
+from fleet.logging import append_event, open_task_log
 from fleet.queue import Queue
 from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
 
 _STDERR_TAIL_BYTES = 2048
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def _input_tokens(usage: dict) -> int:
+    """Sum prompt-side tokens for context tracking; missing or non-int fields → 0."""
+    def _int(v: object) -> int:
+        return v if isinstance(v, int) and not isinstance(v, bool) else 0
+    return (
+        _int(usage.get("input_tokens"))
+        + _int(usage.get("cache_creation_input_tokens"))
+        + _int(usage.get("cache_read_input_tokens"))
+    )
 
 
 def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
@@ -103,6 +114,7 @@ class TaskRunner:
                     pass
 
             outcome: TaskOutcomeRecord | None = None
+            peak_context_tokens: int = 0
 
             assert proc.stdout is not None
             async for raw_bytes in proc.stdout:
@@ -126,6 +138,45 @@ class TaskRunner:
                 if evt.kind == "rate_limit_info":
                     self._rate_gauge.update(evt)
                 elif (
+                    evt.usage is not None
+                    and evt.kind != "session_ended"
+                ):
+                    prompt = _input_tokens(evt.usage)
+                    if prompt > 0:
+                        peak_context_tokens = max(peak_context_tokens, prompt)
+                        threshold = (
+                            self._coder.context_limit
+                            * self._config.context_pressure_threshold_pct
+                            / 100
+                        )
+                        if peak_context_tokens >= threshold:
+                            task_log.log.warning(
+                                "context_pressure_threshold_exceeded",
+                                task_id=task.id,
+                                peak_context_tokens=peak_context_tokens,
+                                context_limit=self._coder.context_limit,
+                                threshold_pct=self._config.context_pressure_threshold_pct,
+                            )
+                            cp_flag = task_dir / ".context_pressure"
+                            cp_flag.touch()
+                            try:
+                                proc.send_signal(signal.SIGTERM)
+                            except (ProcessLookupError, OSError):
+                                pass
+                            try:
+                                await asyncio.wait_for(
+                                    proc.wait(),
+                                    timeout=float(self._config.shutdown_grace_sec),
+                                )
+                            except asyncio.TimeoutError:
+                                try:
+                                    proc.send_signal(signal.SIGKILL)
+                                except (ProcessLookupError, OSError):
+                                    pass
+                                await proc.wait()
+                            break
+
+                if (
                     evt.kind == "rate_limit"
                     and evt.rate_info is not None
                     and evt.rate_info.get("status") == "rejected"

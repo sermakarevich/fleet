@@ -259,3 +259,77 @@ def test_blocked_by_agent_no_failure_increment(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
     assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ---------------------------------------------------------------------------
+# Invalid coder at spawn time → set_blocked + comment, no runner created
+# ---------------------------------------------------------------------------
+
+
+def _unpinned_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig) -> Supervisor:
+    """Build a supervisor without a pinned coder so _resolve_coder runs the registry lookup."""
+    s = Supervisor(
+        queue=queue,
+        runtime_toml_path=tmp_path / "runtime.toml",
+        project_root=tmp_path,
+        log=structlog.get_logger(),
+    )
+    s.config = config
+    return s
+
+
+def test_invalid_default_coder_blocks_task(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-001"))
+
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-001"
+    assert "invalid coder" in queue.blocked[0][1]
+    assert "bogus_typo" in queue.blocked[0][1]
+    assert "t-001" not in s.in_flight
+
+
+def test_invalid_task_override_blocks_task(tmp_path: Path) -> None:
+    """A per-task coder override that's invalid blocks even when the default is valid."""
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="claude"))
+    task = Task(
+        id="t-002",
+        title="X",
+        description=None,
+        status="in_progress",
+        coder="nope",
+    )
+
+    s._spawn_runner(task)
+
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-002"
+    assert "nope" in queue.blocked[0][1]
+    assert "t-002" not in s.in_flight
+
+
+def test_invalid_coder_writes_operator_comment(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-003"))
+
+    assert len(queue.comments) == 1
+    assert queue.comments[0][0] == "t-003"
+    assert "bogus_typo" in queue.comments[0][1]
+    assert "runtime.toml" in queue.comments[0][1]
+
+
+def test_invalid_coder_does_not_freeze_task_meta(tmp_path: Path) -> None:
+    """freeze_coder_model must NOT be called when resolution failed."""
+    queue = StubQueue()
+    frozen: list[tuple[str, str, str]] = []
+    queue.freeze_coder_model = lambda tid, c, m: frozen.append((tid, c, m))  # type: ignore[attr-defined]
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-004"))
+
+    assert frozen == []

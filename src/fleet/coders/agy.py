@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fleet.coder import Coder
+from fleet.coders.base import Coder
 from fleet.schemas import Event, Task
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"

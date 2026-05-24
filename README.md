@@ -6,7 +6,7 @@
 
 `fleet` is a lightweight Python supervisor that claims tasks from a
 **centralized** [beads](https://github.com/gastownhall/beads) queue and runs
-them through a coder (`claude` or `agy` CLI) in a headless loop. Each task
+them through a coder (`claude`, `agy`, or `codex` CLI) in a headless loop. Each task
 remembers the project working directory it was created in, plus an optional
 per-task coder/model override, so a single supervisor can drive work across
 many projects — and across multiple agent backends — from one machine.
@@ -95,6 +95,10 @@ new task:
 cd /path/to/your/project
 fleet bd create --title "Implement feature X"
 # → Created fleet-abc: Implement feature X  [cwd: /path/to/your/project]
+
+# Pin coder/model for this task only (overrides config defaults):
+fleet bd create --coder agy --model opus --title "Heavy refactor"
+# → Created fleet-def: Heavy refactor  [cwd: /…, coder: agy, model: opus]
 ```
 
 `fleet bd …` forwards verbatim to the `bd` CLI inside `$FLEET_HOME`, so any
@@ -104,26 +108,32 @@ also writes `$FLEET_HOME/tasks/<id>/task.json` with `{"cwd": "<your cwd>"}`
 so the supervisor knows where to spawn the agent. Pass `--json` to get the
 raw bd envelope back instead of the human-friendly summary line.
 
+`--coder` and `--model` are intercepted by fleet (not forwarded to `bd`):
+they're validated against the registered coders (`claude`, `agy`, `codex`)
+and persisted as per-task overrides in `task.json`, applied next time the
+supervisor claims the task. Omit them to inherit the config defaults.
+
 ### 3. (Optional) Override coder/model for specific tasks
 
 By default the supervisor uses `config.coder` (default `claude`) and
 `config.model` (default `sonnet`) for every task. To pin a single task to a
 different coder or model — e.g. route a heavy refactor to `agy` while
-leaving everyday tasks on `claude` — use `fleet task-set`:
+leaving everyday tasks on `claude` — pass `--coder` / `--model` at
+create time:
 
 ```bash
-fleet task-set fleet-abc --coder agy                  # switch coder only
-fleet task-set fleet-abc --model opus                 # switch model only
-fleet task-set fleet-abc --coder claude --model opus  # both at once
-fleet task-set fleet-abc --coder "" --model ""        # clear overrides
+fleet bd create --coder agy --title "Heavy refactor"                # coder only
+fleet bd create --model opus --title "Tricky task"                  # model only
+fleet bd create --coder claude --model opus --title "Both at once"  # both
 ```
 
 The override is persisted in `$FLEET_HOME/tasks/<task_id>/task.json` and is
-applied the next time the supervisor claims the task. Resolution order is
+applied the first time the supervisor claims the task. Resolution order is
 `task.coder` → `--coder` CLI flag on `fleet run` → `config.coder`
 (similarly for `model`). Confirm what the supervisor will pick with
 `fleet show <task_id>` — explicit overrides are bare, while inherited
-values are tagged ` (default)`.
+values are tagged ` (default)`. To change an override after creation,
+edit `$FLEET_HOME/tasks/<task_id>/task.json` directly.
 
 ### 4. Start the supervisor
 
@@ -170,20 +180,6 @@ fleet show fleet-abc --json       # raw bd show JSON envelope
 Prints id, title, status, cwd, effective coder, effective model, and
 description. The `coder:` and `model:` lines are tagged ` (default)` when
 they come from `runtime.toml` rather than a per-task override.
-
-### `fleet task-set <id>`
-
-```bash
-fleet task-set fleet-abc --coder agy
-fleet task-set fleet-abc --model opus
-fleet task-set fleet-abc --coder claude --model sonnet
-fleet task-set fleet-abc --coder "" --model ""      # clear both overrides
-```
-
-Sets the per-task coder/model override in
-`$FLEET_HOME/tasks/<id>/task.json`. Pass an empty string to clear an
-override and fall back to the config default. Unknown coder names fail
-fast; the registered coders are `claude` and `agy`.
 
 ### `fleet tasks`
 
@@ -253,6 +249,13 @@ human-friendly summary (`Created <id>: <title>  [cwd: <path>]`); with
 `--json` you get the raw bd envelope as before. Pass `--dry-run` to skip
 the task.json write (useful if you're driving bd test runs).
 
+`--coder <name>` and `--model <name>` are also intercepted on `create`
+(and `new`) — they're stripped from the args before forwarding to `bd`,
+validated, and persisted as per-task overrides in `task.json`. Unknown
+coder names fail fast without invoking `bd`. The summary line reflects
+any overrides applied: `Created <id>: <title>  [cwd: <path>, coder: agy,
+model: opus]`.
+
 ### `fleet run`
 
 ```bash
@@ -263,7 +266,7 @@ fleet run --once
 
 | Option | Description |
 |---|---|
-| `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set with `fleet task-set` still win. Registered values: `claude`, `agy`. |
+| `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set on `fleet bd create` still win. Registered values: `claude`, `agy`, `codex`. |
 | `--once` | Exit after all currently in-flight tasks finish (no new claims). |
 
 ### `fleet config show` / `fleet config set`
@@ -272,32 +275,36 @@ fleet run --once
 fleet config show
 fleet config show --raw                                # raw TOML bytes
 fleet config set max_concurrent=5
-fleet config set retry_limit=5 rate_limit_threshold_pct=80
 ```
 
-The supervisor re-reads `$FLEET_HOME/runtime.toml` every
-`config_poll_interval_sec` seconds and applies changes without restart.
+The supervisor re-reads `$FLEET_HOME/runtime.toml` on change and applies updates without restart.
 
 ---
 
 ## Configuration reference
 
-All keys live in `$FLEET_HOME/runtime.toml`. Edit via `fleet config set …` or
+Configurable keys live in `$FLEET_HOME/runtime.toml`. Edit via `fleet config set …` or
 directly in the file.
 
 | Key | Default | Description |
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `rate_limit_threshold_pct` | `90` | Pause claiming new tasks when rate-limit usage exceeds this percentage. |
-| `retry_limit` | `3` | Maximum retries per task on non-zero exit. Rate-limit and context-pressure exits do NOT consume a retry. |
-| `config_poll_interval_sec` | `5` | How often (seconds) the supervisor re-reads `runtime.toml`. Maximum 10. |
 | `claim_poll_interval_sec` | `5` | How often (seconds) the supervisor polls for new claimable tasks. |
-| `shutdown_grace_sec` | `30` | How long (seconds) to wait for in-flight tasks to finish on graceful shutdown. |
-| `rate_limit_default_sleep_sec` | `300` | Sleep duration (seconds) when a rate-limit pause is triggered. |
-| `status_log_interval_sec` | `30` | How often (seconds) the supervisor emits a `supervisor_status` heartbeat with the live in-flight count and rate-limit usage. |
 | `log_root` | `logging` | Root directory for supervisor log files. Relative paths resolve against `$FLEET_HOME`; absolute paths are used as-is. |
-| `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`. |
-| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file). |
+| `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`, `codex`. |
+| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
+| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the model's limit. |
+
+The following values are hardcoded constants and cannot be changed via config:
+
+| Constant | Value | Description |
+|---|---|---|
+| `retry_limit` | `2` | Failure-count cap per task on non-zero exit (i.e. one retry after the first attempt). |
+| `rate_limit_threshold_pct` | `90` | Pause claiming when rate-limit usage exceeds this percentage. |
+| `shutdown_grace_sec` | `30` | Seconds to wait for in-flight tasks on graceful shutdown. |
+| `rate_limit_default_sleep_sec` | `300` | Sleep duration (seconds) when a rate-limit pause is triggered. |
+| `status_log_interval_sec` | `30` | Interval (seconds) for `supervisor_status` heartbeat. |
+| `config_poll_interval_sec` | `5` | How often the supervisor re-reads `runtime.toml`. |
 
 ---
 
@@ -350,7 +357,7 @@ projects with `.claude/`-style state directories.
 | Path | Contents |
 |---|---|
 | `$FLEET_HOME/logging/fleet-<date>.jsonl` | Structured supervisor events: claims, releases, retries, rate-limit pauses, shutdowns. Print with `fleet log`. |
-| `$FLEET_HOME/tasks/<task_id>/task.json` | Per-task metadata: cwd, optional `coder` and `model` overrides. Managed by `fleet bd create` and `fleet task-set`. |
+| `$FLEET_HOME/tasks/<task_id>/task.json` | Per-task metadata: cwd, optional `coder` and `model` overrides. Written by `fleet bd create` (cwd + any `--coder` / `--model` flags) and frozen by the supervisor on first spawn. |
 | `$FLEET_HOME/tasks/<task_id>/log.jsonl` | Structured per-task process log, appended across every run of the task (subprocess lifecycle events: `subprocess_started`, `rate_limit_rejected`, `subprocess_exited`). Print with `fleet task <id> log`. |
 | `$FLEET_HOME/tasks/<task_id>/log.stderr` | Raw subprocess stderr, appended across every run of the task. |
 | `$FLEET_HOME/tasks/<task_id>/.failures` | Per-task counter of FAILURE outcomes; drives `retry_limit` exhaustion. |
@@ -365,7 +372,7 @@ Override the supervisor-log location with
 
 ### Live fleet status (`supervisor_status` heartbeat)
 
-Every `status_log_interval_sec` seconds (default 30s) the supervisor emits a
+Every 30 seconds the supervisor emits a
 `supervisor_status` event to its log and stderr so an operator can answer
 "how many tasks are running right now and how close are we to the hourly rate
 limit" without re-reading the entire log. Example line (formatted):
@@ -411,10 +418,10 @@ The supervisor will re-claim it with a fresh retry counter.
 
 **Q: How do rate-limit pauses work?**
 
-When the Claude API rate-limit usage exceeds `rate_limit_threshold_pct`, the
-supervisor stops claiming new tasks. In-flight tasks continue running. The
-supervisor resumes claiming after `rate_limit_default_sleep_sec` seconds (or
-when the rate gauge drops below the threshold). Rate-limit exits do NOT
+When the Claude API rate-limit usage exceeds 90 % (`rate_limit_threshold_pct`),
+the supervisor stops claiming new tasks. In-flight tasks continue running. The
+supervisor resumes claiming after 300 seconds (`rate_limit_default_sleep_sec`)
+or when the rate gauge drops below the threshold. Rate-limit exits do NOT
 consume a retry.
 
 ---

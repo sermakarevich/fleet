@@ -22,7 +22,7 @@ where = ["src"]
 include = ["fleet*"]
 
 [tool.setuptools.package-data]
-fleet = ["templates/*"]
+fleet = ["templates/*", "coders/hooks/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

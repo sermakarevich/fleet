@@ -44,6 +44,7 @@ class FakeClaudeCoder(ClaudeCoder):
         scenarios: list[str] | None = None,
         **fake_env: str,
     ) -> None:
+        super().__init__()
         self._scenario = scenario
         self._scenarios = scenarios
         self._fake_env = fake_env
@@ -134,6 +135,13 @@ class MemoryQueue(Queue):
     def list_ready(self, limit: int = 50) -> list[Task]:
         return [t for t in self._tasks.values() if t.status == "open"][:limit]
 
+    def list_in_progress(self, limit: int = 50) -> list[Task]:
+        return [t for t in self._tasks.values() if t.status == "in_progress"][:limit]
+
+    def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
+        if task_id in self._tasks:
+            self._tasks[task_id] = replace(self._tasks[task_id], coder=coder, model=model)
+
     def create_task(
         self,
         title: str,
@@ -141,9 +149,11 @@ class MemoryQueue(Queue):
         depends_on: list[str] | None = None,
         labels: list[str] | None = None,
         cwd: str | None = None,
+        coder: str | None = None,
+        model: str | None = None,
     ) -> Task:
         task_id = f"mem-{len(self._tasks):03d}"
-        task = Task(id=task_id, title=title, description=description, status="open", cwd=cwd)
+        task = Task(id=task_id, title=title, description=description, status="open", cwd=cwd, coder=coder, model=model)
         self._tasks[task_id] = task
         return task
 

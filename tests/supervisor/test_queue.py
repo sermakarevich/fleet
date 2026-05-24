@@ -164,6 +164,49 @@ def test_freeze_coder_model_overwrites_prior_values(tmp_path: Path) -> None:
     assert meta["model"] == "sonnet"
 
 
+def test_set_overrides_writes_only_provided_fields(tmp_path: Path) -> None:
+    """set_overrides writes coder/model independently, preserving other fields."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-ovr-1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        '{"id": "t-ovr-1", "cwd": "/x", "model": "opus"}', encoding="utf-8"
+    )
+
+    q.set_overrides("t-ovr-1", coder="agy")
+
+    import json
+    meta = json.loads((task_dir / "task.json").read_text())
+    assert meta["coder"] == "agy"
+    assert meta["model"] == "opus"  # untouched
+    assert meta["cwd"] == "/x"      # untouched
+
+
+def test_set_overrides_noop_when_both_none(tmp_path: Path) -> None:
+    """set_overrides leaves task.json alone when no override is supplied."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-ovr-2"
+    task_dir.mkdir(parents=True)
+    before = '{"id": "t-ovr-2", "cwd": "/x"}'
+    (task_dir / "task.json").write_text(before, encoding="utf-8")
+
+    q.set_overrides("t-ovr-2")
+
+    assert (task_dir / "task.json").read_text() == before
+
+
+def test_set_overrides_creates_meta_if_missing(tmp_path: Path) -> None:
+    """set_overrides creates task.json when none exists yet."""
+    q = BeadsQueue(repo_root=tmp_path)
+
+    q.set_overrides("t-ovr-3", coder="claude", model="opus")
+
+    import json
+    meta = json.loads((tmp_path / "tasks" / "t-ovr-3" / "task.json").read_text())
+    assert meta["coder"] == "claude"
+    assert meta["model"] == "opus"
+
+
 def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
     """BeadsError is raised when the bd subprocess exits with non-zero status."""
     q = BeadsQueue(repo_root=tmp_path)

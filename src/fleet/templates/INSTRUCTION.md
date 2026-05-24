@@ -42,4 +42,4 @@ The human appends `## A:` under your `## Q:` and runs `bd update <task_id> --sta
 
 ## Failure / retries
 
-Non-zero exit → supervisor releases the task and retries up to `retry_limit` (default 3, configurable in `$FLEET_HOME/runtime.toml`). Rate-limit and context-pressure exits do NOT count toward `retry_limit`.
+Non-zero exit → supervisor releases the task and retries up to `retry_limit` (default 2). Rate-limit and context-pressure exits do NOT count toward `retry_limit`.

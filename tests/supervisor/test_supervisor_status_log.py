@@ -7,7 +7,7 @@ from pathlib import Path
 
 import structlog
 
-from fleet.logging_setup import setup_supervisor_logger
+from fleet.logging import setup_supervisor_logger
 from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.supervisor import Supervisor
 
