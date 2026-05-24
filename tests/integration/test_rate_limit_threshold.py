@@ -45,12 +45,7 @@ def test_rate_limit_pauses_spawn(tmp_path: Path) -> None:
         scenario="rate_limit_info",
         FAKE_CLAUDE_USAGE_PCT=str(_USAGE_PCT),
     )
-    config = fast_config(
-        max_concurrent=3,
-        rate_limit_threshold_pct=_THRESHOLD,
-        # Longer claim poll so the first subprocess has time to update the gauge
-        claim_poll_interval_sec=1,
-    )
+    config = fast_config(max_concurrent=3)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -87,11 +82,7 @@ def test_rate_limit_resume_after_gauge_drop(tmp_path: Path) -> None:
         scenario="rate_limit_info",
         FAKE_CLAUDE_USAGE_PCT=str(_USAGE_PCT),
     )
-    config = fast_config(
-        max_concurrent=3,
-        rate_limit_threshold_pct=_THRESHOLD,
-        claim_poll_interval_sec=1,
-    )
+    config = fast_config(max_concurrent=3)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:

@@ -8,6 +8,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Callable
 
+import pytest
 import structlog
 
 from fleet.coders.claude import ClaudeCoder
@@ -261,13 +262,16 @@ async def run_until(
                 pass
 
 
+@pytest.fixture(autouse=True)
+def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch supervisor/runner constants to fast values for all integration tests."""
+    monkeypatch.setattr("fleet.supervisor.CLAIM_POLL_INTERVAL_SEC", 1)
+    monkeypatch.setattr("fleet.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
+    monkeypatch.setattr("fleet.supervisor.SHUTDOWN_GRACE_SEC", 3)
+    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
+    monkeypatch.setattr("fleet.runner.SHUTDOWN_GRACE_SEC", 3)
+
+
 def fast_config(**overrides: object) -> RuntimeConfig:
-    """RuntimeConfig with short poll intervals suitable for integration tests."""
-    base: dict = dict(
-        claim_poll_interval_sec=1,
-        config_poll_interval_sec=1,
-        shutdown_grace_sec=3,
-        rate_limit_default_sleep_sec=0,
-    )
-    base.update(overrides)
-    return RuntimeConfig(**base)  # type: ignore[arg-type]
+    """RuntimeConfig with surviving fields only; poll/grace intervals are now constants."""
+    return RuntimeConfig(**overrides)  # type: ignore[arg-type]

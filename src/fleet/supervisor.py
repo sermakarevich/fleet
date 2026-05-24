@@ -14,7 +14,20 @@ from fleet.config import load, reload_if_changed
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
 from fleet.runner import TaskRunner
-from fleet.schemas import LOG_ROOT, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.schemas import (
+    CLAIM_POLL_INTERVAL_SEC,
+    CONFIG_POLL_INTERVAL_SEC,
+    RATE_LIMIT_DEFAULT_SLEEP_SEC,
+    RATE_LIMIT_THRESHOLD_PCT,
+    RETRY_LIMIT,
+    SHUTDOWN_GRACE_SEC,
+    STATUS_LOG_INTERVAL_SEC,
+    LOG_ROOT,
+    RuntimeConfig,
+    Task,
+    TaskOutcome,
+    TaskOutcomeRecord,
+)
 from fleet.supervisor_spawn import SpawnController, SpawnDecision
 
 
@@ -72,7 +85,7 @@ class Supervisor:
 
     async def _claim_and_spawn_loop(self) -> None:
         while not self._shutting_down:
-            await asyncio.sleep(self.config.claim_poll_interval_sec)
+            await asyncio.sleep(CLAIM_POLL_INTERVAL_SEC)
             if self._shutting_down:
                 break
 
@@ -85,7 +98,7 @@ class Supervisor:
             decision = self.spawn_controller.decide(
                 in_flight=len(self.in_flight),
                 max_concurrent=self.config.max_concurrent,
-                threshold_pct=float(self.config.rate_limit_threshold_pct),
+                threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
                 gauge=self.rate_gauge,
             )
 
@@ -208,7 +221,7 @@ class Supervisor:
 
     async def _config_poll_loop(self) -> None:
         while not self._shutting_down:
-            await asyncio.sleep(self.config.config_poll_interval_sec)
+            await asyncio.sleep(CONFIG_POLL_INTERVAL_SEC)
             if self._shutting_down:
                 break
 
@@ -226,7 +239,7 @@ class Supervisor:
     async def _status_log_loop(self) -> None:
         """Periodically emit a heartbeat with in-flight count and rate-limit usage."""
         while not self._shutting_down:
-            await asyncio.sleep(self.config.status_log_interval_sec)
+            await asyncio.sleep(STATUS_LOG_INTERVAL_SEC)
             if self._shutting_down:
                 break
             self._log_status_snapshot()
@@ -240,7 +253,7 @@ class Supervisor:
             "in_flight": len(self.in_flight),
             "cap": self.config.max_concurrent,
             "usage_pct": self.rate_gauge.current_pct(),
-            "threshold_pct": self.config.rate_limit_threshold_pct,
+            "threshold_pct": RATE_LIMIT_THRESHOLD_PCT,
             "paused_until": (
                 self._paused_until.isoformat() if self._paused_until is not None else None
             ),
@@ -279,7 +292,7 @@ class Supervisor:
                 resets_at = outcome.resets_at
                 sleep_until_ts = max(
                     float(resets_at) if resets_at is not None else 0.0,
-                    now_ts + self.config.rate_limit_default_sleep_sec,
+                    now_ts + RATE_LIMIT_DEFAULT_SLEEP_SEC,
                 )
                 sleep_until = datetime.fromtimestamp(sleep_until_ts, tz=timezone.utc)
                 if self._paused_until is None or sleep_until > self._paused_until:
@@ -298,11 +311,11 @@ class Supervisor:
 
             case TaskOutcome.FAILURE:
                 new_count = increment_failure(self._task_dir_for(task))
-                if new_count >= self.config.retry_limit:
+                if new_count >= RETRY_LIMIT:
                     self._queue.set_blocked(
                         task.id,
                         reason=(
-                            f"retry limit ({self.config.retry_limit}) exhausted; "
+                            f"retry limit ({RETRY_LIMIT}) exhausted; "
                             f"last failure: {outcome.reason}"
                         ),
                     )
@@ -318,7 +331,7 @@ class Supervisor:
                         "task_retry_exhausted",
                         task_id=task.id,
                         failures=new_count,
-                        retry_limit=self.config.retry_limit,
+                        retry_limit=RETRY_LIMIT,
                         **fleet_ctx,
                     )
                 else:
@@ -337,7 +350,7 @@ class Supervisor:
                         "task_failure_release",
                         task_id=task.id,
                         failures=new_count,
-                        retry_limit=self.config.retry_limit,
+                        retry_limit=RETRY_LIMIT,
                         **fleet_ctx,
                     )
 
@@ -354,7 +367,7 @@ class Supervisor:
         self._shutting_down = True
         self._log.info("supervisor_shutdown_initiated")
 
-        grace = float(self.config.shutdown_grace_sec)
+        grace = float(SHUTDOWN_GRACE_SEC)
         loop = asyncio.get_event_loop()
         deadline = loop.time() + grace
 

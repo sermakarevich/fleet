@@ -35,8 +35,8 @@ your machine and rate limits can handle.
   - [`fleet run`](#fleet-run)
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
 - [Configuration reference](#configuration-reference)
+- [Adding a custom coder](#adding-a-custom-coder)
 - [Q&A protocol — for the human](#qa-protocol--for-the-human)
-- [FAQ](#faq)
 
 ---
 
@@ -377,56 +377,116 @@ reads `Q&A.md` on startup (per the resume protocol inlined from
 
 ---
 
-## FAQ
+## Adding a custom coder
 
-**Q: A task exhausted its retries. What now?**
+Fleet ships with three built-in coders (`claude`, `agy`, `codex`), but you can
+wrap any CLI agent in four small steps.
 
-The supervisor moves the task to `blocked` with a reason of the form
-`"retry limit (N) exhausted; last failure: …"` and posts a comment with
-the last exit code and a tail of stderr. Inspect the failure logs with
-`fleet task <task_id> log` (or directly at
-`$FLEET_HOME/tasks/<task_id>/log.jsonl` and
-`$FLEET_HOME/tasks/<task_id>/log.stderr`). Fix the underlying issue, then:
+### Step 1 — Implement the `Coder` base class
 
-```bash
-fleet bd update <task_id> --status open --assignee ""
+Create a file in `src/fleet/coders/`, e.g. `src/fleet/coders/mycoder.py`:
+
+```python
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fleet.coders.base import Coder
+from fleet.schemas import Event, Task
+
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
+_HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
+
+
+class MyCoder(Coder):
+    name = "mycoder"          # unique name used in fleet bd create --coder
+    context_limit = 128_000   # used to compute context-pressure threshold
+
+    def __init__(self, model: str = "my-default-model") -> None:
+        self.model = model
+
+    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
+        """Return the argv list passed to asyncio.create_subprocess_exec()."""
+        artifacts_dir = task_dir / "artifacts"
+        instructions = _INSTRUCTION_PATH.read_text(encoding="utf-8").strip()
+        invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
+        header = _HEADER_PATH.read_text(encoding="utf-8").format(
+            task_id=task.id,
+            task_title=task.title,
+            task_description=task.description or "",
+            task_dir=task_dir,
+            artifacts_dir=artifacts_dir,
+            invocation_line=invocation_line,
+        ).strip()
+        prompt = f"{header}\n\n---\n\n{instructions}"
+        return ["mycli", "--model", self.model, "--json", prompt]
+
+    def env(self, task: Task, task_dir: Path) -> dict[str, str]:
+        """Return env-var overlay merged on top of os.environ before spawn.
+
+        These three keys are REQUIRED — the agent reads them to locate its
+        artifact directory and write PLAN_AND_STATUS.md / KNOWLEDGE.md.
+        """
+        return {
+            "FLEET_TASK_ID": task.id,
+            "FLEET_TASK_DIR": str(task_dir),
+            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
+        }
+
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line from the subprocess into a normalized Event.
+
+        Return None for any line you want to discard.  Must be pure — no I/O.
+        """
+        if not raw_line.strip():
+            return None
+        try:
+            data = json.loads(raw_line)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        ts = datetime.now(tz=timezone.utc)
+        kind = data.get("type", "")
+        if kind == "started":
+            return Event(kind="session_started", raw=data, ts=ts)
+        if kind == "finished":
+            return Event(kind="session_ended", raw=data, ts=ts, usage=data.get("usage"))
+        return None
 ```
 
-The supervisor will re-claim it with a fresh retry counter.
+**Contracts to honour:**
+- `build_argv` — the last positional element is almost always the full prompt;
+  construct it from the shared templates so the agent receives the Fleet task
+  protocol and artifact-directory instructions.
+- `env` — always emit `FLEET_TASK_ID`, `FLEET_TASK_DIR`, `FLEET_ARTIFACT_DIR`;
+  never put `ANTHROPIC_API_KEY` here (the CLI owns that).
+- `normalize_event` — return `None` for anything you don't understand; the
+  runner skips `None` events safely. Must be **pure** (no I/O, no logging).
 
----
+### Step 2 — Register the coder
 
-**Q: How do rate-limit pauses work?**
+Add one line to `src/fleet/coders/__init__.py`:
 
-When the Claude API rate-limit usage exceeds 90 %, the supervisor stops
-claiming new tasks. In-flight tasks continue running. The supervisor
-resumes claiming after 5 minutes or when the rate gauge drops below the
-threshold. Rate-limit exits do NOT consume a retry.
+```python
+from fleet.coders.mycoder import MyCoder   # add this import
 
----
+_REGISTRY: dict[str, type[Coder]] = {
+    "claude":   ClaudeCoder,
+    "agy":      AgyCoder,
+    "codex":    CodexCoder,
+    "mycoder":  MyCoder,    # add this entry
+}
+```
 
-**Q: Can I run the fleet across multiple machines?**
+### Step 3 — Use your coder
 
-Multi-machine operation is out of scope for v1. The supervisor is designed for
-single-machine use. The beads queue is a local Dolt database; concurrent access
-from multiple machines is not supported in this version.
+```bash
+# set as the default for all tasks
+fleet config set coder=mycoder
 
----
+# or pin it to individual tasks at creation time
+fleet bd create --coder mycoder --model my-model --title "Task for my coder"
+```
 
-**Q: Why is there no `--resume` flag?**
-
-The fleet does not pass `--resume` to the Claude CLI. Continuation state lives
-entirely in the artifact directory (`PLAN_AND_STATUS.md`, `KNOWLEDGE.md`,
-`Q&A.md`, `events.jsonl`). The agent reads these files on every fresh
-invocation to pick up where it left off. This approach works across restarts,
-crashes, and machine reboots without depending on the CLI's session
-resumption mechanism.
-
----
-
-**Q: Where is the bundled `INSTRUCTION.md` template?**
-
-It lives at `<install>/src/fleet/templates/INSTRUCTION.md`. The supervisor reads
-it at coder-invocation time and inlines its full content into the prompt, so
-the coder always picks up the latest version without any per-project file
-copy. Open that path directly if you want to read or hand-edit it.
+That's it — the supervisor discovers the coder through `_REGISTRY`, so no
+further configuration is needed.

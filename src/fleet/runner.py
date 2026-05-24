@@ -11,7 +11,7 @@ import structlog
 from fleet.coders.base import Coder
 from fleet.logging import append_event, open_task_log
 from fleet.queue import Queue
-from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord, SHUTDOWN_GRACE_SEC
 
 _STDERR_TAIL_BYTES = 2048
 
@@ -166,7 +166,7 @@ class TaskRunner:
                             try:
                                 await asyncio.wait_for(
                                     proc.wait(),
-                                    timeout=float(self._config.shutdown_grace_sec),
+                                    timeout=float(SHUTDOWN_GRACE_SEC),
                                 )
                             except asyncio.TimeoutError:
                                 try:
@@ -279,7 +279,7 @@ class TaskRunner:
         try:
             await asyncio.wait_for(
                 proc.wait(),
-                timeout=float(self._config.shutdown_grace_sec),
+                timeout=float(SHUTDOWN_GRACE_SEC),
             )
         except asyncio.TimeoutError:
             try:

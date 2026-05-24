@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fleet.config import write_atomic
-from fleet.schemas import Event, Task
+from fleet.schemas import Task
 
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -36,11 +35,7 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
         queue.add_task(_task(f"t-{i:03d}"))
 
     coder = FakeClaudeCoder(scenario="slow", FAKE_CLAUDE_SLEEP_SEC="10")
-    config = fast_config(
-        max_concurrent=4,
-        claim_poll_interval_sec=1,
-        config_poll_interval_sec=1,
-    )
+    config = fast_config(max_concurrent=4)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -103,11 +98,7 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
             return base
 
     coder = ScenarioCyclingCoder()
-    config = fast_config(
-        max_concurrent=4,
-        claim_poll_interval_sec=1,
-        config_poll_interval_sec=1,
-    )
+    config = fast_config(max_concurrent=4)
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
 
     async def _run() -> None:
@@ -159,55 +150,3 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
     asyncio.run(_run())
 
 
-def test_day_night_reserve_resume(tmp_path: Path) -> None:
-    """Setting rate_limit_threshold_pct=100 with gauge at 92% resumes spawning. (FR-27)"""
-    queue = MemoryQueue()
-    for i in range(3):
-        queue.add_task(_task(f"t-{i:03d}"))
-
-    coder = FakeClaudeCoder(scenario="clean_exit")
-    config = fast_config(
-        max_concurrent=3,
-        rate_limit_threshold_pct=90,
-        claim_poll_interval_sec=1,
-        config_poll_interval_sec=1,
-    )
-    sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
-
-    async def _run() -> None:
-        sup_task = asyncio.create_task(sup.run())
-        try:
-            # Wait for first claim
-            await asyncio.sleep(1.5)
-
-            # Raise gauge above threshold to pause spawning
-            sup.rate_gauge.update(Event(
-                kind="rate_limit_info",
-                raw={},
-                ts=datetime.now(tz=timezone.utc),
-                rate_info={"usage_pct": 92.0, "resets_at": None},
-            ))
-            # Force the spawn controller's was_rate_paused state to be evaluated
-            await asyncio.sleep(1.5)
-
-            # Now raise threshold to 100 so gauge (92) < threshold (100)
-            runtime_toml = tmp_path / ".fleet" / "runtime.toml"
-            write_atomic(runtime_toml, {"rate_limit_threshold_pct": "100"})
-
-            # Wait for config reload + next spawn
-            await asyncio.sleep(2.5)
-
-            assert sup.config.rate_limit_threshold_pct == 100
-
-        finally:
-            await sup._shutdown()
-            try:
-                await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                sup_task.cancel()
-                try:
-                    await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-    asyncio.run(_run())
