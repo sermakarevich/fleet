@@ -6,15 +6,15 @@
 
 `fleet` is a lightweight Python supervisor that claims tasks from a
 **centralized** [beads](https://github.com/gastownhall/beads) queue and runs
-them through a coder (`claude`, `agy`, or `codex` CLI) in a headless loop. Each task
+them in parallel through a coder (`claude`, `agy`, or `codex` CLI) in a headless loop. Each task
 remembers the project working directory it was created in, plus an optional
 per-task coder/model override, so a single supervisor can drive work across
-many projects — and across multiple agent backends — from one machine.
+many projects — and across multiple agent backends — spawning many concurrent agents - from one machine.
 
-**Run many agents in parallel.** The supervisor keeps up to `max_concurrent`
-agent subprocesses in flight at once (default `3`) — bump it with
-`fleet config set max_concurrent=N` to fan out across as many tasks as
-your machine and rate limits can handle.
+<p align="center">
+  <img src="assets/tasks.png" alt="fleet tasks output">
+</p>
+
 
 ---
 
