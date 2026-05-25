@@ -78,3 +78,51 @@ export function usePutConfig() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['config'] }),
   });
 }
+
+export function useCoders() {
+  return useQuery({ queryKey: ['coders'], queryFn: api.getCoders });
+}
+
+export function useTemplates() {
+  return useQuery({ queryKey: ['templates'], queryFn: api.getTemplates });
+}
+
+export function usePauseSupervisor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.pauseSupervisor(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  });
+}
+
+export function useResumeSupervisor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.resumeSupervisor(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  });
+}
+
+export function useAnalytics() {
+  const throughput = useQuery({ queryKey: ['analytics', 'throughput'], queryFn: () => api.getAnalytics('throughput') });
+  const leaderboard = useQuery({ queryKey: ['analytics', 'leaderboard'], queryFn: () => api.getAnalytics('leaderboard') });
+  const burnouts = useQuery({ queryKey: ['analytics', 'burnouts'], queryFn: () => api.getAnalytics('burnouts') });
+  const rateLimits = useQuery({ queryKey: ['analytics', 'rate-limits'], queryFn: () => api.getAnalytics('rate-limits') });
+  const perProject = useQuery({ queryKey: ['analytics', 'per-project'], queryFn: () => api.getAnalytics('per-project') });
+
+  const loading =
+    throughput.isLoading ||
+    leaderboard.isLoading ||
+    burnouts.isLoading ||
+    rateLimits.isLoading ||
+    perProject.isLoading;
+
+  return {
+    throughput: throughput.data,
+    leaderboard: leaderboard.data,
+    burnouts: burnouts.data,
+    rateLimits: rateLimits.data,
+    perProject: perProject.data,
+    loading,
+  };
+}

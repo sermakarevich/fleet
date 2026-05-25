@@ -8,6 +8,7 @@ import type {
   SupervisorStatus,
   TaskDetail,
   TaskSummary,
+  Template,
 } from './types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -80,6 +81,14 @@ export const api = {
 
   putConfig(updates: Partial<RuntimeConfig>): Promise<RuntimeConfig> {
     return request('/api/config', json('PUT', updates));
+  },
+
+  getCoders(): Promise<{ coders: string[] }> {
+    return request('/api/coders');
+  },
+
+  getTemplates(): Promise<{ templates: Template[] }> {
+    return request('/api/templates');
   },
 
   getAnalytics(endpoint: string): Promise<unknown> {

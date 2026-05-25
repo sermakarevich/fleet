@@ -4,6 +4,9 @@ import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
 import { TaskDetail } from './pages/TaskDetail';
 import { QAInbox } from './pages/QAInbox';
+import { Analytics } from './pages/Analytics';
+import { Config } from './pages/Config';
+import { NewTaskPanel } from './components/NewTaskPanel';
 import { useQA } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
 
@@ -17,7 +20,7 @@ function QABadge() {
   return count > 0 ? <span style={styles.badge}>{count}</span> : null;
 }
 
-function NavBar({ connected }: { connected: boolean }) {
+function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () => void }) {
   return (
     <nav style={styles.nav}>
       <span style={styles.brand}>fleet</span>
@@ -27,6 +30,7 @@ function NavBar({ connected }: { connected: boolean }) {
       </NavLink>
       <NavLink style={navLinkStyle} to="/analytics">Analytics</NavLink>
       <NavLink style={navLinkStyle} to="/config">Config</NavLink>
+      <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <span style={{ ...styles.dot, color: connected ? '#22c55e' : '#ef4444' }}>
         {connected ? '● connected' : '○ disconnected'}
       </span>
@@ -36,28 +40,39 @@ function NavBar({ connected }: { connected: boolean }) {
 
 function AppInner() {
   const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
+  const [showNewTask, setShowNewTask] = useState(false);
+
+  const addToast = (message: string) => {
+    const id = String(Date.now());
+    setToasts(prev => [...prev, { id, message }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
+  };
 
   const { connected } = useWebSocket((_taskId, event) => {
     if (event.kind === 'ask_human') {
       const question = (event.extra.question as string | undefined) ?? 'New question';
-      const id = String(Date.now());
-      setToasts(prev => [...prev, { id, message: `Q&A: ${question.slice(0, 80)}` }]);
-      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000);
+      addToast(`Q&A: ${question.slice(0, 80)}`);
     }
   });
 
   return (
     <>
-      <NavBar connected={connected} />
+      <NavBar connected={connected} onNewTask={() => setShowNewTask(true)} />
       <main style={styles.main}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/qa" element={<QAInbox />} />
-          <Route path="/analytics" element={<Placeholder title="Analytics" />} />
-          <Route path="/config" element={<Placeholder title="Config" />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/config" element={<Config />} />
         </Routes>
       </main>
+      {showNewTask && (
+        <NewTaskPanel
+          onClose={() => setShowNewTask(false)}
+          onCreated={id => addToast(`Task ${id} created`)}
+        />
+      )}
       {toasts.length > 0 && (
         <div style={styles.toastContainer}>
           {toasts.map(t => (
@@ -75,10 +90,6 @@ function AppInner() {
       )}
     </>
   );
-}
-
-function Placeholder({ title }: { title: string }) {
-  return <p style={{ padding: '1rem', color: '#888' }}>{title} — coming soon</p>;
 }
 
 export function App() {
@@ -131,8 +142,20 @@ const styles = {
     padding: '0 0.25rem',
     marginLeft: '0.25rem',
   } as React.CSSProperties,
-  dot: {
+  newTaskBtn: {
     marginLeft: 'auto',
+    padding: '0.2rem 0.625rem',
+    background: '#3b82f6',
+    border: '1px solid #3b82f6',
+    borderRadius: 4,
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontWeight: 500,
+    fontFamily: 'system-ui, sans-serif',
+    lineHeight: '1.4',
+  } as React.CSSProperties,
+  dot: {
     fontSize: '0.75rem',
     color: '#aaa',
   } as React.CSSProperties,
