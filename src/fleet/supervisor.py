@@ -95,6 +95,9 @@ class Supervisor:
                     continue
                 self._paused_until = None
 
+            if (self._project_root / ".pause").exists():
+                continue
+
             decision = self.spawn_controller.decide(
                 in_flight=len(self.in_flight),
                 max_concurrent=self.config.max_concurrent,

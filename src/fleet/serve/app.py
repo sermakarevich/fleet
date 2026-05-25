@@ -11,7 +11,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from fleet.config import load as load_config
+from fleet.queue import BeadsQueue, Queue
 from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
+from fleet.serve.routes.analytics import create_analytics_router
+from fleet.serve.routes.config_routes import create_config_router
+from fleet.serve.routes.qa import create_qa_list_router
+from fleet.serve.routes.supervisor import create_supervisor_router
+from fleet.serve.routes.tasks import create_tasks_router
 from fleet.serve.stats import fleet_home
 from fleet.serve.watcher import ConnectionManager, FileWatcher
 
@@ -23,11 +29,12 @@ class AppState:
     config_mtime: float | None
 
 
-def create_app() -> FastAPI:
+def create_app(queue: Queue | None = None) -> FastAPI:
     """Create and configure the fleet FastAPI application."""
     mgr = ConnectionManager()
     watcher = FileWatcher()
     store = PendingQuestionStore()
+    resolved_queue = queue if queue is not None else BeadsQueue(fleet_home())
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -49,8 +56,14 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=_lifespan)
     app.state.pending_questions = store
     app.state.connection_manager = mgr
+    app.state.queue = resolved_queue
     app.include_router(create_mcp_router(store, mgr))
     app.include_router(create_qa_router(store))
+    app.include_router(create_tasks_router())
+    app.include_router(create_supervisor_router())
+    app.include_router(create_config_router())
+    app.include_router(create_qa_list_router())
+    app.include_router(create_analytics_router())
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
