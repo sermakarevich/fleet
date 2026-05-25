@@ -95,8 +95,9 @@ export const api = {
     return request(`/api/analytics/${endpoint}`);
   },
 
-  search(q: string): Promise<SearchResult[]> {
-    return request(`/api/search?q=${encodeURIComponent(q)}`);
+  async search(q: string): Promise<SearchResult[]> {
+    const result = await request<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+    return result.results;
   },
 
   getArtifactPlan(id: string): Promise<{ content: string; mtime: number; path: string }> {

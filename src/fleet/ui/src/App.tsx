@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
@@ -7,8 +7,11 @@ import { QAInbox } from './pages/QAInbox';
 import { Analytics } from './pages/Analytics';
 import { Config } from './pages/Config';
 import { NewTaskPanel } from './components/NewTaskPanel';
+import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { useQA } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useCommandPalette } from './hooks/useCommandPalette';
+import { useNativeNotifications } from './hooks/useNativeNotifications';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1 } },
@@ -41,6 +44,8 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
 function AppInner() {
   const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
   const [showNewTask, setShowNewTask] = useState(false);
+  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
+  const { notify } = useNativeNotifications();
 
   const addToast = (message: string) => {
     const id = String(Date.now());
@@ -48,12 +53,32 @@ function AppInner() {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
   };
 
-  const { connected } = useWebSocket((_taskId, event) => {
+  const { connected } = useWebSocket((taskId, event) => {
     if (event.kind === 'ask_human') {
       const question = (event.extra.question as string | undefined) ?? 'New question';
       addToast(`Q&A: ${question.slice(0, 80)}`);
+      const title = (event.extra.task_title as string | undefined) ?? taskId;
+      notify('ask_human', 'Fleet Q&A', `${title}: ${question.slice(0, 100)}`);
+    }
+    if (event.kind === 'session_ended') {
+      const result = (event.extra.result as string | undefined) ?? '';
+      if (result === 'success') {
+        const title = (event.extra.task_title as string | undefined) ?? taskId;
+        notify('completed', 'Fleet', `${title} completed`);
+      }
     }
   });
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [setPaletteOpen]);
 
   return (
     <>
@@ -73,6 +98,11 @@ function AppInner() {
           onCreated={id => addToast(`Task ${id} created`)}
         />
       )}
+      <CommandPalette
+        open={paletteOpen}
+        setOpen={setPaletteOpen}
+        onCreateTask={() => setShowNewTask(true)}
+      />
       {toasts.length > 0 && (
         <div style={styles.toastContainer}>
           {toasts.map(t => (

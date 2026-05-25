@@ -19,6 +19,7 @@ from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_r
 from fleet.serve.routes.analytics import create_analytics_router
 from fleet.serve.routes.config_routes import create_config_router
 from fleet.serve.routes.qa import create_qa_list_router
+from fleet.serve.routes.search import create_search_router
 from fleet.serve.routes.supervisor import create_supervisor_router
 from fleet.serve.routes.tasks import create_tasks_router
 from fleet.serve.stats import fleet_home
@@ -81,6 +82,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     app.include_router(create_config_router())
     app.include_router(create_qa_list_router())
     app.include_router(create_analytics_router())
+    app.include_router(create_search_router())
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:

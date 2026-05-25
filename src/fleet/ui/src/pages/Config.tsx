@@ -1,6 +1,7 @@
 import { useCoders, useConfig, usePauseSupervisor, useResumeSupervisor, useSupervisor, usePutConfig } from '../hooks/useApi';
 import { SupervisorPanel } from '../components/Supervisor/SupervisorPanel';
 import { ConfigEditor } from '../components/Supervisor/ConfigEditor';
+import { useNativeNotifications } from '../hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../types';
 
 export function Config() {
@@ -10,6 +11,7 @@ export function Config() {
   const pauseSupervisor = usePauseSupervisor();
   const resumeSupervisor = useResumeSupervisor();
   const putConfig = usePutConfig();
+  const { permissions, setPermission } = useNativeNotifications();
 
   const loading = supervisorLoading || configLoading || codersLoading;
 
@@ -30,6 +32,32 @@ export function Config() {
               loading={pauseSupervisor.isPending || resumeSupervisor.isPending}
             />
           )}
+          <div style={styles.panel}>
+            <h3 style={styles.panelTitle}>Notifications</h3>
+            <p style={styles.notifNote}>Browser notifications (requires permission)</p>
+            <div style={styles.toggleRow}>
+              <label style={styles.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={permissions.ask_human}
+                  onChange={e => setPermission('ask_human', e.target.checked)}
+                  style={styles.checkbox}
+                />
+                Q&amp;A questions
+              </label>
+            </div>
+            <div style={styles.toggleRow}>
+              <label style={styles.toggleLabel}>
+                <input
+                  type="checkbox"
+                  checked={permissions.completed}
+                  onChange={e => setPermission('completed', e.target.checked)}
+                  style={styles.checkbox}
+                />
+                Task completions
+              </label>
+            </div>
+          </div>
           <div style={styles.panel}>
             <h3 style={styles.panelTitle}>Installed Coders</h3>
             {coders.length === 0 ? (
@@ -112,5 +140,25 @@ const styles = {
     color: '#a1a1aa',
     fontSize: '0.8125rem',
     fontFamily: 'monospace',
+  } as React.CSSProperties,
+  notifNote: {
+    color: '#52525b',
+    fontSize: '0.8125rem',
+    margin: '0 0 0.625rem',
+  } as React.CSSProperties,
+  toggleRow: {
+    marginBottom: '0.5rem',
+  } as React.CSSProperties,
+  toggleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    color: '#a1a1aa',
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  checkbox: {
+    accentColor: '#3b82f6',
+    cursor: 'pointer',
   } as React.CSSProperties,
 };

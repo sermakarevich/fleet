@@ -118,8 +118,8 @@ export interface PerProjectRow {
 export interface SearchResult {
   task_id: string;
   task_title: string;
-  match_type: string;
-  excerpt: string;
+  source: string;        // "title" | "description" | "qa" | "knowledge" | "plan"
+  match_context: string; // ~120 char snippet
 }
 
 export interface LogLine {
