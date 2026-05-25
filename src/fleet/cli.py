@@ -6,7 +6,7 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, fields as dc_fields
+from dataclasses import fields as dc_fields
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -24,6 +24,12 @@ from fleet.config import write_atomic
 from fleet.logging import setup_supervisor_logger
 from fleet.queue import BeadsError, BeadsQueue
 from fleet.schemas import LOG_ROOT, Task
+from fleet.serve.stats import (
+    TaskRuntimeStats as _TaskRuntimeStats,
+    fleet_home as _fleet_home_impl,
+    task_dir as _task_dir_impl,
+    task_runtime_stats,
+)
 from fleet.supervisor import Supervisor
 
 app = typer.Typer(no_args_is_help=True)
@@ -32,16 +38,8 @@ app.add_typer(config_app, name="config", help="Manage runtime configuration.")
 
 
 def _fleet_home() -> Path:
-    """Return the centralized fleet home directory.
-
-    Resolution order:
-      1. $FLEET_HOME env var (absolute path).
-      2. ~/.fleet
-    """
-    env = os.environ.get("FLEET_HOME")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".fleet"
+    """Return the centralized fleet home directory (delegates to serve.stats.fleet_home)."""
+    return _fleet_home_impl()
 
 
 def _runtime_toml_path() -> Path:
@@ -334,6 +332,26 @@ def run() -> None:
 
 
 # ---------------------------------------------------------------------------
+# serve
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def serve(
+    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = 7890,
+) -> None:
+    """Start the fleet UI server on 127.0.0.1 (FR-48, FR-49)."""
+    import uvicorn
+
+    uvicorn.run(
+        "fleet.serve.app:create_app",
+        host="127.0.0.1",
+        port=port,
+        factory=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # log
 # ---------------------------------------------------------------------------
 
@@ -399,7 +417,7 @@ class TaskAction(str, Enum):
 
 
 def _task_dir(task_id: str) -> Path:
-    return _fleet_home() / "tasks" / task_id
+    return _task_dir_impl(task_id)
 
 
 def _print_file_or_exit(path: Path, missing_msg: str) -> None:
@@ -409,97 +427,8 @@ def _print_file_or_exit(path: Path, missing_msg: str) -> None:
     sys.stdout.write(path.read_text(encoding="utf-8"))
 
 
-@dataclass
-class _TaskRuntimeStats:
-    started_at: datetime | None
-    last_event_at: datetime | None
-    events: int
-    context_tokens: int | None  # peak (input + cache_creation + cache_read)
-
-
-def _parse_iso(ts: str) -> datetime | None:
-    try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
-
-
-def _safe_int(v: object) -> int:
-    if isinstance(v, bool):
-        return 0
-    if isinstance(v, int):
-        return v
-    if isinstance(v, str):
-        try:
-            return int(v)
-        except ValueError:
-            return 0
-    return 0
-
-
 def _task_runtime_stats(task_id: str) -> _TaskRuntimeStats:
-    """Best-effort scan of a task's directory for runtime signals."""
-    task_dir = _task_dir(task_id)
-    if not task_dir.exists():
-        return _TaskRuntimeStats(
-            started_at=None, last_event_at=None, events=0, context_tokens=None
-        )
-
-    started_at: datetime | None = None
-    log = task_dir / "log.jsonl"
-    if log.exists():
-        try:
-            with log.open("r", encoding="utf-8") as fh:
-                first_line = fh.readline().strip()
-            if first_line:
-                row = json.loads(first_line)
-                ts = row.get("timestamp")
-                if isinstance(ts, str):
-                    started_at = _parse_iso(ts)
-        except (OSError, json.JSONDecodeError):
-            pass
-        if started_at is None:
-            started_at = datetime.fromtimestamp(log.stat().st_mtime, tz=timezone.utc)
-
-    events_file = task_dir / "events.jsonl"
-    events = 0
-    last_event_at: datetime | None = None
-    context_tokens: int | None = None
-    if events_file.exists():
-        try:
-            with events_file.open("r", encoding="utf-8") as fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    events += 1
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    ts_str = row.get("ts")
-                    if isinstance(ts_str, str):
-                        parsed = _parse_iso(ts_str)
-                        if parsed is not None:
-                            last_event_at = parsed
-                    usage = row.get("usage")
-                    if isinstance(usage, dict) and row.get("kind") != "session_ended":
-                        prompt = (
-                            _safe_int(usage.get("input_tokens"))
-                            + _safe_int(usage.get("cache_creation_input_tokens"))
-                            + _safe_int(usage.get("cache_read_input_tokens"))
-                        )
-                        if prompt > 0:
-                            context_tokens = max(context_tokens or 0, prompt)
-        except OSError:
-            pass
-
-    return _TaskRuntimeStats(
-        started_at=started_at,
-        last_event_at=last_event_at,
-        events=events,
-        context_tokens=context_tokens,
-    )
+    return task_runtime_stats(task_id)
 
 
 def _format_started(ts: datetime | None, now: datetime) -> str:

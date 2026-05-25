@@ -9,13 +9,17 @@ requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
     "structlog>=24",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "websockets>=12",
+    "watchfiles>=0.21",
 ]
 
 [project.scripts]
 fleet = "fleet.cli:app"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -26,3 +30,8 @@ fleet = ["templates/*", "coders/hooks/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]
