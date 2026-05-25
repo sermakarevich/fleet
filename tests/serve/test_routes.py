@@ -159,3 +159,238 @@ def test_analytics_throughput_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         assert "rate_limit" in b
         assert "context_pressure" in b
         assert "blocked_by_agent" in b
+
+
+# ---------------------------------------------------------------------------
+# Artifact endpoints (FR-11..FR-21)
+# ---------------------------------------------------------------------------
+
+def test_artifact_plan_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/plan returns content and mtime (FR-14)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-plan")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "PLAN_AND_STATUS.md").write_text("# Plan\ncontent here")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-plan/artifacts/plan")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["content"] == "# Plan\ncontent here"
+    assert isinstance(data["mtime"], float)
+
+
+def test_artifact_plan_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/plan returns 404 when file missing (FR-14)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _make_task_dir(tmp_path / "tasks", "task-noplan")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-noplan/artifacts/plan")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 404
+
+
+def test_artifact_knowledge_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/knowledge returns KNOWLEDGE.md content (FR-15)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-kb")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "KNOWLEDGE.md").write_text("## Surface area\nsome knowledge")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-kb/artifacts/knowledge")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "some knowledge" in data["content"]
+    assert isinstance(data["mtime"], float)
+
+
+def test_artifact_qa_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/qa returns Q&A.md content (FR-16)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-qa")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "Q&A.md").write_text("## Q: What?\n## A: This.")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-qa/artifacts/qa")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "## Q: What?" in data["content"]
+    assert isinstance(data["mtime"], float)
+
+
+def test_logs_returns_parsed_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/logs returns parsed log lines (FR-17)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-logs")
+    log_lines = [
+        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "started"}),
+        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "failed"}),
+        "bad line",  # malformed line should be skipped
+    ]
+    (task_dir / "log.jsonl").write_text("\n".join(log_lines))
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-logs/logs")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "lines" in data
+    assert len(data["lines"]) == 2
+    assert data["lines"][0]["level"] == "info"
+    assert data["lines"][0]["message"] == "started"
+    assert data["lines"][1]["level"] == "error"
+
+
+def test_logs_level_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/logs?level=error returns only error lines (FR-17)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-logfilter")
+    log_lines = [
+        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "ok"}),
+        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "boom"}),
+    ]
+    (task_dir / "log.jsonl").write_text("\n".join(log_lines))
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-logfilter/logs?level=error")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["lines"]) == 1
+    assert data["lines"][0]["level"] == "error"
+
+
+def test_stderr_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/stderr returns raw stderr content (FR-18)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-stderr")
+    (task_dir / "log.stderr").write_text("some error output\nanother line")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-stderr/stderr")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "some error output" in data["content"]
+
+
+def test_stderr_empty_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/stderr returns empty content when log.stderr absent (FR-18)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _make_task_dir(tmp_path / "tasks", "task-nostderr")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-nostderr/stderr")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json()["content"] == ""
+
+
+def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/diff returns empty diff when cwd is not a git repo (FR-19)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    work_dir = tmp_path / "workdir"
+    work_dir.mkdir()
+    _make_task_dir(tmp_path / "tasks", "task-diff", cwd=str(work_dir))
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-diff/diff")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json()["diff"] == ""
+
+
+def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/files returns per-file read/edit/write counts (FR-20)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-files")
+    events = [
+        {"kind": "tool_use", "tool_name": "Read", "raw": {"input": {"file_path": "/foo.py"}}},
+        {"kind": "tool_use", "tool_name": "Edit", "raw": {"input": {"file_path": "/foo.py"}}},
+        {"kind": "tool_use", "tool_name": "Write", "raw": {"input": {"file_path": "/bar.py"}}},
+        {"kind": "tool_use", "tool_name": "Read", "raw": {"input": {"file_path": "/foo.py"}}},
+        {"kind": "tool_result", "tool_name": None, "raw": {}},  # non-tool_use, ignored
+    ]
+    (task_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-files/files")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "files" in data
+    files_map = {f["path"]: f for f in data["files"]}
+    assert "/foo.py" in files_map
+    assert files_map["/foo.py"]["read"] == 2
+    assert files_map["/foo.py"]["edit"] == 1
+    assert "/bar.py" in files_map
+    assert files_map["/bar.py"]["write"] == 1
