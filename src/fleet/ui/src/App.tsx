@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
 import { TaskDetail } from './pages/TaskDetail';
+import { QAInbox } from './pages/QAInbox';
 import { useQA } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
 
@@ -33,8 +35,15 @@ function NavBar({ connected }: { connected: boolean }) {
 }
 
 function AppInner() {
-  const { connected } = useWebSocket(() => {
-    // Dashboard handles its own WebSocket-driven state; no-op here
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([]);
+
+  const { connected } = useWebSocket((_taskId, event) => {
+    if (event.kind === 'ask_human') {
+      const question = (event.extra.question as string | undefined) ?? 'New question';
+      const id = String(Date.now());
+      setToasts(prev => [...prev, { id, message: `Q&A: ${question.slice(0, 80)}` }]);
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000);
+    }
   });
 
   return (
@@ -44,11 +53,26 @@ function AppInner() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
-          <Route path="/qa" element={<Placeholder title="Q&A inbox" />} />
+          <Route path="/qa" element={<QAInbox />} />
           <Route path="/analytics" element={<Placeholder title="Analytics" />} />
           <Route path="/config" element={<Placeholder title="Config" />} />
         </Routes>
       </main>
+      {toasts.length > 0 && (
+        <div style={styles.toastContainer}>
+          {toasts.map(t => (
+            <div key={t.id} style={styles.toast}>
+              <span style={styles.toastText}>{t.message}</span>
+              <button
+                style={styles.toastClose}
+                onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
@@ -114,5 +138,40 @@ const styles = {
   } as React.CSSProperties,
   main: {
     fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  toastContainer: {
+    position: 'fixed',
+    bottom: '1.5rem',
+    right: '1.5rem',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  toast: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    background: '#1d4ed8',
+    color: '#fff',
+    padding: '0.75rem 1rem',
+    borderRadius: 6,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+    maxWidth: '20rem',
+    fontSize: '0.875rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  toastText: {
+    flex: 1,
+  } as React.CSSProperties,
+  toastClose: {
+    background: 'none',
+    border: 'none',
+    color: '#93c5fd',
+    cursor: 'pointer',
+    fontSize: '1.125rem',
+    lineHeight: 1,
+    padding: 0,
+    flexShrink: 0,
   } as React.CSSProperties,
 };

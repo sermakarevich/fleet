@@ -14,13 +14,14 @@ from fleet.serve.stats import fleet_home as get_fleet_home
 
 
 def _question_to_dict(q: PendingQuestion, home: Path) -> dict:
-    # Resolve task title from task.json
     task_title = ""
+    task_cwd = None
     task_file = home / "tasks" / q.task_id / "task.json"
     if task_file.exists():
         try:
             data = json.loads(task_file.read_text(encoding="utf-8"))
             task_title = data.get("title", "")
+            task_cwd = data.get("cwd") or None
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -31,6 +32,7 @@ def _question_to_dict(q: PendingQuestion, home: Path) -> dict:
         "id": q.id,
         "task_id": q.task_id,
         "task_title": task_title,
+        "task_cwd": task_cwd,
         "question": q.question,
         "choices": q.choices,
         "asked_at": q.asked_at.isoformat(),

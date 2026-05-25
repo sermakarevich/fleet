@@ -38,6 +38,7 @@ export interface QuestionSummary {
   id: string;
   task_id: string;
   task_title: string;
+  task_cwd: string | null;
   question: string;
   choices: string[] | null;
   asked_at: string;
