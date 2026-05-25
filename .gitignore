@@ -15,6 +15,9 @@ wheels/
 .ruff_cache/
 .ipynb_checkpoints/
 
+# Node
+node_modules/
+
 # OS
 .DS_Store
 

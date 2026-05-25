@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fleet.config import load as load_config
 from fleet.queue import BeadsQueue, Queue
@@ -20,6 +23,20 @@ from fleet.serve.routes.supervisor import create_supervisor_router
 from fleet.serve.routes.tasks import create_tasks_router
 from fleet.serve.stats import fleet_home
 from fleet.serve.watcher import ConnectionManager, FileWatcher
+
+logger = logging.getLogger(__name__)
+
+
+class _SPAStaticFiles(StaticFiles):
+    """StaticFiles subclass that serves index.html for any unmatched path (SPA fallback)."""
+
+    async def get_response(self, path: str, scope: Any) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @dataclass
@@ -68,6 +85,12 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
         return JSONResponse({"status": "ok", "fleet_home": str(fleet_home())})
+
+    ui_dist = fleet_home() / "ui_dist"
+    if ui_dist.exists():
+        app.mount("/", _SPAStaticFiles(directory=ui_dist, html=True), name="static")
+    else:
+        logger.warning("UI not built — run `cd src/fleet/ui && npm run build` first")
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:
