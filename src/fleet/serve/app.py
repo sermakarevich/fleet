@@ -11,6 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from fleet.config import load as load_config
+from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
 from fleet.serve.stats import fleet_home
 from fleet.serve.watcher import ConnectionManager, FileWatcher
 
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
     """Create and configure the fleet FastAPI application."""
     mgr = ConnectionManager()
     watcher = FileWatcher()
+    store = PendingQuestionStore()
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -45,6 +47,10 @@ def create_app() -> FastAPI:
                 pass
 
     app = FastAPI(lifespan=_lifespan)
+    app.state.pending_questions = store
+    app.state.connection_manager = mgr
+    app.include_router(create_mcp_router(store, mgr))
+    app.include_router(create_qa_router(store))
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
