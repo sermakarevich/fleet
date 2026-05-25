@@ -25,8 +25,9 @@ function json(method: string, body: unknown): RequestInit {
 }
 
 export const api = {
-  getTasks(): Promise<TaskSummary[]> {
-    return request('/api/tasks');
+  async getTasks(): Promise<TaskSummary[]> {
+    const result = await request<{ tasks: TaskSummary[] }>('/api/tasks');
+    return result.tasks;
   },
 
   getTask(id: string): Promise<TaskDetail> {
@@ -45,9 +46,10 @@ export const api = {
     return request('/api/tasks', json('POST', payload));
   },
 
-  getQA(status?: string): Promise<QuestionSummary[]> {
+  async getQA(status?: string): Promise<QuestionSummary[]> {
     const qs = status ? `?status=${encodeURIComponent(status)}` : '';
-    return request(`/api/qa${qs}`);
+    const result = await request<{ questions: QuestionSummary[] }>(`/api/qa${qs}`);
+    return result.questions;
   },
 
   answerQuestion(id: string, answer: string): Promise<void> {

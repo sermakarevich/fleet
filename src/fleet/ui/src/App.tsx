@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
+import { Dashboard } from './pages/Dashboard';
 import { useQA } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
-import type { FleetEvent } from './types';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1 } },
@@ -32,18 +32,16 @@ function NavBar({ connected }: { connected: boolean }) {
 }
 
 function AppInner() {
-  const handleEvent = (_taskId: string, _event: FleetEvent) => {
-    // invalidate react-query caches on task events so UI stays fresh
-    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-  };
-  const { connected } = useWebSocket(handleEvent);
+  const { connected } = useWebSocket(() => {
+    // Dashboard handles its own WebSocket-driven state; no-op here
+  });
 
   return (
     <>
       <NavBar connected={connected} />
       <main style={styles.main}>
         <Routes>
-          <Route path="/" element={<Placeholder title="Dashboard" />} />
+          <Route path="/" element={<Dashboard />} />
           <Route path="/tasks/:id" element={<Placeholder title="Task detail" />} />
           <Route path="/qa" element={<Placeholder title="Q&A inbox" />} />
           <Route path="/analytics" element={<Placeholder title="Analytics" />} />
