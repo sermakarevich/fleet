@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
+import { TaskDetail } from './pages/TaskDetail';
 import { useQA } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
 
@@ -42,7 +43,7 @@ function AppInner() {
       <main style={styles.main}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/tasks/:id" element={<Placeholder title="Task detail" />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/qa" element={<Placeholder title="Q&A inbox" />} />
           <Route path="/analytics" element={<Placeholder title="Analytics" />} />
           <Route path="/config" element={<Placeholder title="Config" />} />

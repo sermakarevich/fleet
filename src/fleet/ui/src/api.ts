@@ -1,5 +1,7 @@
 import type {
   CreateTaskInput,
+  FileOp,
+  LogLine,
   QuestionSummary,
   RuntimeConfig,
   SearchResult,
@@ -86,5 +88,34 @@ export const api = {
 
   search(q: string): Promise<SearchResult[]> {
     return request(`/api/search?q=${encodeURIComponent(q)}`);
+  },
+
+  getArtifactPlan(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/plan`);
+  },
+
+  getArtifactKnowledge(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/knowledge`);
+  },
+
+  getArtifactQA(id: string): Promise<{ content: string; mtime: number }> {
+    return request(`/api/tasks/${id}/artifacts/qa`);
+  },
+
+  getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {
+    const qs = level ? `?level=${encodeURIComponent(level)}` : '';
+    return request(`/api/tasks/${id}/logs${qs}`);
+  },
+
+  getStderr(id: string): Promise<{ content: string }> {
+    return request(`/api/tasks/${id}/stderr`);
+  },
+
+  getDiff(id: string): Promise<{ diff: string }> {
+    return request(`/api/tasks/${id}/diff`);
+  },
+
+  getFiles(id: string): Promise<{ files: FileOp[] }> {
+    return request(`/api/tasks/${id}/files`);
   },
 };

@@ -77,3 +77,17 @@ export interface SearchResult {
   match_type: string;
   excerpt: string;
 }
+
+export interface LogLine {
+  ts: string;
+  level: string;
+  message: string;
+  extra: Record<string, unknown>;
+}
+
+export interface FileOp {
+  path: string;
+  read: number;
+  edit: number;
+  write: number;
+}

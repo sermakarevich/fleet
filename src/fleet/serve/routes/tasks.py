@@ -261,7 +261,7 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "PLAN_AND_STATUS.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime})
+        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime, "path": str(f.resolve())})
 
     @router.get("/tasks/{task_id}/artifacts/knowledge")
     async def get_artifact_knowledge(task_id: str) -> JSONResponse:
@@ -269,7 +269,7 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "KNOWLEDGE.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime})
+        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime, "path": str(f.resolve())})
 
     @router.get("/tasks/{task_id}/artifacts/qa")
     async def get_artifact_qa(task_id: str) -> JSONResponse:
