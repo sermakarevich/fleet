@@ -1,8 +1,11 @@
-import { useCoders, useConfig, usePauseSupervisor, useResumeSupervisor, useSupervisor, usePutConfig } from '../hooks/useApi';
+import { useRef, useState } from 'react';
+import { useCoders, useConfig, usePauseSupervisor, usePutConfig, useResumeSupervisor, useSupervisor } from '../hooks/useApi';
 import { SupervisorPanel } from '../components/Supervisor/SupervisorPanel';
 import { ConfigEditor } from '../components/Supervisor/ConfigEditor';
 import { useNativeNotifications } from '../hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../types';
+
+interface SaveResult { ok: boolean; text: string }
 
 export function Config() {
   const { data: supervisor, isLoading: supervisorLoading } = useSupervisor();
@@ -13,15 +16,31 @@ export function Config() {
   const putConfig = usePutConfig();
   const { permissions, setPermission } = useNativeNotifications();
 
+  const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const loading = supervisorLoading || configLoading || codersLoading;
 
   if (loading) return <p style={styles.msg}>Loading…</p>;
 
   const coders = codersData?.coders ?? [];
 
+  const showSaveResult = (result: SaveResult) => {
+    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
+    setSaveResult(result);
+    dismissTimer.current = setTimeout(() => setSaveResult(null), 4000);
+  };
+
   return (
     <div style={styles.page}>
-      <h1 style={styles.heading}>Config</h1>
+      <div style={styles.pageHeader}>
+        <h1 style={styles.heading}>Config</h1>
+        {saveResult && (
+          <span style={{ ...styles.saveBanner, ...(saveResult.ok ? styles.saveBannerOk : styles.saveBannerErr) }}>
+            {saveResult.text}
+          </span>
+        )}
+      </div>
       <div style={styles.grid}>
         <div>
           {supervisor && (
@@ -76,7 +95,13 @@ export function Config() {
             <ConfigEditor
               config={config}
               onSave={async (updates: Partial<RuntimeConfig>) => {
-                await putConfig.mutateAsync(updates);
+                try {
+                  await putConfig.mutateAsync(updates);
+                  showSaveResult({ ok: true, text: 'Config saved' });
+                } catch (err) {
+                  showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
+                  throw err;
+                }
               }}
             />
           )}
@@ -91,11 +116,36 @@ const styles = {
     padding: '1rem 1.5rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
+  pageHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    marginBottom: '1.25rem',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
   heading: {
-    margin: '0 0 1.25rem',
-    fontSize: '1rem',
+    margin: 0,
+    fontSize: '0.9375rem',
     fontWeight: 600,
     color: '#e4e4e7',
+  } as React.CSSProperties,
+  saveBanner: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.2rem 0.75rem',
+    borderRadius: 4,
+    fontSize: '0.8125rem',
+    fontWeight: 500,
+  } as React.CSSProperties,
+  saveBannerOk: {
+    background: 'rgba(22,163,74,0.15)',
+    border: '1px solid #16a34a',
+    color: '#22c55e',
+  } as React.CSSProperties,
+  saveBannerErr: {
+    background: 'rgba(239,68,68,0.12)',
+    border: '1px solid #dc2626',
+    color: '#ef4444',
   } as React.CSSProperties,
   msg: {
     padding: '1rem',
@@ -112,6 +162,7 @@ const styles = {
     border: '1px solid #3f3f46',
     borderRadius: 8,
     padding: '1rem 1.25rem',
+    marginTop: '1rem',
   } as React.CSSProperties,
   panelTitle: {
     margin: '0 0 0.75rem',
