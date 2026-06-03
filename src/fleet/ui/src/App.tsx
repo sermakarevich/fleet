@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
-import { Dashboard } from './pages/Dashboard';
+import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { Tasks } from './pages/Tasks';
+import { BD } from './pages/BD';
 import { TaskDetail } from './pages/TaskDetail';
-import { QAInbox } from './pages/QAInbox';
-import { Analytics } from './pages/Analytics';
 import { Config } from './pages/Config';
 import { NewTaskPanel } from './components/NewTaskPanel';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
@@ -17,21 +16,22 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1 } },
 });
 
-function QABadge() {
+function QAIndicator() {
   const { data } = useQA('open');
   const count = data?.length ?? 0;
-  return count > 0 ? <span style={styles.badge}>{count}</span> : null;
+  if (count === 0) return null;
+  return <span style={styles.qaBadge}>{count}</span>;
 }
 
 function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () => void }) {
   return (
     <nav style={styles.nav}>
-      <span style={styles.brand}>fleet</span>
-      <NavLink style={navLinkStyle} to="/">Dashboard</NavLink>
-      <NavLink style={navLinkStyle} to="/qa">
-        Q&amp;A <QABadge />
-      </NavLink>
-      <NavLink style={navLinkStyle} to="/analytics">Analytics</NavLink>
+      <span style={styles.brand}>
+        fleet
+        <QAIndicator />
+      </span>
+      <NavLink style={navLinkStyle} to="/tasks">Tasks</NavLink>
+      <NavLink style={navLinkStyle} to="/bd">BD</NavLink>
       <NavLink style={navLinkStyle} to="/config">Config</NavLink>
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <span style={{ ...styles.dot, color: connected ? '#22c55e' : '#ef4444' }}>
@@ -85,10 +85,10 @@ function AppInner() {
       <NavBar connected={connected} onNewTask={() => setShowNewTask(true)} />
       <main style={styles.main}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Navigate to="/tasks" replace />} />
+          <Route path="/tasks" element={<Tasks />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
-          <Route path="/qa" element={<QAInbox />} />
-          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/bd" element={<BD />} />
           <Route path="/config" element={<Config />} />
         </Routes>
       </main>
@@ -153,12 +153,15 @@ const styles = {
     fontSize: '0.875rem',
   } as React.CSSProperties,
   brand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
     fontWeight: 700,
     color: '#fff',
-    marginRight: '1rem',
+    marginRight: '0.75rem',
     letterSpacing: '-0.02em',
   } as React.CSSProperties,
-  badge: {
+  qaBadge: {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -170,7 +173,6 @@ const styles = {
     fontSize: '0.7rem',
     fontWeight: 700,
     padding: '0 0.25rem',
-    marginLeft: '0.25rem',
   } as React.CSSProperties,
   newTaskBtn: {
     marginLeft: 'auto',
