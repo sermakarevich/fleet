@@ -5,6 +5,8 @@ export interface TaskSummary {
   cwd: string | null;
   coder: string | null;
   model: string | null;
+  priority: number | null;
+  depends_on: string[];
   started_at: string | null;
   elapsed_sec: number | null;
   idle_sec: number | null;

@@ -156,6 +156,8 @@ def _build_task_summary(data: dict, home: Path) -> dict:
         "cwd": data.get("cwd"),
         "coder": data.get("coder"),
         "model": data.get("model"),
+        "priority": data.get("priority"),
+        "depends_on": data.get("depends_on") or [],
         "started_at": started_at.isoformat() if started_at else None,
         "elapsed_sec": elapsed_sec,
         "idle_sec": idle_sec,

@@ -97,6 +97,37 @@ def test_task_kill_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 404
 
 
+def test_task_summary_includes_priority_and_depends_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks includes priority and depends_on in each summary (FR-10, FR-11)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    _make_task_dir(
+        tasks_root,
+        "task-bd1",
+        "open",
+        priority=5,
+        depends_on=["task-x", "task-y"],
+    )
+    _make_task_dir(tasks_root, "task-bd2", "in_progress")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    tasks = {t["id"]: t for t in resp.json()["tasks"]}
+
+    assert tasks["task-bd1"]["priority"] == 5
+    assert tasks["task-bd1"]["depends_on"] == ["task-x", "task-y"]
+    assert tasks["task-bd2"]["priority"] is None
+    assert tasks["task-bd2"]["depends_on"] == []
+
+
 def test_config_get_returns_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/config returns all RuntimeConfig fields (FR-43)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
