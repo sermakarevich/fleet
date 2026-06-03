@@ -14,6 +14,7 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
   const [coder, setCoder] = useState('');
   const [model, setModel] = useState('');
   const [priority, setPriority] = useState('');
+  const [args, setArgs] = useState('');
   const [titleError, setTitleError] = useState('');
 
   const { data: codersData } = useCoders();
@@ -53,6 +54,7 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
         coder: coder || undefined,
         model: model || undefined,
         priority: priority ? Number(priority) : undefined,
+        args: args.trim() || undefined,
       });
       onCreated(result.id);
       onClose();
@@ -145,6 +147,16 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
               />
             </label>
           </div>
+
+          <label style={styles.label}>
+            Extra args
+            <input
+              style={styles.input}
+              value={args}
+              onChange={e => setArgs(e.target.value)}
+              placeholder="--deps fleet-abc,fleet-xyz --type feature"
+            />
+          </label>
 
           {templates.length > 0 && (
             <div style={styles.templateSection}>
