@@ -99,6 +99,7 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
   const [coder, setCoder] = useState('');
   const [model, setModel] = useState('');
   const [priority, setPriority] = useState('');
+  const [deps, setDeps] = useState('');
   const [titleErr, setTitleErr] = useState('');
   const [cwdErr, setCwdErr] = useState('');
   const createTask = useCreateTask();
@@ -110,6 +111,7 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
     if (!cwd.trim())   { setCwdErr('Working directory is required'); hasErr = true; } else setCwdErr('');
     if (hasErr) return;
     try {
+      const depsArr = deps.split(',').map(s => s.trim()).filter(Boolean);
       const payload: CreateTaskInput = {
         title: title.trim(),
         description: description || undefined,
@@ -117,6 +119,7 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
         coder: coder || undefined,
         model: model || undefined,
         priority: priority ? Number(priority) : undefined,
+        dependencies: depsArr.length > 0 ? depsArr : undefined,
       };
       const result = await createTask.mutateAsync(payload);
       onCreated(result.id);
@@ -201,6 +204,16 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
               />
             </label>
           </div>
+
+          <label style={styles.label}>
+            Dependencies
+            <input
+              style={styles.input}
+              value={deps}
+              onChange={e => setDeps(e.target.value)}
+              placeholder="fleet-abc, fleet-xyz (comma-separated task IDs)"
+            />
+          </label>
 
           <div style={styles.formFooter}>
             {createTask.error && (
