@@ -17,6 +17,7 @@ from fleet.config import load as load_config
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
 from fleet.serve.routes.analytics import create_analytics_router
+from fleet.serve.routes.chat import create_chat_router
 from fleet.serve.routes.config_routes import create_config_router
 from fleet.serve.routes.qa import create_qa_list_router
 from fleet.serve.routes.search import create_search_router
@@ -83,6 +84,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     app.include_router(create_qa_list_router())
     app.include_router(create_analytics_router())
     app.include_router(create_search_router())
+    app.include_router(create_chat_router())
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:

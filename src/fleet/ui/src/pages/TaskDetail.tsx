@@ -6,7 +6,6 @@ import { Header } from '../components/TaskDetail/Header';
 import { LiveTab } from '../components/TaskDetail/LiveTab';
 import { PlanTab } from '../components/TaskDetail/PlanTab';
 import { KnowledgeTab } from '../components/TaskDetail/KnowledgeTab';
-import { QATab } from '../components/TaskDetail/QATab';
 import { LogTab } from '../components/TaskDetail/LogTab';
 import { StderrTab } from '../components/TaskDetail/StderrTab';
 import { DiffTab } from '../components/TaskDetail/DiffTab';
@@ -14,13 +13,12 @@ import { FilesTab } from '../components/TaskDetail/FilesTab';
 import { ActivityGutter } from '../components/TaskDetail/ActivityGutter';
 import type { FleetEvent } from '../types';
 
-type TabId = 'live' | 'plan' | 'knowledge' | 'qa' | 'log' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'stderr' | 'diff' | 'files';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'plan', label: 'Plan' },
   { id: 'knowledge', label: 'Knowledge' },
-  { id: 'qa', label: 'Q&A' },
   { id: 'log', label: 'Log' },
   { id: 'stderr', label: 'Stderr' },
   { id: 'diff', label: 'Diff' },
@@ -55,7 +53,6 @@ export function TaskDetail() {
       case 'live': return <LiveTab events={events} />;
       case 'plan': return <PlanTab taskId={task!.id} />;
       case 'knowledge': return <KnowledgeTab taskId={task!.id} />;
-      case 'qa': return <QATab taskId={task!.id} taskStatus={task!.status} />;
       case 'log': return <LogTab taskId={task!.id} />;
       case 'stderr': return <StderrTab taskId={task!.id} />;
       case 'diff': return <DiffTab taskId={task!.id} />;

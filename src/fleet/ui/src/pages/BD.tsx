@@ -254,13 +254,17 @@ export function BD() {
   const requeueTask = useRequeueTask();
   const [showCreate, setShowCreate] = useState(false);
   const [lastCreated, setLastCreated] = useState<string | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const coders = codersData?.coders ?? [];
 
   const sorted = useMemo(() => {
     if (!tasksData) return [];
-    return [...tasksData].sort((a, b) => taskOrder(a) - taskOrder(b));
-  }, [tasksData]);
+    const visible = showCompleted
+      ? tasksData
+      : tasksData.filter(t => t.status !== 'closed' && t.status !== 'failed');
+    return [...visible].sort((a, b) => taskOrder(a) - taskOrder(b));
+  }, [tasksData, showCompleted]);
 
   const recentCwds = useMemo(() => {
     if (!tasksData) return [];
@@ -294,6 +298,12 @@ export function BD() {
             Task <span style={styles.createdId}>{lastCreated}</span> created
           </span>
         )}
+        <button
+          style={{ ...styles.toggleBtn, ...(showCompleted ? styles.toggleBtnActive : {}) }}
+          onClick={() => setShowCompleted(v => !v)}
+        >
+          {showCompleted ? 'Hide completed' : 'Show completed'}
+        </button>
         <button style={styles.createBtn} onClick={() => setShowCreate(true)}>
           + Create task
         </button>
@@ -382,6 +392,20 @@ const styles = {
   createdId: {
     fontFamily: 'monospace',
     fontWeight: 600,
+  } as React.CSSProperties,
+  toggleBtn: {
+    padding: '0.2rem 0.625rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#71717a',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  toggleBtnActive: {
+    borderColor: '#3b82f6',
+    color: '#60a5fa',
   } as React.CSSProperties,
   createBtn: {
     marginLeft: 'auto',

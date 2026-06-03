@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { Chat } from './pages/Chat';
 import { Tasks } from './pages/Tasks';
 import { BD } from './pages/BD';
 import { TaskDetail } from './pages/TaskDetail';
@@ -33,6 +34,7 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
       <NavLink style={navLinkStyle} to="/tasks">Tasks</NavLink>
       <NavLink style={navLinkStyle} to="/bd">BD</NavLink>
       <NavLink style={navLinkStyle} to="/config">Config</NavLink>
+      <NavLink style={navLinkStyle} to="/chat">Chat</NavLink>
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <span style={{ ...styles.dot, color: connected ? '#22c55e' : '#ef4444' }}>
         {connected ? '● connected' : '○ disconnected'}
@@ -90,6 +92,7 @@ function AppInner() {
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/bd" element={<BD />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/chat" element={<Chat />} />
         </Routes>
       </main>
       {showNewTask && (

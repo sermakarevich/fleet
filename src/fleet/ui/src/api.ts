@@ -1,4 +1,5 @@
 import type {
+  ChatQuestion,
   CreateTaskInput,
   FileOp,
   LogLine,
@@ -127,5 +128,13 @@ export const api = {
 
   getFiles(id: string): Promise<{ files: FileOp[] }> {
     return request(`/api/tasks/${id}/files`);
+  },
+
+  async getChatQuestions(): Promise<{ now: number; pending: ChatQuestion[] }> {
+    return request('/api/chat/questions');
+  },
+
+  answerChatQuestion(id: string, answer: string | string[]): Promise<{ ok: boolean; status: string }> {
+    return request(`/api/chat/questions/${id}/answer`, json('POST', { answer }));
   },
 };

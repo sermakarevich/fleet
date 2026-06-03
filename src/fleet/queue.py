@@ -181,12 +181,21 @@ class BeadsQueue(Queue):
         self._bd("update", task_id, "--status", "open", "--assignee", "", json_envelope=False)
         if reason:
             self._bd("comment", task_id, reason, json_envelope=False)
+        meta = self._load_meta(task_id) or {"id": task_id}
+        meta["status"] = "open"
+        self._write_meta(task_id, meta)
 
     def set_blocked(self, task_id: str, reason: str) -> None:
         self._bd("update", task_id, "--status", "blocked", "--notes", reason, json_envelope=False)
+        meta = self._load_meta(task_id) or {"id": task_id}
+        meta["status"] = "blocked"
+        self._write_meta(task_id, meta)
 
     def close(self, task_id: str, reason: str = "completed") -> None:
         self._bd("close", task_id, "--reason", reason, json_envelope=False)
+        meta = self._load_meta(task_id) or {"id": task_id}
+        meta["status"] = "closed"
+        self._write_meta(task_id, meta)
 
     def comment(self, task_id: str, body: str) -> None:
         self._bd("comment", task_id, body, json_envelope=False)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -169,6 +170,29 @@ def _build_task_summary(data: dict, home: Path) -> dict:
     }
 
 
+def _get_beads_status_map(home: Path) -> dict[str, str] | None:
+    """Return {task_id: status} for all tasks in the beads DB at `home`.
+
+    Returns None if beads is unavailable so the caller can skip reconciliation.
+    """
+    try:
+        result = subprocess.run(
+            ["bd", "list", "--all", "--json", "--limit", "0"],
+            capture_output=True,
+            text=True,
+            cwd=home,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        data = json.loads(result.stdout)
+        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+        if isinstance(items, list):
+            return {item["id"]: item.get("status", "open") for item in items if item.get("id")}
+    except Exception:
+        pass
+    return None
+
+
 def create_tasks_router() -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -177,10 +201,25 @@ def create_tasks_router() -> APIRouter:
         home = get_fleet_home()
         task_jsons = _read_task_jsons(home)
 
+        # Reconcile status against beads (authoritative source of truth).
+        # Tasks in beads get beads' status; tasks not in beads at all are orphaned
+        # (completed before the current beads DB, or from a reset) and shown as closed.
+        # Falls back to raw task.json status if beads is unavailable.
+        beads_map = await asyncio.to_thread(_get_beads_status_map, home)
+        reconciled: list[dict] = []
+        for data in task_jsons:
+            task_id = data.get("id", "")
+            if beads_map is not None and task_id:
+                if task_id in beads_map:
+                    data = {**data, "status": beads_map[task_id]}
+                else:
+                    data = {**data, "status": "closed"}
+            reconciled.append(data)
+
         active: list[dict] = []
         closed: list[dict] = []
-        for data in task_jsons:
-            if data.get("status") == "closed":
+        for data in reconciled:
+            if data.get("status") in ("closed", "failed"):
                 closed.append(data)
             else:
                 active.append(data)
