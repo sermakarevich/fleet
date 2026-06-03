@@ -252,14 +252,16 @@ class Supervisor:
 
     def _fleet_log_context(self) -> dict:
         """Snapshot of live fleet stats — in-flight count, rate-limit usage."""
+        usage_pct = self.rate_gauge.current_pct()  # may trigger auto-reset
         return {
             "in_flight": len(self.in_flight),
             "cap": self.config.max_concurrent,
-            "usage_pct": self.rate_gauge.current_pct(),
+            "usage_pct": usage_pct,
             "threshold_pct": RATE_LIMIT_THRESHOLD_PCT,
             "paused_until": (
                 self._paused_until.isoformat() if self._paused_until is not None else None
             ),
+            "rate_limit_resets_at": self.rate_gauge.resets_at,
             "task_ids": sorted(self.in_flight.keys()),
         }
 

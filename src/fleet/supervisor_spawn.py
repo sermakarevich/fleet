@@ -37,6 +37,7 @@ class SpawnController:
                     "rate_limit_pause",
                     current_usage_pct=current_pct,
                     rate_limit_threshold_pct=threshold_pct,
+                    resets_at=gauge.resets_at,
                 )
                 self._was_rate_paused = True
             return SpawnDecision.PAUSED_RATE_LIMIT
@@ -46,6 +47,7 @@ class SpawnController:
                 "rate_limit_resume",
                 current_usage_pct=current_pct,
                 rate_limit_threshold_pct=threshold_pct,
+                resets_at=gauge.resets_at,
             )
             self._was_rate_paused = False
 

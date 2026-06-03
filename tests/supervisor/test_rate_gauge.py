@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import structlog
 
 from fleet.schemas import Event
-from fleet.rate_gauge import RateGauge, _RESET_GRACE_SEC
+from fleet.rate_gauge import RateGauge, _RESET_GRACE_SEC, _FALLBACK_DECAY_SEC
 
 
 def _gauge() -> RateGauge:
@@ -142,3 +142,43 @@ def test_snapshot_returns_expected_keys() -> None:
     assert "last_updated" in snap
     assert snap["current_usage_pct"] == 42.0
     assert snap["resets_at"] == 9_000
+
+
+# ---------------------------------------------------------------------------
+# Fallback decay when resets_at is None (edge case: API omitted resetsAt)
+# ---------------------------------------------------------------------------
+
+def test_fallback_decay_when_no_resets_at_and_stale() -> None:
+    g = _gauge()
+    g.update(_make_event("rate_limit_info", usage_pct=92.0))  # no resets_at
+    lu = g.last_updated
+    assert lu is not None
+    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    assert g.current_pct(now=stale) == 0.0
+
+
+def test_no_fallback_decay_when_not_yet_stale() -> None:
+    g = _gauge()
+    g.update(_make_event("rate_limit_info", usage_pct=92.0))
+    lu = g.last_updated
+    assert lu is not None
+    not_stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC - 1, tz=timezone.utc)
+    assert g.current_pct(now=not_stale) == 92.0
+
+
+def test_fallback_decay_not_triggered_when_resets_at_set() -> None:
+    # resets_at is far in the future — normal auto-reset path, not fallback.
+    g = _gauge()
+    far_future = 9_999_999_999
+    g.update(_make_event("rate_limit_info", usage_pct=92.0, resets_at=far_future))
+    lu = g.last_updated
+    assert lu is not None
+    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    assert g.current_pct(now=stale) == 92.0
+
+
+def test_fallback_decay_not_triggered_without_prior_update() -> None:
+    # No update at all — gauge starts at 0.0 and last_updated is None.
+    g = _gauge()
+    stale = datetime.fromtimestamp(1_000_000 + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    assert g.current_pct(now=stale) == 0.0

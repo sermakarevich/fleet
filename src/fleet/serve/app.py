@@ -88,12 +88,6 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     async def healthz() -> JSONResponse:
         return JSONResponse({"status": "ok", "fleet_home": str(fleet_home())})
 
-    ui_dist = fleet_home() / "ui_dist"
-    if ui_dist.exists():
-        app.mount("/", _SPAStaticFiles(directory=ui_dist, html=True), name="static")
-    else:
-        logger.warning("UI not built — run `cd src/fleet/ui && npm run build` first")
-
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:
         await mgr.connect(ws)
@@ -120,5 +114,11 @@ def create_app(queue: Queue | None = None) -> FastAPI:
             pass
         finally:
             await mgr.disconnect(ws)
+
+    ui_dist = fleet_home() / "ui_dist"
+    if ui_dist.exists():
+        app.mount("/", _SPAStaticFiles(directory=ui_dist, html=True), name="static")
+    else:
+        logger.warning("UI not built — run `cd src/fleet/ui && npm run build` first")
 
     return app

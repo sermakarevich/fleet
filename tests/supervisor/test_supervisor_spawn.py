@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import structlog
 import structlog.testing
 
 from fleet.rate_gauge import RateGauge
+from fleet.schemas import Event
 from fleet.supervisor_spawn import SpawnController, SpawnDecision
 
 
@@ -157,3 +160,43 @@ def test_controller_has_no_cancel_or_kill_surface() -> None:
     assert not hasattr(ctrl, "cancel")
     assert not hasattr(ctrl, "kill")
     assert not hasattr(ctrl, "terminate")
+
+
+# ---------------------------------------------------------------------------
+# rate_limit_pause / resume include resets_at for operator visibility
+# ---------------------------------------------------------------------------
+
+def _gauge_with_resets_at(pct: float, resets_at: int | None) -> RateGauge:
+    g = RateGauge(log=structlog.get_logger())
+    g.update(Event(
+        kind="rate_limit_info",
+        raw={},
+        ts=datetime.now(tz=timezone.utc),
+        rate_info={"usage_pct": pct, "resets_at": resets_at},
+    ))
+    return g
+
+
+def test_rate_limit_pause_log_includes_resets_at() -> None:
+    resets_at = 1_779_735_600
+    g = _gauge_with_resets_at(92.0, resets_at)
+
+    with structlog.testing.capture_logs() as logs:
+        ctrl = SpawnController(log=structlog.get_logger())
+        ctrl.decide(in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=g)
+
+    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    assert len(pause_logs) == 1
+    assert pause_logs[0]["resets_at"] == resets_at
+
+
+def test_rate_limit_pause_log_includes_resets_at_none_when_missing() -> None:
+    g = _gauge(92.0)  # no resets_at set
+
+    with structlog.testing.capture_logs() as logs:
+        ctrl = SpawnController(log=structlog.get_logger())
+        ctrl.decide(in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=g)
+
+    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    assert len(pause_logs) == 1
+    assert pause_logs[0]["resets_at"] is None

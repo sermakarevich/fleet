@@ -33,6 +33,7 @@ many projects — and across multiple agent backends — spawning many concurren
   - [`fleet log [N]`](#fleet-log-n)
   - [`fleet bd <args...>`](#fleet-bd-args)
   - [`fleet run`](#fleet-run)
+  - [`fleet serve`](#fleet-serve)
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
 - [Configuration reference](#configuration-reference)
 - [Adding a custom coder](#adding-a-custom-coder)
@@ -322,6 +323,31 @@ fleet run --coder claude         # override the default coder for this run
 | Option | Description |
 |---|---|
 | `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set on `fleet bd create` still win. Registered values: `claude`, `agy`, `codex`. |
+
+### `fleet serve`
+
+```bash
+fleet serve               # start on 127.0.0.1:7890 (default)
+fleet serve --port 8080   # custom port
+```
+
+Starts a local web server backed by FastAPI and serves a React SPA at
+`http://127.0.0.1:7890`. The UI provides:
+
+- **Dashboard** — live task table with status, elapsed time, and context usage
+- **Task detail** — logs, plan, knowledge, and Q&A per task
+- **Q&A inbox** — review and answer blocked tasks in one place
+- **Analytics** — token usage and throughput charts
+- **Config** — view and edit `runtime.toml` settings
+
+The UI assets must be built once before first use:
+
+```bash
+make ui-build    # builds React SPA and copies it to $FLEET_HOME/ui_dist/
+```
+
+If `$FLEET_HOME/ui_dist/` is absent, `fleet serve` starts without the UI and
+logs a warning.
 
 ### `fleet config show` / `fleet config set`
 

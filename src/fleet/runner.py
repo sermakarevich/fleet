@@ -117,6 +117,10 @@ class TaskRunner:
             peak_context_tokens: int = 0
 
             assert proc.stdout is not None
+            # Default StreamReader limit is 64 KB; large MCP tool results (e.g. full
+            # YouTube transcripts in a stream-json line) exceed that and raise
+            # LimitOverrunError.  Bump to 100 MB — well above any realistic line.
+            proc.stdout._limit = 100 * 1024 * 1024
             async for raw_bytes in proc.stdout:
                 raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
                 evt = self._coder.normalize_event(raw_line)
