@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -49,6 +50,7 @@ class Queue(ABC):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        extra_args: str | None = None,
     ) -> Task: ...
 
 
@@ -227,10 +229,13 @@ class BeadsQueue(Queue):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        extra_args: str | None = None,
     ) -> Task:
         args = ["create", "--title", title, "--json"]
         if description:
             args += ["--description", description]
+        if extra_args:
+            args += shlex.split(extra_args)
         data = self._bd(*args)
         body = data.get("data", data) if isinstance(data, dict) else data
         task_id = (body or {}).get("id", "") if isinstance(body, dict) else ""

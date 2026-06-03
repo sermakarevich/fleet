@@ -245,6 +245,7 @@ def create_tasks_router() -> APIRouter:
                 body.get("cwd"),
                 coder,
                 body.get("model"),
+                body.get("args"),
             )
         except BeadsError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)

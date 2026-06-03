@@ -100,6 +100,7 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
   const [model, setModel] = useState('');
   const [priority, setPriority] = useState('');
   const [deps, setDeps] = useState('');
+  const [args, setArgs] = useState('');
   const [titleErr, setTitleErr] = useState('');
   const [cwdErr, setCwdErr] = useState('');
   const createTask = useCreateTask();
@@ -120,6 +121,7 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
         model: model || undefined,
         priority: priority ? Number(priority) : undefined,
         dependencies: depsArr.length > 0 ? depsArr : undefined,
+        args: args.trim() || undefined,
       };
       const result = await createTask.mutateAsync(payload);
       onCreated(result.id);
@@ -212,6 +214,16 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
               value={deps}
               onChange={e => setDeps(e.target.value)}
               placeholder="fleet-abc, fleet-xyz (comma-separated task IDs)"
+            />
+          </label>
+
+          <label style={styles.label}>
+            Extra args
+            <input
+              style={styles.input}
+              value={args}
+              onChange={e => setArgs(e.target.value)}
+              placeholder="--labels security,auth --type feature"
             />
           </label>
 

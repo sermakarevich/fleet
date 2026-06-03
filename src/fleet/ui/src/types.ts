@@ -73,6 +73,7 @@ export interface CreateTaskInput {
   model?: string;
   priority?: number;
   dependencies?: string[];
+  args?: string;
 }
 
 export interface Template {
@@ -136,4 +137,17 @@ export interface FileOp {
   read: number;
   edit: number;
   write: number;
+}
+
+export interface ChatQuestion {
+  id: string;
+  agent_id: string | null;
+  session_id: string | null;
+  prompt: string;
+  options: string[] | null;
+  multi_select: boolean;
+  priority: number;
+  created_at: number;
+  timeout_s: number | null;
+  default_answer: string | string[] | null;
 }
