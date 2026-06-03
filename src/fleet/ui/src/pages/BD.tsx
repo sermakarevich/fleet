@@ -4,7 +4,7 @@ import { useCoders, useCreateTask, useKillTask, useRequeueTask, useTasks } from 
 import type { CreateTaskInput, TaskSummary } from '../types';
 
 // ---------------------------------------------------------------------------
-// Helpers shared between list and form
+// Helpers
 // ---------------------------------------------------------------------------
 
 interface ChipStyle { label: string; color: string; bg: string }
@@ -74,7 +74,7 @@ function BDRow({ task, onClose, onRequeue, onView }: RowProps) {
           <button style={styles.requeueBtn} onClick={() => onRequeue(task.id)}>Re-queue</button>
         )}
         {isCloseable && (
-          <button style={styles.closeBtn} onClick={() => onClose(task.id)}>Close</button>
+          <button style={styles.closeRowBtn} onClick={() => onClose(task.id)}>Close</button>
         )}
       </span>
     </div>
@@ -82,16 +82,17 @@ function BDRow({ task, onClose, onRequeue, onView }: RowProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Create task form
+// Create task form (modal panel)
 // ---------------------------------------------------------------------------
 
 interface FormProps {
   recentCwds: string[];
   coders: string[];
+  onClose: () => void;
   onCreated: (id: string) => void;
 }
 
-function CreateTaskForm({ recentCwds, coders, onCreated }: FormProps) {
+function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [cwd, setCwd] = useState('');
@@ -119,92 +120,99 @@ function CreateTaskForm({ recentCwds, coders, onCreated }: FormProps) {
       };
       const result = await createTask.mutateAsync(payload);
       onCreated(result.id);
-      setTitle(''); setDescription(''); setCwd(''); setCoder(''); setModel(''); setPriority('');
+      onClose();
     } catch {
       // error shown via createTask.error
     }
   };
 
   return (
-    <div style={styles.formPanel}>
-      <h2 style={styles.formHeading}>Create Task</h2>
-      <form onSubmit={handleSubmit} style={styles.form}>
-        <label style={styles.label}>
-          Title *
-          <input
-            style={{ ...styles.input, ...(titleErr ? styles.inputError : {}) }}
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="What should this task do?"
-          />
-          {titleErr && <span style={styles.fieldErr}>{titleErr}</span>}
-        </label>
-
-        <label style={styles.label}>
-          Description
-          <textarea
-            style={styles.textarea}
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Optional markdown description"
-            rows={3}
-          />
-        </label>
-
-        <label style={styles.label}>
-          Working directory *
-          <input
-            style={{ ...styles.input, ...(cwdErr ? styles.inputError : {}) }}
-            value={cwd}
-            onChange={e => setCwd(e.target.value)}
-            list="bd-cwd-options"
-            placeholder="/path/to/project"
-          />
-          <datalist id="bd-cwd-options">
-            {recentCwds.map(c => <option key={c} value={c} />)}
-          </datalist>
-          {cwdErr && <span style={styles.fieldErr}>{cwdErr}</span>}
-        </label>
-
-        <div style={styles.row2}>
-          <label style={{ ...styles.label, flex: 1 }}>
-            Coder
-            <select style={styles.select} value={coder} onChange={e => setCoder(e.target.value)}>
-              <option value="">— default —</option>
-              {coders.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          <label style={{ ...styles.label, flex: 1 }}>
-            Model
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.formPanel} onClick={e => e.stopPropagation()}>
+        <div style={styles.formHeader}>
+          <h2 style={styles.formHeading}>Create Task</h2>
+          <button style={styles.closeX} onClick={onClose}>×</button>
+        </div>
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <label style={styles.label}>
+            Title *
             <input
-              style={styles.input}
-              value={model}
-              onChange={e => setModel(e.target.value)}
-              placeholder="default"
+              style={{ ...styles.input, ...(titleErr ? styles.inputError : {}) }}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="What should this task do?"
+              autoFocus
+            />
+            {titleErr && <span style={styles.fieldErr}>{titleErr}</span>}
+          </label>
+
+          <label style={styles.label}>
+            Description
+            <textarea
+              style={styles.textarea}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Optional markdown description"
+              rows={3}
             />
           </label>
-          <label style={{ ...styles.label, width: '5.5rem' }}>
-            Priority
-            <input
-              style={styles.input}
-              type="number"
-              value={priority}
-              onChange={e => setPriority(e.target.value)}
-              placeholder="0"
-              min={0}
-            />
-          </label>
-        </div>
 
-        <div style={styles.formFooter}>
-          {createTask.error && (
-            <span style={styles.fieldErr}>{(createTask.error as Error).message}</span>
-          )}
-          <button type="submit" style={styles.submitBtn} disabled={createTask.isPending}>
-            {createTask.isPending ? 'Creating…' : 'Create task'}
-          </button>
-        </div>
-      </form>
+          <label style={styles.label}>
+            Working directory *
+            <input
+              style={{ ...styles.input, ...(cwdErr ? styles.inputError : {}) }}
+              value={cwd}
+              onChange={e => setCwd(e.target.value)}
+              list="bd-cwd-options"
+              placeholder="/path/to/project"
+            />
+            <datalist id="bd-cwd-options">
+              {recentCwds.map(c => <option key={c} value={c} />)}
+            </datalist>
+            {cwdErr && <span style={styles.fieldErr}>{cwdErr}</span>}
+          </label>
+
+          <div style={styles.row2}>
+            <label style={{ ...styles.label, flex: 1 }}>
+              Coder
+              <select style={styles.select} value={coder} onChange={e => setCoder(e.target.value)}>
+                <option value="">— default —</option>
+                {coders.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label style={{ ...styles.label, flex: 1 }}>
+              Model
+              <input
+                style={styles.input}
+                value={model}
+                onChange={e => setModel(e.target.value)}
+                placeholder="default"
+              />
+            </label>
+            <label style={{ ...styles.label, width: '5.5rem' }}>
+              Priority
+              <input
+                style={styles.input}
+                type="number"
+                value={priority}
+                onChange={e => setPriority(e.target.value)}
+                placeholder="0"
+                min={0}
+              />
+            </label>
+          </div>
+
+          <div style={styles.formFooter}>
+            {createTask.error && (
+              <span style={{ ...styles.fieldErr, flex: 1 }}>{(createTask.error as Error).message}</span>
+            )}
+            <button type="button" style={styles.cancelBtn} onClick={onClose}>Cancel</button>
+            <button type="submit" style={styles.submitBtn} disabled={createTask.isPending}>
+              {createTask.isPending ? 'Creating…' : 'Create task'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -219,6 +227,7 @@ export function BD() {
   const { data: codersData } = useCoders();
   const killTask = useKillTask();
   const requeueTask = useRequeueTask();
+  const [showCreate, setShowCreate] = useState(false);
   const [lastCreated, setLastCreated] = useState<string | null>(null);
 
   const coders = codersData?.coders ?? [];
@@ -251,55 +260,56 @@ export function BD() {
 
   return (
     <div style={styles.page}>
-      <div style={styles.layout}>
-        {/* Left: task queue */}
-        <div style={styles.leftCol}>
-          <h1 style={styles.heading}>
-            BD Queue <span style={styles.count}>({sorted.length})</span>
-          </h1>
-          <div style={styles.panel}>
-            <div style={styles.colHeader}>
-              <span style={styles.cStatus}>Status</span>
-              <span style={styles.cId}>ID</span>
-              <span style={styles.cTitle}>Title</span>
-              <span style={styles.cPrio}>Pri</span>
-              <span style={styles.cCoder}>Coder</span>
-              <span style={styles.cDeps}>Depends on</span>
-              <span style={styles.cAction} />
-            </div>
-            {sorted.length === 0 ? (
-              <p style={styles.empty}>No tasks in queue.</p>
-            ) : (
-              sorted.map(task => (
-                <BDRow
-                  key={task.id}
-                  task={task}
-                  onClose={id => { void killTask.mutateAsync(id); }}
-                  onRequeue={id => { void requeueTask.mutateAsync(id); }}
-                  onView={id => navigate(`/tasks/${id}`)}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right: create task form */}
-        <div style={styles.rightCol}>
-          {lastCreated && (
-            <div style={styles.createdBanner}>
-              Task <span style={styles.createdId}>{lastCreated}</span> created
-            </div>
-          )}
-          <CreateTaskForm
-            recentCwds={recentCwds}
-            coders={coders}
-            onCreated={id => {
-              setLastCreated(id);
-              setTimeout(() => setLastCreated(null), 5000);
-            }}
-          />
-        </div>
+      <div style={styles.topBar}>
+        <h1 style={styles.heading}>
+          BD Queue <span style={styles.count}>({sorted.length})</span>
+        </h1>
+        {lastCreated && (
+          <span style={styles.createdBanner}>
+            Task <span style={styles.createdId}>{lastCreated}</span> created
+          </span>
+        )}
+        <button style={styles.createBtn} onClick={() => setShowCreate(true)}>
+          + Create task
+        </button>
       </div>
+
+      <div style={styles.panel}>
+        <div style={styles.colHeader}>
+          <span style={styles.cStatus}>Status</span>
+          <span style={styles.cId}>ID</span>
+          <span style={styles.cTitle}>Title</span>
+          <span style={styles.cPrio}>Pri</span>
+          <span style={styles.cCoder}>Coder</span>
+          <span style={styles.cDeps}>Depends on</span>
+          <span style={styles.cAction} />
+        </div>
+        {sorted.length === 0 ? (
+          <p style={styles.empty}>No tasks in queue.</p>
+        ) : (
+          sorted.map(task => (
+            <BDRow
+              key={task.id}
+              task={task}
+              onClose={id => { void killTask.mutateAsync(id); }}
+              onRequeue={id => { void requeueTask.mutateAsync(id); }}
+              onView={id => navigate(`/tasks/${id}`)}
+            />
+          ))
+        )}
+      </div>
+
+      {showCreate && (
+        <CreateTaskForm
+          recentCwds={recentCwds}
+          coders={coders}
+          onClose={() => setShowCreate(false)}
+          onCreated={id => {
+            setLastCreated(id);
+            setTimeout(() => setLastCreated(null), 5000);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -318,21 +328,15 @@ const styles = {
     color: '#71717a',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
-  layout: {
+  topBar: {
     display: 'flex',
-    gap: '1.5rem',
-    alignItems: 'flex-start',
-  } as React.CSSProperties,
-  leftCol: {
-    flex: 1,
-    minWidth: 0,
-  } as React.CSSProperties,
-  rightCol: {
-    width: '22rem',
-    flexShrink: 0,
+    alignItems: 'center',
+    gap: '1rem',
+    marginBottom: '0.875rem',
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   heading: {
-    margin: '0 0 0.875rem',
+    margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
     color: '#e4e4e7',
@@ -341,6 +345,30 @@ const styles = {
     fontWeight: 400,
     color: '#71717a',
     fontSize: '0.875rem',
+  } as React.CSSProperties,
+  createdBanner: {
+    padding: '0.2rem 0.625rem',
+    background: 'rgba(22,163,74,0.12)',
+    border: '1px solid #16a34a',
+    borderRadius: 4,
+    color: '#22c55e',
+    fontSize: '0.8125rem',
+  } as React.CSSProperties,
+  createdId: {
+    fontFamily: 'monospace',
+    fontWeight: 600,
+  } as React.CSSProperties,
+  createBtn: {
+    marginLeft: 'auto',
+    padding: '0.2rem 0.625rem',
+    background: '#3b82f6',
+    border: '1px solid #3b82f6',
+    borderRadius: 4,
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontWeight: 500,
+    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   panel: {
     background: '#1c1c20',
@@ -466,7 +494,7 @@ const styles = {
     fontSize: '0.75rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
-  closeBtn: {
+  closeRowBtn: {
     padding: '0.15rem 0.5rem',
     background: 'transparent',
     border: '1px solid #3f3f46',
@@ -486,24 +514,54 @@ const styles = {
   dim: {
     color: '#52525b',
   } as React.CSSProperties,
-  // Create task form
+  // Modal form styles
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingTop: '5rem',
+    zIndex: 500,
+  } as React.CSSProperties,
   formPanel: {
     background: '#1c1c20',
     border: '1px solid #3f3f46',
     borderRadius: 8,
-    padding: '1rem 1.25rem',
+    width: '100%',
+    maxWidth: '36rem',
+    maxHeight: 'calc(100vh - 8rem)',
+    overflowY: 'auto',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
+  formHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '1rem 1.25rem 0.75rem',
+    borderBottom: '1px solid #27272a',
+  } as React.CSSProperties,
   formHeading: {
-    margin: '0 0 1rem',
+    margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
     color: '#e4e4e7',
   } as React.CSSProperties,
+  closeX: {
+    background: 'none',
+    border: 'none',
+    color: '#71717a',
+    cursor: 'pointer',
+    fontSize: '1.25rem',
+    lineHeight: 1,
+    padding: '0 0.25rem',
+  } as React.CSSProperties,
   form: {
+    padding: '1rem 1.25rem',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '0.75rem',
+    gap: '0.875rem',
   } as React.CSSProperties,
   label: {
     display: 'flex',
@@ -560,6 +618,17 @@ const styles = {
     alignItems: 'center',
     gap: '0.75rem',
     paddingTop: '0.375rem',
+    borderTop: '1px solid #27272a',
+  } as React.CSSProperties,
+  cancelBtn: {
+    padding: '0.4rem 0.875rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: '0.875rem',
+    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   submitBtn: {
     padding: '0.4rem 0.875rem',
@@ -571,19 +640,5 @@ const styles = {
     fontSize: '0.875rem',
     fontWeight: 500,
     fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  createdBanner: {
-    marginBottom: '0.75rem',
-    padding: '0.375rem 0.75rem',
-    background: 'rgba(22,163,74,0.12)',
-    border: '1px solid #16a34a',
-    borderRadius: 4,
-    color: '#22c55e',
-    fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  createdId: {
-    fontFamily: 'monospace',
-    fontWeight: 600,
   } as React.CSSProperties,
 };
