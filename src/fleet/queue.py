@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -39,6 +40,9 @@ class Queue(ABC):
 
     @abstractmethod
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None: ...
+
+    @abstractmethod
+    def delete(self, task_id: str) -> None: ...
 
     @abstractmethod
     def create_task(
@@ -196,6 +200,12 @@ class BeadsQueue(Queue):
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "closed"
         self._write_meta(task_id, meta)
+
+    def delete(self, task_id: str) -> None:
+        self._bd("delete", task_id, "--force", json_envelope=False)
+        task_dir = self.repo_root / "tasks" / task_id
+        if task_dir.exists():
+            shutil.rmtree(task_dir)
 
     def comment(self, task_id: str, body: str) -> None:
         self._bd("comment", task_id, body, json_envelope=False)

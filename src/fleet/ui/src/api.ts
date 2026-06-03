@@ -46,6 +46,18 @@ export const api = {
     return request(`/api/tasks/${id}/requeue`, { method: 'POST' });
   },
 
+  closeTask(id: string): Promise<void> {
+    return request(`/api/tasks/${id}/close`, { method: 'POST' });
+  },
+
+  deleteTask(id: string): Promise<void> {
+    return request(`/api/tasks/${id}`, { method: 'DELETE' });
+  },
+
+  removeAssignee(id: string): Promise<void> {
+    return request(`/api/tasks/${id}/remove-assignee`, { method: 'POST' });
+  },
+
   createTask(payload: CreateTaskInput): Promise<{ id: string }> {
     return request('/api/tasks', json('POST', payload));
   },

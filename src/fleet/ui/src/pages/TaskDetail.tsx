@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { useTask, useConfig } from '../hooks/useApi';
+import { useTask, useTasks, useConfig } from '../hooks/useApi';
 import { useTaskWebSocket } from '../hooks/useTaskWebSocket';
 import { Header } from '../components/TaskDetail/Header';
 import { LiveTab } from '../components/TaskDetail/LiveTab';
@@ -30,7 +30,14 @@ export function TaskDetail() {
   const [activeTab, setActiveTab] = useState<TabId>('live');
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const { data: task, isLoading, error } = useTask(id!);
+  const { data: tasksList } = useTasks();
   const { data: config } = useConfig();
+
+  // /api/tasks/{id} reads stale task.json; overlay correct status from the
+  // beads-reconciled list (which polls /api/tasks every 5s).
+  const taskWithStatus = task
+    ? { ...task, status: tasksList?.find(t => t.id === id)?.status ?? task.status }
+    : undefined;
 
   const onEvent = useCallback((event: FleetEvent) => {
     setEvents(prev => [...prev, event]);
@@ -62,7 +69,7 @@ export function TaskDetail() {
 
   return (
     <div style={styles.page}>
-      <Header task={task} config={config} />
+      <Header task={taskWithStatus ?? task} config={config} />
       <div style={styles.body}>
         <div style={styles.main}>
           <div style={styles.tabBar}>
@@ -83,7 +90,7 @@ export function TaskDetail() {
             {renderTab()}
           </div>
         </div>
-        <ActivityGutter task={task} events={events} />
+        <ActivityGutter task={taskWithStatus ?? task} events={events} />
       </div>
     </div>
   );

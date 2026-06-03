@@ -99,6 +99,7 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
 export function Tasks() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const { data: polledTasks, isLoading, error } = useTasks();
@@ -111,7 +112,18 @@ export function Tasks() {
 
   useWebSocket(updateFromEvent);
 
-  const filtered = tasks.filter(t => matchesFilter(t, filter));
+  const filtered = tasks.filter(t => {
+    if (!matchesFilter(t, filter)) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        t.id.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        (t.cwd ?? '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
 
   const handleKillConfirm = (id: string) => {
     void killTask.mutateAsync(id).finally(() => setConfirmingId(null));
@@ -128,6 +140,13 @@ export function Tasks() {
     <div style={styles.page}>
       <div style={styles.topBar}>
         <h1 style={styles.heading}>Tasks <span style={styles.count}>({tasks.length})</span></h1>
+        <input
+          type="search"
+          style={styles.searchInput}
+          placeholder="Search…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
         <div style={styles.filterRow}>
           {FILTERS.map(({ key, label }) => (
             <button
@@ -199,6 +218,17 @@ const styles = {
     fontWeight: 400,
     color: '#71717a',
     fontSize: '0.875rem',
+  } as React.CSSProperties,
+  searchInput: {
+    padding: '0.2rem 0.625rem',
+    background: '#09090b',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#e4e4e7',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+    outline: 'none',
+    width: '13rem',
   } as React.CSSProperties,
   filterRow: {
     display: 'flex',

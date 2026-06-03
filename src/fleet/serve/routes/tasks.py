@@ -193,6 +193,28 @@ def _get_beads_status_map(home: Path) -> dict[str, str] | None:
     return None
 
 
+def _get_beads_task_status(task_id: str, home: Path) -> str | None:
+    """Return the beads status for a single task, or None if unavailable."""
+    try:
+        result = subprocess.run(
+            ["bd", "show", task_id, "--json"],
+            capture_output=True,
+            text=True,
+            cwd=home,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        data = json.loads(result.stdout)
+        body = data.get("data", data) if isinstance(data, dict) else data
+        if isinstance(body, list):
+            body = body[0] if body else None
+        if isinstance(body, dict):
+            return body.get("status")
+    except Exception:
+        pass
+    return None
+
+
 def create_tasks_router() -> APIRouter:
     router = APIRouter(prefix="/api")
 
@@ -238,6 +260,9 @@ def create_tasks_router() -> APIRouter:
             data = json.loads(task_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return JSONResponse({"error": "not found"}, status_code=404)
+        beads_status = await asyncio.to_thread(_get_beads_task_status, task_id, home)
+        if beads_status is not None:
+            data = {**data, "status": beads_status}
         return JSONResponse(_build_task_summary(data, home))
 
     @router.post("/tasks/{task_id}/kill")
@@ -258,6 +283,44 @@ def create_tasks_router() -> APIRouter:
         try:
             await asyncio.to_thread(queue.release, task_id)
         except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"ok": True})
+
+    @router.post("/tasks/{task_id}/close")
+    async def close_task(task_id: str, request: Request) -> JSONResponse:
+        home = get_fleet_home()
+        if not (home / "tasks" / task_id / "task.json").exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        queue = request.app.state.queue
+        try:
+            await asyncio.to_thread(queue.close, task_id)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"ok": True})
+
+    @router.delete("/tasks/{task_id}")
+    async def delete_task(task_id: str, request: Request) -> JSONResponse:
+        home = get_fleet_home()
+        if not (home / "tasks" / task_id / "task.json").exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        queue = request.app.state.queue
+        try:
+            await asyncio.to_thread(queue.delete, task_id)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"ok": True})
+
+    @router.post("/tasks/{task_id}/remove-assignee")
+    async def remove_assignee(task_id: str) -> JSONResponse:
+        home = get_fleet_home()
+        task_file = home / "tasks" / task_id / "task.json"
+        if not task_file.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            data = json.loads(task_file.read_text(encoding="utf-8"))
+            data["coder"] = None
+            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"ok": True})
 

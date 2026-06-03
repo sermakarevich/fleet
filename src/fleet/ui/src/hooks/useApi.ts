@@ -1,13 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
-import type { CreateTaskInput, RuntimeConfig } from '../types';
+import type { CreateTaskInput, RuntimeConfig, TaskSummary } from '../types';
 
 export function useTasks() {
   return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: 5000 });
 }
 
 export function useTask(id: string) {
-  return useQuery({ queryKey: ['task', id], queryFn: () => api.getTask(id), refetchInterval: 3000 });
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['task', id],
+    queryFn: async () => {
+      const task = await api.getTask(id);
+      // /api/tasks/{id} reads task.json directly (stale). Overlay with the
+      // beads-reconciled status from the list cache when available.
+      const list = qc.getQueryData<TaskSummary[]>(['tasks']);
+      const listed = list?.find(t => t.id === id);
+      if (listed) task.status = listed.status;
+      return task;
+    },
+    refetchInterval: 3000,
+  });
 }
 
 export function useQA(status?: string) {
@@ -42,6 +55,30 @@ export function useRequeueTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.requeueTask(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+}
+
+export function useCloseTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.closeTask(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+}
+
+export function useDeleteTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteTask(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+}
+
+export function useRemoveAssignee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removeAssignee(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
   });
 }

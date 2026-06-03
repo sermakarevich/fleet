@@ -1,11 +1,32 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCoders, useCreateTask, useKillTask, useRequeueTask, useTasks } from '../hooks/useApi';
-import type { CreateTaskInput, TaskSummary } from '../types';
+import { useCloseTask, useDeleteTask, useRemoveAssignee, useRequeueTask, useTasks } from '../hooks/useApi';
+import type { TaskSummary } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
+
+const BD_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'running', label: 'Running' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'blocked', label: 'Blocked' },
+  { key: 'done', label: 'Done' },
+  { key: 'failed', label: 'Failed' },
+];
+
+function matchesStatusFilter(task: TaskSummary, filter: StatusFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'running') return task.status === 'in_progress';
+  if (filter === 'pending') return task.status === 'open' || task.status === 'ready';
+  if (filter === 'blocked') return task.status === 'blocked';
+  if (filter === 'done') return task.status === 'closed';
+  if (filter === 'failed') return task.status === 'failed';
+  return true;
+}
 
 interface ChipStyle { label: string; color: string; bg: string }
 
@@ -38,15 +59,17 @@ function taskOrder(t: TaskSummary): number {
 
 interface RowProps {
   task: TaskSummary;
+  onOpen: (id: string) => void;
   onClose: (id: string) => void;
-  onRequeue: (id: string) => void;
+  onRemove: (id: string) => void;
+  onUnassign: (id: string) => void;
   onView: (id: string) => void;
 }
 
-function BDRow({ task, onClose, onRequeue, onView }: RowProps) {
+function BDRow({ task, onOpen, onClose, onRemove, onUnassign, onView }: RowProps) {
   const chip = statusChip(task.status);
-  const isCloseable = task.status === 'closed' || task.status === 'failed';
-  const isBlockedStatus = task.status === 'blocked';
+  const isOpenable = task.status !== 'open' && task.status !== 'ready';
+  const isCloseable = task.status !== 'closed';
 
   return (
     <div style={styles.row} onClick={() => onView(task.id)}>
@@ -70,174 +93,17 @@ function BDRow({ task, onClose, onRequeue, onView }: RowProps) {
       </span>
       <span style={styles.actionCell} onClick={e => e.stopPropagation()}>
         <button style={styles.viewBtn} onClick={() => onView(task.id)}>View</button>
-        {isBlockedStatus && (
-          <button style={styles.requeueBtn} onClick={() => onRequeue(task.id)}>Re-queue</button>
+        {task.coder && (
+          <button style={styles.unassignBtn} onClick={() => onUnassign(task.id)}>Unassign</button>
+        )}
+        {isOpenable && (
+          <button style={styles.openBtn} onClick={() => onOpen(task.id)}>Open</button>
         )}
         {isCloseable && (
           <button style={styles.closeRowBtn} onClick={() => onClose(task.id)}>Close</button>
         )}
+        <button style={styles.removeBtn} onClick={() => onRemove(task.id)}>Remove</button>
       </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Create task form (modal panel)
-// ---------------------------------------------------------------------------
-
-interface FormProps {
-  recentCwds: string[];
-  coders: string[];
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}
-
-function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [cwd, setCwd] = useState('');
-  const [coder, setCoder] = useState('');
-  const [model, setModel] = useState('');
-  const [priority, setPriority] = useState('');
-  const [deps, setDeps] = useState('');
-  const [args, setArgs] = useState('');
-  const [titleErr, setTitleErr] = useState('');
-  const [cwdErr, setCwdErr] = useState('');
-  const createTask = useCreateTask();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    let hasErr = false;
-    if (!title.trim()) { setTitleErr('Title is required'); hasErr = true; } else setTitleErr('');
-    if (!cwd.trim())   { setCwdErr('Working directory is required'); hasErr = true; } else setCwdErr('');
-    if (hasErr) return;
-    try {
-      const depsArr = deps.split(',').map(s => s.trim()).filter(Boolean);
-      const payload: CreateTaskInput = {
-        title: title.trim(),
-        description: description || undefined,
-        cwd: cwd.trim(),
-        coder: coder || undefined,
-        model: model || undefined,
-        priority: priority ? Number(priority) : undefined,
-        dependencies: depsArr.length > 0 ? depsArr : undefined,
-        args: args.trim() || undefined,
-      };
-      const result = await createTask.mutateAsync(payload);
-      onCreated(result.id);
-      onClose();
-    } catch {
-      // error shown via createTask.error
-    }
-  };
-
-  return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.formPanel} onClick={e => e.stopPropagation()}>
-        <div style={styles.formHeader}>
-          <h2 style={styles.formHeading}>Create Task</h2>
-          <button style={styles.closeX} onClick={onClose}>×</button>
-        </div>
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <label style={styles.label}>
-            Title *
-            <input
-              style={{ ...styles.input, ...(titleErr ? styles.inputError : {}) }}
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="What should this task do?"
-              autoFocus
-            />
-            {titleErr && <span style={styles.fieldErr}>{titleErr}</span>}
-          </label>
-
-          <label style={styles.label}>
-            Description
-            <textarea
-              style={styles.textarea}
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Optional markdown description"
-              rows={3}
-            />
-          </label>
-
-          <label style={styles.label}>
-            Working directory *
-            <input
-              style={{ ...styles.input, ...(cwdErr ? styles.inputError : {}) }}
-              value={cwd}
-              onChange={e => setCwd(e.target.value)}
-              list="bd-cwd-options"
-              placeholder="/path/to/project"
-            />
-            <datalist id="bd-cwd-options">
-              {recentCwds.map(c => <option key={c} value={c} />)}
-            </datalist>
-            {cwdErr && <span style={styles.fieldErr}>{cwdErr}</span>}
-          </label>
-
-          <div style={styles.row2}>
-            <label style={{ ...styles.label, flex: 1 }}>
-              Coder
-              <select style={styles.select} value={coder} onChange={e => setCoder(e.target.value)}>
-                <option value="">— default —</option>
-                {coders.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
-            <label style={{ ...styles.label, flex: 1 }}>
-              Model
-              <input
-                style={styles.input}
-                value={model}
-                onChange={e => setModel(e.target.value)}
-                placeholder="default"
-              />
-            </label>
-            <label style={{ ...styles.label, width: '5.5rem' }}>
-              Priority
-              <input
-                style={styles.input}
-                type="number"
-                value={priority}
-                onChange={e => setPriority(e.target.value)}
-                placeholder="0"
-                min={0}
-              />
-            </label>
-          </div>
-
-          <label style={styles.label}>
-            Dependencies
-            <input
-              style={styles.input}
-              value={deps}
-              onChange={e => setDeps(e.target.value)}
-              placeholder="fleet-abc, fleet-xyz (comma-separated task IDs)"
-            />
-          </label>
-
-          <label style={styles.label}>
-            Extra args
-            <input
-              style={styles.input}
-              value={args}
-              onChange={e => setArgs(e.target.value)}
-              placeholder="--labels security,auth --type feature"
-            />
-          </label>
-
-          <div style={styles.formFooter}>
-            {createTask.error && (
-              <span style={{ ...styles.fieldErr, flex: 1 }}>{(createTask.error as Error).message}</span>
-            )}
-            <button type="button" style={styles.cancelBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" style={styles.submitBtn} disabled={createTask.isPending}>
-              {createTask.isPending ? 'Creating…' : 'Create task'}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }
@@ -249,36 +115,26 @@ function CreateTaskForm({ recentCwds, coders, onClose, onCreated }: FormProps) {
 export function BD() {
   const navigate = useNavigate();
   const { data: tasksData, isLoading, error } = useTasks();
-  const { data: codersData } = useCoders();
-  const killTask = useKillTask();
   const requeueTask = useRequeueTask();
-  const [showCreate, setShowCreate] = useState(false);
-  const [lastCreated, setLastCreated] = useState<string | null>(null);
-  const [showCompleted, setShowCompleted] = useState(false);
-
-  const coders = codersData?.coders ?? [];
+  const closeTask = useCloseTask();
+  const deleteTask = useDeleteTask();
+  const removeAssignee = useRemoveAssignee();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const sorted = useMemo(() => {
     if (!tasksData) return [];
-    const visible = showCompleted
-      ? tasksData
-      : tasksData.filter(t => t.status !== 'closed' && t.status !== 'failed');
-    return [...visible].sort((a, b) => taskOrder(a) - taskOrder(b));
-  }, [tasksData, showCompleted]);
-
-  const recentCwds = useMemo(() => {
-    if (!tasksData) return [];
-    const seen = new Set<string>();
-    const result: string[] = [];
-    for (const t of tasksData) {
-      if (t.cwd && !seen.has(t.cwd)) {
-        seen.add(t.cwd);
-        result.push(t.cwd);
-        if (result.length >= 10) break;
-      }
+    let visible = tasksData.filter(t => matchesStatusFilter(t, statusFilter));
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      visible = visible.filter(t =>
+        t.id.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        (t.cwd ?? '').toLowerCase().includes(q)
+      );
     }
-    return result;
-  }, [tasksData]);
+    return [...visible].sort((a, b) => taskOrder(a) - taskOrder(b));
+  }, [tasksData, statusFilter, searchQuery]);
 
   if (isLoading) {
     return <p style={styles.msg}>Loading…</p>;
@@ -293,20 +149,24 @@ export function BD() {
         <h1 style={styles.heading}>
           BD Queue <span style={styles.count}>({sorted.length})</span>
         </h1>
-        {lastCreated && (
-          <span style={styles.createdBanner}>
-            Task <span style={styles.createdId}>{lastCreated}</span> created
-          </span>
-        )}
-        <button
-          style={{ ...styles.toggleBtn, ...(showCompleted ? styles.toggleBtnActive : {}) }}
-          onClick={() => setShowCompleted(v => !v)}
-        >
-          {showCompleted ? 'Hide completed' : 'Show completed'}
-        </button>
-        <button style={styles.createBtn} onClick={() => setShowCreate(true)}>
-          + Create task
-        </button>
+        <input
+          type="search"
+          style={styles.searchInput}
+          placeholder="Search…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+        <div style={styles.filterRow}>
+          {BD_FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              style={{ ...styles.filterBtn, ...(statusFilter === key ? styles.filterBtnActive : {}) }}
+              onClick={() => setStatusFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={styles.panel}>
@@ -326,25 +186,15 @@ export function BD() {
             <BDRow
               key={task.id}
               task={task}
-              onClose={id => { void killTask.mutateAsync(id); }}
-              onRequeue={id => { void requeueTask.mutateAsync(id); }}
+              onOpen={id => { void requeueTask.mutateAsync(id); }}
+              onClose={id => { void closeTask.mutateAsync(id); }}
+              onRemove={id => { void deleteTask.mutateAsync(id); }}
+              onUnassign={id => { void removeAssignee.mutateAsync(id); }}
               onView={id => navigate(`/tasks/${id}`)}
             />
           ))
         )}
       </div>
-
-      {showCreate && (
-        <CreateTaskForm
-          recentCwds={recentCwds}
-          coders={coders}
-          onClose={() => setShowCreate(false)}
-          onCreated={id => {
-            setLastCreated(id);
-            setTimeout(() => setLastCreated(null), 5000);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -381,19 +231,22 @@ const styles = {
     color: '#71717a',
     fontSize: '0.875rem',
   } as React.CSSProperties,
-  createdBanner: {
+  searchInput: {
     padding: '0.2rem 0.625rem',
-    background: 'rgba(22,163,74,0.12)',
-    border: '1px solid #16a34a',
+    background: '#09090b',
+    border: '1px solid #3f3f46',
     borderRadius: 4,
-    color: '#22c55e',
+    color: '#e4e4e7',
     fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+    outline: 'none',
+    width: '13rem',
   } as React.CSSProperties,
-  createdId: {
-    fontFamily: 'monospace',
-    fontWeight: 600,
+  filterRow: {
+    display: 'flex',
+    gap: '0.375rem',
   } as React.CSSProperties,
-  toggleBtn: {
+  filterBtn: {
     padding: '0.2rem 0.625rem',
     background: 'transparent',
     border: '1px solid #3f3f46',
@@ -402,22 +255,12 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
+    lineHeight: 1.4,
   } as React.CSSProperties,
-  toggleBtnActive: {
-    borderColor: '#3b82f6',
-    color: '#60a5fa',
-  } as React.CSSProperties,
-  createBtn: {
-    marginLeft: 'auto',
-    padding: '0.2rem 0.625rem',
+  filterBtnActive: {
     background: '#3b82f6',
-    border: '1px solid #3b82f6',
-    borderRadius: 4,
+    borderColor: '#3b82f6',
     color: '#fff',
-    cursor: 'pointer',
-    fontSize: '0.8125rem',
-    fontWeight: 500,
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   panel: {
     background: '#1c1c20',
@@ -443,7 +286,7 @@ const styles = {
   cPrio:   { width: '3rem', flexShrink: 0 } as React.CSSProperties,
   cCoder:  { width: '6rem', flexShrink: 0 } as React.CSSProperties,
   cDeps:   { width: '10rem', flexShrink: 0 } as React.CSSProperties,
-  cAction: { width: '9rem', flexShrink: 0 } as React.CSSProperties,
+  cAction: { width: '15rem', flexShrink: 0 } as React.CSSProperties,
   row: {
     display: 'flex',
     alignItems: 'center',
@@ -517,14 +360,15 @@ const styles = {
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   actionCell: {
-    width: '9rem',
+    width: '15rem',
     flexShrink: 0,
     display: 'flex',
-    gap: '0.375rem',
+    gap: '0.3rem',
     alignItems: 'center',
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   viewBtn: {
-    padding: '0.15rem 0.5rem',
+    padding: '0.15rem 0.4rem',
     background: 'transparent',
     border: '1px solid #3f3f46',
     borderRadius: 4,
@@ -533,8 +377,18 @@ const styles = {
     fontSize: '0.75rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
-  requeueBtn: {
-    padding: '0.15rem 0.5rem',
+  unassignBtn: {
+    padding: '0.15rem 0.4rem',
+    background: 'transparent',
+    border: '1px solid #78716c',
+    borderRadius: 4,
+    color: '#a8a29e',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  openBtn: {
+    padding: '0.15rem 0.4rem',
     background: 'transparent',
     border: '1px solid #2563eb',
     borderRadius: 4,
@@ -544,11 +398,21 @@ const styles = {
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   closeRowBtn: {
-    padding: '0.15rem 0.5rem',
+    padding: '0.15rem 0.4rem',
     background: 'transparent',
     border: '1px solid #3f3f46',
     borderRadius: 4,
     color: '#71717a',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  removeBtn: {
+    padding: '0.15rem 0.4rem',
+    background: 'transparent',
+    border: '1px solid #7f1d1d',
+    borderRadius: 4,
+    color: '#f87171',
     cursor: 'pointer',
     fontSize: '0.75rem',
     fontFamily: 'system-ui, sans-serif',
@@ -562,132 +426,5 @@ const styles = {
   } as React.CSSProperties,
   dim: {
     color: '#52525b',
-  } as React.CSSProperties,
-  // Modal form styles
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.6)',
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingTop: '5rem',
-    zIndex: 500,
-  } as React.CSSProperties,
-  formPanel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
-    width: '100%',
-    maxWidth: '36rem',
-    maxHeight: 'calc(100vh - 8rem)',
-    overflowY: 'auto',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  formHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '1rem 1.25rem 0.75rem',
-    borderBottom: '1px solid #27272a',
-  } as React.CSSProperties,
-  formHeading: {
-    margin: 0,
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: '#e4e4e7',
-  } as React.CSSProperties,
-  closeX: {
-    background: 'none',
-    border: 'none',
-    color: '#71717a',
-    cursor: 'pointer',
-    fontSize: '1.25rem',
-    lineHeight: 1,
-    padding: '0 0.25rem',
-  } as React.CSSProperties,
-  form: {
-    padding: '1rem 1.25rem',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '0.875rem',
-  } as React.CSSProperties,
-  label: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: '0.3rem',
-    fontSize: '0.8125rem',
-    color: '#a1a1aa',
-  } as React.CSSProperties,
-  input: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#e4e4e7',
-    padding: '0.4rem 0.6rem',
-    fontSize: '0.875rem',
-    fontFamily: 'system-ui, sans-serif',
-    outline: 'none',
-  } as React.CSSProperties,
-  inputError: {
-    borderColor: '#ef4444',
-  } as React.CSSProperties,
-  textarea: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#e4e4e7',
-    padding: '0.4rem 0.6rem',
-    fontSize: '0.875rem',
-    fontFamily: 'monospace',
-    outline: 'none',
-    resize: 'vertical' as const,
-  } as React.CSSProperties,
-  select: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#e4e4e7',
-    padding: '0.4rem 0.6rem',
-    fontSize: '0.875rem',
-    fontFamily: 'system-ui, sans-serif',
-    outline: 'none',
-  } as React.CSSProperties,
-  row2: {
-    display: 'flex',
-    gap: '0.625rem',
-  } as React.CSSProperties,
-  fieldErr: {
-    color: '#ef4444',
-    fontSize: '0.75rem',
-  } as React.CSSProperties,
-  formFooter: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: '0.75rem',
-    paddingTop: '0.375rem',
-    borderTop: '1px solid #27272a',
-  } as React.CSSProperties,
-  cancelBtn: {
-    padding: '0.4rem 0.875rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  submitBtn: {
-    padding: '0.4rem 0.875rem',
-    background: '#3b82f6',
-    border: '1px solid #3b82f6',
-    borderRadius: 4,
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
 };
