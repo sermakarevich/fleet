@@ -214,18 +214,23 @@ def _extract_flag(args: list[str], flag: str) -> tuple[list[str], str | None]:
     },
     help=(
         "Run a `bd` command against the centralized fleet database in $FLEET_HOME. "
-        "For `bd create`/`bd new`, `--coder` and `--model` are intercepted and "
-        "stored as per-task overrides instead of being forwarded to bd."
+        "For `bd create`/`bd new`, `--coder`, `--model`, and `--cwd` are intercepted and "
+        "stored as per-task overrides instead of being forwarded to bd. "
+        "Use `--cwd <path>` to set the task working directory explicitly instead of "
+        "using the shell's current directory — useful when creating tasks from a "
+        "centralized location for multiple projects."
     ),
 )
 def bd_passthrough(ctx: typer.Context) -> None:
     """Forward all trailing args verbatim to `bd`, with cwd=$FLEET_HOME.
 
-    For `bd create` / `bd new`, also captures the user's invocation directory
-    (the shell cwd from which `fleet bd create` was run) and persists it into
-    the task's `task.json` so downstream agents see where the human filed it.
-    `--coder` / `--model` flags are intercepted (not forwarded to bd) and
+    For `bd create` / `bd new`, also captures the task working directory and persists
+    it into the task's `task.json` so downstream agents see where to run.
+    `--coder`, `--model`, and `--cwd` flags are intercepted (not forwarded to bd) and
     persisted as per-task overrides on task.json.
+
+    `--cwd <path>` overrides the shell's working directory for the task cwd.
+    When omitted, the shell cwd at invocation time is used (existing behaviour).
     """
     home = _fleet_home()
     bd_args = list(ctx.args)
@@ -239,6 +244,7 @@ def bd_passthrough(ctx: typer.Context) -> None:
 
     bd_args, coder_override = _extract_flag(bd_args, "--coder")
     bd_args, model_override = _extract_flag(bd_args, "--model")
+    bd_args, cwd_override = _extract_flag(bd_args, "--cwd")
     if coder_override is not None:
         try:
             get_coder(coder_override)
@@ -249,9 +255,10 @@ def bd_passthrough(ctx: typer.Context) -> None:
     user_wants_json = "--json" in bd_args
     user_wants_dry_run = "--dry-run" in bd_args
 
-    # typer/click do not chdir, so os.getcwd() here is the shell cwd from
-    # which the user invoked us — capture before any subprocess work.
-    invocation_cwd = os.getcwd()
+    # Use the explicit --cwd value when provided; otherwise fall back to the
+    # shell cwd at invocation time (typer/click do not chdir, so os.getcwd()
+    # is the directory from which the user ran `fleet bd create`).
+    invocation_cwd = cwd_override if cwd_override is not None else os.getcwd()
 
     if not user_wants_json:
         bd_args.append("--json")
