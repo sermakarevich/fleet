@@ -1,4 +1,6 @@
 import type {
+  Bead,
+  BeadDetail,
   ChatQuestion,
   CreateTaskInput,
   FileOp,
@@ -60,6 +62,28 @@ export const api = {
 
   createTask(payload: CreateTaskInput): Promise<{ id: string }> {
     return request('/api/tasks', json('POST', payload));
+  },
+
+  // --- Beads portal (BD tab) ---------------------------------------------
+  async getBeads(): Promise<Bead[]> {
+    const result = await request<{ beads: Bead[] }>('/api/beads');
+    return result.beads;
+  },
+
+  getBead(id: string): Promise<BeadDetail> {
+    return request(`/api/beads/${id}`);
+  },
+
+  setBeadStatus(id: string, status: string): Promise<{ ok: boolean }> {
+    return request(`/api/beads/${id}/status`, json('POST', { status }));
+  },
+
+  unblockBead(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/beads/${id}/unblock`, { method: 'POST' });
+  },
+
+  removeBeadAssignee(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/beads/${id}/remove-assignee`, { method: 'POST' });
   },
 
   async getQA(status?: string): Promise<QuestionSummary[]> {

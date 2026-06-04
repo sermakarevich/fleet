@@ -150,16 +150,26 @@ def _build_task_summary(data: dict, home: Path) -> dict:
 
     last_kind, last_detail = _last_event_info(task_id, home)
 
+    status = data.get("status", "")
+    ended_at = (
+        stats.last_event_at.isoformat()
+        if status in ("closed", "failed") and stats.last_event_at
+        else None
+    )
+
     return {
         "id": task_id,
         "title": data.get("title"),
-        "status": data.get("status"),
+        "description": data.get("description"),
+        "status": status,
         "cwd": data.get("cwd"),
         "coder": data.get("coder"),
         "model": data.get("model"),
         "priority": data.get("priority"),
         "depends_on": data.get("depends_on") or [],
+        "created_at": data.get("created_at"),
         "started_at": started_at.isoformat() if started_at else None,
+        "ended_at": ended_at,
         "elapsed_sec": elapsed_sec,
         "idle_sec": idle_sec,
         "events": stats.events,
@@ -170,8 +180,8 @@ def _build_task_summary(data: dict, home: Path) -> dict:
     }
 
 
-def _get_beads_status_map(home: Path) -> dict[str, str] | None:
-    """Return {task_id: status} for all tasks in the beads DB at `home`.
+def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
+    """Return {task_id: {status, created_at}} for all tasks in the beads DB at `home`.
 
     Returns None if beads is unavailable so the caller can skip reconciliation.
     """
@@ -187,7 +197,13 @@ def _get_beads_status_map(home: Path) -> dict[str, str] | None:
         data = json.loads(result.stdout)
         items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
         if isinstance(items, list):
-            return {item["id"]: item.get("status", "open") for item in items if item.get("id")}
+            return {
+                item["id"]: {
+                    "status": item.get("status", "open"),
+                    "created_at": item.get("created_at"),
+                }
+                for item in items if item.get("id")
+            }
     except Exception:
         pass
     return None
@@ -233,7 +249,8 @@ def create_tasks_router() -> APIRouter:
             task_id = data.get("id", "")
             if beads_map is not None and task_id:
                 if task_id in beads_map:
-                    data = {**data, "status": beads_map[task_id]}
+                    bead_info = beads_map[task_id]
+                    data = {**data, "status": bead_info["status"], "created_at": bead_info.get("created_at")}
                 else:
                     data = {**data, "status": "closed"}
             reconciled.append(data)

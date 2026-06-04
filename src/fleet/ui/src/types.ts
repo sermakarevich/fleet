@@ -1,13 +1,16 @@
 export interface TaskSummary {
   id: string;
   title: string;
+  description: string | null;
   status: string;
   cwd: string | null;
   coder: string | null;
   model: string | null;
   priority: number | null;
   depends_on: string[];
+  created_at: string | null;
   started_at: string | null;
+  ended_at: string | null;
   elapsed_sec: number | null;
   idle_sec: number | null;
   events: number;
@@ -18,11 +21,55 @@ export interface TaskSummary {
 }
 
 export interface TaskDetail extends TaskSummary {
-  description: string | null;
-  priority: number | null;
   retry_count: number;
   outcome: string | null;
-  ended_at: string | null;
+}
+
+// A row from the beads DB, as surfaced by the BD (beads) portal.
+export interface Bead {
+  id: string;
+  title: string;
+  status: string;
+  priority: number | null;
+  issue_type: string | null;
+  assignee: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  dependency_count: number | null;
+  dependent_count: number | null;
+  comment_count: number | null;
+}
+
+export interface BeadDependency {
+  id: string;
+  title: string | null;
+  status: string | null;
+  dependency_type: string | null;
+}
+
+export interface BeadComment {
+  id: string | number | null;
+  author: string | null;
+  text: string | null;
+  created_at: string | null;
+}
+
+export interface BeadDetail {
+  id: string;
+  title: string;
+  status: string;
+  priority: number | null;
+  issue_type: string | null;
+  assignee: string | null;
+  description: string | null;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  closed_at: string | null;
+  close_reason: string | null;
+  dependencies: BeadDependency[];
+  comments: BeadComment[];
 }
 
 export interface FleetEvent {

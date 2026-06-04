@@ -1,140 +1,251 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useCloseTask, useDeleteTask, useRemoveAssignee, useRequeueTask, useTasks } from '../hooks/useApi';
-import type { TaskSummary } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  useBead,
+  useBeads,
+  useRemoveBeadAssignee,
+  useSetBeadStatus,
+  useUnblockBead,
+} from '../hooks/useApi';
+import type { Bead } from '../types';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// The BD tab is a direct portal into the beads DB (distinct from the Tasks tab,
+// which shows fleet-run tasks + their artifacts). Here you can browse every
+// bead, read its full description, see why it is blocked, inspect dependencies
+// and comments, change its status, unblock it, and remove its assignee.
 // ---------------------------------------------------------------------------
 
-type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
+type StatusFilter = 'all' | 'open' | 'in_progress' | 'blocked' | 'deferred' | 'closed';
 
 const BD_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'running', label: 'Running' },
-  { key: 'pending', label: 'Pending' },
+  { key: 'open', label: 'Open' },
+  { key: 'in_progress', label: 'In progress' },
   { key: 'blocked', label: 'Blocked' },
-  { key: 'done', label: 'Done' },
-  { key: 'failed', label: 'Failed' },
+  { key: 'deferred', label: 'Deferred' },
+  { key: 'closed', label: 'Closed' },
 ];
 
-function matchesStatusFilter(task: TaskSummary, filter: StatusFilter): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'running') return task.status === 'in_progress';
-  if (filter === 'pending') return task.status === 'open' || task.status === 'ready';
-  if (filter === 'blocked') return task.status === 'blocked';
-  if (filter === 'done') return task.status === 'closed';
-  if (filter === 'failed') return task.status === 'failed';
-  return true;
-}
+// Statuses the user can assign from the drawer (mirrors backend VALID_STATUSES,
+// minus the rarely-used pinned/hooked which fleet does not surface).
+const STATUS_OPTIONS = ['open', 'in_progress', 'blocked', 'deferred', 'closed'];
 
 interface ChipStyle { label: string; color: string; bg: string }
 
 function statusChip(status: string): ChipStyle {
   switch (status) {
-    case 'in_progress': return { label: 'Running', color: '#fff', bg: '#16a34a' };
-    case 'blocked':     return { label: 'Blocked', color: '#fff', bg: '#d97706' };
-    case 'open':
-    case 'ready':       return { label: 'Pending', color: '#fff', bg: '#2563eb' };
-    case 'closed':      return { label: 'Done',    color: '#71717a', bg: '#27272a' };
-    case 'failed':      return { label: 'Failed',  color: '#fff', bg: '#dc2626' };
-    default:            return { label: status,    color: '#a1a1aa', bg: '#3f3f46' };
+    case 'in_progress': return { label: 'In progress', color: '#fff', bg: '#16a34a' };
+    case 'blocked':     return { label: 'Blocked',     color: '#fff', bg: '#d97706' };
+    case 'open':        return { label: 'Open',        color: '#fff', bg: '#2563eb' };
+    case 'deferred':    return { label: 'Deferred',    color: '#fff', bg: '#6b7280' };
+    case 'closed':      return { label: 'Closed',      color: '#a1a1aa', bg: '#27272a' };
+    default:            return { label: status || '?', color: '#a1a1aa', bg: '#3f3f46' };
   }
 }
 
-const STATUS_ORDER: Record<string, number> = {
-  open: 0, ready: 0,
-  in_progress: 1,
-  blocked: 2,
-  closed: 3, failed: 3,
-};
-
-function taskOrder(t: TaskSummary): number {
-  return STATUS_ORDER[t.status] ?? 9;
-}
-
 // ---------------------------------------------------------------------------
-// BD task row
+// Bead row
 // ---------------------------------------------------------------------------
 
-interface RowProps {
-  task: TaskSummary;
-  onOpen: (id: string) => void;
-  onClose: (id: string) => void;
-  onRemove: (id: string) => void;
-  onUnassign: (id: string) => void;
-  onView: (id: string) => void;
-}
-
-function BDRow({ task, onOpen, onClose, onRemove, onUnassign, onView }: RowProps) {
-  const chip = statusChip(task.status);
-  const isOpenable = task.status !== 'open' && task.status !== 'ready';
-  const isCloseable = task.status !== 'closed';
-
+function BeadRow({ bead, selected, onSelect }: { bead: Bead; selected: boolean; onSelect: (id: string) => void }) {
+  const chip = statusChip(bead.status);
+  const depCount = bead.dependency_count ?? 0;
   return (
-    <div style={styles.row} onClick={() => onView(task.id)}>
-      <span style={{ ...styles.chip, background: chip.bg, color: chip.color }}>
-        {chip.label}
-      </span>
-      <span style={styles.idCell}>{task.id}</span>
-      <span style={styles.titleCell} title={task.title}>{task.title}</span>
+    <div
+      style={{ ...styles.row, ...(selected ? styles.rowSelected : {}) }}
+      onClick={() => onSelect(bead.id)}
+    >
+      <span style={{ ...styles.chip, background: chip.bg, color: chip.color }}>{chip.label}</span>
+      <span style={styles.idCell}>{bead.id}</span>
+      <span style={styles.titleCell} title={bead.title}>{bead.title}</span>
       <span style={styles.prioCell}>
-        {task.priority != null ? task.priority : <span style={styles.dim}>—</span>}
+        {bead.priority != null ? bead.priority : <span style={styles.dim}>—</span>}
       </span>
-      <span style={styles.coderCell}>
-        {task.coder ?? <span style={styles.dim}>(default)</span>}
+      <span style={styles.assigneeCell} title={bead.assignee ?? undefined}>
+        {bead.assignee ?? <span style={styles.dim}>—</span>}
       </span>
-      <span style={styles.depsCell} onClick={e => e.stopPropagation()}>
-        {task.depends_on.length > 0
-          ? task.depends_on.map(dep => (
-              <span key={dep} style={styles.depBadge}>{dep}</span>
-            ))
-          : <span style={styles.dim}>—</span>}
-      </span>
-      <span style={styles.actionCell} onClick={e => e.stopPropagation()}>
-        <button style={styles.viewBtn} onClick={() => onView(task.id)}>View</button>
-        {task.coder && (
-          <button style={styles.unassignBtn} onClick={() => onUnassign(task.id)}>Unassign</button>
-        )}
-        {isOpenable && (
-          <button style={styles.openBtn} onClick={() => onOpen(task.id)}>Open</button>
-        )}
-        {isCloseable && (
-          <button style={styles.closeRowBtn} onClick={() => onClose(task.id)}>Close</button>
-        )}
-        <button style={styles.removeBtn} onClick={() => onRemove(task.id)}>Remove</button>
+      <span style={styles.depsCell}>
+        {depCount > 0 ? `${depCount} dep${depCount === 1 ? '' : 's'}` : <span style={styles.dim}>—</span>}
       </span>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
+// Bead detail drawer
+// ---------------------------------------------------------------------------
+
+function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () => void }) {
+  const { data: bead, isLoading, error } = useBead(beadId);
+  const setStatus = useSetBeadStatus();
+  const unblock = useUnblockBead();
+  const removeAssignee = useRemoveBeadAssignee();
+
+  const incompleteDeps = (bead?.dependencies ?? []).filter(d => d.status !== 'closed');
+  const busy = setStatus.isPending || unblock.isPending || removeAssignee.isPending;
+
+  return (
+    <div style={styles.drawerOverlay} onClick={onClose}>
+      <aside style={styles.drawer} onClick={e => e.stopPropagation()}>
+        <div style={styles.drawerHeader}>
+          <span style={styles.drawerId}>{beadId}</span>
+          <button style={styles.closeDrawerBtn} onClick={onClose} title="Close">✕</button>
+        </div>
+
+        {isLoading && <p style={styles.msg}>Loading…</p>}
+        {error && <p style={{ ...styles.msg, color: '#ef4444' }}>Error: {String(error)}</p>}
+
+        {bead && (
+          <div style={styles.drawerBody}>
+            <h2 style={styles.drawerTitle}>{bead.title}</h2>
+
+            <div style={styles.metaRow}>
+              <span style={{ ...styles.chip, background: statusChip(bead.status).bg, color: statusChip(bead.status).color }}>
+                {statusChip(bead.status).label}
+              </span>
+              {bead.priority != null && <span style={styles.metaPill}>priority {bead.priority}</span>}
+              {bead.issue_type && <span style={styles.metaPill}>{bead.issue_type}</span>}
+              <span style={styles.metaPill}>assignee: {bead.assignee ?? '—'}</span>
+            </div>
+
+            {/* Manage controls */}
+            <div style={styles.controls}>
+              <label style={styles.controlLabel}>
+                Status
+                <select
+                  style={styles.select}
+                  value={bead.status}
+                  disabled={busy}
+                  onChange={e => setStatus.mutate({ id: beadId, status: e.target.value })}
+                >
+                  {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  {!STATUS_OPTIONS.includes(bead.status) && (
+                    <option value={bead.status}>{bead.status}</option>
+                  )}
+                </select>
+              </label>
+              {bead.status === 'blocked' && (
+                <button style={styles.unblockBtn} disabled={busy} onClick={() => unblock.mutate(beadId)}>
+                  Unblock
+                </button>
+              )}
+              {bead.assignee && (
+                <button style={styles.unassignBtn} disabled={busy} onClick={() => removeAssignee.mutate(beadId)}>
+                  Remove assignee
+                </button>
+              )}
+            </div>
+
+            {/* Why blocked */}
+            {bead.status === 'blocked' && (
+              <section style={styles.section}>
+                <h3 style={styles.sectionTitle}>Why blocked</h3>
+                {bead.notes && <pre style={styles.notes}>{bead.notes}</pre>}
+                {incompleteDeps.length > 0 && (
+                  <div style={styles.blockedDeps}>
+                    <span style={styles.dim}>
+                      Waiting on {incompleteDeps.length} open dependenc{incompleteDeps.length === 1 ? 'y' : 'ies'}:
+                    </span>
+                    {incompleteDeps.map(d => (
+                      <div key={d.id} style={styles.depItem}>
+                        <span style={styles.depId}>{d.id}</span>
+                        <span style={styles.depTitle} title={d.title ?? undefined}>{d.title ?? ''}</span>
+                        <span style={{ ...styles.depStatusChip, background: statusChip(d.status ?? '').bg, color: statusChip(d.status ?? '').color }}>
+                          {d.status ?? '?'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!bead.notes && incompleteDeps.length === 0 && (
+                  <p style={styles.dim}>No recorded reason — blocked manually. Use Unblock to reopen.</p>
+                )}
+              </section>
+            )}
+
+            {/* Description */}
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Description</h3>
+              {bead.description
+                ? <pre style={styles.desc}>{bead.description}</pre>
+                : <p style={styles.dim}>No description.</p>}
+            </section>
+
+            {/* Dependencies */}
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Dependencies ({bead.dependencies.length})</h3>
+              {bead.dependencies.length === 0
+                ? <p style={styles.dim}>None.</p>
+                : bead.dependencies.map(d => (
+                    <div key={d.id} style={styles.depItem}>
+                      <span style={styles.depId}>{d.id}</span>
+                      <span style={styles.depTitle} title={d.title ?? undefined}>{d.title ?? ''}</span>
+                      <span style={{ ...styles.depStatusChip, background: statusChip(d.status ?? '').bg, color: statusChip(d.status ?? '').color }}>
+                        {d.status ?? '?'}
+                      </span>
+                      {d.dependency_type && <span style={styles.depType}>{d.dependency_type}</span>}
+                    </div>
+                  ))}
+            </section>
+
+            {/* Comments */}
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Comments ({bead.comments.length})</h3>
+              {bead.comments.length === 0
+                ? <p style={styles.dim}>None.</p>
+                : bead.comments.map((c, i) => (
+                    <div key={c.id ?? i} style={styles.comment}>
+                      <div style={styles.commentMeta}>
+                        <span style={styles.commentAuthor}>{c.author ?? 'unknown'}</span>
+                        {c.created_at && <span style={styles.dim}>{c.created_at}</span>}
+                      </div>
+                      <div style={styles.commentText}>{c.text}</div>
+                    </div>
+                  ))}
+            </section>
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+const PAGE_SIZE = 25;
+
+// ---------------------------------------------------------------------------
 // BD page
 // ---------------------------------------------------------------------------
 
 export function BD() {
-  const navigate = useNavigate();
-  const { data: tasksData, isLoading, error } = useTasks();
-  const requeueTask = useRequeueTask();
-  const closeTask = useCloseTask();
-  const deleteTask = useDeleteTask();
-  const removeAssignee = useRemoveAssignee();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const { data: beads, isLoading, error } = useBeads();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('in_progress');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const sorted = useMemo(() => {
-    if (!tasksData) return [];
-    let visible = tasksData.filter(t => matchesStatusFilter(t, statusFilter));
+    if (!beads) return [];
+    let visible = beads.filter(b => statusFilter === 'all' || b.status === statusFilter);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      visible = visible.filter(t =>
-        t.id.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
-        (t.cwd ?? '').toLowerCase().includes(q)
+      visible = visible.filter(b =>
+        b.id.toLowerCase().includes(q) ||
+        b.title.toLowerCase().includes(q) ||
+        (b.assignee ?? '').toLowerCase().includes(q)
       );
     }
-    return [...visible].sort((a, b) => taskOrder(a) - taskOrder(b));
-  }, [tasksData, statusFilter, searchQuery]);
+    return [...visible].sort((a, b) => {
+      const aTs = a.created_at ?? '';
+      const bTs = b.created_at ?? '';
+      return bTs.localeCompare(aTs) || a.id.localeCompare(b.id);
+    });
+  }, [beads, statusFilter, searchQuery]);
+
+  useEffect(() => { setPage(0); }, [statusFilter, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   if (isLoading) {
     return <p style={styles.msg}>Loading…</p>;
@@ -147,12 +258,12 @@ export function BD() {
     <div style={styles.page}>
       <div style={styles.topBar}>
         <h1 style={styles.heading}>
-          BD Queue <span style={styles.count}>({sorted.length})</span>
+          beads <span style={styles.count}>({sorted.length})</span>
         </h1>
         <input
           type="search"
           style={styles.searchInput}
-          placeholder="Search…"
+          placeholder="Search id, title, assignee…"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
         />
@@ -175,26 +286,46 @@ export function BD() {
           <span style={styles.cId}>ID</span>
           <span style={styles.cTitle}>Title</span>
           <span style={styles.cPrio}>Pri</span>
-          <span style={styles.cCoder}>Coder</span>
-          <span style={styles.cDeps}>Depends on</span>
-          <span style={styles.cAction} />
+          <span style={styles.cAssignee}>Assignee</span>
+          <span style={styles.cDeps}>Deps</span>
         </div>
         {sorted.length === 0 ? (
-          <p style={styles.empty}>No tasks in queue.</p>
+          <p style={styles.empty}>No beads.</p>
         ) : (
-          sorted.map(task => (
-            <BDRow
-              key={task.id}
-              task={task}
-              onOpen={id => { void requeueTask.mutateAsync(id); }}
-              onClose={id => { void closeTask.mutateAsync(id); }}
-              onRemove={id => { void deleteTask.mutateAsync(id); }}
-              onUnassign={id => { void removeAssignee.mutateAsync(id); }}
-              onView={id => navigate(`/tasks/${id}`)}
+          pageItems.map(bead => (
+            <BeadRow
+              key={bead.id}
+              bead={bead}
+              selected={selectedId === bead.id}
+              onSelect={setSelectedId}
             />
           ))
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div style={styles.pagination}>
+          <button
+            style={{ ...styles.pageBtn, ...(safePage === 0 ? styles.pageBtnDisabled : {}) }}
+            disabled={safePage === 0}
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+          >
+            ← Prev
+          </button>
+          <span style={styles.pageInfo}>
+            {safePage + 1} / {totalPages}
+          </span>
+          <button
+            style={{ ...styles.pageBtn, ...(safePage >= totalPages - 1 ? styles.pageBtnDisabled : {}) }}
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
+      {selectedId && <BeadDrawer beadId={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
   );
 }
@@ -240,11 +371,12 @@ const styles = {
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
     outline: 'none',
-    width: '13rem',
+    width: '15rem',
   } as React.CSSProperties,
   filterRow: {
     display: 'flex',
     gap: '0.375rem',
+    flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   filterBtn: {
     padding: '0.2rem 0.625rem',
@@ -280,13 +412,12 @@ const styles = {
     letterSpacing: '0.05em',
     gap: '0.75rem',
   } as React.CSSProperties,
-  cStatus: { width: '5rem', flexShrink: 0 } as React.CSSProperties,
-  cId:     { width: '6rem', flexShrink: 0 } as React.CSSProperties,
-  cTitle:  { flex: 1, minWidth: 0 } as React.CSSProperties,
-  cPrio:   { width: '3rem', flexShrink: 0 } as React.CSSProperties,
-  cCoder:  { width: '6rem', flexShrink: 0 } as React.CSSProperties,
-  cDeps:   { width: '10rem', flexShrink: 0 } as React.CSSProperties,
-  cAction: { width: '15rem', flexShrink: 0 } as React.CSSProperties,
+  cStatus:   { width: '6rem', flexShrink: 0 } as React.CSSProperties,
+  cId:       { width: '6rem', flexShrink: 0 } as React.CSSProperties,
+  cTitle:    { flex: 1, minWidth: 0 } as React.CSSProperties,
+  cPrio:     { width: '3rem', flexShrink: 0 } as React.CSSProperties,
+  cAssignee: { width: '8rem', flexShrink: 0 } as React.CSSProperties,
+  cDeps:     { width: '5rem', flexShrink: 0 } as React.CSSProperties,
   row: {
     display: 'flex',
     alignItems: 'center',
@@ -297,16 +428,20 @@ const styles = {
     fontSize: '0.875rem',
     color: '#d4d4d8',
   } as React.CSSProperties,
+  rowSelected: {
+    background: '#27272a',
+  } as React.CSSProperties,
   chip: {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '5rem',
+    width: '6rem',
     flexShrink: 0,
     padding: '0.15rem 0.5rem',
     borderRadius: 4,
     fontSize: '0.75rem',
     fontWeight: 600,
+    boxSizing: 'border-box',
   } as React.CSSProperties,
   idCell: {
     width: '6rem',
@@ -332,90 +467,20 @@ const styles = {
     color: '#a1a1aa',
     textAlign: 'center' as const,
   } as React.CSSProperties,
-  coderCell: {
-    width: '6rem',
+  assigneeCell: {
+    width: '8rem',
     flexShrink: 0,
     fontSize: '0.8125rem',
+    color: '#a1a1aa',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   depsCell: {
-    width: '10rem',
+    width: '5rem',
     flexShrink: 0,
-    display: 'flex',
-    flexWrap: 'wrap' as const,
-    gap: '0.25rem',
-    alignItems: 'center',
-  } as React.CSSProperties,
-  depBadge: {
-    display: 'inline-block',
-    padding: '0.1rem 0.4rem',
-    background: '#27272a',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
+    fontSize: '0.8125rem',
     color: '#a1a1aa',
-    fontSize: '0.7rem',
-    fontFamily: 'monospace',
-    whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  actionCell: {
-    width: '15rem',
-    flexShrink: 0,
-    display: 'flex',
-    gap: '0.3rem',
-    alignItems: 'center',
-    flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  viewBtn: {
-    padding: '0.15rem 0.4rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#71717a',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  unassignBtn: {
-    padding: '0.15rem 0.4rem',
-    background: 'transparent',
-    border: '1px solid #78716c',
-    borderRadius: 4,
-    color: '#a8a29e',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  openBtn: {
-    padding: '0.15rem 0.4rem',
-    background: 'transparent',
-    border: '1px solid #2563eb',
-    borderRadius: 4,
-    color: '#60a5fa',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  closeRowBtn: {
-    padding: '0.15rem 0.4rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#71717a',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  removeBtn: {
-    padding: '0.15rem 0.4rem',
-    background: 'transparent',
-    border: '1px solid #7f1d1d',
-    borderRadius: 4,
-    color: '#f87171',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   empty: {
     padding: '1.5rem 1rem',
@@ -426,5 +491,249 @@ const styles = {
   } as React.CSSProperties,
   dim: {
     color: '#52525b',
+  } as React.CSSProperties,
+
+  // Drawer
+  drawerOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.45)',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    zIndex: 900,
+  } as React.CSSProperties,
+  drawer: {
+    width: 'min(34rem, 100%)',
+    height: '100%',
+    background: '#18181b',
+    borderLeft: '1px solid #3f3f46',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    boxShadow: '-8px 0 24px rgba(0,0,0,0.4)',
+  } as React.CSSProperties,
+  drawerHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.625rem 1rem',
+    borderBottom: '1px solid #27272a',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  drawerId: {
+    fontFamily: 'monospace',
+    color: '#60a5fa',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+  } as React.CSSProperties,
+  closeDrawerBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    lineHeight: 1,
+    padding: '0.25rem',
+  } as React.CSSProperties,
+  drawerBody: {
+    padding: '1rem',
+    overflowY: 'auto' as const,
+    flex: 1,
+  } as React.CSSProperties,
+  drawerTitle: {
+    margin: '0 0 0.75rem',
+    fontSize: '1rem',
+    fontWeight: 600,
+    color: '#f4f4f5',
+    lineHeight: 1.4,
+  } as React.CSSProperties,
+  metaRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap' as const,
+    marginBottom: '0.875rem',
+  } as React.CSSProperties,
+  metaPill: {
+    padding: '0.15rem 0.5rem',
+    background: '#27272a',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#a1a1aa',
+    fontSize: '0.75rem',
+  } as React.CSSProperties,
+  controls: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '0.625rem',
+    flexWrap: 'wrap' as const,
+    padding: '0.75rem',
+    background: '#1c1c20',
+    border: '1px solid #3f3f46',
+    borderRadius: 6,
+    marginBottom: '1rem',
+  } as React.CSSProperties,
+  controlLabel: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.25rem',
+    fontSize: '0.7rem',
+    color: '#71717a',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+  } as React.CSSProperties,
+  select: {
+    padding: '0.25rem 0.5rem',
+    background: '#09090b',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#e4e4e7',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  unblockBtn: {
+    padding: '0.3rem 0.75rem',
+    background: 'transparent',
+    border: '1px solid #2563eb',
+    borderRadius: 4,
+    color: '#60a5fa',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  unassignBtn: {
+    padding: '0.3rem 0.75rem',
+    background: 'transparent',
+    border: '1px solid #78716c',
+    borderRadius: 4,
+    color: '#a8a29e',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  section: {
+    marginBottom: '1.25rem',
+  } as React.CSSProperties,
+  sectionTitle: {
+    margin: '0 0 0.5rem',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    color: '#71717a',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+  } as React.CSSProperties,
+  notes: {
+    margin: '0 0 0.5rem',
+    padding: '0.625rem 0.75rem',
+    background: '#2a1d05',
+    border: '1px solid #78491a',
+    borderRadius: 6,
+    color: '#fcd9a0',
+    fontSize: '0.8125rem',
+    fontFamily: 'ui-monospace, monospace',
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
+  } as React.CSSProperties,
+  blockedDeps: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.375rem',
+  } as React.CSSProperties,
+  desc: {
+    margin: 0,
+    padding: '0.625rem 0.75rem',
+    background: '#1c1c20',
+    border: '1px solid #3f3f46',
+    borderRadius: 6,
+    color: '#d4d4d8',
+    fontSize: '0.8125rem',
+    fontFamily: 'ui-monospace, monospace',
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  depItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.375rem 0.5rem',
+    borderBottom: '1px solid #27272a',
+    fontSize: '0.8125rem',
+  } as React.CSSProperties,
+  depId: {
+    fontFamily: 'monospace',
+    color: '#60a5fa',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  depTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: '#d4d4d8',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  depStatusChip: {
+    flexShrink: 0,
+    padding: '0.05rem 0.4rem',
+    borderRadius: 4,
+    fontSize: '0.7rem',
+    fontWeight: 600,
+  } as React.CSSProperties,
+  depType: {
+    flexShrink: 0,
+    color: '#52525b',
+    fontSize: '0.7rem',
+    fontFamily: 'monospace',
+  } as React.CSSProperties,
+  comment: {
+    padding: '0.5rem 0',
+    borderBottom: '1px solid #27272a',
+  } as React.CSSProperties,
+  commentMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    marginBottom: '0.25rem',
+    fontSize: '0.75rem',
+  } as React.CSSProperties,
+  commentAuthor: {
+    color: '#a1a1aa',
+    fontWeight: 600,
+  } as React.CSSProperties,
+  commentText: {
+    color: '#d4d4d8',
+    fontSize: '0.8125rem',
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const,
+    lineHeight: 1.5,
+  } as React.CSSProperties,
+  pagination: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+    padding: '0.625rem 0',
+    marginTop: '0.5rem',
+  } as React.CSSProperties,
+  pageBtn: {
+    padding: '0.2rem 0.75rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  pageBtnDisabled: {
+    opacity: 0.35,
+    cursor: 'default',
+  } as React.CSSProperties,
+  pageInfo: {
+    fontSize: '0.8125rem',
+    color: '#71717a',
+    minWidth: '4rem',
+    textAlign: 'center' as const,
   } as React.CSSProperties,
 };

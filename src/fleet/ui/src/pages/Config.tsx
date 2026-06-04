@@ -34,7 +34,7 @@ export function Config() {
   return (
     <div style={styles.page}>
       <div style={styles.pageHeader}>
-        <h1 style={styles.heading}>Config</h1>
+        <h1 style={styles.heading}>config</h1>
         {saveResult && (
           <span style={{ ...styles.saveBanner, ...(saveResult.ok ? styles.saveBannerOk : styles.saveBannerErr) }}>
             {saveResult.text}

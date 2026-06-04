@@ -16,9 +16,17 @@ test *ARGS:
 init:
     uv run fleet init
 
-# start the supervisor (default coder: claude)
-run coder="claude":
-    uv run fleet run --coder {{coder}}
+# run the supervisor in the foreground (Ctrl-C to stop; coder comes from config)
+run:
+    uv run fleet run foreground
+
+# manage the supervisor daemon: just supervisor start|stop|restart|status
+supervisor cmd="status":
+    uv run fleet run {{cmd}}
+
+# manage the UI server daemon: just serve start|stop|restart|status
+serve cmd="status":
+    uv run fleet serve {{cmd}}
 
 # list ready tasks
 ready:

@@ -83,7 +83,7 @@ fleet bd create --coder agy --model "GPT-OSS 120B" \
 # Positional-title shortcut (cwd is captured automatically):
 fleet bd create "context for other coders"
 
-fleet run &                                         # start the supervisor in the background
+fleet run start                                     # start the supervisor as a background daemon
 fleet tasks                                         # render a live table of in-progress tasks
 ```
 
@@ -192,8 +192,7 @@ fleet bd create --coder claude --model opus --title "Tricky task on Opus"
 
 The override is persisted in `$FLEET_HOME/tasks/<task_id>/task.json` and is
 applied the first time the supervisor claims the task. Resolution order is
-`task.coder` → `--coder` CLI flag on `fleet run` → `config.coder`
-(similarly for `model`). Confirm what the supervisor will pick with
+`task.coder` → `config.coder` (similarly for `model`). Confirm what the supervisor will pick with
 `fleet show <task_id>` — explicit overrides are bare, while inherited
 values are tagged ` (default)`. To change an override after creation,
 edit `$FLEET_HOME/tasks/<task_id>/task.json` directly.
@@ -201,8 +200,10 @@ edit `$FLEET_HOME/tasks/<task_id>/task.json` directly.
 ### 4. Start the supervisor
 
 ```bash
-fleet run                       # uses config.coder / config.model
-fleet run --coder claude        # override default coder for this process
+fleet run start                 # start the supervisor as a background daemon
+fleet run status                # is it running? (pid + start time)
+fleet run restart               # pick up code/config changes
+fleet run stop                  # graceful shutdown
 ```
 
 The supervisor reads from `$FLEET_HOME/.beads`, claims ready tasks, and spawns
@@ -315,20 +316,45 @@ model: opus]`.
 
 ### `fleet run`
 
+The supervisor runs as a long-lived background daemon, managed via
+sub-commands. It is tracked through a PID file at `$FLEET_HOME/.supervisor.pid`
+(the same file the web UI reads to show supervisor status).
+
 ```bash
-fleet run
-fleet run --coder claude         # override the default coder for this run
+fleet run start          # spawn the supervisor detached in the background
+fleet run status         # show whether it is running (pid + start time)
+fleet run restart        # stop + start to pick up code/config changes
+fleet run stop           # graceful shutdown (SIGTERM, then SIGKILL after a grace window)
+fleet run foreground     # run in the current terminal (blocks; for debugging)
 ```
 
-| Option | Description |
+| Sub-command | Description |
 |---|---|
-| `--coder` | Optional override for the default coder this process uses. Falls back to `config.coder` (default `claude`). Per-task overrides set on `fleet bd create` still win. Registered values: `claude`, `agy`, `codex`. |
+| `start` | Spawn the supervisor as a detached daemon. Idempotent — a no-op (with a notice) if already running. The default coder comes from `config.coder` (default `claude`); per-task overrides set on `fleet bd create` still win. |
+| `stop` | Send SIGTERM for a graceful shutdown (in-flight tasks are released), escalating to SIGKILL after a grace window longer than the supervisor's own shutdown timeout. |
+| `restart` | `stop` then `start`. Use this after editing code or `runtime.toml`. |
+| `status` | Print running/stopped plus pid and start time. Exits non-zero when stopped (handy in scripts). |
+| `foreground` | Run the supervisor in the foreground (blocks). This is what `start` execs; use it directly to watch logs live. |
+
+The daemon's stdout/stderr is captured to `$FLEET_HOME/logging/supervisor.daemon.log`
+(structured task logs still go to `$FLEET_HOME/logging/fleet-*.jsonl`).
+
+> Note: daemons are CLI-managed only — they do **not** survive a reboot and are
+> **not** auto-restarted on crash. Use `fleet run restart` to apply changes.
 
 ### `fleet serve`
 
+The web UI server also runs as a background daemon, tracked through
+`$FLEET_HOME/.serve.pid`.
+
 ```bash
-fleet serve               # start on 127.0.0.1:7890 (default)
-fleet serve --port 8080   # custom port
+fleet serve start                 # start on 127.0.0.1:7890 (default)
+fleet serve start --port 8080     # custom port
+fleet serve status                # running? (pid, start time, port)
+fleet serve restart               # rebuild the UI (make ui-build) and restart
+fleet serve restart --no-build    # restart without rebuilding the UI
+fleet serve stop                  # stop the server
+fleet serve foreground --port 8080  # run in the current terminal (blocks)
 ```
 
 Starts a local web server backed by FastAPI and serves a React SPA at
@@ -340,14 +366,25 @@ Starts a local web server backed by FastAPI and serves a React SPA at
 - **Analytics** — token usage and throughput charts
 - **Config** — view and edit `runtime.toml` settings
 
-The UI assets must be built once before first use:
+| Sub-command | Description |
+|---|---|
+| `start` | Spawn the UI server detached on `127.0.0.1:<port>` (default 7890). Idempotent. |
+| `stop` | Stop the server daemon. |
+| `restart` | Run `make ui-build` (rebuild the SPA) **first**, then `stop` + `start`. The build runs before the old server is stopped, so a failed build leaves the current server running. The port defaults to the one recorded in the PID file. Pass `--no-build` to skip the rebuild, or `--port` to change it. |
+| `status` | Print running/stopped plus pid, start time, and port. Exits non-zero when stopped. |
+| `foreground` | Run uvicorn in the foreground (blocks). This is what `start` execs. |
+
+The UI assets must be built once before first use (and are rebuilt by
+`fleet serve restart`):
 
 ```bash
 make ui-build    # builds React SPA and copies it to $FLEET_HOME/ui_dist/
 ```
 
-If `$FLEET_HOME/ui_dist/` is absent, `fleet serve` starts without the UI and
-logs a warning.
+`fleet serve restart` runs `make ui-build` for you. If there is no `Makefile`
+(e.g. a non-source install), the build step is skipped with a warning rather
+than failing. If `$FLEET_HOME/ui_dist/` is absent, the server starts without the
+UI and logs a warning.
 
 ### `fleet config show` / `fleet config set`
 
@@ -369,7 +406,7 @@ directly in the file.
 | Key | Default | Description |
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `coder` | `claude` | Default coder used when neither the task nor `fleet run --coder` specifies one. Registered values: `claude`, `agy`, `codex`. |
+| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
 

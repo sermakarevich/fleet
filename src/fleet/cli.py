@@ -10,7 +10,7 @@ from dataclasses import fields as dc_fields
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
@@ -18,12 +18,14 @@ from rich.table import Table
 from rich.text import Text
 from typer.core import TyperCommand
 
+import fleet
 from fleet.coders import get_coder
 from fleet.config import load as load_config
 from fleet.config import write_atomic
+from fleet.daemon import Daemon, DaemonSpec, StartResult, python_module_argv
 from fleet.logging import setup_supervisor_logger
 from fleet.queue import BeadsError, BeadsQueue
-from fleet.schemas import LOG_ROOT, Task
+from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC, Task
 from fleet.serve.stats import (
     TaskRuntimeStats as _TaskRuntimeStats,
     fleet_home as _fleet_home_impl,
@@ -41,7 +43,7 @@ app = typer.Typer(
         "Each task carries its own project directory and optional coder/model "
         "override, so a single supervisor can drive work across many projects "
         "and agent backends from one machine.\n\n"
-        "Typical flow:  fleet init  →  fleet bd create  →  fleet run"
+        "Typical flow:  fleet init  →  fleet bd create  →  fleet run start"
     ),
 )
 config_app = typer.Typer(no_args_is_help=True)
@@ -312,13 +314,146 @@ def bd_passthrough(ctx: typer.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Supervisor command
+# Daemon management (fleet-nbu): `run` and `serve` as background daemons
 # ---------------------------------------------------------------------------
+#
+# `fleet run` and `fleet serve` are managed as detached background daemons via
+# `start | stop | restart | status | foreground` sub-commands. `foreground`
+# runs the service in the current terminal (and is what the daemon execs);
+# `start` spawns that entrypoint detached and tracks it through a PID file under
+# $FLEET_HOME. Daemons are CLI-managed only — they do NOT survive a reboot and
+# are NOT auto-restarted on crash; use `restart` to pick up code changes.
+
+DEFAULT_SERVE_PORT = 7890
+
+_console = Console()
 
 
-@app.command()
-def run() -> None:
-    """Start the fleet supervisor."""
+def _repo_root() -> Path:
+    """Repo root containing the Makefile (editable install: <repo>/src/fleet → <repo>)."""
+    return Path(fleet.__file__).resolve().parents[2]
+
+
+def _supervisor_spec() -> DaemonSpec:
+    """Daemon spec for `fleet run`.
+
+    PID file is `$FLEET_HOME/.supervisor.pid` so the UI's /api/supervisor route
+    lights up. stop_timeout exceeds SHUTDOWN_GRACE_SEC so the supervisor's
+    graceful shutdown (releasing in-flight tasks) completes before any SIGKILL.
+    """
+    home = _fleet_home()
+    return DaemonSpec(
+        name="supervisor",
+        pidfile=home / ".supervisor.pid",
+        logfile=_resolve_log_dir() / "supervisor.daemon.log",
+        argv=python_module_argv("run", "foreground"),
+        cwd=home,
+        stop_timeout=float(SHUTDOWN_GRACE_SEC + 5),
+        extra={},
+    )
+
+
+def _serve_spec(port: int) -> DaemonSpec:
+    """Daemon spec for `fleet serve`. Stores the port so `restart` can reuse it."""
+    home = _fleet_home()
+    return DaemonSpec(
+        name="serve",
+        pidfile=home / ".serve.pid",
+        logfile=_resolve_log_dir() / "serve.daemon.log",
+        argv=python_module_argv("serve", "foreground", "--port", str(port)),
+        cwd=home,
+        stop_timeout=10.0,
+        extra={"port": port},
+    )
+
+
+def _serve_stored_port() -> int | None:
+    """Port recorded in the serve PID file, if any (used to preserve it on restart)."""
+    data = Daemon(_serve_spec(DEFAULT_SERVE_PORT)).read_pidfile()
+    if not data or data.get("port") is None:
+        return None
+    try:
+        return int(data["port"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _tail_logfile(path: Path, n: int = 20) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    if not lines:
+        return
+    _console.print(f"[dim]--- last {min(n, len(lines))} lines of {path} ---[/]")
+    for line in lines[-n:]:
+        _console.print(line)
+
+
+def _report_start(daemon: Daemon, result: StartResult, label: str) -> None:
+    """Echo the outcome of a start/restart; exit nonzero if it died immediately."""
+    if result.already_running:
+        _console.print(f"[yellow]{label} already running[/] (pid {result.pid}).")
+        return
+    if not result.alive:
+        _console.print(
+            f"[red]{label} failed to start[/] — process exited immediately."
+        )
+        _tail_logfile(daemon.spec.logfile)
+        raise typer.Exit(1)
+    _console.print(
+        f"[green]{label} started[/] (pid {result.pid}). Logs: {daemon.spec.logfile}"
+    )
+
+
+def _report_status(daemon: Daemon, label: str) -> None:
+    """Echo daemon status. Exits nonzero when stopped (so scripts can branch)."""
+    st = daemon.status()
+    if not st.running:
+        _console.print(f"{label}: [red]stopped[/]")
+        raise typer.Exit(1)
+    parts = [f"pid {st.pid}"]
+    if st.started_at:
+        parts.append(f"since {st.started_at}")
+    if st.extra.get("port") is not None:
+        parts.append(f"port {st.extra['port']}")
+    _console.print(f"{label}: [green]running[/] ({', '.join(parts)})")
+
+
+def _build_ui() -> None:
+    """Run `make ui-build` from the repo root. Raises typer.Exit on failure.
+
+    Called as the restart pre-step for `serve`, BEFORE the running server is
+    stopped — so a failed/flaky build leaves the current server untouched.
+    Skipped with a warning when there is no Makefile (non-source install).
+    """
+    repo_root = _repo_root()
+    if not (repo_root / "Makefile").exists():
+        _console.print(
+            f"[yellow]Skipping UI build:[/] no Makefile at {repo_root} "
+            "(not a source checkout)."
+        )
+        return
+    _console.print("Building UI ([bold]make ui-build[/])…")
+    result = subprocess.run(["make", "ui-build"], cwd=str(repo_root))
+    if result.returncode != 0:
+        _console.print("[red]UI build failed[/] — leaving the running server untouched.")
+        raise typer.Exit(result.returncode)
+    _console.print("[green]UI build complete.[/]")
+
+
+# -- fleet run --------------------------------------------------------------
+
+run_app = typer.Typer(
+    no_args_is_help=True,
+    help="Run the fleet supervisor (background daemon: start/stop/restart/status).",
+)
+app.add_typer(run_app, name="run")
+
+
+@run_app.command("foreground")
+def run_foreground() -> None:
+    """Run the supervisor in the foreground (blocks). This is what `start` execs."""
     home = _fleet_home()
     runtime_toml = _runtime_toml_path()
     cfg = load_config(runtime_toml)
@@ -349,16 +484,48 @@ def run() -> None:
     raise typer.Exit(rc)
 
 
-# ---------------------------------------------------------------------------
-# serve
-# ---------------------------------------------------------------------------
+@run_app.command("start")
+def run_start() -> None:
+    """Start the supervisor as a background daemon."""
+    daemon = Daemon(_supervisor_spec())
+    _report_start(daemon, daemon.start(), "supervisor")
 
 
-@app.command()
-def serve(
-    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = 7890,
+@run_app.command("stop")
+def run_stop() -> None:
+    """Stop the supervisor daemon (graceful SIGTERM, then SIGKILL)."""
+    daemon = Daemon(_supervisor_spec())
+    stopped = daemon.stop()
+    _console.print("supervisor stopped." if stopped else "supervisor not running.")
+
+
+@run_app.command("restart")
+def run_restart() -> None:
+    """Restart the supervisor daemon to pick up code changes."""
+    daemon = Daemon(_supervisor_spec())
+    _report_start(daemon, daemon.restart(), "supervisor")
+
+
+@run_app.command("status")
+def run_status() -> None:
+    """Show whether the supervisor daemon is running."""
+    _report_status(Daemon(_supervisor_spec()), "supervisor")
+
+
+# -- fleet serve ------------------------------------------------------------
+
+serve_app = typer.Typer(
+    no_args_is_help=True,
+    help="Run the fleet UI server (background daemon: start/stop/restart/status).",
+)
+app.add_typer(serve_app, name="serve")
+
+
+@serve_app.command("foreground")
+def serve_foreground(
+    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
 ) -> None:
-    """Start the fleet UI server on 127.0.0.1 (FR-48, FR-49)."""
+    """Run the UI server in the foreground (blocks). This is what `start` execs."""
     import uvicorn
 
     uvicorn.run(
@@ -367,6 +534,52 @@ def serve(
         port=port,
         factory=True,
     )
+
+
+@serve_app.command("start")
+def serve_start(
+    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
+) -> None:
+    """Start the UI server as a background daemon on 127.0.0.1 (FR-48, FR-49)."""
+    daemon = Daemon(_serve_spec(port))
+    _report_start(daemon, daemon.start(), "serve")
+
+
+@serve_app.command("stop")
+def serve_stop() -> None:
+    """Stop the UI server daemon."""
+    daemon = Daemon(_serve_spec(DEFAULT_SERVE_PORT))  # port is irrelevant for stop
+    stopped = daemon.stop()
+    _console.print("serve stopped." if stopped else "serve not running.")
+
+
+@serve_app.command("restart")
+def serve_restart(
+    port: Annotated[
+        Optional[int],
+        typer.Option("--port", help="Port to listen on (default: reuse the running port)."),
+    ] = None,
+    no_build: Annotated[
+        bool, typer.Option("--no-build", help="Skip `make ui-build` before restarting.")
+    ] = False,
+) -> None:
+    """Rebuild the UI (`make ui-build`) and restart the server daemon.
+
+    The build runs BEFORE the old server is stopped, so a failed build leaves
+    the current server running. Pass --no-build to restart without rebuilding.
+    """
+    if port is None:
+        port = _serve_stored_port()
+    resolved_port = port if port is not None else DEFAULT_SERVE_PORT
+    daemon = Daemon(_serve_spec(resolved_port))
+    before = None if no_build else _build_ui
+    _report_start(daemon, daemon.restart(before_start=before), "serve")
+
+
+@serve_app.command("status")
+def serve_status() -> None:
+    """Show whether the UI server daemon is running."""
+    _report_status(Daemon(_serve_spec(DEFAULT_SERVE_PORT)), "serve")
 
 
 # ---------------------------------------------------------------------------

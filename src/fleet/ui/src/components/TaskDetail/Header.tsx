@@ -15,11 +15,15 @@ function statusColor(status: string): string {
   }
 }
 
-function fmtElapsed(sec: number | null): string {
-  if (sec == null) return '—';
-  if (sec < 60) return `${Math.floor(sec)}s`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ${Math.floor(sec % 60)}s`;
-  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+function fmtTs(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (d.toDateString() === now.toDateString()) return t;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${mo} ${d.getDate()} ${t}`;
 }
 
 function CoderModel({ task, config }: { task: TaskDetail; config: RuntimeConfig | undefined }) {
@@ -59,7 +63,13 @@ export function Header({ task, config }: Props) {
       <div style={styles.meta}>
         <CoderModel task={task} config={config} />
         <span style={styles.metaSep}>·</span>
-        <span style={styles.metaItem}>elapsed: {fmtElapsed(task.elapsed_sec)}</span>
+        <span style={styles.metaItem}>started: {fmtTs(task.started_at)}</span>
+        {task.ended_at && (
+          <>
+            <span style={styles.metaSep}>·</span>
+            <span style={styles.metaItem}>ended: {fmtTs(task.ended_at)}</span>
+          </>
+        )}
         {task.cwd && (
           <>
             <span style={styles.metaSep}>·</span>

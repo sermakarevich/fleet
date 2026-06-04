@@ -23,10 +23,64 @@ export function useTask(id: string) {
   });
 }
 
+export function useBeads() {
+  return useQuery({ queryKey: ['beads'], queryFn: api.getBeads, refetchInterval: 5000 });
+}
+
+export function useBead(id: string | null) {
+  return useQuery({
+    queryKey: ['bead', id],
+    queryFn: () => api.getBead(id as string),
+    enabled: !!id,
+    refetchInterval: 3000,
+  });
+}
+
+export function useSetBeadStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => api.setBeadStatus(id, status),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ['beads'] });
+      void qc.invalidateQueries({ queryKey: ['bead', vars.id] });
+    },
+  });
+}
+
+export function useUnblockBead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.unblockBead(id),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: ['beads'] });
+      void qc.invalidateQueries({ queryKey: ['bead', id] });
+    },
+  });
+}
+
+export function useRemoveBeadAssignee() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.removeBeadAssignee(id),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: ['beads'] });
+      void qc.invalidateQueries({ queryKey: ['bead', id] });
+    },
+  });
+}
+
 export function useQA(status?: string) {
   return useQuery({
     queryKey: ['qa', status],
     queryFn: () => api.getQA(status),
+    refetchInterval: 3000,
+  });
+}
+
+export function useChatQuestions() {
+  return useQuery({
+    queryKey: ['chat-questions'],
+    queryFn: api.getChatQuestions,
     refetchInterval: 3000,
   });
 }

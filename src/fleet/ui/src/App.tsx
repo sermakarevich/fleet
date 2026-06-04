@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import { Chat } from './pages/Chat';
 import { Tasks } from './pages/Tasks';
 import { BD } from './pages/BD';
@@ -8,7 +8,7 @@ import { TaskDetail } from './pages/TaskDetail';
 import { Config } from './pages/Config';
 import { NewTaskPanel } from './components/NewTaskPanel';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
-import { useQA } from './hooks/useApi';
+import { useQA, useChatQuestions } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useCommandPalette } from './hooks/useCommandPalette';
 import { useNativeNotifications } from './hooks/useNativeNotifications';
@@ -24,17 +24,41 @@ function QAIndicator() {
   return <span style={styles.qaBadge}>{count}</span>;
 }
 
+// Always-visible circle next to the Chat tab: green when there are unanswered
+// (pending) ask_human questions, dim gray when the queue is empty. Unlike
+// QAIndicator it must render in both states so the color *change* is the signal.
+function ChatIndicator() {
+  const { data } = useChatQuestions();
+  const count = data?.pending.length ?? 0;
+  const active = count > 0;
+  return (
+    <span
+      title={
+        active
+          ? `${count} unanswered question${count === 1 ? '' : 's'}`
+          : 'No pending questions'
+      }
+      style={{ ...styles.chatDot, ...(active ? styles.chatDotActive : styles.chatDotIdle) }}
+    />
+  );
+}
+
 function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () => void }) {
   return (
     <nav style={styles.nav}>
-      <span style={styles.brand}>
+      <Link style={styles.brand} to="/tasks">
         fleet
         <QAIndicator />
-      </span>
-      <NavLink style={navLinkStyle} to="/tasks">Tasks</NavLink>
-      <NavLink style={navLinkStyle} to="/bd">BD</NavLink>
-      <NavLink style={navLinkStyle} to="/config">Config</NavLink>
-      <NavLink style={navLinkStyle} to="/chat">Chat</NavLink>
+      </Link>
+      <NavLink style={navLinkStyle} to="/tasks">tasks</NavLink>
+      <NavLink style={navLinkStyle} to="/bd">bd</NavLink>
+      <NavLink style={navLinkStyle} to="/config">config</NavLink>
+      <NavLink style={navLinkStyle} to="/chat">
+        <span style={styles.chatLink}>
+          chat
+          <ChatIndicator />
+        </span>
+      </NavLink>
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <span style={{ ...styles.dot, color: connected ? '#22c55e' : '#ef4444' }}>
         {connected ? '● connected' : '○ disconnected'}
@@ -163,6 +187,8 @@ const styles = {
     color: '#fff',
     marginRight: '0.75rem',
     letterSpacing: '-0.02em',
+    textDecoration: 'none',
+    cursor: 'pointer',
   } as React.CSSProperties,
   qaBadge: {
     display: 'inline-flex',
@@ -176,6 +202,27 @@ const styles = {
     fontSize: '0.7rem',
     fontWeight: 700,
     padding: '0 0.25rem',
+  } as React.CSSProperties,
+  chatLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+  } as React.CSSProperties,
+  chatDot: {
+    display: 'inline-block',
+    width: '0.5rem',
+    height: '0.5rem',
+    borderRadius: '9999px',
+    flexShrink: 0,
+    transition: 'background-color 0.2s, box-shadow 0.2s',
+  } as React.CSSProperties,
+  chatDotActive: {
+    background: '#22c55e',
+    boxShadow: '0 0 0 3px rgba(34,197,94,0.18)',
+  } as React.CSSProperties,
+  chatDotIdle: {
+    background: '#3f3f46',
+    boxShadow: 'none',
   } as React.CSSProperties,
   newTaskBtn: {
     marginLeft: 'auto',

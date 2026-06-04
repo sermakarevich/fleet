@@ -104,7 +104,10 @@ export function Chat() {
       <aside style={s.sidebar}>
         <div style={s.sideHead}>
           <div style={s.brand}>
-            <span style={s.dot} />
+            <span
+              style={{ ...s.dot, ...(questions.length === 0 ? s.dotIdle : {}) }}
+              title={questions.length ? `${questions.length} unanswered` : 'No pending questions'}
+            />
             ask_human
           </div>
           <div style={s.count}>{questions.length} pending</div>
@@ -260,6 +263,11 @@ const s: Record<string, React.CSSProperties> = {
     boxShadow: '0 0 0 3px rgba(34,197,94,.18)',
     display: 'inline-block',
     flexShrink: 0,
+    transition: 'background-color .2s, box-shadow .2s',
+  },
+  dotIdle: {
+    background: '#3f3f46',
+    boxShadow: 'none',
   },
   count: {
     color: '#98a2b3',

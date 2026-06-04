@@ -8,13 +8,15 @@ import type { TaskSummary } from '../types';
 type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
   { key: 'running', label: 'Running' },
-  { key: 'pending', label: 'Pending' },
   { key: 'blocked', label: 'Blocked' },
+  { key: 'pending', label: 'Pending' },
   { key: 'done', label: 'Done' },
   { key: 'failed', label: 'Failed' },
+  { key: 'all', label: 'All' },
 ];
+
+const ALERT_FILTERS = new Set<StatusFilter>(['blocked', 'failed']);
 
 const KILL_ELIGIBLE = new Set(['in_progress', 'blocked', 'open', 'ready']);
 
@@ -42,11 +44,21 @@ function statusChip(status: string): ChipStyle {
   }
 }
 
-function formatElapsed(sec: number | null): string {
-  if (sec == null) return '—';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+function formatTs(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const now = new Date();
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (d.toDateString() === now.toDateString()) return t;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${mo} ${d.getDate()} ${t}`;
+}
+
+function formatContext(tokens: number | null, pct: number | null): string {
+  if (tokens == null) return '—';
+  if (pct != null) return `${Math.round(pct)}%`;
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
 }
 
 interface RowProps {
@@ -63,6 +75,7 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
   const isConfirming = confirmingId === task.id;
   const killEligible = KILL_ELIGIBLE.has(task.status);
+  const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
 
   return (
     <div style={styles.row} onClick={() => onRowClick(task.id)}>
@@ -70,13 +83,20 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
         {chip.label}
       </span>
       <span style={styles.idCell}>{task.id}</span>
-      <span style={styles.titleCell} title={task.title}>{task.title}</span>
+      <span style={styles.titleCell}>
+        <span style={styles.titleText} title={task.title}>{task.title}</span>
+        {task.description && (
+          <span style={styles.descText} title={task.description}>{task.description}</span>
+        )}
+      </span>
       <span style={styles.coderCell}>
-        {task.coder
-          ? task.coder
+        {coderModelStr
+          ? coderModelStr
           : <span style={styles.dim}>(default)</span>}
       </span>
-      <span style={styles.elapsedCell}>{formatElapsed(task.elapsed_sec)}</span>
+      <span style={styles.contextCell}>{formatContext(task.context_tokens, task.context_pct)}</span>
+      <span style={styles.tsCell}>{formatTs(task.started_at)}</span>
+      <span style={styles.tsCell}>{formatTs(task.ended_at)}</span>
       <span style={styles.cwdCell} title={task.cwd ?? undefined}>{cwdShort}</span>
       <span style={styles.actionCell} onClick={e => e.stopPropagation()}>
         {killEligible && !isConfirming && (
@@ -96,11 +116,14 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
   );
 }
 
+const PAGE_SIZE = 25;
+
 export function Tasks() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<StatusFilter>('all');
+  const [filter, setFilter] = useState<StatusFilter>('running');
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const { data: polledTasks, isLoading, error } = useTasks();
   const { tasks, setTasks, updateFromEvent } = useTasksState([]);
@@ -125,6 +148,23 @@ export function Tasks() {
     return true;
   });
 
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    const aTs = a.created_at ?? a.started_at ?? '';
+    const bTs = b.created_at ?? b.started_at ?? '';
+    return bTs.localeCompare(aTs);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems = sortedFiltered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+
+  useEffect(() => { setPage(0); }, [filter, searchQuery]);
+
+  const alertCounts: Partial<Record<StatusFilter, number>> = {
+    blocked: tasks.filter(t => matchesFilter(t, 'blocked')).length,
+    failed: tasks.filter(t => matchesFilter(t, 'failed')).length,
+  };
+
   const handleKillConfirm = (id: string) => {
     void killTask.mutateAsync(id).finally(() => setConfirmingId(null));
   };
@@ -139,7 +179,7 @@ export function Tasks() {
   return (
     <div style={styles.page}>
       <div style={styles.topBar}>
-        <h1 style={styles.heading}>Tasks <span style={styles.count}>({tasks.length})</span></h1>
+        <h1 style={styles.heading}>tasks <span style={styles.count}>({sortedFiltered.length})</span></h1>
         <input
           type="search"
           style={styles.searchInput}
@@ -148,15 +188,21 @@ export function Tasks() {
           onChange={e => setSearchQuery(e.target.value)}
         />
         <div style={styles.filterRow}>
-          {FILTERS.map(({ key, label }) => (
-            <button
-              key={key}
-              style={{ ...styles.filterBtn, ...(filter === key ? styles.filterBtnActive : {}) }}
-              onClick={() => setFilter(key)}
-            >
-              {label}
-            </button>
-          ))}
+          {FILTERS.map(({ key, label }) => {
+            const hasAlert = ALERT_FILTERS.has(key) && (alertCounts[key] ?? 0) > 0;
+            return (
+              <button
+                key={key}
+                style={{ ...styles.filterBtn, ...(filter === key ? styles.filterBtnActive : {}) }}
+                onClick={() => setFilter(key)}
+              >
+                <span style={styles.filterBtnInner}>
+                  {label}
+                  {hasAlert && <span style={styles.alertDot} />}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -165,16 +211,18 @@ export function Tasks() {
           <span style={styles.colStatus}>Status</span>
           <span style={styles.colId}>ID</span>
           <span style={styles.colTitle}>Title</span>
-          <span style={styles.colCoder}>Coder</span>
-          <span style={styles.colElapsed}>Elapsed</span>
+          <span style={styles.colCoder}>Coder / Model</span>
+          <span style={styles.colContext}>Context</span>
+          <span style={styles.colTs}>Started</span>
+          <span style={styles.colTs}>Completed</span>
           <span style={styles.colCwd}>Cwd</span>
           <span style={styles.colAction} />
         </div>
 
-        {filtered.length === 0 ? (
+        {sortedFiltered.length === 0 ? (
           <p style={styles.empty}>No tasks match this filter.</p>
         ) : (
-          filtered.map(task => (
+          pageItems.map(task => (
             <TaskRow
               key={task.id}
               task={task}
@@ -187,6 +235,28 @@ export function Tasks() {
           ))
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div style={styles.pagination}>
+          <button
+            style={{ ...styles.pageBtn, ...(safePage === 0 ? styles.pageBtnDisabled : {}) }}
+            disabled={safePage === 0}
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+          >
+            ← Prev
+          </button>
+          <span style={styles.pageInfo}>
+            {safePage + 1} / {totalPages}
+          </span>
+          <button
+            style={{ ...styles.pageBtn, ...(safePage >= totalPages - 1 ? styles.pageBtnDisabled : {}) }}
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -251,6 +321,19 @@ const styles = {
     borderColor: '#3b82f6',
     color: '#fff',
   } as React.CSSProperties,
+  filterBtnInner: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+  } as React.CSSProperties,
+  alertDot: {
+    display: 'inline-block',
+    width: 7,
+    height: 7,
+    borderRadius: '50%',
+    background: '#ef4444',
+    flexShrink: 0,
+  } as React.CSSProperties,
   panel: {
     background: '#1c1c20',
     border: '1px solid #3f3f46',
@@ -272,9 +355,10 @@ const styles = {
   colStatus:  { width: '5rem', flexShrink: 0 } as React.CSSProperties,
   colId:      { width: '6rem', flexShrink: 0 } as React.CSSProperties,
   colTitle:   { flex: 1, minWidth: 0 } as React.CSSProperties,
-  colCoder:   { width: '6rem', flexShrink: 0 } as React.CSSProperties,
-  colElapsed: { width: '5rem', flexShrink: 0 } as React.CSSProperties,
-  colCwd:     { width: '8rem', flexShrink: 0 } as React.CSSProperties,
+  colCoder:   { width: '9rem', flexShrink: 0 } as React.CSSProperties,
+  colContext: { width: '5rem', flexShrink: 0 } as React.CSSProperties,
+  colTs:      { width: '8.5rem', flexShrink: 0 } as React.CSSProperties,
+  colCwd:     { width: '7rem', flexShrink: 0 } as React.CSSProperties,
   colAction:  { width: '10rem', flexShrink: 0 } as React.CSSProperties,
   row: {
     display: 'flex',
@@ -298,6 +382,7 @@ const styles = {
     fontSize: '0.75rem',
     fontWeight: 600,
     letterSpacing: '0.01em',
+    boxSizing: 'border-box',
   } as React.CSSProperties,
   idCell: {
     width: '6rem',
@@ -312,26 +397,46 @@ const styles = {
   titleCell: {
     flex: 1,
     minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.1rem',
+    overflow: 'hidden',
+  } as React.CSSProperties,
+  titleText: {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
+  descText: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    fontSize: '0.75rem',
+    color: '#52525b',
+  } as React.CSSProperties,
   coderCell: {
-    width: '6rem',
+    width: '9rem',
     flexShrink: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
     fontSize: '0.8125rem',
   } as React.CSSProperties,
-  elapsedCell: {
+  contextCell: {
     width: '5rem',
     flexShrink: 0,
     color: '#a1a1aa',
     fontSize: '0.8125rem',
   } as React.CSSProperties,
+  tsCell: {
+    width: '8.5rem',
+    flexShrink: 0,
+    color: '#a1a1aa',
+    fontSize: '0.8125rem',
+    fontFamily: 'monospace',
+  } as React.CSSProperties,
   cwdCell: {
-    width: '8rem',
+    width: '7rem',
     flexShrink: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -396,5 +501,33 @@ const styles = {
   } as React.CSSProperties,
   dim: {
     color: '#52525b',
+  } as React.CSSProperties,
+  pagination: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+    padding: '0.625rem 0',
+    marginTop: '0.5rem',
+  } as React.CSSProperties,
+  pageBtn: {
+    padding: '0.2rem 0.75rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  pageBtnDisabled: {
+    opacity: 0.35,
+    cursor: 'default',
+  } as React.CSSProperties,
+  pageInfo: {
+    fontSize: '0.8125rem',
+    color: '#71717a',
+    minWidth: '4rem',
+    textAlign: 'center' as const,
   } as React.CSSProperties,
 };

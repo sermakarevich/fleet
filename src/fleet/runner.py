@@ -118,10 +118,24 @@ class TaskRunner:
 
             assert proc.stdout is not None
             # Default StreamReader limit is 64 KB; large MCP tool results (e.g. full
-            # YouTube transcripts in a stream-json line) exceed that and raise
-            # LimitOverrunError.  Bump to 100 MB — well above any realistic line.
+            # paper content or YouTube transcripts in a stream-json line) can exceed
+            # even a generous limit and raise LimitOverrunError.  Use a manual
+            # readline loop so we can catch and skip oversize lines instead of
+            # crashing the whole runner.  In Python 3.12 the buffer IS consumed
+            # before LimitOverrunError is raised, so `continue` is safe.
             proc.stdout._limit = 100 * 1024 * 1024
-            async for raw_bytes in proc.stdout:
+            while True:
+                try:
+                    raw_bytes = await proc.stdout.readline()
+                except asyncio.LimitOverrunError as exc:
+                    self._log.warning(
+                        "stdout_line_overrun",
+                        task_id=task.id,
+                        consumed=exc.consumed,
+                    )
+                    continue
+                if not raw_bytes:
+                    break
                 raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
                 evt = self._coder.normalize_event(raw_line)
                 if evt is None:
