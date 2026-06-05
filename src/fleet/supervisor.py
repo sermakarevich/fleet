@@ -73,6 +73,7 @@ class Supervisor:
             asyncio.create_task(self._reap_loop(), name="reap"),
             asyncio.create_task(self._config_poll_loop(), name="config_poll"),
             asyncio.create_task(self._status_log_loop(), name="status_log"),
+            asyncio.create_task(self._kill_poll_loop(), name="kill_poll"),
         ]
 
         await self._done.wait()
@@ -247,6 +248,19 @@ class Supervisor:
                 break
             self._log_status_snapshot()
 
+    async def _kill_poll_loop(self) -> None:
+        """Poll for .kill sentinel files and terminate the matching runner."""
+        while not self._shutting_down:
+            await asyncio.sleep(1.0)
+            if self._shutting_down:
+                break
+            for task_id, runner in list(self._runners.items()):
+                kill_file = self._project_root / "tasks" / task_id / ".kill"
+                if kill_file.exists():
+                    kill_file.unlink(missing_ok=True)
+                    self._log.info("task_kill_requested", task_id=task_id)
+                    await runner.kill()
+
     def _log_status_snapshot(self) -> None:
         self._log.info("supervisor_status", **self._fleet_log_context())
 
@@ -313,6 +327,17 @@ class Supervisor:
 
             case TaskOutcome.BLOCKED_BY_AGENT:
                 self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
+
+            case TaskOutcome.KILLED:
+                self._queue.set_blocked(
+                    task.id,
+                    reason="manually interrupted",
+                )
+                self._queue.comment(
+                    task.id,
+                    "[fleet] task was manually interrupted.",
+                )
+                self._log.info("task_killed", task_id=task.id, **fleet_ctx)
 
             case TaskOutcome.FAILURE:
                 new_count = increment_failure(self._task_dir_for(task))

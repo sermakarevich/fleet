@@ -72,6 +72,7 @@ class TaskRunner:
         self._log = log
         self._proc: asyncio.subprocess.Process | None = None
         self._cancelled = False
+        self._killed = False
 
     async def run(self) -> TaskOutcomeRecord:
         task = self._task
@@ -242,6 +243,12 @@ class TaskRunner:
                         exit_code=exit_code,
                         reason="context_pressure hook fired",
                     )
+                elif self._killed:
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.KILLED,
+                        exit_code=exit_code,
+                        reason="manual_kill",
+                    )
                 elif self._cancelled:
                     outcome = TaskOutcomeRecord(
                         outcome=TaskOutcome.FAILURE,
@@ -283,6 +290,11 @@ class TaskRunner:
                 outcome=outcome.outcome.value,
             )
             return outcome
+
+    async def kill(self) -> None:
+        """Mark as manually killed and terminate the subprocess."""
+        self._killed = True
+        await self.cancel()
 
     async def cancel(self) -> None:
         """Send SIGTERM to the child; escalate to SIGKILL after grace period."""

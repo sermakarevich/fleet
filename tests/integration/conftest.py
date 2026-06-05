@@ -123,6 +123,10 @@ class MemoryQueue(Queue):
             self._tasks[task_id] = replace(self._tasks[task_id], status="closed")
         self._fire("close", task_id)
 
+    def delete(self, task_id: str) -> None:
+        self._tasks.pop(task_id, None)
+        self._fire("delete", task_id)
+
     def comment(self, task_id: str, body: str) -> None:
         self.comments.append((task_id, body))
         self._fire("comment", task_id)

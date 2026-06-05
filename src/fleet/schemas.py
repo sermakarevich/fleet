@@ -60,6 +60,7 @@ class TaskOutcome(Enum):
     RATE_LIMIT = "rate_limit"
     CONTEXT_PRESSURE = "context_pressure"
     BLOCKED_BY_AGENT = "blocked_by_agent"
+    KILLED = "killed"
 
 
 @dataclass

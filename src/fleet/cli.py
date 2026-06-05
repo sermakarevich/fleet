@@ -775,6 +775,21 @@ def _render_tasks_table(tasks: list[Task], now: datetime) -> Table:
     return table
 
 
+@app.command("kill")
+def kill_cmd(
+    task_id: Annotated[str, typer.Argument(help="Task ID to kill.")],
+) -> None:
+    """Interrupt a running task (supervisor terminates it and marks it manually interrupted)."""
+    home = _fleet_home()
+    task_dir = home / "tasks" / task_id
+    if not (task_dir / "task.json").exists():
+        typer.echo(f"Task {task_id} not found.", err=True)
+        raise typer.Exit(1)
+    kill_file = task_dir / ".kill"
+    kill_file.touch()
+    typer.echo(f"Kill signal sent for task {task_id}.")
+
+
 @app.command("tasks")
 def tasks_cmd(
     limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,

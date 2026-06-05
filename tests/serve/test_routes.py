@@ -63,12 +63,11 @@ def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_task_kill_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """POST /api/tasks/{id}/kill calls queue.release and returns 200 (FR-07)."""
+    """POST /api/tasks/{id}/kill writes .kill sentinel and returns 200 (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
-    _make_task_dir(tasks_root, "task-kill", "in_progress")
-    mock_queue = MagicMock(spec=BeadsQueue)
-    app = create_app(queue=mock_queue)
+    task_dir = _make_task_dir(tasks_root, "task-kill", "in_progress")
+    app = create_app()
 
     async def _run() -> httpx.Response:
         async with httpx.AsyncClient(
@@ -79,7 +78,7 @@ def test_task_kill_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     resp = asyncio.run(_run())
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    mock_queue.release.assert_called_once_with("task-kill")
+    assert (task_dir / ".kill").exists(), ".kill sentinel should be written"
 
 
 def test_task_kill_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
