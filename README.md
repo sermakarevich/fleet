@@ -15,6 +15,12 @@ many projects — and across multiple agent backends — spawning many concurren
   <img src="assets/tasks.png" alt="fleet tasks output">
 </p>
 
+Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and chat with blocked agents through the Q&A inbox, all from a single dashboard.
+
+<p align="center">
+  <img src="assets/fleet_ui.png" alt="fleet web UI">
+</p>
+
 
 ---
 
