@@ -4,6 +4,12 @@
   <img src="assets/fleet_mini.png" alt="fleet logo">
 </p>
 
+<p align="center">
+  <a href="https://docs.google.com/presentation/d/1O_pXyKdtpRG2ORD1xw7svifjpCol96wIVvOU6kOMDlI/edit?usp=sharing">
+    <img src="https://img.shields.io/badge/Slides-fleet_overview-FBBC04?style=for-the-badge&logo=googleslides&logoColor=white" alt="Slides — fleet overview presentation">
+  </a>
+</p>
+
 `fleet` is a lightweight Python supervisor that claims tasks from a
 **centralized** [beads](https://github.com/gastownhall/beads) queue and runs
 them in parallel through a coder (`claude`, `agy`, or `codex` CLI) in a headless loop. Each task
@@ -20,8 +26,6 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
 <p align="center">
   <img src="assets/fleet_ui.png" alt="fleet web UI">
 </p>
-
-📑 **Slides:** [fleet — overview presentation](https://docs.google.com/presentation/d/1O_pXyKdtpRG2ORD1xw7svifjpCol96wIVvOU6kOMDlI/edit?usp=sharing)
 
 ---
 
