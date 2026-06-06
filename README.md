@@ -21,6 +21,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   <img src="assets/fleet_ui.png" alt="fleet web UI">
 </p>
 
+📑 **Slides:** [fleet — overview presentation](https://docs.google.com/presentation/d/1O_pXyKdtpRG2ORD1xw7svifjpCol96wIVvOU6kOMDlI/edit?usp=sharing)
 
 ---
 
