@@ -588,6 +588,9 @@ def test_inbound_listener_creates_task_and_replies(
     assert len(sent) == 1
     assert "fleet-abc1" in sent[0][1]
     assert tg._load_offset(tmp_path / "offset") == 6
+    app.state.queue.create_task.assert_called_once_with(
+        "Fix the bug", "Some details", None, None, "/my/project"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +627,132 @@ def test_inbound_listener_backs_off_on_network_error(
     assert len(sleep_durations) >= 2
     # Backoff doubles: second sleep should be >= first
     assert sleep_durations[1] >= sleep_durations[0]
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — malformed /task command gets error reply
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_malformed_task_sends_error_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed /task command (empty title) sends error reply; no task is created."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [
+        {
+            "update_id": 20,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/task\n",  # empty title → malformed
+            },
+        }
+    ]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    app.state.queue.create_task.assert_not_called()
+    assert len(sent) == 1, "Expected exactly one error reply"
+    assert "usage" in sent[0][1].lower() or "Usage" in sent[0][1]
+    assert tg._load_offset(tmp_path / "offset") == 21
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — offset persistence prevents duplicates on restart
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_offset_prevents_duplicate_on_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saved offset from a previous run is passed to getUpdates on restart,
+    preventing the same update from being processed twice."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
+
+    updates = [
+        {
+            "update_id": 7,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/task Title",
+            },
+        }
+    ]
+
+    from fleet.schemas import Task
+
+    fake_task = Task(id="fleet-xyz1", title="Title", description=None, status="open")
+    offset_path = tmp_path / "offset"
+
+    # --- First run: process the update and save offset ---
+    app1 = MagicMock()
+    app1.state.fleet_state.config = cfg
+    app1.state.queue.create_task.return_value = fake_task
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        pass
+
+    run1_n = [0]
+
+    async def _fake_to_thread_run1(fn, *args):
+        run1_n[0] += 1
+        if run1_n[0] == 1:
+            return updates
+        if run1_n[0] == 2:
+            return fn(*args)  # create_task
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread_run1)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app1, offset_path))
+
+    assert tg._load_offset(offset_path) == 8
+    assert app1.state.queue.create_task.call_count == 1
+
+    # --- Second run: offset=8 should be passed to _fetch_updates ---
+    app2 = MagicMock()
+    app2.state.fleet_state.config = cfg
+
+    fetched_offsets: list = []
+    run2_n = [0]
+
+    async def _fake_to_thread_run2(fn, *args):
+        run2_n[0] += 1
+        if run2_n[0] == 1:
+            fetched_offsets.append(args[1])  # args = (token, offset)
+            return []  # no new updates (Telegram filters out update_id < offset)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread_run2)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app2, offset_path))
+
+    assert fetched_offsets == [8], "Second run must use saved offset=8"
+    app2.state.queue.create_task.assert_not_called()

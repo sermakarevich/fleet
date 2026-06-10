@@ -190,6 +190,13 @@ async def inbound_listener(app: Any, offset_path: Path) -> None:
                         _log.error("telegram.inbound: create_task failed", error=str(exc))
                     if chat_id:
                         await send_message(token, chat_id, reply)
+                elif text.strip().startswith("/task"):
+                    if chat_id:
+                        await send_message(
+                            token,
+                            chat_id,
+                            "Usage: /task <title>\n[optional description lines]",
+                        )
 
                 if offset is None or next_offset > offset:
                     offset = next_offset
