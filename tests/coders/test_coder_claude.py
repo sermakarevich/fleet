@@ -101,7 +101,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     # Spot-check several distinctive phrases from the bundled INSTRUCTION.md.
     assert "Fleet Task Protocol" in prompt
     assert "On every fresh start" in prompt
-    assert "Q&A.md" in prompt
+    assert "ask_human" in prompt
     assert "bd update" in prompt
 
 

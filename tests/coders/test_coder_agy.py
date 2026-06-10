@@ -76,7 +76,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     prompt = argv[2]  # final positional arg or prompt argument
     assert "Fleet Task Protocol" in prompt
     assert "On every fresh start" in prompt
-    assert "Q&A.md" in prompt
+    assert "ask_human" in prompt
     assert "bd update" in prompt
 
 

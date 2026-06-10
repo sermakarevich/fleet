@@ -73,7 +73,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     prompt = _coder().build_argv(_task(), tmp_path)[-1]
     assert "Fleet Task Protocol" in prompt
     assert "On every fresh start" in prompt
-    assert "Q&A.md" in prompt
+    assert "ask_human" in prompt
     assert "bd update" in prompt
 
 

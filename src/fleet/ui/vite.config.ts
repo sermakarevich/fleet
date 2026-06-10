@@ -13,7 +13,6 @@ export default defineConfig({
         target: 'ws://localhost:7890',
         ws: true,
       },
-      '/mcp': 'http://localhost:7890',
     },
   },
 })

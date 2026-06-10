@@ -21,7 +21,7 @@ many projects — and across multiple agent backends — spawning many concurren
   <img src="assets/tasks.png" alt="fleet tasks output">
 </p>
 
-Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and chat with blocked agents through the Q&A inbox, all from a single dashboard.
+Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and chat with blocked agents via the Chat tab, all from a single dashboard.
 
 <p align="center">
   <img src="assets/fleet_ui.png" alt="fleet web UI">
@@ -50,7 +50,6 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
 - [Telegram channel notifications](#telegram-channel-notifications)
 - [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
 - [Adding a custom coder](#adding-a-custom-coder)
-- [Q&A protocol — for the human](#qa-protocol--for-the-human)
 
 ---
 
@@ -105,8 +104,7 @@ fleet tasks                                         # render a live table of in-
 </p>
 
 See [First-run setup](#first-run-setup) and the [Command reference](#command-reference)
-for the full story (per-task coder/model overrides, Q&A protocol, log
-locations, …).
+for the full story (per-task coder/model overrides, log locations, …).
 
 ---
 
@@ -128,8 +126,7 @@ override with `$FLEET_HOME` if you like.
     ├── .failures                 # failure counter (drives retries)
     └── artifacts/
         ├── PLAN_AND_STATUS.md    # agent-owned plan + progress
-        ├── KNOWLEDGE.md          # agent-owned persistent notes
-        └── Q&A.md                # agent ↔ human Q&A thread (when blocked)
+        └── KNOWLEDGE.md          # agent-owned persistent notes
 ```
 
 Each task records the project working directory the agent should run in,
@@ -374,8 +371,8 @@ Starts a local web server backed by FastAPI and serves a React SPA at
 `http://127.0.0.1:7890`. The UI provides:
 
 - **Dashboard** — live task table with status, elapsed time, and context usage
-- **Task detail** — logs, plan, knowledge, and Q&A per task
-- **Q&A inbox** — review and answer blocked tasks in one place
+- **Task detail** — logs, plan, knowledge, and chat per task
+- **Chat** — review and answer blocked tasks in one place
 - **Analytics** — token usage and throughput charts
 - **Config** — view and edit `runtime.toml` settings
 
@@ -430,7 +427,7 @@ directly in the file.
 
 ## Telegram channel notifications
 
-Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. This is a **one-way** integration: new questions posted by agents are sent to the channel as messages, but you still read the full context and answer them in the fleet chat UI (or via the Q&A protocol below).
+Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. This is a **one-way** integration: new questions posted by agents are sent to the channel as messages, but you still read the full context and answer them in the fleet chat UI.
 
 ### Step 1 — Create a bot
 
@@ -559,46 +556,6 @@ If left empty, tasks are created without an explicit `cwd`.
 The allowlist is **default-deny**: if `telegram_allowed_ids` is empty, no inbound messages are processed. Any message from a sender or chat ID **not** on the list is silently rejected and logged at WARNING level.
 
 > **Keep the allowlist tight.** Anyone whose numeric ID appears in `telegram_allowed_ids` can send arbitrary task titles and descriptions that spawn coding agents on your machine with full filesystem access.
-
----
-
-## Q&A protocol — for the human
-
-When an agent is blocked by ambiguity, it will:
-
-1. Append a `## Q:` block to the task's `Q&A.md` in the artifact directory.
-2. Run `bd update <task_id> --status blocked --notes "QUESTION: <summary>"`.
-3. Exit cleanly.
-
-**To answer and resume the task:**
-
-1. Find the task:
-   ```bash
-   fleet ready                  # not listed if blocked
-   bd list --status=blocked     # from inside $FLEET_HOME
-   fleet show <task_id>         # see the question summary
-   ```
-
-2. Read the Q&A file from the task's artifact directory:
-   ```bash
-   cat $FLEET_HOME/tasks/<task_id>/artifacts/Q\&A.md
-   ```
-
-3. Append your answer directly below the `## Q:` block:
-   ```markdown
-   ## A: <YYYY-MM-DD HH:MM>
-
-   <your answer here>
-   ```
-
-4. Unblock the task:
-   ```bash
-   fleet bd update <task_id> --status open --assignee ""
-   ```
-
-The supervisor will re-claim the task on the next scheduling cycle. The agent
-reads `Q&A.md` on startup (per the resume protocol inlined from
-`INSTRUCTION.md`) and continues from where it stopped.
 
 ---
 

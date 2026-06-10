@@ -82,8 +82,8 @@ def test_instruction_md_mentions_status_open():
     assert "--status open" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention '--status open'"
 
 
-def test_instruction_md_mentions_qa_md():
-    assert "Q&A.md" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention 'Q&A.md'"
+def test_instruction_md_mentions_ask_human():
+    assert "ask_human" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention 'ask_human'"
 
 
 # ---------------------------------------------------------------------------
