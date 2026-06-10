@@ -48,6 +48,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
 - [Configuration reference](#configuration-reference)
 - [Telegram channel notifications](#telegram-channel-notifications)
+- [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
 - [Adding a custom coder](#adding-a-custom-coder)
 - [Q&A protocol — for the human](#qa-protocol--for-the-human)
 
@@ -422,6 +423,8 @@ directly in the file.
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
+| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to create tasks via the `/task` bot command. **Empty string disables inbound task creation entirely** (default-deny). |
+| `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
 
 ---
 
@@ -477,6 +480,85 @@ fleet config set telegram_chat_id=-1001234567890
 ### How it works
 
 `fleet serve` polls for new agent questions every 2 seconds. When both `TELEGRAM_BOT_TOKEN` and `telegram_chat_id` are set, each new question is sent to the channel as a plain-text message: the agent ID followed by the question text (and numbered options, if any). Notifications stop if either value is cleared.
+
+---
+
+## Inbound task creation from Telegram
+
+Fleet can receive task creation commands from Telegram. Send a `/task` message to your bot and Fleet creates a new task and replies with the task ID — no web UI needed, no public URL or webhook required (long polling is used).
+
+**This feature is off by default.** Until `telegram_allowed_ids` is set, the listener runs but accepts no commands.
+
+### Command format
+
+```
+/task <title>
+<optional multi-line description>
+```
+
+The **first line** after `/task` becomes the task title. All **subsequent non-blank lines** become the task description. Examples:
+
+```
+/task Fix the login timeout bug
+```
+
+```
+/task Refactor the auth module
+Extract the JWT logic into its own class and add unit tests.
+Target: src/auth/jwt.py
+```
+
+### Step 1 — Find your numeric Telegram user ID
+
+Your Telegram ID is a plain integer (e.g. `123456789`), not your username. To look it up:
+
+1. Open Telegram and start a chat with **@userinfobot**.
+2. Send any message; it replies with your **Id** field — copy that number.
+
+For a group chat, forward any message from that chat to **@userinfobot** to obtain the group's numeric ID (a negative number).
+
+### Step 2 — Set the allowlist
+
+Add the numeric ID(s) to `telegram_allowed_ids` as a comma-separated list:
+
+```toml
+# $FLEET_HOME/runtime.toml
+telegram_allowed_ids = "123456789"
+```
+
+Multiple IDs:
+
+```toml
+telegram_allowed_ids = "123456789,987654321"
+```
+
+Or via the config command:
+
+```bash
+fleet config set telegram_allowed_ids=123456789
+```
+
+The change takes effect immediately — no restart needed.
+
+### Step 3 — (Optional) Set the default working directory
+
+Tasks created via Telegram inherit `telegram_default_cwd` as their working directory. Set it to the repo you want agents to work in:
+
+```toml
+telegram_default_cwd = "/Users/you/git/myproject"
+```
+
+```bash
+fleet config set telegram_default_cwd=/Users/you/git/myproject
+```
+
+If left empty, tasks are created without an explicit `cwd`.
+
+### Security model
+
+The allowlist is **default-deny**: if `telegram_allowed_ids` is empty, no inbound messages are processed. Any message from a sender or chat ID **not** on the list is silently rejected and logged at WARNING level.
+
+> **Keep the allowlist tight.** Anyone whose numeric ID appears in `telegram_allowed_ids` can send arbitrary task titles and descriptions that spawn coding agents on your machine with full filesystem access.
 
 ---
 
