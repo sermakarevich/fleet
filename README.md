@@ -47,10 +47,12 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet serve`](#fleet-serve)
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
   - [`fleet telegram setup` / `fleet telegram status` / `fleet telegram test`](#fleet-telegram-setup--fleet-telegram-status--fleet-telegram-test)
+  - [`fleet ask-human <command>`](#fleet-ask-human-command)
 - [Configuration reference](#configuration-reference)
 - [Telegram channel notifications](#telegram-channel-notifications)
 - [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
 - [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)
+- [The ask_human question broker (bundled MCP server)](#the-ask_human-question-broker-bundled-mcp-server)
 - [Adding a custom coder](#adding-a-custom-coder)
 
 ---
@@ -449,6 +451,19 @@ Message sent to -1001234567890.
 
 See [Telegram channel notifications](#telegram-channel-notifications) for the full setup guide.
 
+### `fleet ask-human <command>`
+
+```bash
+fleet ask-human install                     # register the bundled MCP server with Claude Code
+fleet ask-human serve                       # run the MCP server on stdio (what `install` registers)
+fleet ask-human watch                       # auto-refreshing operator console
+fleet ask-human list                        # show pending questions
+fleet ask-human answer <id> "<text>"        # answer one (id may be a prefix)
+fleet ask-human web                         # browser dashboard at http://127.0.0.1:8765
+```
+
+Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. See [The ask_human question broker](#the-ask_human-question-broker-bundled-mcp-server) for the full guide.
+
 ---
 
 ## Configuration reference
@@ -656,6 +671,57 @@ Fleet maintains `$FLEET_HOME/telegram_question_msgs.json` — a mapping from Tel
 - **Capped at 200 entries** — older entries are pruned automatically when the cap is hit.
 
 If you reply to a message that is no longer in the map (pruned after the cap, or the question was already answered), Fleet sends back an error reply.
+
+---
+
+## The ask_human question broker (bundled MCP server)
+
+Headless agents have no built-in way to ask you anything — Claude Code filters the `AskUserQuestion` tool out of `claude -p` sessions. Fleet's agents instead call the `ask_human_question` MCP tool, which records the question in a shared SQLite store and **blocks the agent until a human answers** from any frontend. Fleet bundles this broker as `fleet.ask_human` (vendored from the standalone agent-chat project), so a fleet install is self-contained.
+
+```
+ fleet agent ──── ask_human_question("Deploy?", ["yes","no"])
+      │                                              ▲
+      ▼  INSERT pending row, then block-poll         │ {"answer": "yes"}
+ ┌──────────────────────┐     ┌──────────────────┐  │
+ │ fleet ask-human serve │ ──► │ SQLite questions │ ──┘
+ │ (MCP server, stdio)   │     │ table (WAL)      │
+ └──────────────────────┘     └──────────────────┘
+                                  ▲           ▲
+                       web UI chat tab     Telegram reply
+                       fleet ask-human     (see section above)
+                       watch / web
+```
+
+The SQLite store is the single source of truth; every frontend is a thin client. Answering is an atomic `UPDATE … WHERE status='pending'`, so the first responder wins and channels can never double-answer.
+
+### Setup
+
+Register the bundled server with Claude Code once:
+
+```bash
+fleet ask-human install        # claude mcp add ask_human --scope user -- fleet ask-human serve
+claude mcp list                # verify
+```
+
+Agents spawned by the fleet supervisor pick up the user-scope registration automatically. If you previously registered an `ask_human` server from another location, `install` replaces that registration (the other copy's files are left untouched — both point at the same DB).
+
+### Answering questions
+
+Every frontend writes to the same store, so use whichever is closest:
+
+- **Fleet web UI** — the chat tab in `fleet serve` (questions appear live).
+- **Telegram** — reply to the question notification (see [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)).
+- **`fleet ask-human watch`** — auto-refreshing terminal console. Type the answer when one question is pending, or `<id> <answer>` with several. Append `| your note` to add free text alongside (or instead of) an option.
+- **`fleet ask-human web`** — standalone browser dashboard on `http://127.0.0.1:8765`.
+
+On an options question the operator is never boxed in: a free-text `note` can supplement or replace the selection, and agents are instructed to treat it as authoritative.
+
+### Configuration
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `ASK_HUMAN_DB` | `~/.claude/ask_human/questions.db` | shared SQLite file (set the same for server + frontends) |
+| `ASK_HUMAN_WEB_ADDR` | `127.0.0.1:8765` | web dashboard bind address |
 
 ---
 
