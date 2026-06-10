@@ -78,3 +78,4 @@ class RuntimeConfig:
     model: str = "sonnet"
     coder: str = "claude"
     context_pressure_threshold_pct: int = 90
+    telegram_chat_id: str = ""

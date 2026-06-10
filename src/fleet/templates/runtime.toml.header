@@ -2,3 +2,7 @@
 # Edit via `fleet config set <key>=<value>`. The supervisor re-reads this
 # file periodically and applies changes without restart.
 # In-flight subprocesses are NEVER killed by a config change.
+#
+# telegram_chat_id: Telegram chat/channel ID for supervisor notifications.
+#   Empty string (default) disables Telegram notifications.
+#   The bot token is supplied via the TELEGRAM_BOT_TOKEN env var (never stored here).
