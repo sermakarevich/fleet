@@ -46,6 +46,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet run`](#fleet-run)
   - [`fleet serve`](#fleet-serve)
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
+  - [`fleet telegram setup` / `fleet telegram status` / `fleet telegram test`](#fleet-telegram-setup--fleet-telegram-status--fleet-telegram-test)
 - [Configuration reference](#configuration-reference)
 - [Telegram channel notifications](#telegram-channel-notifications)
 - [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
@@ -406,6 +407,47 @@ fleet config set max_concurrent=5
 
 The supervisor re-reads `$FLEET_HOME/runtime.toml` on change and applies updates without restart.
 
+### `fleet telegram setup` / `fleet telegram status` / `fleet telegram test`
+
+```bash
+fleet telegram setup                    # guided wizard to configure the Telegram integration
+fleet telegram status                   # show configuration and connectivity
+fleet telegram test                     # send a test message to the configured chat
+fleet telegram test --message "hello"   # custom message text
+```
+
+`fleet telegram setup` walks through token validation, chat-ID discovery (by polling for a message you send to your channel), optional inbound `/task` creation, and a confirmation message. Writes the discovered values to `runtime.toml`. Pass flags to skip interactive prompts:
+
+```bash
+fleet telegram setup --chat-id -1001234567890 --yes           # non-interactive outbound only
+fleet telegram setup --chat-id -1001234567890 \
+    --allowed-ids 123456789 --default-cwd /path/to/project    # non-interactive with inbound
+```
+
+`fleet telegram status` exits 0 when fully configured, 1 otherwise — suitable for scripting. Example output:
+
+```
+$ fleet telegram status
+TELEGRAM_BOT_TOKEN         12345...:***
+bot                        @myfleetbot
+
+telegram_chat_id           -1001234567890
+telegram_allowed_ids       123456789
+telegram_default_cwd       /Users/you/git/myproject
+
+outbound notifications     ok
+inbound /task creation     ok
+```
+
+`fleet telegram test` sends a plain-text message to `telegram_chat_id` and exits non-zero on failure — useful for smoke-testing after config changes:
+
+```
+$ fleet telegram test
+Message sent to -1001234567890.
+```
+
+See [Telegram channel notifications](#telegram-channel-notifications) for the full setup guide.
+
 ---
 
 ## Configuration reference
@@ -429,25 +471,49 @@ directly in the file.
 
 Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. This is a **one-way** integration: new questions posted by agents are sent to the channel as messages, but you still read the full context and answer them in the fleet chat UI.
 
-### Step 1 — Create a bot
+### Quick start
+
+1. Create a bot with **@BotFather** on Telegram (see Step 1 below) and copy the token.
+2. Add the bot as an admin to your channel or group.
+3. Export the token and run the wizard:
+
+```bash
+export TELEGRAM_BOT_TOKEN="123456:ABCDefgh..."
+fleet telegram setup
+```
+
+The wizard validates your token, asks you to post a message in your channel so it can discover the chat ID, optionally sets up inbound `/task` creation (writing `telegram_allowed_ids` and `telegram_default_cwd` for you), and sends a confirmation message. All values are written to `runtime.toml` automatically.
+
+Add the `export TELEGRAM_BOT_TOKEN=…` line to your shell profile so it is set whenever `fleet serve` starts.
+
+To verify the setup at any time:
+
+```bash
+fleet telegram status   # shows token, bot username, config values, and pass/fail verdict
+fleet telegram test     # sends a live message to the configured chat
+```
+
+### Alternatively, configure by hand
+
+#### Step 1 — Create a bot
 
 1. Open Telegram and start a chat with **@BotFather**.
 2. Send `/newbot`, follow the prompts to choose a name and username.
 3. BotFather returns a token that looks like `123456:ABCDefgh...` — copy it.
 
-### Step 2 — Add the bot to your channel
+#### Step 2 — Add the bot to your channel
 
 1. Open the target channel in Telegram.
 2. Go to **Manage channel → Administrators → Add Administrator**.
 3. Search for your bot by its username and add it. It only needs the **Post messages** permission.
 
-### Step 3 — Obtain the chat ID
+#### Step 3 — Obtain the chat ID
 
 For a **public** channel, the chat ID is `@your_channel_username`.
 
 For a **private** channel, forward any message from the channel to **@userinfobot** (or send a message and call `getUpdates` on your bot's token) — the `chat.id` field is a negative number like `-1001234567890`.
 
-### Step 4 — Configure fleet serve
+#### Step 4 — Configure fleet serve
 
 Set the bot token as an environment variable **before** starting `fleet serve`:
 
@@ -458,7 +524,7 @@ fleet serve start
 
 For a persistent setup, add the export to the shell profile or process manager that launches `fleet serve`.
 
-### Step 5 — Set the chat ID
+#### Step 5 — Set the chat ID
 
 Either edit `$FLEET_HOME/runtime.toml` directly:
 
@@ -485,6 +551,8 @@ fleet config set telegram_chat_id=-1001234567890
 Fleet can receive task creation commands from Telegram. Send a `/task` message to your bot and Fleet creates a new task and replies with the task ID — no web UI needed, no public URL or webhook required (long polling is used).
 
 **This feature is off by default.** Until `telegram_allowed_ids` is set, the listener runs but accepts no commands.
+
+> **Tip:** If you ran `fleet telegram setup` and chose to enable inbound task creation, the wizard already captured your Telegram user ID and wrote `telegram_allowed_ids` and `telegram_default_cwd` to `runtime.toml` for you. The steps below describe the manual path.
 
 ### Command format
 
