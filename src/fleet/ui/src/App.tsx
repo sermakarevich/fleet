@@ -10,7 +10,7 @@ import { Config } from './pages/Config';
 import { Analytics } from './pages/Analytics';
 import { NewTaskPanel } from './components/NewTaskPanel';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
-import { useQA, useChatQuestions, useSupervisor, useHealthz } from './hooks/useApi';
+import { useChatQuestions, useSupervisor, useHealthz } from './hooks/useApi';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useCommandPalette } from './hooks/useCommandPalette';
 import { useNativeNotifications } from './hooks/useNativeNotifications';
@@ -43,16 +43,8 @@ function useDocumentTitle() {
   }, [pendingCount, taskId]);
 }
 
-function QAIndicator() {
-  const { data } = useQA('open');
-  const count = data?.length ?? 0;
-  if (count === 0) return null;
-  return <span style={styles.qaBadge}>{count}</span>;
-}
-
 // Always-visible circle next to the Chat tab: green when there are unanswered
-// (pending) ask_human questions, dim gray when the queue is empty. Unlike
-// QAIndicator it must render in both states so the color *change* is the signal.
+// (pending) ask_human questions, dim gray when the queue is empty.
 function ChatIndicator() {
   const { data } = useChatQuestions();
   const count = data?.pending.length ?? 0;
@@ -122,7 +114,6 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
         <div style={styles.navMobileTop}>
           <Link style={styles.brand} to="/tasks">
             fleet
-            <QAIndicator />
           </Link>
           <StalenessChip />
           <span style={{ ...styles.dot, marginLeft: 'auto', fontSize: '0.7rem', color: connected ? '#22c55e' : '#ef4444' }}>
@@ -141,7 +132,6 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
     <nav ref={navRef} style={styles.nav}>
       <Link style={styles.brand} to="/tasks">
         fleet
-        <QAIndicator />
       </Link>
       {navLinks}
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
@@ -170,7 +160,6 @@ function AppInner() {
       addToast(`Q&A: ${question.slice(0, 80)}`);
       const title = (event.extra?.task_title as string | undefined) ?? taskId;
       notify('ask_human', 'Fleet Q&A', `${title}: ${question.slice(0, 100)}`);
-      void queryClient.invalidateQueries({ queryKey: ['qa'] });
       void queryClient.invalidateQueries({ queryKey: ['chat-questions'] });
     }
     if (event.kind === 'session_ended') {
@@ -296,19 +285,6 @@ const styles = {
     letterSpacing: '-0.02em',
     textDecoration: 'none',
     cursor: 'pointer',
-  } as React.CSSProperties,
-  qaBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: '1.1rem',
-    height: '1.1rem',
-    borderRadius: '9999px',
-    background: '#3b82f6',
-    color: '#fff',
-    fontSize: '0.7rem',
-    fontWeight: 700,
-    padding: '0 0.25rem',
   } as React.CSSProperties,
   chatLink: {
     display: 'inline-flex',

@@ -70,14 +70,6 @@ export function useRemoveBeadAssignee() {
   });
 }
 
-export function useQA(status?: string) {
-  return useQuery({
-    queryKey: ['qa', status],
-    queryFn: () => api.getQA(status),
-    refetchInterval: 3000,
-  });
-}
-
 export function useChatQuestions() {
   return useQuery({
     queryKey: ['chat-questions'],
@@ -172,23 +164,6 @@ export function useCreateTask() {
   return useMutation({
     mutationFn: (payload: CreateTaskInput) => api.createTask(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
-  });
-}
-
-export function useAnswerQuestion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, answer }: { id: string; answer: string }) =>
-      api.answerQuestion(id, answer),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['qa'] }),
-  });
-}
-
-export function useDeferQuestion() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.deferQuestion(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['qa'] }),
   });
 }
 

@@ -7,7 +7,6 @@ import type {
   FileOp,
   HealthzStatus,
   LogLine,
-  QuestionSummary,
   RuntimeConfig,
   SearchResult,
   SupervisorStatus,
@@ -88,20 +87,6 @@ export const api = {
     return request(`/api/beads/${id}/remove-assignee`, { method: 'POST' });
   },
 
-  async getQA(status?: string): Promise<QuestionSummary[]> {
-    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
-    const result = await request<{ questions: QuestionSummary[] }>(`/api/qa${qs}`);
-    return result.questions;
-  },
-
-  answerQuestion(id: string, answer: string): Promise<void> {
-    return request(`/api/qa/${id}/answer`, json('POST', { answer }));
-  },
-
-  deferQuestion(id: string): Promise<void> {
-    return request(`/api/qa/${id}/defer`, { method: 'POST' });
-  },
-
   getSupervisor(): Promise<SupervisorStatus> {
     return request('/api/supervisor');
   },
@@ -153,10 +138,6 @@ export const api = {
 
   getArtifactKnowledge(id: string): Promise<{ content: string; mtime: number; path: string }> {
     return request(`/api/tasks/${id}/artifacts/knowledge`);
-  },
-
-  getArtifactQA(id: string): Promise<{ content: string; mtime: number }> {
-    return request(`/api/tasks/${id}/artifacts/qa`);
   },
 
   getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {

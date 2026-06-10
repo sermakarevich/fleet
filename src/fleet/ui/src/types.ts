@@ -83,19 +83,6 @@ export interface FleetEvent {
   extra?: Record<string, unknown>;
 }
 
-export interface QuestionSummary {
-  id: string;
-  task_id: string;
-  task_title: string;
-  task_cwd: string | null;
-  question: string;
-  choices: string[] | null;
-  asked_at: string;
-  elapsed_sec: number;
-  status: 'open' | 'answered' | 'timed_out' | 'deferred';
-  answer: string | null;
-}
-
 export interface SupervisorStatus {
   pid: number | null;
   started_at: string | null;
@@ -160,7 +147,6 @@ export interface LeaderboardRow {
   success_rate: number;
   mean_elapsed_sec: number;
   mean_tokens: number;
-  qa_rate: number;
 }
 
 export interface BurnoutRow {

@@ -33,7 +33,7 @@ export function LeaderboardTable({ rows }: Props) {
         <table style={styles.table}>
           <thead>
             <tr>
-              {['Coder', 'Model', 'Success%', 'Mean elapsed', 'Mean tokens', 'Q&A rate'].map(col => (
+              {['Coder', 'Model', 'Success%', 'Mean elapsed', 'Mean tokens'].map(col => (
                 <th key={col} style={styles.th}>{col}</th>
               ))}
             </tr>
@@ -46,7 +46,6 @@ export function LeaderboardTable({ rows }: Props) {
                 <td style={styles.td}>{(r.success_rate * 100).toFixed(1)}%</td>
                 <td style={styles.td}>{fmtElapsed(r.mean_elapsed_sec)}</td>
                 <td style={styles.td}>{fmtTokens(r.mean_tokens)}</td>
-                <td style={styles.td}>{(r.qa_rate * 100).toFixed(1)}%</td>
               </tr>
             ))}
           </tbody>
