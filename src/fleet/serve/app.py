@@ -15,13 +15,15 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import fleet.ask_human_db as _ahdb
 import fleet.telegram as tg
+from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.config import load as load_config
 from fleet.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.routes.analytics import create_analytics_router
 from fleet.serve.routes.beads import create_beads_router
-from fleet.serve.routes.chat import ASK_HUMAN_DB, _get_conn, _row_to_dict, create_chat_router
+from fleet.serve.routes.chat import create_chat_router
 from fleet.serve.routes.config_routes import create_config_router
 from fleet.serve.routes.search import create_search_router
 from fleet.serve.routes.supervisor import create_supervisor_router
@@ -33,31 +35,11 @@ logger = logging.getLogger(__name__)
 
 
 def _db_max_created_at() -> float:
-    if not ASK_HUMAN_DB.exists():
-        return 0.0
-    conn = _get_conn()
-    try:
-        row = conn.execute("SELECT MAX(created_at) FROM questions").fetchone()
-        return float(row[0]) if row[0] is not None else 0.0
-    finally:
-        conn.close()
+    return _ahdb.max_created_at(db_path=ASK_HUMAN_DB)
 
 
 def _db_fetch_new_questions(since: float) -> list[dict]:
-    if not ASK_HUMAN_DB.exists():
-        return []
-    conn = _get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT id, agent_id, session_id, prompt, options, multi_select, "
-            "priority, created_at, timeout_s, default_answer "
-            "FROM questions WHERE status='pending' AND created_at > ? "
-            "ORDER BY created_at ASC LIMIT 100",
-            (since,),
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    return _ahdb.fetch_new_questions(since, db_path=ASK_HUMAN_DB)
 
 
 async def _question_poller(app: FastAPI) -> None:

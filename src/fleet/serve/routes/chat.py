@@ -2,86 +2,29 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import sqlite3
 import time
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-ASK_HUMAN_DB = Path(
-    os.environ.get("ASK_HUMAN_DB")
-    or (Path.home() / ".claude" / "ask_human" / "questions.db")
-)
+import fleet.ask_human_db as _ahdb
+from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 
 
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(ASK_HUMAN_DB), timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
+def _get_conn():
+    return _ahdb.get_conn(db_path=ASK_HUMAN_DB)
 
 
-def _loads(value: object) -> object:
-    if value is None:
-        return None
-    try:
-        return json.loads(value)  # type: ignore[arg-type]
-    except (TypeError, json.JSONDecodeError):
-        return value
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    d = dict(row)
-    for key in ("options", "default_answer"):
-        if key in d:
-            d[key] = _loads(d[key])
-    d["multi_select"] = bool(d.get("multi_select", 0))
-    return d
+def _row_to_dict(row):
+    return _ahdb.row_to_dict(row)
 
 
 def _fetch_pending_questions() -> list[dict]:
-    if not ASK_HUMAN_DB.exists():
-        return []
-    conn = _get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT id, agent_id, session_id, prompt, options, multi_select, "
-            "priority, created_at, timeout_s, default_answer "
-            "FROM questions WHERE status='pending' "
-            "ORDER BY priority DESC, created_at ASC LIMIT 200",
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    return _ahdb.fetch_pending_questions(db_path=ASK_HUMAN_DB)
 
 
 def _do_answer_question(qid: str, raw_answer: object) -> dict:
-    if not ASK_HUMAN_DB.exists():
-        return {"ok": False, "status": "missing"}
-    conn = _get_conn()
-    try:
-        row = conn.execute(
-            "SELECT multi_select, status FROM questions WHERE id=?", (qid,)
-        ).fetchone()
-        if not row:
-            return {"ok": False, "status": "missing"}
-        if row["status"] != "pending":
-            return {"ok": False, "status": row["status"]}
-        stored = json.dumps(raw_answer)
-        cur = conn.execute(
-            "UPDATE questions SET status='answered', answer=?, answered_by=?, answered_at=? "
-            "WHERE id=? AND status='pending'",
-            (stored, "web", time.time(), qid),
-        )
-        conn.commit()
-        ok = cur.rowcount > 0
-    finally:
-        conn.close()
-    return {"ok": ok, "status": "answered" if ok else "conflict"}
+    return _ahdb.answer_question(qid, raw_answer, "web", db_path=ASK_HUMAN_DB)
 
 
 def create_chat_router() -> APIRouter:
