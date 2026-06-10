@@ -379,11 +379,32 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                                 await send_message(token, chat_id, reply)
                     elif cmd == "/task":
                         if chat_id:
-                            await send_message(
-                                token,
-                                chat_id,
-                                "Usage: /new_task <title>\n[optional description lines]",
-                            )
+                            parts = stripped.split(maxsplit=1)
+                            task_id = parts[1].split()[0] if len(parts) > 1 else None
+                            if task_id:
+                                try:
+                                    task = await asyncio.to_thread(app.state.queue.get, task_id)
+                                    header = f"ID: {task.id}\nStatus: {task.status}\nTitle: {task.title}"
+                                    if task.description:
+                                        max_desc = _MAX_TEXT - len(header) - 2
+                                        desc = task.description[:max_desc]
+                                        reply = header + "\n\n" + desc
+                                    else:
+                                        reply = header
+                                except Exception as exc:
+                                    _log.warning(
+                                        "telegram.inbound: /task get failed",
+                                        task_id=task_id,
+                                        error=str(exc),
+                                    )
+                                    reply = f"No task {task_id}. To create a task use /new_task <title>"
+                                await send_message(token, chat_id, reply)
+                            else:
+                                await send_message(
+                                    token,
+                                    chat_id,
+                                    "Usage: /task <id> - show task details; /tasks - list open tasks; /new_task <title> - create a task",
+                                )
                     # else: unknown slash command → silently ignore
                 else:
                     reply_to = msg.get("reply_to_message")
