@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,13 +15,14 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import fleet.telegram as tg
 from fleet.config import load as load_config
 from fleet.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
 from fleet.serve.routes.analytics import create_analytics_router
 from fleet.serve.routes.beads import create_beads_router
-from fleet.serve.routes.chat import create_chat_router
+from fleet.serve.routes.chat import ASK_HUMAN_DB, _get_conn, _row_to_dict, create_chat_router
 from fleet.serve.routes.config_routes import create_config_router
 from fleet.serve.routes.qa import create_qa_list_router
 from fleet.serve.routes.search import create_search_router
@@ -30,6 +32,65 @@ from fleet.serve.stats import fleet_home
 from fleet.serve.watcher import ConnectionManager, FileWatcher
 
 logger = logging.getLogger(__name__)
+
+
+def _db_max_created_at() -> float:
+    if not ASK_HUMAN_DB.exists():
+        return 0.0
+    conn = _get_conn()
+    try:
+        row = conn.execute("SELECT MAX(created_at) FROM questions").fetchone()
+        return float(row[0]) if row[0] is not None else 0.0
+    finally:
+        conn.close()
+
+
+def _db_fetch_new_questions(since: float) -> list[dict]:
+    if not ASK_HUMAN_DB.exists():
+        return []
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, agent_id, session_id, prompt, options, multi_select, "
+            "priority, created_at, timeout_s, default_answer "
+            "FROM questions WHERE status='pending' AND created_at > ? "
+            "ORDER BY created_at ASC LIMIT 100",
+            (since,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+async def _question_poller(app: FastAPI) -> None:
+    watermark: float = await asyncio.to_thread(_db_max_created_at)
+    while True:
+        try:
+            await asyncio.sleep(2.0)
+            token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            cfg = app.state.fleet_state.config
+            chat_id = cfg.telegram_chat_id
+            if not token or not chat_id:
+                continue
+            questions = await asyncio.to_thread(_db_fetch_new_questions, watermark)
+            new_wm = watermark
+            for q in questions:
+                agent_id = q.get("agent_id") or "unknown"
+                prompt = q.get("prompt") or ""
+                options = q.get("options")
+                msg = f"[{agent_id}] {prompt}"
+                if options:
+                    opts = options if isinstance(options, list) else [str(options)]
+                    msg += "\n" + "\n".join(f"  {i + 1}. {o}" for i, o in enumerate(opts))
+                await tg.send_message(token, chat_id, msg)
+                created_at = float(q.get("created_at") or 0)
+                if created_at > new_wm:
+                    new_wm = created_at
+            watermark = new_wm
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("question_poller error")
 
 
 class _SPAStaticFiles(StaticFiles):
@@ -67,12 +128,18 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         mtime: float | None = runtime_toml.stat().st_mtime if runtime_toml.exists() else None
         app.state.fleet_state = AppState(fleet_home=home, config=cfg, config_mtime=mtime)
         watcher_task = asyncio.create_task(watcher.start(home, mgr))
+        poller_task = asyncio.create_task(_question_poller(app))
         try:
             yield
         finally:
             watcher_task.cancel()
+            poller_task.cancel()
             try:
                 await watcher_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await poller_task
             except asyncio.CancelledError:
                 pass
 
