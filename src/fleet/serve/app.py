@@ -19,12 +19,10 @@ import fleet.telegram as tg
 from fleet.config import load as load_config
 from fleet.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
-from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
 from fleet.serve.routes.analytics import create_analytics_router
 from fleet.serve.routes.beads import create_beads_router
 from fleet.serve.routes.chat import ASK_HUMAN_DB, _get_conn, _row_to_dict, create_chat_router
 from fleet.serve.routes.config_routes import create_config_router
-from fleet.serve.routes.qa import create_qa_list_router
 from fleet.serve.routes.search import create_search_router
 from fleet.serve.routes.supervisor import create_supervisor_router
 from fleet.serve.routes.tasks import create_tasks_router
@@ -117,7 +115,6 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     mgr = ConnectionManager()
     watcher = FileWatcher()
     home = fleet_home()
-    store = PendingQuestionStore(store_path=home / "pending_questions.json")
     resolved_queue = queue if queue is not None else BeadsQueue(home)
 
     @asynccontextmanager
@@ -152,16 +149,12 @@ def create_app(queue: Queue | None = None) -> FastAPI:
                 pass
 
     app = FastAPI(lifespan=_lifespan)
-    app.state.pending_questions = store
     app.state.connection_manager = mgr
     app.state.queue = resolved_queue
-    app.include_router(create_mcp_router(store, mgr))
-    app.include_router(create_qa_router(store))
     app.include_router(create_tasks_router())
     app.include_router(create_beads_router())
     app.include_router(create_supervisor_router())
     app.include_router(create_config_router())
-    app.include_router(create_qa_list_router())
     app.include_router(create_analytics_router())
     app.include_router(create_search_router())
     app.include_router(create_chat_router())

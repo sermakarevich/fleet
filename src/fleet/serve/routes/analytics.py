@@ -90,12 +90,6 @@ def _classify_outcome(task_json: dict, events: list[dict], task_dir: Path) -> st
     if status == "closed":
         return "success"
 
-    # Blocked: check if blocked_by_agent (has ask_human extra events)
-    for ev in events:
-        extra = ev.get("extra") or {}
-        if extra.get("kind") == "ask_human":
-            return "blocked_by_agent"
-
     return "failure"
 
 
@@ -132,7 +126,7 @@ def _compute_throughput(home: Path) -> dict:
 def _compute_leaderboard(home: Path) -> dict:
     agg: dict[tuple[str, str], dict] = defaultdict(lambda: {
         "successes": 0, "total": 0,
-        "elapsed_secs": [], "tokens": [], "qa_count": 0,
+        "elapsed_secs": [], "tokens": [],
     })
     for task_dir in _iter_task_dirs(home):
         task_json = _read_task_json(task_dir)
@@ -153,12 +147,6 @@ def _compute_leaderboard(home: Path) -> dict:
         stats = task_runtime_stats(task_dir.name)
         if stats.context_tokens is not None:
             agg[key]["tokens"].append(stats.context_tokens)
-        has_qa = any(
-            (ev.get("extra") or {}).get("kind") == "ask_human"
-            for ev in events
-        )
-        if has_qa:
-            agg[key]["qa_count"] += 1
     rows = []
     for (coder, model), d in sorted(agg.items()):
         total = d["total"]
@@ -170,7 +158,6 @@ def _compute_leaderboard(home: Path) -> dict:
             "success_rate": d["successes"] / total if total else 0.0,
             "mean_elapsed_sec": sum(elapsed_list) / len(elapsed_list) if elapsed_list else 0.0,
             "mean_tokens": sum(token_list) / len(token_list) if token_list else 0.0,
-            "qa_rate": d["qa_count"] / total if total else 0.0,
         })
     return {"rows": rows}
 
