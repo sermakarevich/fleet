@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Link, NavLink, Route, Routes, useMatch } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useMatch } from 'react-router-dom';
 import { Chat } from './pages/Chat';
-import { Dashboard } from './pages/Dashboard';
 import { Tasks } from './pages/Tasks';
 import { BD } from './pages/BD';
 import { TaskDetail } from './pages/TaskDetail';
 import { Config } from './pages/Config';
-import { QAInbox } from './pages/QAInbox';
 import { Analytics } from './pages/Analytics';
 import { NewTaskPanel } from './components/NewTaskPanel';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
@@ -105,10 +103,8 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
 
   const navLinks = (
     <>
-      <NavLink style={navLinkStyle} to="/" end>dash</NavLink>
       <NavLink style={navLinkStyle} to="/tasks">tasks</NavLink>
       <NavLink style={navLinkStyle} to="/bd">bd</NavLink>
-      <NavLink style={navLinkStyle} to="/qa">qa</NavLink>
       <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>
       <NavLink style={navLinkStyle} to="/config">config</NavLink>
       <NavLink style={navLinkStyle} to="/chat">
@@ -124,7 +120,7 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
     return (
       <nav ref={navRef} style={styles.navMobile}>
         <div style={styles.navMobileTop}>
-          <Link style={styles.brand} to="/">
+          <Link style={styles.brand} to="/tasks">
             fleet
             <QAIndicator />
           </Link>
@@ -143,7 +139,7 @@ function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () =>
 
   return (
     <nav ref={navRef} style={styles.nav}>
-      <Link style={styles.brand} to="/">
+      <Link style={styles.brand} to="/tasks">
         fleet
         <QAIndicator />
       </Link>
@@ -213,11 +209,10 @@ function AppInner() {
       <NavBar connected={connected} onNewTask={() => setShowNewTask(true)} />
       <main style={styles.main}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/bd" element={<BD />} />
-          <Route path="/qa" element={<QAInbox />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/config" element={<Config />} />
           <Route path="/chat" element={<Chat />} />

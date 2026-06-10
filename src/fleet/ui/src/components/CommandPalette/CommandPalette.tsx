@@ -73,7 +73,6 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
 
   const actions = [
     { id: 'create', label: 'Create new task', run: () => { onCreateTask(); setOpen(false); } },
-    { id: 'qa', label: 'Go to Q&A', run: () => go('/qa') },
     { id: 'analytics', label: 'Go to Analytics', run: () => go('/analytics') },
     { id: 'config', label: 'Go to Config', run: () => go('/config') },
     {
