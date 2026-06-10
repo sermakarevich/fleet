@@ -47,6 +47,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet serve`](#fleet-serve)
   - [`fleet config show` / `fleet config set`](#fleet-config-show--fleet-config-set)
 - [Configuration reference](#configuration-reference)
+- [Telegram channel notifications](#telegram-channel-notifications)
 - [Adding a custom coder](#adding-a-custom-coder)
 - [Q&A protocol — for the human](#qa-protocol--for-the-human)
 
@@ -420,6 +421,62 @@ directly in the file.
 | `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
+| `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
+
+---
+
+## Telegram channel notifications
+
+Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. This is a **one-way** integration: new questions posted by agents are sent to the channel as messages, but you still read the full context and answer them in the fleet chat UI (or via the Q&A protocol below).
+
+### Step 1 — Create a bot
+
+1. Open Telegram and start a chat with **@BotFather**.
+2. Send `/newbot`, follow the prompts to choose a name and username.
+3. BotFather returns a token that looks like `123456:ABCDefgh...` — copy it.
+
+### Step 2 — Add the bot to your channel
+
+1. Open the target channel in Telegram.
+2. Go to **Manage channel → Administrators → Add Administrator**.
+3. Search for your bot by its username and add it. It only needs the **Post messages** permission.
+
+### Step 3 — Obtain the chat ID
+
+For a **public** channel, the chat ID is `@your_channel_username`.
+
+For a **private** channel, forward any message from the channel to **@userinfobot** (or send a message and call `getUpdates` on your bot's token) — the `chat.id` field is a negative number like `-1001234567890`.
+
+### Step 4 — Configure fleet serve
+
+Set the bot token as an environment variable **before** starting `fleet serve`:
+
+```bash
+export TELEGRAM_BOT_TOKEN="123456:ABCDefgh..."
+fleet serve start
+```
+
+For a persistent setup, add the export to the shell profile or process manager that launches `fleet serve`.
+
+### Step 5 — Set the chat ID
+
+Either edit `$FLEET_HOME/runtime.toml` directly:
+
+```toml
+telegram_chat_id = "-1001234567890"
+```
+
+or use the config commands / Config panel in the web UI:
+
+```bash
+fleet config set telegram_chat_id=-1001234567890
+```
+
+`fleet serve` reads `runtime.toml` on every polling cycle, so the change takes effect immediately — no restart needed.
+
+### How it works
+
+`fleet serve` polls for new agent questions every 2 seconds. When both `TELEGRAM_BOT_TOKEN` and `telegram_chat_id` are set, each new question is sent to the channel as a plain-text message: the agent ID followed by the question text (and numbered options, if any). Notifications stop if either value is cleared.
 
 ---
 
