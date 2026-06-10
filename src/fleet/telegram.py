@@ -206,13 +206,13 @@ def _is_allowed(update: dict, allowed: set[str]) -> bool:
     return (bool(from_id) and from_id in allowed) or (bool(chat_id) and chat_id in allowed)
 
 
-def _parse_task_command(text: str) -> tuple[str, str | None] | None:
-    """Parse a /task command; return (title, description) or None if not a /task message."""
+def _parse_new_task_command(text: str) -> tuple[str, str | None] | None:
+    """Parse a /new_task command; return (title, description) or None if not a /new_task message."""
     text = text.strip()
-    if not text.startswith("/task"):
+    if not text.startswith("/new_task"):
         return None
-    remainder = text[len("/task"):]
-    # Allow /task@botname variant
+    remainder = text[len("/new_task"):]
+    # Allow /new_task@botname variant
     if remainder and remainder[0] == "@":
         space = remainder.find(" ")
         newline = remainder.find("\n")
@@ -224,11 +224,12 @@ def _parse_task_command(text: str) -> tuple[str, str | None] | None:
         return None
     remainder = remainder.lstrip(" \t")
     lines = remainder.splitlines()
-    if not lines or not lines[0].strip():
+    # Use the first non-empty line as title so "/new_task\nTitle" works too
+    non_empty = [ln.strip() for ln in lines if ln.strip()]
+    if not non_empty:
         return None
-    title = lines[0].strip()
-    desc_lines = [ln for ln in lines[1:] if ln.strip()]
-    description = "\n".join(desc_lines) if desc_lines else None
+    title = non_empty[0]
+    description = "\n".join(non_empty[1:]) if len(non_empty) > 1 else None
     return title, description
 
 
@@ -326,33 +327,51 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                 text = msg.get("text") or ""
                 chat_id = str((msg.get("chat") or {}).get("id", ""))
 
-                parsed = _parse_task_command(text)
-                if parsed is not None:
-                    title, description = parsed
-                    default_cwd = cfg.telegram_default_cwd or None
-                    try:
-                        task = await asyncio.to_thread(
-                            app.state.queue.create_task,
-                            title,
-                            description,
-                            None,
-                            None,
-                            default_cwd,
-                        )
-                        reply = f"Created task {task.id}: {task.title}"
-                        _log.info("telegram.inbound: created task", task_id=task.id, title=task.title)
-                    except Exception as exc:
-                        reply = f"Error creating task: {exc}"
-                        _log.error("telegram.inbound: create_task failed", error=str(exc))
-                    if chat_id:
-                        await send_message(token, chat_id, reply)
-                elif text.strip().startswith("/task"):
-                    if chat_id:
-                        await send_message(
-                            token,
-                            chat_id,
-                            "Usage: /task <title>\n[optional description lines]",
-                        )
+                stripped = text.strip()
+                if stripped.startswith("/"):
+                    cmd = stripped.split(maxsplit=1)[0].split("@", 1)[0]
+                    if cmd == "/new_task":
+                        parsed = _parse_new_task_command(text)
+                        if parsed is not None:
+                            title, description = parsed
+                            default_cwd = cfg.telegram_default_cwd or None
+                            try:
+                                task = await asyncio.to_thread(
+                                    app.state.queue.create_task,
+                                    title,
+                                    description,
+                                    None,
+                                    None,
+                                    default_cwd,
+                                )
+                                reply = f"Created task {task.id}: {task.title}"
+                                _log.info("telegram.inbound: created task", task_id=task.id, title=task.title)
+                            except Exception as exc:
+                                reply = f"Error creating task: {exc}"
+                                _log.error("telegram.inbound: create_task failed", error=str(exc))
+                            if chat_id:
+                                await send_message(token, chat_id, reply)
+                        elif chat_id:
+                            await send_message(
+                                token,
+                                chat_id,
+                                "Usage: /new_task <title>\n[optional description lines]",
+                            )
+                    elif cmd == "/tasks":
+                        if chat_id:
+                            await send_message(
+                                token,
+                                chat_id,
+                                "Usage: /new_task <title>\n[optional description lines]",
+                            )
+                    elif cmd == "/task":
+                        if chat_id:
+                            await send_message(
+                                token,
+                                chat_id,
+                                "Usage: /new_task <title>\n[optional description lines]",
+                            )
+                    # else: unknown slash command → silently ignore
                 else:
                     reply_to = msg.get("reply_to_message")
                     if reply_to is not None:

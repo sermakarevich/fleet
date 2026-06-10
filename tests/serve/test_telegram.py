@@ -402,36 +402,53 @@ def test_is_allowed_no_ids_in_update() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _parse_task_command
+# _parse_new_task_command
 # ---------------------------------------------------------------------------
 
-def test_parse_task_command_simple() -> None:
-    assert tg._parse_task_command("/task Fix the bug") == ("Fix the bug", None)
+def test_parse_new_task_command_simple() -> None:
+    assert tg._parse_new_task_command("/new_task Fix the bug") == ("Fix the bug", None)
 
 
-def test_parse_task_command_with_description() -> None:
-    result = tg._parse_task_command("/task Fix the bug\nDetails here\nMore info")
+def test_parse_new_task_command_with_description() -> None:
+    result = tg._parse_new_task_command("/new_task Fix the bug\nDetails here\nMore info")
     assert result == ("Fix the bug", "Details here\nMore info")
 
 
-def test_parse_task_command_not_a_task() -> None:
-    assert tg._parse_task_command("/start") is None
-    assert tg._parse_task_command("Hello world") is None
+def test_parse_new_task_command_not_a_new_task() -> None:
+    assert tg._parse_new_task_command("/start") is None
+    assert tg._parse_new_task_command("Hello world") is None
+    assert tg._parse_new_task_command("/task Fix the bug") is None
 
 
-def test_parse_task_command_empty_title() -> None:
-    assert tg._parse_task_command("/task\n") is None
-    assert tg._parse_task_command("/task   ") is None
+def test_parse_new_task_command_empty_title() -> None:
+    assert tg._parse_new_task_command("/new_task\n") is None
+    assert tg._parse_new_task_command("/new_task   ") is None
 
 
-def test_parse_task_command_bot_name_variant() -> None:
-    assert tg._parse_task_command("/task@mybot Do something") == ("Do something", None)
+def test_parse_new_task_command_bot_name_variant() -> None:
+    assert tg._parse_new_task_command("/new_task@mybot Do something") == ("Do something", None)
 
 
-def test_parse_task_command_newline_only_title() -> None:
-    result = tg._parse_task_command("/task Refactor module\n\nExtra notes")
+def test_parse_new_task_command_newline_only_title() -> None:
+    result = tg._parse_new_task_command("/new_task Refactor module\n\nExtra notes")
     assert result is not None
     assert result[0] == "Refactor module"
+
+
+def test_parse_new_task_command_title_on_next_line() -> None:
+    """Title on the line after the command (no inline text) is accepted."""
+    result = tg._parse_new_task_command("/new_task\nMy title\ndetails here")
+    assert result == ("My title", "details here")
+
+
+def test_parse_new_task_command_title_on_next_line_no_desc() -> None:
+    result = tg._parse_new_task_command("/new_task\nJust the title")
+    assert result == ("Just the title", None)
+
+
+def test_parse_new_task_command_bare_no_text_returns_none() -> None:
+    assert tg._parse_new_task_command("/new_task") is None
+    assert tg._parse_new_task_command("/new_task\n\n  \n") is None
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +539,7 @@ def test_inbound_listener_rejects_unknown_sender(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 10, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/task Bad actor"}}]
+    updates = [{"update_id": 10, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/new_task Bad actor"}}]
 
     call_n = [0]
 
@@ -562,7 +579,7 @@ def test_inbound_listener_creates_task_and_replies(
     fake_task = Task(id="fleet-abc1", title="Fix the bug", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
-    updates = [{"update_id": 5, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task Fix the bug\nSome details"}}]
+    updates = [{"update_id": 5, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/new_task Fix the bug\nSome details"}}]
 
     sent: list[tuple[str, str]] = []  # (chat_id, text)
 
@@ -637,7 +654,7 @@ def test_inbound_listener_backs_off_on_network_error(
 def test_inbound_listener_malformed_task_sends_error_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Malformed /task command (empty title) sends error reply; no task is created."""
+    """Malformed /new_task command (empty title) sends error reply; no task is created."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
     cfg = RuntimeConfig(telegram_allowed_ids="123")
@@ -650,7 +667,7 @@ def test_inbound_listener_malformed_task_sends_error_reply(
             "message": {
                 "from": {"id": 123},
                 "chat": {"id": 123},
-                "text": "/task\n",  # empty title → malformed
+                "text": "/new_task\n",  # empty title → malformed
             },
         }
     ]
@@ -681,6 +698,162 @@ def test_inbound_listener_malformed_task_sends_error_reply(
 
 
 # ---------------------------------------------------------------------------
+# inbound_listener — /new_task@botname creates task
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_new_task_botname_creates_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/new_task@mybot <title> creates a task just like /new_task <title>."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    from fleet.schemas import Task
+    fake_task = Task(id="fleet-bot1", title="Bot task", description=None, status="open")
+    app.state.queue.create_task.return_value = fake_task
+
+    updates = [{"update_id": 30, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/new_task@mybot Bot task"}}]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        if call_n[0] == 2:
+            return fn(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert "fleet-bot1" in sent[0][1]
+    app.state.queue.create_task.assert_called_once_with("Bot task", None, None, None, None)
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — /tasks and /task send transitional usage reply
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_tasks_command_sends_usage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/tasks sends the /new_task usage reply (transitional)."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 40, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    app.state.queue.create_task.assert_not_called()
+    assert len(sent) == 1
+    assert "/new_task" in sent[0][1]
+
+
+def test_inbound_listener_task_command_sends_usage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/task (old command) sends the /new_task usage reply (transitional)."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 41, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task old style"}}]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    app.state.queue.create_task.assert_not_called()
+    assert len(sent) == 1
+    assert "/new_task" in sent[0][1]
+
+
+def test_inbound_listener_tasks_not_confused_with_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/tasks must NOT create a task; token dispatch prevents /task prefix match."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 42, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    app.state.queue.create_task.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # inbound_listener — offset persistence prevents duplicates on restart
 # ---------------------------------------------------------------------------
 
@@ -699,7 +872,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
             "message": {
                 "from": {"id": 123},
                 "chat": {"id": 123},
-                "text": "/task Title",
+                "text": "/new_task Title",
             },
         }
     ]

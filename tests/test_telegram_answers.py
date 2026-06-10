@@ -474,7 +474,7 @@ def test_already_answered_conflict_reply_no_overwrite(
 def test_task_command_creates_task_regression(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """/task command still creates a task even when answer interface is wired up (regression)."""
+    """/new_task command still creates a task even when answer interface is wired up (regression)."""
     from fleet.schemas import Task
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
@@ -487,7 +487,7 @@ def test_task_command_creates_task_regression(
         "message": {
             "from": {"id": 123},
             "chat": {"id": 123},
-            "text": "/task Regression check",
+            "text": "/new_task Regression check",
         },
     }]
 
