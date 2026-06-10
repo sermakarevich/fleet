@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -20,6 +21,72 @@ _log = structlog.get_logger(__name__)
 def is_configured() -> bool:
     """Return True if TELEGRAM_BOT_TOKEN env var is set and non-empty."""
     return bool(os.environ.get("TELEGRAM_BOT_TOKEN"))
+
+
+def get_me(token: str) -> dict:
+    """Call Telegram getMe synchronously; return bot info dict. Raises RuntimeError on failure."""
+    url = f"https://api.telegram.org/bot{token}/getMe"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            raise RuntimeError(body.get("description", str(exc))) from exc
+        except (json.JSONDecodeError, AttributeError):
+            raise RuntimeError(str(exc)) from exc
+    if not data.get("ok"):
+        raise RuntimeError(data.get("description", "getMe failed"))
+    return data.get("result", {})
+
+
+def get_updates(token: str, offset: int | None = None, timeout: int = 5) -> list[dict]:
+    """Blocking call to getUpdates; raises on network/API error."""
+    params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
+    if offset is not None:
+        params["offset"] = offset
+    url = (
+        f"https://api.telegram.org/bot{token}/getUpdates"
+        f"?{urllib.parse.urlencode(params)}"
+    )
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout + 10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            raise RuntimeError(body.get("description", str(exc))) from exc
+        except (json.JSONDecodeError, AttributeError):
+            raise RuntimeError(str(exc)) from exc
+    if not data.get("ok"):
+        raise RuntimeError(f"getUpdates returned not-ok: {data.get('description', data)}")
+    return data.get("result", [])
+
+
+def send_message_raise(token: str, chat_id: str, text: str) -> None:
+    """Send a Telegram message synchronously; raise RuntimeError with API description on failure."""
+    text = text[:_MAX_TEXT]
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            raise RuntimeError(body.get("description", str(exc))) from exc
+        except (json.JSONDecodeError, AttributeError):
+            raise RuntimeError(str(exc)) from exc
+    if not data.get("ok"):
+        raise RuntimeError(data.get("description", "sendMessage failed"))
 
 
 async def send_message(token: str, chat_id: str, text: str) -> None:
@@ -106,20 +173,7 @@ def _save_offset(offset_path: Path, offset: int) -> None:
 
 
 def _fetch_updates(token: str, offset: int | None) -> list[dict]:
-    """Blocking call to getUpdates; raises on network/API error."""
-    params: dict[str, Any] = {"timeout": _GETUPDATE_TIMEOUT, "allowed_updates": ["message"]}
-    if offset is not None:
-        params["offset"] = offset
-    url = (
-        f"https://api.telegram.org/bot{token}/getUpdates"
-        f"?{urllib.parse.urlencode(params)}"
-    )
-    req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=_GETUPDATE_TIMEOUT + 10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    if not data.get("ok"):
-        raise RuntimeError(f"getUpdates returned not-ok: {data}")
-    return data.get("result", [])
+    return get_updates(token, offset=offset, timeout=_GETUPDATE_TIMEOUT)
 
 
 async def inbound_listener(app: Any, offset_path: Path) -> None:
