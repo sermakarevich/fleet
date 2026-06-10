@@ -419,7 +419,7 @@ fleet telegram test                     # send a test message to the configured 
 fleet telegram test --message "hello"   # custom message text
 ```
 
-`fleet telegram setup` walks through token validation, chat-ID discovery (by polling for a message you send to your channel), optional inbound `/task` creation, and a confirmation message. Writes the discovered values to `runtime.toml`. Pass flags to skip interactive prompts:
+`fleet telegram setup` walks through token validation, chat-ID discovery (by polling for a message you send to your channel), optional inbound task commands, and a confirmation message. Writes the discovered values to `runtime.toml`. Pass flags to skip interactive prompts:
 
 ```bash
 fleet telegram setup --chat-id -1001234567890 --yes           # non-interactive outbound only
@@ -439,7 +439,7 @@ telegram_allowed_ids       123456789
 telegram_default_cwd       /Users/you/git/myproject
 
 outbound notifications     ok
-inbound /task creation     ok
+inbound task commands      ok
 ```
 
 `fleet telegram test` sends a plain-text message to `telegram_chat_id` and exits non-zero on failure — useful for smoke-testing after config changes:
@@ -478,8 +478,8 @@ directly in the file.
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
-| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to create tasks via the `/task` bot command. **Empty string disables inbound task creation entirely** (default-deny). |
-| `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
+| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`). **Empty string disables all inbound commands entirely** (default-deny). |
+| `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
 
 ---
 
@@ -498,7 +498,7 @@ export TELEGRAM_BOT_TOKEN="123456:ABCDefgh..."
 fleet telegram setup
 ```
 
-The wizard validates your token, asks you to post a message in your channel so it can discover the chat ID, optionally sets up inbound `/task` creation (writing `telegram_allowed_ids` and `telegram_default_cwd` for you), and sends a confirmation message. All values are written to `runtime.toml` automatically.
+The wizard validates your token, asks you to post a message in your channel so it can discover the chat ID, optionally sets up inbound task commands (writing `telegram_allowed_ids` and `telegram_default_cwd` for you), and sends a confirmation message. All values are written to `runtime.toml` automatically.
 
 Add the `export TELEGRAM_BOT_TOKEN=…` line to your shell profile so it is set whenever `fleet serve` starts.
 
@@ -564,30 +564,75 @@ fleet config set telegram_chat_id=-1001234567890
 
 ## Inbound task creation from Telegram
 
-Fleet can receive task creation commands from Telegram. Send a `/task` message to your bot and Fleet creates a new task and replies with the task ID — no web UI needed, no public URL or webhook required (long polling is used).
+Fleet can receive commands from Telegram to create and inspect tasks — no web UI needed, no public URL or webhook required (long polling is used). Three commands are supported: `/new_task` creates a task, `/tasks` lists open tasks, and `/task <id>` shows details for one task.
 
 **This feature is off by default.** Until `telegram_allowed_ids` is set, the listener runs but accepts no commands.
 
-> **Tip:** If you ran `fleet telegram setup` and chose to enable inbound task creation, the wizard already captured your Telegram user ID and wrote `telegram_allowed_ids` and `telegram_default_cwd` to `runtime.toml` for you. The steps below describe the manual path.
+> **Tip:** If you ran `fleet telegram setup` and chose to enable inbound task commands, the wizard already captured your Telegram user ID and wrote `telegram_allowed_ids` and `telegram_default_cwd` to `runtime.toml` for you. The steps below describe the manual path.
 
-### Command format
+### Commands
 
-```
-/task <title>
-<optional multi-line description>
-```
+All inbound commands are only processed for senders whose user ID or chat ID appears in `telegram_allowed_ids`.
 
-The **first line** after `/task` becomes the task title. All **subsequent non-blank lines** become the task description. Examples:
+#### `/new_task` — create a task
 
 ```
-/task Fix the login timeout bug
+/new_task <title>
+```
+
+or multiline (title on the line after the command):
+
+```
+/new_task
+<title>
+<optional description lines>
+```
+
+The first non-empty token or line after `/new_task` becomes the task title. All subsequent non-blank lines become the description. Fleet replies with the new task ID and title on success.
+
+Examples:
+
+```
+/new_task Fix the login timeout bug
 ```
 
 ```
-/task Refactor the auth module
+/new_task Refactor the auth module
 Extract the JWT logic into its own class and add unit tests.
 Target: src/auth/jwt.py
 ```
+
+```
+/new_task
+Add dark-mode support to the dashboard
+Update the CSS variables and toggle logic.
+```
+
+#### `/tasks` — list open tasks
+
+```
+/tasks
+```
+
+Fleet replies with two sections — **In progress** and **Ready** — each showing up to 15 tasks in the format `- <id> <title>`. If a section is empty it is omitted. If both are empty, Fleet replies `No open tasks.`
+
+#### `/task <id>` — show task details
+
+```
+/task <id>
+```
+
+Fleet looks up the task and replies with its ID, status, title, and description (if any):
+
+```
+ID: <id>
+Status: <status>
+Title: <title>
+
+<description if present>
+```
+
+If the task ID is not found, Fleet suggests using `/new_task` to create one.
 
 ### Step 1 — Find your numeric Telegram user ID
 
@@ -661,7 +706,7 @@ The answer is recorded with `answered_by = telegram` and unblocks the waiting ag
 
 ### Security
 
-Answering is gated by the same `telegram_allowed_ids` allowlist that controls `/task` creation. Messages from unlisted senders or chats are silently rejected.
+Answering is gated by the same `telegram_allowed_ids` allowlist that controls all inbound commands. Messages from unlisted senders or chats are silently rejected.
 
 ### Message mapping
 
