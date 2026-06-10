@@ -747,18 +747,113 @@ def test_inbound_listener_new_task_botname_creates_task(
 # inbound_listener — /tasks and /task send transitional usage reply
 # ---------------------------------------------------------------------------
 
-def test_inbound_listener_tasks_command_sends_usage(
+def test_inbound_listener_tasks_command_lists_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """/tasks sends the /new_task usage reply (transitional)."""
+    """/tasks replies with in-progress and ready task sections."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
     cfg = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 40, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    from fleet.schemas import Task
+    app.state.queue.list_in_progress.return_value = [
+        Task(id="fleet-aaa1", title="Task A", description=None, status="in_progress")
+    ]
+    app.state.queue.list_ready.return_value = [
+        Task(id="fleet-bbb1", title="Task B", description=None, status="open")
+    ]
 
+    updates = [{"update_id": 40, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    app.state.queue.create_task.assert_not_called()
+    assert len(sent) == 1
+    reply = sent[0][1]
+    assert "In progress" in reply
+    assert "fleet-aaa1" in reply
+    assert "Task A" in reply
+    assert "Ready" in reply
+    assert "fleet-bbb1" in reply
+    assert "Task B" in reply
+
+
+def test_inbound_listener_tasks_both_empty_replies_no_open_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/tasks with no tasks in any state replies 'No open tasks.'"""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+    app.state.queue.list_in_progress.return_value = []
+    app.state.queue.list_ready.return_value = []
+
+    updates = [{"update_id": 43, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert sent[0][1] == "No open tasks."
+
+
+def test_inbound_listener_tasks_queue_error_replies_could_not_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Queue error during /tasks sends 'Could not fetch tasks.' and keeps loop alive."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+    app.state.queue.list_in_progress.side_effect = RuntimeError("bd failed")
+
+    updates = [{"update_id": 44, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert sent[0][1] == "Could not fetch tasks."
+
+
+def test_inbound_listener_tasks_rejected_sender_no_queue_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/tasks from a non-allowlisted sender gets no reply and no queue access."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 45, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/tasks"}}]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -778,9 +873,9 @@ def test_inbound_listener_tasks_command_sends_usage(
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
         asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
 
-    app.state.queue.create_task.assert_not_called()
-    assert len(sent) == 1
-    assert "/new_task" in sent[0][1]
+    assert sent == [], "Rejected sender must get no reply"
+    app.state.queue.list_in_progress.assert_not_called()
+    app.state.queue.list_ready.assert_not_called()
 
 
 def test_inbound_listener_task_command_sends_usage(

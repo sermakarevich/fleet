@@ -359,11 +359,24 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                             )
                     elif cmd == "/tasks":
                         if chat_id:
-                            await send_message(
-                                token,
-                                chat_id,
-                                "Usage: /new_task <title>\n[optional description lines]",
-                            )
+                            try:
+                                in_progress = await asyncio.to_thread(app.state.queue.list_in_progress)
+                                ready = await asyncio.to_thread(app.state.queue.list_ready)
+                            except Exception as exc:
+                                _log.warning("telegram.inbound: /tasks failed", error=str(exc))
+                                await send_message(token, chat_id, "Could not fetch tasks.")
+                            else:
+                                _TASKS_CAP = 15
+                                sections: list[str] = []
+                                for label, tasks in (("In progress", in_progress), ("Ready", ready)):
+                                    if not tasks:
+                                        continue
+                                    lines = [f"- {t.id} {t.title}" for t in tasks[:_TASKS_CAP]]
+                                    if len(tasks) > _TASKS_CAP:
+                                        lines.append(f"... and {len(tasks) - _TASKS_CAP} more")
+                                    sections.append(f"{label}:\n" + "\n".join(lines))
+                                reply = "\n\n".join(sections) if sections else "No open tasks."
+                                await send_message(token, chat_id, reply)
                     elif cmd == "/task":
                         if chat_id:
                             await send_message(
