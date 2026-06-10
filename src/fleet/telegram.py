@@ -11,6 +11,8 @@ from typing import Any
 
 import structlog
 
+from fleet.ask_human_db import answer_question, count_pending, fetch_pending_questions, get_question
+
 _MAX_TEXT = 4096
 _GETUPDATE_TIMEOUT = 30  # seconds for Telegram long-poll
 _BACKOFF_MAX = 60
@@ -251,8 +253,33 @@ def _fetch_updates(token: str, offset: int | None) -> list[dict]:
     return get_updates(token, offset=offset, timeout=_GETUPDATE_TIMEOUT)
 
 
-async def inbound_listener(app: Any, offset_path: Path) -> None:
-    """Long-poll Telegram getUpdates; create fleet tasks from /task commands.
+async def _handle_answer(token: str, chat_id: str, qid: str, raw_text: str) -> None:
+    """Apply numeric option shortcut, call answer_question, and send reply."""
+    answer: object = raw_text.strip()
+    q: dict | None = None
+    try:
+        idx = int(str(answer))
+        q = await asyncio.to_thread(get_question, qid)
+        opts = (q or {}).get("options") or []
+        if opts and 1 <= idx <= len(opts):
+            answer = opts[idx - 1]
+    except ValueError:
+        pass
+
+    result = await asyncio.to_thread(answer_question, qid, answer, "telegram")
+    if result["ok"]:
+        if q is None:
+            q = await asyncio.to_thread(get_question, qid)
+        label = (q or {}).get("agent_id") or qid
+        await send_message(token, chat_id, f"Answered [{label}]")
+    elif result["status"] in ("answered", "conflict"):
+        await send_message(token, chat_id, "Question already answered")
+    else:
+        await send_message(token, chat_id, "Unknown or expired question")
+
+
+async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None = None) -> None:
+    """Long-poll Telegram getUpdates; create tasks and answer ask_human questions.
 
     Security: if telegram_allowed_ids is empty the loop polls nothing.
     Runs until cancelled; catches all errors with exponential backoff.
@@ -326,6 +353,31 @@ async def inbound_listener(app: Any, offset_path: Path) -> None:
                             chat_id,
                             "Usage: /task <title>\n[optional description lines]",
                         )
+                else:
+                    reply_to = msg.get("reply_to_message")
+                    if reply_to is not None:
+                        replied_mid = reply_to.get("message_id") or 0
+                        qid = (
+                            lookup_question_for_message(qmsg_path, replied_mid)
+                            if qmsg_path is not None
+                            else None
+                        )
+                        if qid and chat_id:
+                            await _handle_answer(token, chat_id, qid, text)
+                        elif chat_id:
+                            await send_message(token, chat_id, "Unknown or expired question")
+                    elif text and not text.strip().startswith("/"):
+                        pending = await asyncio.to_thread(count_pending)
+                        if pending == 1:
+                            qs = await asyncio.to_thread(fetch_pending_questions, 1)
+                            if qs and chat_id:
+                                await _handle_answer(token, chat_id, qs[0]["id"], text)
+                        elif pending > 1 and chat_id:
+                            await send_message(
+                                token,
+                                chat_id,
+                                f"{pending} questions pending - reply directly to the specific question message to answer it",
+                            )
 
                 if offset is None or next_offset > offset:
                     offset = next_offset

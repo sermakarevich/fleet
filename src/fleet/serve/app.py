@@ -118,7 +118,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         watcher_task = asyncio.create_task(watcher.start(home, mgr))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
-            tg.inbound_listener(app, home / "telegram_update_offset")
+            tg.inbound_listener(app, home / "telegram_update_offset", home / "telegram_question_msgs.json")
         )
         try:
             yield

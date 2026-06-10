@@ -923,3 +923,438 @@ def test_poller_records_message_id_mapping(
     assert mapping_path.exists()
     mapping = json.loads(mapping_path.read_text())
     assert mapping.get("777") == "q-new"
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — answer via reply-to / single-pending / option shortcut
+# ---------------------------------------------------------------------------
+
+def _make_fetch_dispatcher(updates: list) -> object:
+    """Fake asyncio.to_thread: returns updates on 1st _fetch_updates call,
+    CancelledError on 2nd; calls fn(*args) for all other functions."""
+    fetch_n = [0]
+
+    async def _fake(fn, *args):  # type: ignore[misc]
+        if fn is tg._fetch_updates:
+            fetch_n[0] += 1
+            if fetch_n[0] == 1:
+                return updates
+            raise asyncio.CancelledError()
+        return fn(*args)
+
+    return _fake
+
+
+def test_inbound_listener_answer_via_reply_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replying to a question message resolves it and replies 'Answered [agent_id]'."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-reply", prompt="color?", created_at=1000.0)
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    qmsg_path = tmp_path / "qmsgs.json"
+    tg.record_question_message(qmsg_path, 42, "q-reply")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 5,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "blue",
+            "reply_to_message": {"message_id": 42},
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+
+    assert len(sent) == 1
+    assert "Answered" in sent[0][1]
+    assert "test-agent" in sent[0][1] or "q-reply" in sent[0][1]
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT status, answer FROM questions WHERE id='q-reply'").fetchone()
+    conn.close()
+    assert row[0] == "answered"
+    assert json.loads(row[1]) == "blue"
+    assert tg._load_offset(tmp_path / "offset") == 6
+
+
+def test_inbound_listener_reply_to_unknown_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reply-to a message not in the mapping replies 'Unknown or expired question'."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 6,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "some answer",
+            "reply_to_message": {"message_id": 999},
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    qmsg_path = tmp_path / "qmsgs.json"  # empty / non-existent mapping
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+
+    assert len(sent) == 1
+    assert sent[0][1] == "Unknown or expired question"
+
+
+def test_inbound_listener_reply_to_already_answered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reply-to an already-answered question replies 'Question already answered'."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-done", prompt="done?", created_at=1000.0, status="answered")
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    qmsg_path = tmp_path / "qmsgs.json"
+    tg.record_question_message(qmsg_path, 77, "q-done")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 7,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "too late",
+            "reply_to_message": {"message_id": 77},
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+
+    assert len(sent) == 1
+    assert sent[0][1] == "Question already answered"
+
+
+def test_inbound_listener_single_pending_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain text with exactly one pending question answers it via fallback."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-one", prompt="scale?", created_at=1000.0)
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 8,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "fine thanks",
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+
+    assert len(sent) == 1
+    assert "Answered" in sent[0][1]
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT status, answer FROM questions WHERE id='q-one'").fetchone()
+    conn.close()
+    assert row[0] == "answered"
+    assert json.loads(row[1]) == "fine thanks"
+
+
+def test_inbound_listener_multiple_pending_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain text with multiple pending questions sends a count hint."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-a", prompt="first?", created_at=1000.0)
+    _insert_question(db_path, qid="q-b", prompt="second?", created_at=1001.0)
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 9,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "hello",
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+
+    assert len(sent) == 1
+    assert "2 questions pending" in sent[0][1]
+    assert "reply directly" in sent[0][1]
+
+
+def test_inbound_listener_zero_pending_silently_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plain text with no pending questions is silently dropped."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 10,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "just chatting",
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+
+    assert sent == [], "No reply sent when there are no pending questions"
+
+
+def test_inbound_listener_numeric_option_shortcut(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare integer text picks the matching option string from the question's options list."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO questions (id, agent_id, prompt, created_at, status, options) "
+        "VALUES (?, ?, ?, ?, 'pending', ?)",
+        ("q-opt", "agent-opts", "pick one?", 1000.0, json.dumps(["alpha", "beta", "gamma"])),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    qmsg_path = tmp_path / "qmsgs.json"
+    tg.record_question_message(qmsg_path, 55, "q-opt")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 11,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "2",
+            "reply_to_message": {"message_id": 55},
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+
+    assert len(sent) == 1
+    assert "Answered" in sent[0][1]
+    assert "agent-opts" in sent[0][1]
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT answer FROM questions WHERE id='q-opt'").fetchone()
+    conn.close()
+    assert json.loads(row[0]) == "beta"
+
+
+def test_inbound_listener_numeric_out_of_range_stored_as_string(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Integer text out of options range is stored as the raw string, not an option."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO questions (id, agent_id, prompt, created_at, status, options) "
+        "VALUES (?, ?, ?, ?, 'pending', ?)",
+        ("q-out", "agent-out", "pick?", 1000.0, json.dumps(["x", "y"])),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    qmsg_path = tmp_path / "qmsgs.json"
+    tg.record_question_message(qmsg_path, 88, "q-out")
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 12,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "99",
+            "reply_to_message": {"message_id": 88},
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+
+    assert len(sent) == 1
+    assert "Answered" in sent[0][1]
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT answer FROM questions WHERE id='q-out'").fetchone()
+    conn.close()
+    assert json.loads(row[0]) == "99"  # stored as raw string, not option
+
+
+def test_inbound_listener_slash_command_not_intercepted_by_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Commands like /start are silently dropped and do not trigger the answer fallback."""
+    import fleet.ask_human_db as db_mod
+
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-cmd", prompt="pending?", created_at=1000.0)
+    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{
+        "update_id": 13,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 123},
+            "text": "/start",
+        },
+    }]
+
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+
+    assert sent == [], "/start must be silently dropped, not treated as an answer"
+
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT status FROM questions WHERE id='q-cmd'").fetchone()
+    conn.close()
+    assert row[0] == "pending", "Question must remain pending"
