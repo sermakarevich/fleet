@@ -315,3 +315,312 @@ def test_telegram_chat_id_default_is_empty_string(tmp_path: Path) -> None:
     cfg_path = tmp_path / "runtime.toml"
     cfg = load(cfg_path)
     assert cfg.telegram_chat_id == ""
+
+
+# ---------------------------------------------------------------------------
+# New config fields round-trip
+# ---------------------------------------------------------------------------
+
+def test_telegram_allowed_ids_default_is_empty_string(tmp_path: Path) -> None:
+    cfg = load(tmp_path / "runtime.toml")
+    assert cfg.telegram_allowed_ids == ""
+
+
+def test_telegram_default_cwd_default_is_empty_string(tmp_path: Path) -> None:
+    cfg = load(tmp_path / "runtime.toml")
+    assert cfg.telegram_default_cwd == ""
+
+
+def test_telegram_allowed_ids_round_trips(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "runtime.toml"
+    load(cfg_path)
+    result = write_atomic(cfg_path, {"telegram_allowed_ids": "111,222,333"})
+    assert result.telegram_allowed_ids == "111,222,333"
+    assert load(cfg_path).telegram_allowed_ids == "111,222,333"
+
+
+def test_telegram_default_cwd_round_trips(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "runtime.toml"
+    load(cfg_path)
+    result = write_atomic(cfg_path, {"telegram_default_cwd": "/home/user/project"})
+    assert result.telegram_default_cwd == "/home/user/project"
+    assert load(cfg_path).telegram_default_cwd == "/home/user/project"
+
+
+# ---------------------------------------------------------------------------
+# _parse_allowed_ids
+# ---------------------------------------------------------------------------
+
+def test_parse_allowed_ids_empty_string() -> None:
+    assert tg._parse_allowed_ids("") == set()
+
+
+def test_parse_allowed_ids_single() -> None:
+    assert tg._parse_allowed_ids("12345") == {"12345"}
+
+
+def test_parse_allowed_ids_comma_separated() -> None:
+    assert tg._parse_allowed_ids("111, 222 , 333") == {"111", "222", "333"}
+
+
+def test_parse_allowed_ids_ignores_empty_segments() -> None:
+    assert tg._parse_allowed_ids(",,,  ") == set()
+
+
+# ---------------------------------------------------------------------------
+# _is_allowed
+# ---------------------------------------------------------------------------
+
+def _make_update(from_id: str | None = None, chat_id: str | None = None) -> dict:
+    msg: dict = {}
+    if from_id is not None:
+        msg["from"] = {"id": int(from_id)}
+    if chat_id is not None:
+        msg["chat"] = {"id": int(chat_id)}
+    return {"update_id": 1, "message": msg}
+
+
+def test_is_allowed_from_id_in_list() -> None:
+    assert tg._is_allowed(_make_update(from_id="123"), {"123"})
+
+
+def test_is_allowed_chat_id_in_list() -> None:
+    assert tg._is_allowed(_make_update(chat_id="-100987"), {"-100987"})
+
+
+def test_is_allowed_neither_in_list() -> None:
+    assert not tg._is_allowed(_make_update(from_id="111", chat_id="222"), {"999"})
+
+
+def test_is_allowed_empty_allowlist() -> None:
+    assert not tg._is_allowed(_make_update(from_id="123", chat_id="123"), set())
+
+
+def test_is_allowed_no_ids_in_update() -> None:
+    assert not tg._is_allowed({"update_id": 1, "message": {}}, {"123"})
+
+
+# ---------------------------------------------------------------------------
+# _parse_task_command
+# ---------------------------------------------------------------------------
+
+def test_parse_task_command_simple() -> None:
+    assert tg._parse_task_command("/task Fix the bug") == ("Fix the bug", None)
+
+
+def test_parse_task_command_with_description() -> None:
+    result = tg._parse_task_command("/task Fix the bug\nDetails here\nMore info")
+    assert result == ("Fix the bug", "Details here\nMore info")
+
+
+def test_parse_task_command_not_a_task() -> None:
+    assert tg._parse_task_command("/start") is None
+    assert tg._parse_task_command("Hello world") is None
+
+
+def test_parse_task_command_empty_title() -> None:
+    assert tg._parse_task_command("/task\n") is None
+    assert tg._parse_task_command("/task   ") is None
+
+
+def test_parse_task_command_bot_name_variant() -> None:
+    assert tg._parse_task_command("/task@mybot Do something") == ("Do something", None)
+
+
+def test_parse_task_command_newline_only_title() -> None:
+    result = tg._parse_task_command("/task Refactor module\n\nExtra notes")
+    assert result is not None
+    assert result[0] == "Refactor module"
+
+
+# ---------------------------------------------------------------------------
+# Offset persistence
+# ---------------------------------------------------------------------------
+
+def test_load_offset_missing_file(tmp_path: Path) -> None:
+    assert tg._load_offset(tmp_path / "offset") is None
+
+
+def test_save_and_load_offset(tmp_path: Path) -> None:
+    path = tmp_path / "offset"
+    tg._save_offset(path, 42)
+    assert tg._load_offset(path) == 42
+
+
+def test_save_offset_creates_parent_dirs(tmp_path: Path) -> None:
+    path = tmp_path / "sub" / "dir" / "offset"
+    tg._save_offset(path, 99)
+    assert tg._load_offset(path) == 99
+
+
+def test_load_offset_invalid_content(tmp_path: Path) -> None:
+    path = tmp_path / "offset"
+    path.write_text("not-a-number")
+    assert tg._load_offset(path) is None
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — no token → exits immediately
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_exits_when_no_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    app = MagicMock()
+    asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+    # Must return without making any calls
+    app.state.fleet_state.config  # not accessed
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — empty allowlist → no polling
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_skips_polling_when_allowlist_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    fetched: list = []
+
+    async def _fake_to_thread(fn, *args):
+        fetched.append(fn)
+        raise asyncio.CancelledError()
+
+    call_n = [0]
+
+    async def _fake_sleep(s: float) -> None:
+        call_n[0] += 1
+        if call_n[0] >= 2:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert fetched == [], "getUpdates must not be called when allowlist is empty"
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — rejected sender
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_rejects_unknown_sender(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 is allowed
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 10, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/task Bad actor"}}]
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates  # _fetch_updates
+        raise asyncio.CancelledError()
+
+    async def _fake_send(token, chat_id, text):
+        raise AssertionError("send_message must not be called for rejected sender")
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    # Offset should have advanced past the rejected update
+    assert tg._load_offset(tmp_path / "offset") == 11
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — creates task on /task command
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_creates_task_and_replies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="/my/project")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    from fleet.schemas import Task
+    fake_task = Task(id="fleet-abc1", title="Fix the bug", description=None, status="open")
+    app.state.queue.create_task.return_value = fake_task
+
+    updates = [{"update_id": 5, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task Fix the bug\nSome details"}}]
+
+    sent: list[tuple[str, str]] = []  # (chat_id, text)
+
+    async def _fake_send(token, chat_id, text):
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates  # _fetch_updates
+        if call_n[0] == 2:
+            # create_task call via to_thread
+            return fn(*args)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert "fleet-abc1" in sent[0][1]
+    assert tg._load_offset(tmp_path / "offset") == 6
+
+
+# ---------------------------------------------------------------------------
+# inbound_listener — error backoff
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_backs_off_on_network_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    call_n = [0]
+    sleep_durations: list[float] = []
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] <= 2:
+            raise OSError("network failure")
+        raise asyncio.CancelledError()
+
+    async def _fake_sleep(s: float) -> None:
+        sleep_durations.append(s)
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sleep_durations) >= 2
+    # Backoff doubles: second sleep should be >= first
+    assert sleep_durations[1] >= sleep_durations[0]

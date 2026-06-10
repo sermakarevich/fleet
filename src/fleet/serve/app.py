@@ -129,17 +129,25 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         app.state.fleet_state = AppState(fleet_home=home, config=cfg, config_mtime=mtime)
         watcher_task = asyncio.create_task(watcher.start(home, mgr))
         poller_task = asyncio.create_task(_question_poller(app))
+        listener_task = asyncio.create_task(
+            tg.inbound_listener(app, home / "telegram_update_offset")
+        )
         try:
             yield
         finally:
             watcher_task.cancel()
             poller_task.cancel()
+            listener_task.cancel()
             try:
                 await watcher_task
             except asyncio.CancelledError:
                 pass
             try:
                 await poller_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await listener_task
             except asyncio.CancelledError:
                 pass
 

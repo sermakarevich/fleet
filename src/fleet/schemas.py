@@ -79,3 +79,5 @@ class RuntimeConfig:
     coder: str = "claude"
     context_pressure_threshold_pct: int = 90
     telegram_chat_id: str = ""
+    telegram_allowed_ids: str = ""
+    telegram_default_cwd: str = ""

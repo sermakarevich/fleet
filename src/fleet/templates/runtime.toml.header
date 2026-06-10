@@ -6,3 +6,11 @@
 # telegram_chat_id: Telegram chat/channel ID for supervisor notifications.
 #   Empty string (default) disables Telegram notifications.
 #   The bot token is supplied via the TELEGRAM_BOT_TOKEN env var (never stored here).
+#
+# telegram_allowed_ids: Comma-separated numeric Telegram user/chat IDs that may
+#   create fleet tasks by messaging the bot with /task commands.
+#   Empty string (default) disables the inbound listener entirely (default-deny).
+#   Example: "123456789,987654321"
+#
+# telegram_default_cwd: Working directory assigned to tasks created via Telegram.
+#   Empty string (default) leaves cwd unset on the created task.
