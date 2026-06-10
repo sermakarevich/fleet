@@ -19,6 +19,17 @@ _BACKOFF_MAX = 60
 _ALLOWED_IDS_POLL_INTERVAL = 10  # sleep interval when allowlist is empty
 _log = structlog.get_logger(__name__)
 
+HELP_TEXT = (
+    "Fleet bot commands:\n"
+    "/new_task <title> - create a task (title may be on the next line; "
+    "following lines become the description)\n"
+    "/tasks - list open tasks\n"
+    "/task <id> - show task details\n"
+    "/help - show this help\n"
+    "\nReply to a question message to answer it; "
+    "with exactly one pending question a plain message answers it directly."
+)
+
 
 def is_configured() -> bool:
     """Return True if TELEGRAM_BOT_TOKEN env var is set and non-empty."""
@@ -405,6 +416,9 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                                     chat_id,
                                     "Usage: /task <id> - show task details; /tasks - list open tasks; /new_task <title> - create a task",
                                 )
+                    elif cmd == "/help" or cmd == "/start":
+                        if chat_id:
+                            await send_message(token, chat_id, HELP_TEXT)
                     # else: unknown slash command → silently ignore
                 else:
                     reply_to = msg.get("reply_to_message")

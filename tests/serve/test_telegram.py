@@ -1686,10 +1686,121 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     assert json.loads(row[0]) == "99"  # stored as raw string, not option
 
 
+# ---------------------------------------------------------------------------
+# inbound_listener — /help and /start commands
+# ---------------------------------------------------------------------------
+
+def test_inbound_listener_help_replies_with_help_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/help replies with HELP_TEXT."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 100, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert sent[0][1] == tg.HELP_TEXT
+
+
+def test_inbound_listener_start_replies_with_help_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/start replies with the same HELP_TEXT as /help."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 101, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert sent[0][1] == tg.HELP_TEXT
+
+
+def test_inbound_listener_help_botname_replies_with_help_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/help@botname replies with HELP_TEXT via the existing @-strip."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 102, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help@myfleetbot"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert len(sent) == 1
+    assert sent[0][1] == tg.HELP_TEXT
+
+
+def test_inbound_listener_help_rejected_sender_no_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """/help from a non-allowlisted sender gets no reply (security gate)."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
+    app = MagicMock()
+    app.state.fleet_state.config = cfg
+
+    updates = [{"update_id": 103, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/help"}}]
+    sent: list[tuple[str, str]] = []
+
+    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+        sent.append((chat_id, text))
+
+    call_n = [0]
+
+    async def _fake_to_thread(fn, *args):
+        call_n[0] += 1
+        if call_n[0] == 1:
+            return updates
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(tg, "send_message", _fake_send)
+
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+
+    assert sent == [], "Rejected sender must get no reply for /help"
+
+
 def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Commands like /start are silently dropped and do not trigger the answer fallback."""
+    """/start replies with help text and does not trigger the answer fallback."""
     import fleet.ask_human_db as db_mod
 
     db_path = tmp_path / "questions.db"
@@ -1722,9 +1833,10 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
 
-    assert sent == [], "/start must be silently dropped, not treated as an answer"
+    assert len(sent) == 1
+    assert sent[0][1] == tg.HELP_TEXT, "/start must reply with help text"
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute("SELECT status FROM questions WHERE id='q-cmd'").fetchone()
     conn.close()
-    assert row[0] == "pending", "Question must remain pending"
+    assert row[0] == "pending", "Question must remain pending after /start"

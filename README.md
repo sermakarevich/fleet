@@ -478,7 +478,7 @@ directly in the file.
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
 | `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
-| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`). **Empty string disables all inbound commands entirely** (default-deny). |
+| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
 | `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
 
 ---
@@ -564,7 +564,7 @@ fleet config set telegram_chat_id=-1001234567890
 
 ## Inbound task creation from Telegram
 
-Fleet can receive commands from Telegram to create and inspect tasks — no web UI needed, no public URL or webhook required (long polling is used). Three commands are supported: `/new_task` creates a task, `/tasks` lists open tasks, and `/task <id>` shows details for one task.
+Fleet can receive commands from Telegram to create and inspect tasks — no web UI needed, no public URL or webhook required (long polling is used). Four commands are supported: `/new_task` creates a task, `/tasks` lists open tasks, `/task <id>` shows details for one task, and `/help` (or `/start`) shows command usage.
 
 **This feature is off by default.** Until `telegram_allowed_ids` is set, the listener runs but accepts no commands.
 
@@ -633,6 +633,14 @@ Title: <title>
 ```
 
 If the task ID is not found, Fleet suggests using `/new_task` to create one.
+
+#### `/help` — show command usage
+
+```
+/help
+```
+
+Fleet replies with a summary of all available commands and the answer flow. Telegram clients send `/start` automatically when a user first opens the bot — Fleet treats `/start` as an alias for `/help` and replies with the same message.
 
 ### Step 1 — Find your numeric Telegram user ID
 
