@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { useKillTask, useRequeueTask } from '../hooks/useApi';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { TaskSummary } from '../types';
 import { Sparkline } from './Sparkline';
 import { StatusDot } from './StatusDot';
@@ -31,6 +32,56 @@ interface ContextMenuState {
   y: number;
 }
 
+function RunningCard({
+  task, thresholdPct, isStopping, onNavigate, onKill, onRequeue,
+}: {
+  task: TaskSummary;
+  thresholdPct: number;
+  isStopping: boolean;
+  onNavigate: () => void;
+  onKill: () => void;
+  onRequeue: () => void;
+}) {
+  const cwd = task.cwd ? task.cwd.split('/').pop() ?? task.cwd : '—';
+  const lastEvt = [task.last_event_kind, task.last_event_detail].filter(Boolean).join(' ');
+  const coderStr = [task.coder, task.model].filter(Boolean).join(' · ');
+  return (
+    <div
+      style={cardStyles.card}
+      className="row-interactive"
+      tabIndex={0}
+      onClick={onNavigate}
+    >
+      <div style={cardStyles.cardHead}>
+        <span style={cardStyles.dotWrap}>
+          {isStopping
+            ? <span style={styles.stoppingDot}>◔</span>
+            : <StatusDot task={task} thresholdPct={thresholdPct} />}
+        </span>
+        <span style={cardStyles.cardId}>{task.id}</span>
+        <span style={cardStyles.cardElapsed}>{formatElapsed(task.elapsed_sec)}</span>
+        <span style={cardStyles.cardBtns} onClick={e => e.stopPropagation()}>
+          {!isStopping && (
+            <>
+              <button style={cardStyles.killBtn} onClick={onKill}>Kill</button>
+              <button style={cardStyles.requeueBtn} onClick={onRequeue}>↺</button>
+            </>
+          )}
+          {isStopping && <span style={styles.stoppingText}>stopping…</span>}
+        </span>
+      </div>
+      <div style={cardStyles.cardTitle}>{(task.title ?? '').slice(0, 80)}</div>
+      <div style={cardStyles.cardMeta}>
+        <span>{coderStr || '(default)'}</span>
+        <span title={task.cwd ?? undefined}>{cwd}</span>
+      </div>
+      {lastEvt && !isStopping && (
+        <div style={cardStyles.cardLastEvt}>{lastEvt.slice(0, 80)}</div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   tasks: TaskSummary[];
   thresholdPct?: number;
@@ -38,8 +89,21 @@ interface Props {
 
 export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const { mutate: killTask } = useKillTask();
+  const { mutate: requeueTask } = useRequeueTask();
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setStoppingIds(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter(id => tasks.find(t => t.id === id)?.status === 'in_progress'));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tasks]);
 
   useEffect(() => {
     if (!menu) return;
@@ -59,11 +123,49 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
     };
   }, [menu]);
 
+  useEffect(() => {
+    if (!menu || !menuRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const { offsetWidth, offsetHeight } = menuRef.current;
+    const top = Math.min(menu.y, window.innerHeight - offsetHeight - 8);
+    const left = Math.min(menu.x, window.innerWidth - offsetWidth - 8);
+    setMenuPos({ top: Math.max(0, top), left: Math.max(0, left) });
+  }, [menu]);
+
   if (tasks.length === 0) {
     return (
       <section style={styles.section}>
         <h2 style={styles.title}>Running ({tasks.length})</h2>
         <p style={styles.empty}>No running tasks</p>
+      </section>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <section style={styles.section}>
+        <h2 style={styles.title}>Running ({tasks.length})</h2>
+        <div style={cardStyles.list}>
+          {tasks.map(task => {
+            const isStopping = stoppingIds.has(task.id);
+            return (
+              <RunningCard
+                key={task.id}
+                task={task}
+                thresholdPct={thresholdPct}
+                isStopping={isStopping}
+                onNavigate={() => navigate(`/tasks/${task.id}`)}
+                onKill={() => {
+                  if (!window.confirm(`Kill task ${task.id}?`)) return;
+                  killTask(task.id, { onSuccess: () => setStoppingIds(prev => new Set([...prev, task.id])) });
+                }}
+                onRequeue={() => requeueTask(task.id)}
+              />
+            );
+          })}
+        </div>
       </section>
     );
   }
@@ -90,6 +192,8 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
                 <tr
                   key={task.id}
                   style={styles.tr}
+                  className="row-interactive"
+                  tabIndex={0}
                   onClick={() => navigate(`/tasks/${task.id}`)}
                   onContextMenu={e => {
                     e.preventDefault();
@@ -97,7 +201,9 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
                   }}
                 >
                   <td style={styles.td}>
-                    <StatusDot task={task} thresholdPct={thresholdPct} />
+                    {stoppingIds.has(task.id)
+                      ? <span style={styles.stoppingDot}>◔</span>
+                      : <StatusDot task={task} thresholdPct={thresholdPct} />}
                   </td>
                   <td style={{ ...styles.td, ...styles.idCell }}>
                     <span
@@ -130,7 +236,9 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
                   <td style={styles.td}>
                     <span title={task.cwd ?? undefined}>{cwd}</span>
                   </td>
-                  <td style={{ ...styles.td, ...styles.lastEvtCell }}>{lastEvt || '—'}</td>
+                  <td style={{ ...styles.td, ...styles.lastEvtCell, ...(stoppingIds.has(task.id) ? styles.stoppingText : {}) }}>
+                    {stoppingIds.has(task.id) ? 'stopping…' : (lastEvt || '—')}
+                  </td>
                 </tr>
               );
             })}
@@ -139,11 +247,21 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
       </div>
 
       {menu && (
-        <div ref={menuRef} style={{ ...styles.ctxMenu, top: menu.y, left: menu.x }}>
+        <div
+          ref={menuRef}
+          style={{
+            ...styles.ctxMenu,
+            top: menuPos?.top ?? menu.y,
+            left: menuPos?.left ?? menu.x,
+            visibility: menuPos ? 'visible' : 'hidden',
+          }}
+        >
           <button
             style={styles.menuItem}
             onClick={() => {
-              void api.killTask(menu.task.id);
+              if (!window.confirm(`Kill task ${menu.task.id}?`)) return;
+              const id = menu.task.id;
+              killTask(id, { onSuccess: () => setStoppingIds(prev => new Set([...prev, id])) });
               setMenu(null);
             }}
           >
@@ -152,7 +270,7 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
           <button
             style={styles.menuItem}
             onClick={() => {
-              void api.requeueTask(menu.task.id);
+              requeueTask(menu.task.id);
               setMenu(null);
             }}
           >
@@ -260,6 +378,14 @@ const styles = {
   dim: {
     color: '#52525b',
   } as React.CSSProperties,
+  stoppingDot: {
+    color: '#fb923c',
+    fontSize: '0.875rem',
+  } as React.CSSProperties,
+  stoppingText: {
+    color: '#fb923c',
+    fontStyle: 'italic',
+  } as React.CSSProperties,
   ctxMenu: {
     position: 'fixed' as const,
     background: '#27272a',
@@ -281,5 +407,95 @@ const styles = {
     textAlign: 'left' as const,
     cursor: 'pointer',
     borderRadius: 4,
+  } as React.CSSProperties,
+};
+
+const cardStyles = {
+  list: {
+    border: '1px solid #27272a',
+    borderRadius: 6,
+    overflow: 'hidden',
+  } as React.CSSProperties,
+  card: {
+    padding: '0.625rem 0.875rem',
+    borderBottom: '1px solid #1f1f23',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.3rem',
+    fontSize: '0.875rem',
+    color: '#d4d4d8',
+  } as React.CSSProperties,
+  cardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  } as React.CSSProperties,
+  dotWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  cardId: {
+    fontFamily: 'monospace',
+    color: '#60a5fa',
+    fontSize: '0.8125rem',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardElapsed: {
+    fontSize: '0.75rem',
+    color: '#71717a',
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
+  } as React.CSSProperties,
+  cardBtns: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  killBtn: {
+    padding: '0.15rem 0.5rem',
+    background: 'transparent',
+    border: '1px solid #dc2626',
+    borderRadius: 4,
+    color: '#f87171',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  requeueBtn: {
+    padding: '0.15rem 0.4rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#71717a',
+    cursor: 'pointer',
+    fontSize: '0.875rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  cardTitle: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    fontSize: '0.875rem',
+  } as React.CSSProperties,
+  cardMeta: {
+    display: 'flex',
+    gap: '0.625rem',
+    flexWrap: 'wrap' as const,
+    fontSize: '0.75rem',
+    color: '#71717a',
+  } as React.CSSProperties,
+  cardLastEvt: {
+    fontSize: '0.75rem',
+    color: '#52525b',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
 };

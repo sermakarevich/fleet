@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react';
-import { useCoders, useConfig, usePauseSupervisor, usePutConfig, useResumeSupervisor, useSupervisor } from '../hooks/useApi';
+import { useCoders, useConfig, usePauseSupervisor, usePutConfig, useRestartSupervisor, useResumeSupervisor, useSupervisor } from '../hooks/useApi';
 import { SupervisorPanel } from '../components/Supervisor/SupervisorPanel';
 import { ConfigEditor } from '../components/Supervisor/ConfigEditor';
 import { useNativeNotifications } from '../hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../types';
+import * as T from '../styles/tokens';
 
 interface SaveResult { ok: boolean; text: string }
 
@@ -13,6 +14,7 @@ export function Config() {
   const { data: codersData, isLoading: codersLoading } = useCoders();
   const pauseSupervisor = usePauseSupervisor();
   const resumeSupervisor = useResumeSupervisor();
+  const restartSupervisor = useRestartSupervisor();
   const putConfig = usePutConfig();
   const { permissions, setPermission } = useNativeNotifications();
 
@@ -46,9 +48,26 @@ export function Config() {
           {supervisor && (
             <SupervisorPanel
               status={supervisor}
-              onPause={() => { void pauseSupervisor.mutateAsync(); }}
-              onResume={() => { void resumeSupervisor.mutateAsync(); }}
-              loading={pauseSupervisor.isPending || resumeSupervisor.isPending}
+              onPause={async () => {
+                try { await pauseSupervisor.mutateAsync(); }
+                catch (err) { showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) }); }
+              }}
+              onResume={async () => {
+                try { await resumeSupervisor.mutateAsync(); }
+                catch (err) { showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) }); }
+              }}
+              onRestart={async () => {
+                try {
+                  const result = await restartSupervisor.mutateAsync();
+                  const text = result.alive
+                    ? `Supervisor restarted — PID ${result.pid}`
+                    : 'Restart failed (process exited immediately)';
+                  showSaveResult({ ok: result.alive, text });
+                } catch (err) {
+                  showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
+                }
+              }}
+              loading={pauseSupervisor.isPending || resumeSupervisor.isPending || restartSupervisor.isPending}
             />
           )}
           <div style={styles.panel}>
@@ -84,7 +103,12 @@ export function Config() {
             ) : (
               <ul style={styles.coderList}>
                 {coders.map(c => (
-                  <li key={c} style={styles.coderItem}>{c}</li>
+                  <li key={c.name} style={styles.coderItem}>
+                    <strong>{c.name}</strong>
+                    <span style={{ color: T.colors.textDim, marginLeft: '0.5rem' }}>
+                      {Math.round(c.context_limit / 1000)}k ctx — {c.default_model}
+                    </span>
+                  </li>
                 ))}
               </ul>
             )}
@@ -127,7 +151,7 @@ const styles = {
     margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   saveBanner: {
     display: 'inline-flex',
@@ -145,11 +169,11 @@ const styles = {
   saveBannerErr: {
     background: 'rgba(239,68,68,0.12)',
     border: '1px solid #dc2626',
-    color: '#ef4444',
+    color: T.colors.danger,
   } as React.CSSProperties,
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   } as React.CSSProperties,
   grid: {
     display: 'grid',
@@ -158,9 +182,7 @@ const styles = {
     alignItems: 'start',
   } as React.CSSProperties,
   panel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    ...T.panel,
     padding: '1rem 1.25rem',
     marginTop: '1rem',
   } as React.CSSProperties,
@@ -168,10 +190,10 @@ const styles = {
     margin: '0 0 0.75rem',
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   empty: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.875rem',
     margin: 0,
   } as React.CSSProperties,
@@ -185,15 +207,15 @@ const styles = {
   } as React.CSSProperties,
   coderItem: {
     padding: '0.3rem 0.6rem',
-    background: '#09090b',
-    border: '1px solid #27272a',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.borderSubtle}`,
     borderRadius: 4,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontSize: '0.8125rem',
     fontFamily: 'monospace',
   } as React.CSSProperties,
   notifNote: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.8125rem',
     margin: '0 0 0.625rem',
   } as React.CSSProperties,
@@ -204,12 +226,12 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontSize: '0.875rem',
     cursor: 'pointer',
   } as React.CSSProperties,
   checkbox: {
-    accentColor: '#3b82f6',
+    accentColor: T.colors.accent,
     cursor: 'pointer',
   } as React.CSSProperties,
 };

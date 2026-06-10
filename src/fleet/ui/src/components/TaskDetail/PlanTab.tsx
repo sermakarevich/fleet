@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../api';
@@ -13,7 +13,7 @@ export function PlanTab({ taskId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const mtimeRef = useRef<number | null>(null);
 
-  async function load(checkMtime = false) {
+  const load = useCallback(async (checkMtime = false) => {
     try {
       const data = await api.getArtifactPlan(taskId);
       if (checkMtime && mtimeRef.current === data.mtime) return;
@@ -24,13 +24,13 @@ export function PlanTab({ taskId }: Props) {
     } catch {
       if (!checkMtime) setError('Plan not available');
     }
-  }
+  }, [taskId]);
 
   useEffect(() => {
     load();
     const timer = setInterval(() => load(true), 5000);
     return () => clearInterval(timer);
-  }, [taskId]);
+  }, [load]);
 
   if (error) {
     return <p style={styles.empty}>{error}</p>;

@@ -1,4 +1,5 @@
 import type { RuntimeConfig, TaskDetail } from '../../types';
+import * as T from '../../styles/tokens';
 
 interface Props {
   task: TaskDetail;
@@ -90,8 +91,8 @@ export function Header({ task, config }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   header: {
     padding: '0.75rem 1rem',
-    borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
+    background: T.colors.bgSurface,
   },
   row: {
     display: 'flex',
@@ -117,7 +118,7 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: '0.95rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -127,29 +128,29 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '0.25rem',
     fontSize: '0.75rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   },
   coderModel: {
     fontFamily: 'monospace',
     fontSize: '0.75rem',
   },
   bold: {
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontWeight: 700,
   },
   dim: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontStyle: 'italic',
   },
   sep: {
-    color: '#3f3f46',
+    color: T.colors.border,
     margin: '0 0.1rem',
   },
   metaSep: {
-    color: '#3f3f46',
+    color: T.colors.border,
   },
   metaItem: {
-    color: '#71717a',
+    color: T.colors.textDim,
   },
   link: {
     color: '#60a5fa',

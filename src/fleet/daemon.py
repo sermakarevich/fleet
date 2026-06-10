@@ -17,6 +17,7 @@ raise typed errors, so the CLI layer owns all user-facing echoing.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
@@ -32,6 +33,26 @@ from typing import Callable
 # an immediately-crashing daemon (bad config, import error) instead of a false
 # "started" with a pid that is already gone.
 STARTUP_PROBE_SEC: float = 0.7
+
+
+def code_fingerprint(pkg_root: Path | None = None) -> str:
+    """SHA1 of all .py files under the fleet package, sorted by path.
+
+    Returns a 12-char hex digest for display and comparison. Catches both
+    git pulls (changed content) and local edits (uncommitted changes).
+    """
+    if pkg_root is None:
+        import fleet as _fleet_pkg
+        pkg_root = Path(_fleet_pkg.__file__).parent
+    h = hashlib.sha1(usedforsecurity=False)
+    for p in sorted(pkg_root.rglob("*.py")):
+        h.update(p.as_posix().encode())
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
 
 # Poll interval while waiting for a signalled process to exit.
 _STOP_POLL_SEC: float = 0.1
@@ -74,6 +95,8 @@ class DaemonStatus:
     pid: int | None
     started_at: str | None
     extra: dict
+    version_fingerprint: str | None = None
+    stale: bool = False
 
 
 def _pid_alive(pid: int) -> bool:
@@ -142,6 +165,7 @@ class Daemon:
         data = {
             "pid": pid,
             "started_at": datetime.now(timezone.utc).isoformat(),
+            "version_fingerprint": code_fingerprint(),
             **self.spec.extra,
         }
         tmp = self.spec.pidfile.with_name(self.spec.pidfile.name + ".tmp")
@@ -165,12 +189,17 @@ class Daemon:
         if pid is None or not _pid_alive(pid):
             self._clear_pidfile()  # stale
             return DaemonStatus(running=False, pid=None, started_at=None, extra={})
-        extra = {k: v for k, v in data.items() if k not in ("pid", "started_at")}
+        extra = {k: v for k, v in data.items() if k not in ("pid", "started_at", "version_fingerprint")}
+        stored_fp = data.get("version_fingerprint")
+        current_fp = code_fingerprint()
+        stale = stored_fp is not None and stored_fp != current_fp
         return DaemonStatus(
             running=True,
             pid=pid,
             started_at=data.get("started_at"),
             extra=extra,
+            version_fingerprint=stored_fp,
+            stale=stale,
         )
 
     def start(self) -> StartResult:

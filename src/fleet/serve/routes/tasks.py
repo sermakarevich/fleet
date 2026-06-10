@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,9 +12,15 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from fleet.coders import _REGISTRY, get_coder
+from fleet.coders import _REGISTRY, get_coder, list_coders as _list_coders
+from fleet.daemon import _pid_alive
 from fleet.queue import BeadsError
-from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_stats
+from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_cached
+
+# TTL cache for _get_beads_status_map — key: str(home), value: (expires_at, result)
+_beads_map_cache: dict[str, tuple[float, dict[str, dict] | None]] = {}
+_BEADS_CACHE_TTL: float = 5.0
+_beads_list_call_count: int = 0  # incremented on each real subprocess call; observable in tests
 
 
 @dataclass
@@ -105,55 +112,26 @@ def _coder_context_limit(coder_name: str | None) -> int:
         return 200_000
 
 
-def _last_event_info(task_id: str, home: Path) -> tuple[str | None, str | None]:
-    events_file = home / "tasks" / task_id / "events.jsonl"
-    if not events_file.exists():
-        return None, None
-    last_kind: str | None = None
-    last_detail: str | None = None
-    try:
-        with events_file.open("r", encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                kind = row.get("kind")
-                if kind:
-                    last_kind = kind
-                    extra = row.get("extra") or {}
-                    tool = row.get("tool_name") or extra.get("tool_name")
-                    last_detail = str(tool) if tool else None
-    except OSError:
-        pass
-    return last_kind, last_detail
-
-
 def _build_task_summary(data: dict, home: Path) -> dict:
     task_id = data.get("id", "")
-    stats = task_runtime_stats(task_id)
+    info = task_runtime_info_cached(home / "tasks" / task_id)
 
     now = datetime.now(tz=timezone.utc)
-    started_at = stats.started_at
+    started_at = info.started_at
     elapsed_sec: float | None = (now - started_at).total_seconds() if started_at else None
     idle_sec: float | None = (
-        (now - stats.last_event_at).total_seconds() if stats.last_event_at else None
+        (now - info.last_event_at).total_seconds() if info.last_event_at else None
     )
-    context_tokens = stats.context_tokens
+    context_tokens = info.context_tokens
     context_pct: float | None = None
     if context_tokens is not None:
         limit = _coder_context_limit(data.get("coder"))
         context_pct = context_tokens / limit * 100
 
-    last_kind, last_detail = _last_event_info(task_id, home)
-
     status = data.get("status", "")
     ended_at = (
-        stats.last_event_at.isoformat()
-        if status in ("closed", "failed") and stats.last_event_at
+        info.last_event_at.isoformat()
+        if status in ("closed", "failed") and info.last_event_at
         else None
     )
 
@@ -172,19 +150,57 @@ def _build_task_summary(data: dict, home: Path) -> dict:
         "ended_at": ended_at,
         "elapsed_sec": elapsed_sec,
         "idle_sec": idle_sec,
-        "events": stats.events,
+        "events": info.events,
         "context_tokens": context_tokens,
         "context_pct": context_pct,
-        "last_event_kind": last_kind,
-        "last_event_detail": last_detail,
+        "last_event_kind": info.last_event_kind,
+        "last_event_detail": info.last_event_detail,
     }
+
+
+def _build_all_summaries(tasks: list[dict], home: Path) -> list[dict]:
+    return [_build_task_summary(d, home) for d in tasks]
+
+
+def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
+    """Clear assignee in both beads DB and task.json (if present)."""
+    try:
+        result = subprocess.run(
+            ["bd", "update", task_id, "--assignee", ""],
+            capture_output=True,
+            text=True,
+            cwd=home,
+        )
+        if result.returncode != 0:
+            return False, result.stderr.strip() or "bd update failed"
+    except FileNotFoundError:
+        return False, "bd executable not found"
+    task_file = home / "tasks" / task_id / "task.json"
+    if task_file.exists():
+        try:
+            data = json.loads(task_file.read_text(encoding="utf-8"))
+            data["coder"] = None
+            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
+            return False, str(exc)
+    return True, ""
 
 
 def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
     """Return {task_id: {status, created_at}} for all tasks in the beads DB at `home`.
 
     Returns None if beads is unavailable so the caller can skip reconciliation.
+    Results are cached for _BEADS_CACHE_TTL seconds to avoid a subprocess on every poll.
     """
+    global _beads_list_call_count
+    key = str(home)
+    now = time.monotonic()
+    cached = _beads_map_cache.get(key)
+    if cached is not None and now < cached[0]:
+        return cached[1]
+
+    _beads_list_call_count += 1
+    result_value: dict[str, dict] | None = None
     try:
         result = subprocess.run(
             ["bd", "list", "--all", "--json", "--limit", "0"],
@@ -192,25 +208,32 @@ def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
             text=True,
             cwd=home,
         )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        data = json.loads(result.stdout)
-        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
-        if isinstance(items, list):
-            return {
-                item["id"]: {
-                    "status": item.get("status", "open"),
-                    "created_at": item.get("created_at"),
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout)
+            items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+            if isinstance(items, list):
+                result_value = {
+                    item["id"]: {
+                        "status": item.get("status", "open"),
+                        "created_at": item.get("created_at"),
+                        "priority": item.get("priority"),
+                    }
+                    for item in items if item.get("id")
                 }
-                for item in items if item.get("id")
-            }
     except Exception:
         pass
-    return None
+    _beads_map_cache[key] = (now + _BEADS_CACHE_TTL, result_value)
+    return result_value
 
 
 def _get_beads_task_status(task_id: str, home: Path) -> str | None:
     """Return the beads status for a single task, or None if unavailable."""
+    info = _get_beads_task_info(task_id, home)
+    return info.get("status") if info is not None else None
+
+
+def _get_beads_task_info(task_id: str, home: Path) -> dict | None:
+    """Return {status, priority, depends_on} from bd show, or None if unavailable."""
     try:
         result = subprocess.run(
             ["bd", "show", task_id, "--json"],
@@ -224,11 +247,36 @@ def _get_beads_task_status(task_id: str, home: Path) -> str | None:
         body = data.get("data", data) if isinstance(data, dict) else data
         if isinstance(body, list):
             body = body[0] if body else None
-        if isinstance(body, dict):
-            return body.get("status")
+        if not isinstance(body, dict):
+            return None
+        depends_on = [
+            d["id"] for d in (body.get("dependencies") or [])
+            if isinstance(d, dict) and d.get("id")
+        ]
+        return {
+            "status": body.get("status"),
+            "priority": body.get("priority"),
+            "depends_on": depends_on,
+        }
     except Exception:
         pass
     return None
+
+
+def _supervisor_alive(home: Path) -> bool:
+    pid_file = home / ".supervisor.pid"
+    if not pid_file.exists():
+        return False
+    try:
+        text = pid_file.read_text(encoding="utf-8").strip()
+        try:
+            data = json.loads(text)
+            pid = int(data.get("pid", 0)) or None
+        except (ValueError, json.JSONDecodeError):
+            pid = int(text) if text.isdigit() else None
+        return pid is not None and _pid_alive(pid)
+    except OSError:
+        return False
 
 
 def create_tasks_router() -> APIRouter:
@@ -250,7 +298,12 @@ def create_tasks_router() -> APIRouter:
             if beads_map is not None and task_id:
                 if task_id in beads_map:
                     bead_info = beads_map[task_id]
-                    data = {**data, "status": bead_info["status"], "created_at": bead_info.get("created_at")}
+                    data = {
+                        **data,
+                        "status": bead_info["status"],
+                        "created_at": bead_info.get("created_at"),
+                        "priority": bead_info.get("priority"),
+                    }
                 else:
                     data = {**data, "status": "closed"}
             reconciled.append(data)
@@ -264,7 +317,7 @@ def create_tasks_router() -> APIRouter:
                 active.append(data)
 
         selected = active + closed[-20:]
-        summaries = [_build_task_summary(d, home) for d in selected]
+        summaries = await asyncio.to_thread(_build_all_summaries, selected, home)
         return JSONResponse({"tasks": summaries})
 
     @router.get("/tasks/{task_id}")
@@ -277,19 +330,41 @@ def create_tasks_router() -> APIRouter:
             data = json.loads(task_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return JSONResponse({"error": "not found"}, status_code=404)
-        beads_status = await asyncio.to_thread(_get_beads_task_status, task_id, home)
-        if beads_status is not None:
-            data = {**data, "status": beads_status}
+        beads_info = await asyncio.to_thread(_get_beads_task_info, task_id, home)
+        if beads_info is not None:
+            data = {
+                **data,
+                "status": beads_info["status"],
+                "priority": beads_info["priority"],
+                "depends_on": beads_info["depends_on"],
+            }
         return JSONResponse(_build_task_summary(data, home))
 
     @router.post("/tasks/{task_id}/kill")
-    async def kill_task(task_id: str) -> JSONResponse:
+    async def kill_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()
         task_dir = home / "tasks" / task_id
         if not (task_dir / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        (task_dir / ".kill").touch()
-        return JSONResponse({"ok": True})
+        try:
+            data = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        beads_status = await asyncio.to_thread(_get_beads_task_status, task_id, home)
+        status = beads_status if beads_status is not None else data.get("status", "")
+        if status == "in_progress":
+            (task_dir / ".kill").touch()
+            if not _supervisor_alive(home):
+                return JSONResponse({"ok": True, "result": "supervisor-not-running"})
+            return JSONResponse({"ok": True, "result": "killing"})
+        if status in ("open", "ready", "blocked"):
+            queue = request.app.state.queue
+            try:
+                await asyncio.to_thread(queue.close, task_id, "killed")
+            except BeadsError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
+            return JSONResponse({"ok": True, "result": "closed"})
+        return JSONResponse({"ok": True, "result": "no-op"})
 
     @router.post("/tasks/{task_id}/requeue")
     async def requeue_task(task_id: str, request: Request) -> JSONResponse:
@@ -327,15 +402,11 @@ def create_tasks_router() -> APIRouter:
     @router.post("/tasks/{task_id}/remove-assignee")
     async def remove_assignee(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        task_file = home / "tasks" / task_id / "task.json"
-        if not task_file.exists():
+        if not (home / "tasks" / task_id / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        try:
-            data = json.loads(task_file.read_text(encoding="utf-8"))
-            data["coder"] = None
-            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except (OSError, json.JSONDecodeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
+        ok, err = await asyncio.to_thread(_sync_remove_assignee, task_id, home)
+        if not ok:
+            return JSONResponse({"error": err}, status_code=422)
         return JSONResponse({"ok": True})
 
     @router.post("/tasks")
@@ -461,7 +532,7 @@ def create_tasks_router() -> APIRouter:
 
     @router.get("/coders")
     async def list_coders() -> JSONResponse:
-        return JSONResponse({"coders": list(_REGISTRY.keys())})
+        return JSONResponse({"coders": _list_coders()})
 
     @router.get("/templates")
     async def list_templates() -> JSONResponse:

@@ -178,7 +178,7 @@ def _gauge_with_resets_at(pct: float, resets_at: int | None) -> RateGauge:
 
 
 def test_rate_limit_pause_log_includes_resets_at() -> None:
-    resets_at = 1_779_735_600
+    resets_at = int(datetime.now(tz=timezone.utc).timestamp()) + 3600
     g = _gauge_with_resets_at(92.0, resets_at)
 
     with structlog.testing.capture_logs() as logs:

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { QuestionSummary } from '../../types';
 import { AnswerComposer } from './AnswerComposer';
+import * as T from '../../styles/tokens';
 
 interface Props {
   question: QuestionSummary;
@@ -90,7 +91,7 @@ export function QuestionCard({
 
 const styles = {
   card: {
-    background: '#1c1c20',
+    background: T.colors.bgElevated,
     borderRadius: 6,
     padding: '0.75rem 1rem',
     borderLeft: '3px solid #22c55e',
@@ -112,18 +113,18 @@ const styles = {
   taskTitle: {
     fontWeight: 600,
     fontSize: '0.875rem',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     flex: '0 0 auto',
   } as React.CSSProperties,
   cwd: {
     fontSize: '0.75rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontFamily: 'monospace',
     flex: '0 0 auto',
   } as React.CSSProperties,
   elapsed: {
     fontSize: '0.75rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     marginLeft: 'auto',
   } as React.CSSProperties,
   statusBadge: {
@@ -146,20 +147,16 @@ const styles = {
     gap: '0.5rem',
   } as React.CSSProperties,
   deferBtn: {
+    ...T.btnGhost,
     alignSelf: 'flex-start' as const,
     padding: '0.25rem 0.75rem',
-    background: 'transparent',
     border: '1px solid #52525b',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   answerText: {
     margin: 0,
     fontSize: '0.8125rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontStyle: 'italic' as const,
   } as React.CSSProperties,
 };

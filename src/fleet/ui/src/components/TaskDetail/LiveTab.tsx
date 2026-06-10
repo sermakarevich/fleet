@@ -1,5 +1,69 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FleetEvent } from '../../types';
+import * as T from '../../styles/tokens';
+
+type DiffLine = { type: 'equal' | 'remove' | 'add'; text: string };
+
+function computeLineDiff(oldStr: string, newStr: string): DiffLine[] {
+  const oldLines = oldStr === '' ? [] : oldStr.split('\n');
+  const newLines = newStr === '' ? [] : newStr.split('\n');
+  const MAX = 400;
+  if (oldLines.length > MAX || newLines.length > MAX) {
+    return [
+      ...oldLines.map(t => ({ type: 'remove' as const, text: t })),
+      ...newLines.map(t => ({ type: 'add' as const, text: t })),
+    ];
+  }
+  const m = oldLines.length;
+  const n = newLines.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  const result: DiffLine[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      result.unshift({ type: 'equal', text: oldLines[i - 1] });
+      i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ type: 'add', text: newLines[j - 1] });
+      j--;
+    } else {
+      result.unshift({ type: 'remove', text: oldLines[i - 1] });
+      i--;
+    }
+  }
+  return result;
+}
+
+function DiffView({ oldStr, newStr }: { oldStr: string; newStr: string }) {
+  const lines = computeLineDiff(oldStr, newStr);
+  return (
+    <pre style={{ ...styles.detail, padding: 0, overflow: 'auto' }}>
+      {lines.map((line, idx) => (
+        <div
+          key={idx}
+          style={{
+            background: line.type === 'remove' ? '#3f1010' : line.type === 'add' ? '#0f2e18' : 'transparent',
+            color: line.type === 'remove' ? '#f87171' : line.type === 'add' ? '#4ade80' : '#71717a',
+            padding: '0 0.4rem',
+            whiteSpace: 'pre',
+            lineHeight: '1.45',
+          }}
+        >
+          {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '} {line.text}
+        </div>
+      ))}
+    </pre>
+  );
+}
 
 interface EventPair {
   id: string;
@@ -128,15 +192,23 @@ export function LiveTab({ events }: Props) {
                   <span style={styles.ts}>{pair.toolUse.ts.slice(11, 19)}</span>
                   {pair.toolResult && <span style={styles.resultDot}>✓</span>}
                 </div>
-                {isOpen && (
-                  <pre style={styles.detail}>
-                    {JSON.stringify(
-                      { input: pair.toolUse.raw?.input, output: (pair.toolResult?.raw as Record<string, unknown> | undefined)?.content },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                )}
+                {isOpen && (() => {
+                  if (toolName === 'Edit' && typeof inputData?.old_string === 'string' && typeof inputData?.new_string === 'string') {
+                    return <DiffView oldStr={inputData.old_string as string} newStr={inputData.new_string as string} />;
+                  }
+                  if (toolName === 'Write' && typeof inputData?.content === 'string') {
+                    return <DiffView oldStr="" newStr={inputData.content as string} />;
+                  }
+                  return (
+                    <pre style={styles.detail}>
+                      {JSON.stringify(
+                        { input: pair.toolUse.raw?.input, output: (pair.toolResult?.raw as Record<string, unknown> | undefined)?.content },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  );
+                })()}
               </div>
             );
           }
@@ -173,21 +245,21 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     gap: '0.25rem',
     padding: '0.5rem 0.75rem',
-    borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
+    background: T.colors.bgSurface,
   },
   chip: {
     padding: '0.15rem 0.5rem',
     borderRadius: 9999,
-    border: '1px solid #3f3f46',
+    border: `1px solid ${T.colors.border}`,
     background: 'transparent',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.7rem',
   },
   chipActive: {
-    background: '#27272a',
-    color: '#e4e4e7',
+    background: T.colors.borderSubtle,
+    color: T.colors.textPrimary,
     borderColor: '#60a5fa',
   },
   list: {
@@ -197,7 +269,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pairRow: {
     padding: '0.2rem 0.25rem',
-    borderBottom: '1px solid #1c1c20',
+    borderBottom: `1px solid ${T.colors.bgElevated}`,
   },
   pairMain: {
     display: 'flex',
@@ -208,7 +280,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    color: '#71717a',
+    color: T.colors.textDim,
     padding: '0 0.15rem',
     fontSize: '0.65rem',
     flexShrink: 0,
@@ -218,10 +290,10 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '0.35rem',
     padding: '0.2rem 0.25rem',
-    borderBottom: '1px solid #1c1c20',
+    borderBottom: `1px solid ${T.colors.bgElevated}`,
   },
   path: {
-    color: '#71717a',
+    color: T.colors.textDim,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -229,16 +301,16 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
   },
   toolName: {
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     flexShrink: 0,
   },
   ts: {
-    color: '#3f3f46',
+    color: T.colors.border,
     marginLeft: 'auto',
     flexShrink: 0,
   },
   tokens: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.7rem',
     flexShrink: 0,
   },
@@ -249,8 +321,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   detail: {
     width: '100%',
-    background: '#09090b',
-    color: '#a1a1aa',
+    background: T.colors.bgDeep,
+    color: T.colors.textSecondary,
     padding: '0.5rem',
     margin: '0.25rem 0 0',
     borderRadius: 4,

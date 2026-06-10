@@ -1,0 +1,56 @@
+/* Focus ring for all interactive elements */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Suppress default browser focus outline; :focus-visible handles keyboard users */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Button hover — filter works on top of any inline background */
+button:hover:not(:disabled) {
+  filter: brightness(1.18);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Clickable rows / list items */
+.row-interactive {
+  transition: background 0.1s;
+}
+
+.row-interactive:hover {
+  background: #27272a !important;
+}
+
+.row-interactive:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+/* CommandPalette items (moved from inline <style> in CommandPalette.tsx) */
+.cmd-item[data-selected="true"],
+.cmd-item[aria-selected="true"] {
+  background: #27272a !important;
+  outline: none;
+}
+
+.cmd-item:hover {
+  background: #27272a !important;
+}
+
+/* Mobile nav link strip — scrolls horizontally, no visible scrollbar */
+.nav-scroll {
+  scrollbar-width: none;
+}
+.nav-scroll::-webkit-scrollbar {
+  display: none;
+}

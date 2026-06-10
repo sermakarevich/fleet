@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -62,11 +63,13 @@ def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert "events" in t
 
 
-def test_task_kill_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """POST /api/tasks/{id}/kill writes .kill sentinel and returns 200 (FR-07)."""
+def test_task_kill_killing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/tasks/{id}/kill returns killing when supervisor alive and task in_progress (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task_dir(tasks_root, "task-kill", "in_progress")
+    # Write supervisor PID file pointing at the live test process.
+    (tmp_path / ".supervisor.pid").write_text(json.dumps({"pid": os.getpid()}))
     app = create_app()
 
     async def _run() -> httpx.Response:
@@ -77,8 +80,50 @@ def test_task_kill_200(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    assert resp.json() == {"ok": True, "result": "killing"}
     assert (task_dir / ".kill").exists(), ".kill sentinel should be written"
+
+
+def test_task_kill_supervisor_not_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/tasks/{id}/kill returns supervisor-not-running when no live supervisor (FR-07)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    task_dir = _make_task_dir(tasks_root, "task-kill-sv", "in_progress")
+    # No .supervisor.pid file — supervisor is not running.
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post("/api/tasks/task-kill-sv/kill")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "result": "supervisor-not-running"}
+    assert (task_dir / ".kill").exists(), ".kill sentinel should still be written"
+
+
+def test_task_kill_queued_closes_immediately(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/tasks/{id}/kill closes queued tasks via queue.close, writes no sentinel (FR-07)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    task_dir = _make_task_dir(tasks_root, "task-kill-nr", "open")
+    (tmp_path / ".supervisor.pid").write_text(json.dumps({"pid": os.getpid()}))
+    mock_queue = MagicMock()
+    app = create_app(queue=mock_queue)
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post("/api/tasks/task-kill-nr/kill")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "result": "closed"}
+    assert not (task_dir / ".kill").exists(), ".kill sentinel should NOT be written for non-running task"
+    mock_queue.close.assert_called_once_with("task-kill-nr", "killed")
 
 
 def test_task_kill_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,6 +418,63 @@ def test_stderr_empty_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert resp.json()["content"] == ""
 
 
+def test_supervisor_dead_with_stale_tasks_reports_zero_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/supervisor returns active_count=0 when supervisor is dead despite stale in_progress tasks (FR-42)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    _make_task_dir(tasks_root, "stale-1", "in_progress")
+    _make_task_dir(tasks_root, "stale-2", "in_progress")
+    # No .supervisor.pid file → supervisor is not running
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/supervisor")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["running"] is False
+    assert data["active_count"] == 0
+    assert data["free_slots"] == data["max_concurrent"]
+
+
+def test_supervisor_running_counts_active_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/supervisor returns active_count from task files when supervisor is alive (FR-42)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    _make_task_dir(tasks_root, "active-1", "in_progress")
+    _make_task_dir(tasks_root, "done-1", "completed")
+
+    import os
+    pid = os.getpid()
+    (tmp_path / ".supervisor.pid").write_text(
+        json.dumps({"pid": pid, "started_at": "2024-01-01T00:00:00", "version_fingerprint": "x"})
+    )
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/supervisor")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["running"] is True
+    assert data["active_count"] == 1
+    assert data["free_slots"] == data["max_concurrent"] - 1
+
+
 def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/diff returns empty diff when cwd is not a git repo (FR-19)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
@@ -391,6 +493,113 @@ def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.Monk
     resp = asyncio.run(_run())
     assert resp.status_code == 200
     assert resp.json()["diff"] == ""
+
+
+def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Second GET /api/tasks poll does not re-scan unchanged events.jsonl."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-cachecheck")
+    event = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
+    (task_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
+
+    from fleet.serve import stats as stats_mod
+
+    monkeypatch.setattr(stats_mod, "_info_cache", {})
+
+    scan_count = 0
+    _orig = stats_mod._runtime_info_from_dir
+
+    def _counting(tdir: Path):
+        nonlocal scan_count
+        scan_count += 1
+        return _orig(tdir)
+
+    monkeypatch.setattr(stats_mod, "_runtime_info_from_dir", _counting)
+
+    app = create_app()
+
+    async def _run() -> tuple[httpx.Response, httpx.Response]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r1 = await client.get("/api/tasks")
+            r2 = await client.get("/api/tasks")
+            return r1, r2
+
+    r1, r2 = asyncio.run(_run())
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert scan_count == 1  # only one scan despite two polls
+
+
+def test_tasks_list_cache_invalidated_on_events_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cache is invalidated when events.jsonl changes; events count reflects the update."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-cacheinv")
+    ev1 = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
+    (task_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
+
+    from fleet.serve import stats as stats_mod
+
+    monkeypatch.setattr(stats_mod, "_info_cache", {})
+
+    app = create_app()
+
+    async def _get() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks")
+
+    r1 = asyncio.run(_get())
+    assert r1.status_code == 200
+    tasks1 = {t["id"]: t for t in r1.json()["tasks"]}
+    assert tasks1["task-cacheinv"]["events"] == 1
+
+    ev2 = {"kind": "tool_use", "ts": "2024-01-01T00:00:01Z", "tool_name": "Edit"}
+    with (task_dir / "events.jsonl").open("a") as fh:
+        fh.write(json.dumps(ev2) + "\n")
+
+    r2 = asyncio.run(_get())
+    assert r2.status_code == 200
+    tasks2 = {t["id"]: t for t in r2.json()["tasks"]}
+    assert tasks2["task-cacheinv"]["events"] == 2
+
+
+def test_beads_status_map_cache_prevents_duplicate_subprocesses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rapid successive GET /api/tasks polls reuse the bd list cache (TASKS 5.3).
+
+    Two back-to-back polls must call the subprocess exactly once — the second
+    poll returns the cached map without shelling out again.
+    """
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _make_task_dir(tmp_path / "tasks", "task-bdcache")
+
+    from fleet.serve.routes import tasks as tasks_mod
+
+    # Reset module-level cache and counter so this test is isolated.
+    monkeypatch.setattr(tasks_mod, "_beads_map_cache", {})
+    monkeypatch.setattr(tasks_mod, "_beads_list_call_count", 0)
+
+    app = create_app()
+
+    async def _run() -> tuple[httpx.Response, httpx.Response]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r1 = await client.get("/api/tasks")
+            r2 = await client.get("/api/tasks")
+            return r1, r2
+
+    r1, r2 = asyncio.run(_run())
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert tasks_mod._beads_list_call_count == 1, (
+        "Expected exactly one bd-list subprocess call for two rapid polls; "
+        f"got {tasks_mod._beads_list_call_count}"
+    )
 
 
 def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

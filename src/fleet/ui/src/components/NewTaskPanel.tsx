@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCoders, useCreateTask, useTemplates, useTasks } from '../hooks/useApi';
-import type { Template } from '../types';
+import type { CoderInfo, Template } from '../types';
+import * as T from '../styles/tokens';
 
 interface Props {
   onClose: () => void;
@@ -15,6 +16,7 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
   const [model, setModel] = useState('');
   const [priority, setPriority] = useState('');
   const [args, setArgs] = useState('');
+  const [dependencies, setDependencies] = useState<string[]>([]);
   const [titleError, setTitleError] = useState('');
 
   const { data: codersData } = useCoders();
@@ -22,7 +24,7 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
   const { data: tasksData } = useTasks();
   const createTask = useCreateTask();
 
-  const coders: string[] = codersData?.coders ?? [];
+  const coders: CoderInfo[] = codersData?.coders ?? [];
   const templates: Template[] = templatesData?.templates ?? [];
 
   const recentCwds = useMemo(() => {
@@ -37,6 +39,11 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
       }
     }
     return cwds;
+  }, [tasksData]);
+
+  const openTasks = useMemo(() => {
+    if (!tasksData) return [];
+    return tasksData.filter(t => t.status !== 'closed' && t.status !== 'failed');
   }, [tasksData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -55,12 +62,35 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
         model: model || undefined,
         priority: priority ? Number(priority) : undefined,
         args: args.trim() || undefined,
+        dependencies: dependencies.length > 0 ? dependencies : undefined,
       });
       onCreated(result.id);
       onClose();
     } catch {
       // error displayed via createTask.error
     }
+  };
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit(e as unknown as React.FormEvent);
+    }
+  };
+
+  const handleCoderChange = (name: string) => {
+    setCoder(name);
+    const info = coders.find(c => c.name === name);
+    if (info?.default_model) setModel(info.default_model);
+    else if (!name) setModel('');
   };
 
   const applyTemplate = (t: Template) => {
@@ -78,7 +108,7 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
           <h2 style={styles.heading}>New task</h2>
           <button style={styles.closeBtn} onClick={onClose}>×</button>
         </div>
-        <form onSubmit={handleSubmit} style={styles.form}>
+        <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} style={styles.form}>
           <label style={styles.label}>
             Title *
             <input
@@ -119,9 +149,13 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
           <div style={styles.row}>
             <label style={{ ...styles.label, flex: 1 }}>
               Coder
-              <select style={styles.select} value={coder} onChange={e => setCoder(e.target.value)}>
+              <select style={styles.select} value={coder} onChange={e => handleCoderChange(e.target.value)}>
                 <option value="">— default —</option>
-                {coders.map(c => <option key={c} value={c}>{c}</option>)}
+                {coders.map(c => (
+                  <option key={c.name} value={c.name}>
+                    {c.name} ({Math.round(c.context_limit / 1000)}k) — {c.default_model}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -147,6 +181,25 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
               />
             </label>
           </div>
+
+          {openTasks.length > 0 && (
+            <label style={styles.label}>
+              Dependencies
+              <select
+                multiple
+                style={styles.multiSelect}
+                value={dependencies}
+                onChange={e => setDependencies(Array.from(e.target.selectedOptions, o => o.value))}
+              >
+                {openTasks.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.id} — {t.title}
+                  </option>
+                ))}
+              </select>
+              <span style={styles.hint}>Hold Ctrl/⌘ to select multiple</span>
+            </label>
+          )}
 
           <label style={styles.label}>
             Extra args
@@ -207,9 +260,7 @@ const styles = {
     zIndex: 500,
   } as React.CSSProperties,
   panel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    ...T.panel,
     width: '100%',
     maxWidth: '36rem',
     maxHeight: 'calc(100vh - 8rem)',
@@ -221,18 +272,18 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '1rem 1.25rem 0.75rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
   } as React.CSSProperties,
   heading: {
     margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   closeBtn: {
     background: 'none',
     border: 'none',
-    color: '#71717a',
+    color: T.colors.textDim,
     cursor: 'pointer',
     fontSize: '1.25rem',
     lineHeight: 1,
@@ -249,26 +300,26 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '0.3rem',
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
   input: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.4rem 0.6rem',
     fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif',
     outline: 'none',
   } as React.CSSProperties,
   inputError: {
-    borderColor: '#ef4444',
+    borderColor: T.colors.danger,
   } as React.CSSProperties,
   textarea: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.4rem 0.6rem',
     fontSize: '0.875rem',
     fontFamily: 'monospace',
@@ -276,27 +327,43 @@ const styles = {
     resize: 'vertical' as const,
   } as React.CSSProperties,
   select: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.4rem 0.6rem',
     fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif',
     outline: 'none',
+  } as React.CSSProperties,
+  multiSelect: {
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
+    borderRadius: 4,
+    color: T.colors.textPrimary,
+    padding: '0.25rem',
+    fontSize: '0.8125rem',
+    fontFamily: 'monospace',
+    outline: 'none',
+    minHeight: '5rem',
+    maxHeight: '8rem',
+  } as React.CSSProperties,
+  hint: {
+    fontSize: '0.6875rem',
+    color: T.colors.textDim,
   } as React.CSSProperties,
   row: {
     display: 'flex',
     gap: '0.75rem',
   } as React.CSSProperties,
   templateSection: {
-    borderTop: '1px solid #27272a',
+    borderTop: `1px solid ${T.colors.borderSubtle}`,
     paddingTop: '0.75rem',
   } as React.CSSProperties,
   templateLabel: {
     margin: '0 0 0.5rem',
     fontSize: '0.75rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   } as React.CSSProperties,
@@ -306,14 +373,10 @@ const styles = {
     gap: '0.375rem',
   } as React.CSSProperties,
   templateBtn: {
+    ...T.btnGhost,
     padding: '0.25rem 0.625rem',
-    background: '#27272a',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
+    background: T.colors.borderSubtle,
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   actions: {
     display: 'flex',
@@ -321,32 +384,19 @@ const styles = {
     alignItems: 'center',
     gap: '0.75rem',
     paddingTop: '0.5rem',
-    borderTop: '1px solid #27272a',
+    borderTop: `1px solid ${T.colors.borderSubtle}`,
   } as React.CSSProperties,
   errorMsg: {
-    color: '#ef4444',
+    color: T.colors.danger,
     fontSize: '0.75rem',
     flex: 1,
   } as React.CSSProperties,
   cancelBtn: {
+    ...T.btnGhost,
     padding: '0.4rem 0.875rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.875rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   submitBtn: {
-    padding: '0.4rem 0.875rem',
-    background: '#3b82f6',
-    border: '1px solid #3b82f6',
-    borderRadius: 4,
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    fontFamily: 'system-ui, sans-serif',
+    ...T.btnPrimary,
   } as React.CSSProperties,
 };

@@ -24,6 +24,7 @@ class StubCoder:
         self._argv = argv
         self.context_limit = context_limit
         self._cli = ClaudeCoder()
+        self.runtime_config_calls: list[tuple[Path, Task]] = []
 
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
         return self._argv
@@ -37,6 +38,9 @@ class StubCoder:
 
     def normalize_event(self, raw_line: str) -> Event | None:
         return self._cli.normalize_event(raw_line)
+
+    def write_runtime_config(self, project: Path, task: Task) -> None:
+        self.runtime_config_calls.append((project, task))
 
 
 class StubQueue:
@@ -178,6 +182,29 @@ def test_runner_does_not_overwrite_existing_stubs(tmp_path: Path) -> None:
 
     assert (artifacts_dir / "PLAN_AND_STATUS.md").read_text() == "custom plan content"
     assert (artifacts_dir / "KNOWLEDGE.md").read_text() == "custom knowledge content"
+
+
+def test_runner_calls_write_runtime_config_before_spawn(tmp_path: Path) -> None:
+    """TaskRunner.run must call coder.write_runtime_config(project_root, task) before spawning."""
+    task = Task(id="t-cfg", title="Config test", description=None, status="in_progress")
+    coder = StubCoder(argv=[sys.executable, "-c", "import sys; sys.exit(0)"])
+    runner = TaskRunner(
+        task=task,
+        coder=coder,
+        queue=StubQueue(),
+        config=RuntimeConfig(),
+        rate_gauge=StubRateGauge(),
+        project_root=tmp_path,
+        fleet_home=tmp_path,
+        log=structlog.get_logger(),
+    )
+
+    asyncio.run(runner.run())
+
+    assert len(coder.runtime_config_calls) == 1
+    called_project, called_task = coder.runtime_config_calls[0]
+    assert called_project == tmp_path
+    assert called_task is task
 
 
 # ---------------------------------------------------------------------------

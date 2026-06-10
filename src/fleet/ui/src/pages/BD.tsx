@@ -6,7 +6,9 @@ import {
   useSetBeadStatus,
   useUnblockBead,
 } from '../hooks/useApi';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { Bead } from '../types';
+import * as T from '../styles/tokens';
 
 // ---------------------------------------------------------------------------
 // The BD tab is a direct portal into the beads DB (distinct from the Tasks tab,
@@ -53,6 +55,8 @@ function BeadRow({ bead, selected, onSelect }: { bead: Bead; selected: boolean; 
   return (
     <div
       style={{ ...styles.row, ...(selected ? styles.rowSelected : {}) }}
+      className="row-interactive"
+      tabIndex={0}
       onClick={() => onSelect(bead.id)}
     >
       <span style={{ ...styles.chip, background: chip.bg, color: chip.color }}>{chip.label}</span>
@@ -71,6 +75,30 @@ function BeadRow({ bead, selected, onSelect }: { bead: Bead; selected: boolean; 
   );
 }
 
+function BeadCard({ bead, selected, onSelect }: { bead: Bead; selected: boolean; onSelect: (id: string) => void }) {
+  const chip = statusChip(bead.status);
+  const depCount = bead.dependency_count ?? 0;
+  return (
+    <div
+      style={{ ...cardStyles.card, ...(selected ? { background: T.colors.borderSubtle } : {}) }}
+      className="row-interactive"
+      tabIndex={0}
+      onClick={() => onSelect(bead.id)}
+    >
+      <div style={cardStyles.cardHead}>
+        <span style={{ ...styles.chip, background: chip.bg, color: chip.color }}>{chip.label}</span>
+        <span style={cardStyles.cardId}>{bead.id}</span>
+        {bead.assignee && <span style={cardStyles.cardAssignee}>{bead.assignee}</span>}
+      </div>
+      <div style={cardStyles.cardTitle} title={bead.title}>{bead.title}</div>
+      <div style={cardStyles.cardMeta}>
+        {bead.priority != null && <span style={cardStyles.cardMetaText}>pri {bead.priority}</span>}
+        {depCount > 0 && <span style={cardStyles.cardMetaText}>{depCount} dep{depCount === 1 ? '' : 's'}</span>}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Bead detail drawer
 // ---------------------------------------------------------------------------
@@ -80,9 +108,15 @@ function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () => void }
   const setStatus = useSetBeadStatus();
   const unblock = useUnblockBead();
   const removeAssignee = useRemoveBeadAssignee();
+  const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const incompleteDeps = (bead?.dependencies ?? []).filter(d => d.status !== 'closed');
   const busy = setStatus.isPending || unblock.isPending || removeAssignee.isPending;
+
+  function showFeedback(msg: string, ok: boolean) {
+    setFeedback({ msg, ok });
+    setTimeout(() => setFeedback(null), 2500);
+  }
 
   return (
     <div style={styles.drawerOverlay} onClick={onClose}>
@@ -116,7 +150,13 @@ function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () => void }
                   style={styles.select}
                   value={bead.status}
                   disabled={busy}
-                  onChange={e => setStatus.mutate({ id: beadId, status: e.target.value })}
+                  onChange={e => setStatus.mutate(
+                    { id: beadId, status: e.target.value },
+                    {
+                      onSuccess: () => showFeedback('Saved', true),
+                      onError: (err) => showFeedback(`Error: ${String(err)}`, false),
+                    }
+                  )}
                 >
                   {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                   {!STATUS_OPTIONS.includes(bead.status) && (
@@ -130,11 +170,26 @@ function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () => void }
                 </button>
               )}
               {bead.assignee && (
-                <button style={styles.unassignBtn} disabled={busy} onClick={() => removeAssignee.mutate(beadId)}>
+                <button
+                  style={styles.unassignBtn}
+                  disabled={busy}
+                  onClick={() => {
+                    if (!window.confirm(`Remove assignee "${bead.assignee}" from ${beadId}?`)) return;
+                    removeAssignee.mutate(beadId, {
+                      onSuccess: () => showFeedback('Assignee removed', true),
+                      onError: (err) => showFeedback(`Error: ${String(err)}`, false),
+                    });
+                  }}
+                >
                   Remove assignee
                 </button>
               )}
             </div>
+            {feedback && (
+              <p style={{ ...styles.feedbackMsg, color: feedback.ok ? '#4ade80' : '#f87171' }}>
+                {feedback.msg}
+              </p>
+            )}
 
             {/* Why blocked */}
             {bead.status === 'blocked' && (
@@ -218,6 +273,7 @@ const PAGE_SIZE = 25;
 
 export function BD() {
   const { data: beads, isLoading, error } = useBeads();
+  const isMobile = useIsMobile();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('in_progress');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -255,14 +311,14 @@ export function BD() {
   }
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, padding: isMobile ? '0.75rem' : '1rem 1.5rem' }}>
       <div style={styles.topBar}>
         <h1 style={styles.heading}>
           beads <span style={styles.count}>({sorted.length})</span>
         </h1>
         <input
           type="search"
-          style={styles.searchInput}
+          style={{ ...styles.searchInput, width: isMobile ? '100%' : '15rem' }}
           placeholder="Search id, title, assignee…"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
@@ -281,18 +337,27 @@ export function BD() {
       </div>
 
       <div style={styles.panel}>
-        <div style={styles.colHeader}>
-          <span style={styles.cStatus}>Status</span>
-          <span style={styles.cId}>ID</span>
-          <span style={styles.cTitle}>Title</span>
-          <span style={styles.cPrio}>Pri</span>
-          <span style={styles.cAssignee}>Assignee</span>
-          <span style={styles.cDeps}>Deps</span>
-        </div>
+        {!isMobile && (
+          <div style={styles.colHeader}>
+            <span style={styles.cStatus}>Status</span>
+            <span style={styles.cId}>ID</span>
+            <span style={styles.cTitle}>Title</span>
+            <span style={styles.cPrio}>Pri</span>
+            <span style={styles.cAssignee}>Assignee</span>
+            <span style={styles.cDeps}>Deps</span>
+          </div>
+        )}
         {sorted.length === 0 ? (
           <p style={styles.empty}>No beads.</p>
         ) : (
-          pageItems.map(bead => (
+          pageItems.map(bead => isMobile ? (
+            <BeadCard
+              key={bead.id}
+              bead={bead}
+              selected={selectedId === bead.id}
+              onSelect={setSelectedId}
+            />
+          ) : (
             <BeadRow
               key={bead.id}
               bead={bead}
@@ -341,7 +406,7 @@ const styles = {
   } as React.CSSProperties,
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   topBar: {
@@ -355,19 +420,19 @@ const styles = {
     margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   count: {
     fontWeight: 400,
-    color: '#71717a',
+    color: T.colors.textDim,
     fontSize: '0.875rem',
   } as React.CSSProperties,
   searchInput: {
     padding: '0.2rem 0.625rem',
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
     outline: 'none',
@@ -379,35 +444,29 @@ const styles = {
     flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   filterBtn: {
+    ...T.btnGhost,
     padding: '0.2rem 0.625rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#71717a',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
+    color: T.colors.textDim,
     lineHeight: 1.4,
   } as React.CSSProperties,
   filterBtnActive: {
-    background: '#3b82f6',
-    borderColor: '#3b82f6',
+    background: T.colors.accent,
+    borderColor: T.colors.accent,
     color: '#fff',
   } as React.CSSProperties,
   panel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    ...T.panel,
     overflow: 'hidden',
   } as React.CSSProperties,
   colHeader: {
     display: 'flex',
     alignItems: 'center',
     padding: '0.4rem 1rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     fontSize: '0.75rem',
     fontWeight: 600,
-    color: '#71717a',
+    color: T.colors.textDim,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
     gap: '0.75rem',
@@ -423,25 +482,18 @@ const styles = {
     alignItems: 'center',
     padding: '0.5rem 1rem',
     gap: '0.75rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     cursor: 'pointer',
     fontSize: '0.875rem',
     color: '#d4d4d8',
   } as React.CSSProperties,
   rowSelected: {
-    background: '#27272a',
+    background: T.colors.borderSubtle,
   } as React.CSSProperties,
   chip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...T.badge,
     width: '6rem',
     flexShrink: 0,
-    padding: '0.15rem 0.5rem',
-    borderRadius: 4,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    boxSizing: 'border-box',
   } as React.CSSProperties,
   idCell: {
     width: '6rem',
@@ -464,14 +516,14 @@ const styles = {
     width: '3rem',
     flexShrink: 0,
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     textAlign: 'center' as const,
   } as React.CSSProperties,
   assigneeCell: {
     width: '8rem',
     flexShrink: 0,
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
@@ -480,17 +532,17 @@ const styles = {
     width: '5rem',
     flexShrink: 0,
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
   empty: {
     padding: '1.5rem 1rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.875rem',
     margin: 0,
     textAlign: 'center' as const,
   } as React.CSSProperties,
   dim: {
-    color: '#52525b',
+    color: T.colors.textMuted,
   } as React.CSSProperties,
 
   // Drawer
@@ -505,8 +557,8 @@ const styles = {
   drawer: {
     width: 'min(34rem, 100%)',
     height: '100%',
-    background: '#18181b',
-    borderLeft: '1px solid #3f3f46',
+    background: T.colors.bgSurface,
+    borderLeft: `1px solid ${T.colors.border}`,
     display: 'flex',
     flexDirection: 'column' as const,
     boxShadow: '-8px 0 24px rgba(0,0,0,0.4)',
@@ -516,7 +568,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0.625rem 1rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     flexShrink: 0,
   } as React.CSSProperties,
   drawerId: {
@@ -528,7 +580,7 @@ const styles = {
   closeDrawerBtn: {
     background: 'transparent',
     border: 'none',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '1rem',
     lineHeight: 1,
@@ -555,10 +607,10 @@ const styles = {
   } as React.CSSProperties,
   metaPill: {
     padding: '0.15rem 0.5rem',
-    background: '#27272a',
-    border: '1px solid #3f3f46',
+    background: T.colors.borderSubtle,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontSize: '0.75rem',
   } as React.CSSProperties,
   controls: {
@@ -567,8 +619,8 @@ const styles = {
     gap: '0.625rem',
     flexWrap: 'wrap' as const,
     padding: '0.75rem',
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgElevated,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 6,
     marginBottom: '1rem',
   } as React.CSSProperties,
@@ -577,16 +629,16 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '0.25rem',
     fontSize: '0.7rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   } as React.CSSProperties,
   select: {
     padding: '0.25rem 0.5rem',
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
     cursor: 'pointer',
@@ -611,6 +663,11 @@ const styles = {
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
+  feedbackMsg: {
+    margin: '0 0 0.75rem',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
   section: {
     marginBottom: '1.25rem',
   } as React.CSSProperties,
@@ -618,7 +675,7 @@ const styles = {
     margin: '0 0 0.5rem',
     fontSize: '0.75rem',
     fontWeight: 600,
-    color: '#71717a',
+    color: T.colors.textDim,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
   } as React.CSSProperties,
@@ -642,8 +699,8 @@ const styles = {
   desc: {
     margin: 0,
     padding: '0.625rem 0.75rem',
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgElevated,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 6,
     color: '#d4d4d8',
     fontSize: '0.8125rem',
@@ -657,7 +714,7 @@ const styles = {
     alignItems: 'center',
     gap: '0.5rem',
     padding: '0.375rem 0.5rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     fontSize: '0.8125rem',
   } as React.CSSProperties,
   depId: {
@@ -682,13 +739,13 @@ const styles = {
   } as React.CSSProperties,
   depType: {
     flexShrink: 0,
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.7rem',
     fontFamily: 'monospace',
   } as React.CSSProperties,
   comment: {
     padding: '0.5rem 0',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
   } as React.CSSProperties,
   commentMeta: {
     display: 'flex',
@@ -698,7 +755,7 @@ const styles = {
     fontSize: '0.75rem',
   } as React.CSSProperties,
   commentAuthor: {
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontWeight: 600,
   } as React.CSSProperties,
   commentText: {
@@ -717,14 +774,9 @@ const styles = {
     marginTop: '0.5rem',
   } as React.CSSProperties,
   pageBtn: {
+    ...T.btnGhost,
     padding: '0.2rem 0.75rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   pageBtnDisabled: {
     opacity: 0.35,
@@ -732,8 +784,59 @@ const styles = {
   } as React.CSSProperties,
   pageInfo: {
     fontSize: '0.8125rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     minWidth: '4rem',
     textAlign: 'center' as const,
+  } as React.CSSProperties,
+};
+
+const cardStyles = {
+  card: {
+    padding: '0.625rem 0.875rem',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.3rem',
+    fontSize: '0.875rem',
+    color: '#d4d4d8',
+  } as React.CSSProperties,
+  cardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  } as React.CSSProperties,
+  cardId: {
+    fontFamily: 'monospace',
+    color: '#60a5fa',
+    fontSize: '0.8125rem',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardAssignee: {
+    fontSize: '0.75rem',
+    color: T.colors.textSecondary,
+    flexShrink: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    maxWidth: '7rem',
+  } as React.CSSProperties,
+  cardTitle: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardMeta: {
+    display: 'flex',
+    gap: '0.625rem',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  cardMetaText: {
+    fontSize: '0.75rem',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
 };

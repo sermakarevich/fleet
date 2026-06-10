@@ -7,6 +7,7 @@ from fleet.schemas import Event, Task
 class Coder(ABC):
     name: str
     context_limit: int = 200_000
+    default_model: str = ""
 
     @abstractmethod
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
@@ -26,4 +27,11 @@ class Coder(ABC):
 
         Returns None for malformed JSON or lines the coder wants to drop.
         SHALL be pure: no I/O, no logging, no side effects.
+        """
+
+    def write_runtime_config(self, project: Path, task: Task) -> None:
+        """Inject coder-managed config (hooks, settings) into project root before spawn.
+
+        Default is a no-op; coders that need to write config should override this.
+        Called by TaskRunner.run before the subprocess is spawned.
         """

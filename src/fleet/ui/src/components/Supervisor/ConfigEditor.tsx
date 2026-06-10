@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { RuntimeConfig } from '../../types';
+import * as T from '../../styles/tokens';
 
 interface Props {
   config: RuntimeConfig;
@@ -100,9 +101,7 @@ export function ConfigEditor({ config, onSave }: Props) {
 
 const styles = {
   panel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    ...T.panel,
     padding: '1rem 1.25rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
@@ -110,7 +109,7 @@ const styles = {
     margin: '0 0 0.875rem',
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   form: {
     display: 'flex',
@@ -127,13 +126,13 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '0.3rem',
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
   input: {
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.4rem 0.6rem',
     fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif',
@@ -151,19 +150,11 @@ const styles = {
     fontWeight: 500,
   } as React.CSSProperties,
   errorMsg: {
-    color: '#ef4444',
+    color: T.colors.danger,
     fontSize: '0.8125rem',
     flex: 1,
   } as React.CSSProperties,
   saveBtn: {
-    padding: '0.4rem 0.875rem',
-    background: '#3b82f6',
-    border: '1px solid #3b82f6',
-    borderRadius: 4,
-    color: '#fff',
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    fontFamily: 'system-ui, sans-serif',
+    ...T.btnPrimary,
   } as React.CSSProperties,
 };

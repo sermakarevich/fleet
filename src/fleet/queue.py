@@ -123,10 +123,11 @@ class BeadsQueue(Queue):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        depends_on: list[str] | None = None,
     ) -> dict:
         """Build a task.json payload from a bd body, preserving prior fleet fields."""
         existing = self._load_meta(body["id"])
-        return {
+        result: dict = {
             "id": body["id"],
             "title": body.get("title", existing.get("title")),
             "description": body.get("description", existing.get("description")),
@@ -135,6 +136,13 @@ class BeadsQueue(Queue):
             "coder": coder if coder is not None else existing.get("coder"),
             "model": model if model is not None else existing.get("model"),
         }
+        priority = body.get("priority") if body.get("priority") is not None else existing.get("priority")
+        if priority is not None:
+            result["priority"] = priority
+        deps = depends_on if depends_on is not None else existing.get("depends_on")
+        if deps:
+            result["depends_on"] = deps
+        return result
 
     def _bd(self, *args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
         env = {**os.environ}
@@ -263,10 +271,10 @@ class BeadsQueue(Queue):
         if depends_on:
             for dep_id in depends_on:
                 self._bd("dep", "add", task_id, dep_id, json_envelope=False)
-        # Snapshot the fresh task (title/description/status) into task.json,
-        # adding fleet-managed fields (cwd, coder, model) if provided.
+        # Snapshot the fresh task (title/description/status/priority/depends_on) into
+        # task.json, adding fleet-managed fields (cwd, coder, model) if provided.
         self._write_meta(
             task_id,
-            self._snapshot_meta(body or {"id": task_id}, cwd=cwd, coder=coder, model=model),
+            self._snapshot_meta(body or {"id": task_id}, cwd=cwd, coder=coder, model=model, depends_on=depends_on),
         )
         return self.get(task_id)

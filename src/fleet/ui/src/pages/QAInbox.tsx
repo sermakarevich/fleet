@@ -5,6 +5,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import type { QuestionSummary } from '../types';
 import { AnswerComposer } from '../components/QA/AnswerComposer';
 import { QuestionCard } from '../components/QA/QuestionCard';
+import * as T from '../styles/tokens';
 
 type Filter = 'all' | 'open' | 'answered' | 'timed_out' | 'deferred';
 
@@ -23,7 +24,14 @@ export function QAInbox() {
   const [filter, setFilter] = useState<Filter>('open');
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [errorToasts, setErrorToasts] = useState<Array<{ id: string; message: string }>>([]);
   const qc = useQueryClient();
+
+  const addError = (message: string) => {
+    const id = String(Date.now());
+    setErrorToasts(prev => [...prev, { id, message }]);
+    setTimeout(() => setErrorToasts(prev => prev.filter(t => t.id !== id)), 8000);
+  };
 
   useEffect(() => {
     api
@@ -60,13 +68,21 @@ export function QAInbox() {
   };
 
   const handleAnswer = async (id: string, answer: string) => {
-    await api.answerQuestion(id, answer);
-    markAnswered(id, answer);
+    try {
+      await api.answerQuestion(id, answer);
+      markAnswered(id, answer);
+    } catch (err) {
+      addError(`Failed to answer question: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const handleDefer = async (id: string) => {
-    await api.deferQuestion(id);
-    markDeferred(id);
+    try {
+      await api.deferQuestion(id);
+      markDeferred(id);
+    } catch (err) {
+      addError(`Failed to defer question: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const handleSelect = (id: string, checked: boolean) => {
@@ -80,8 +96,24 @@ export function QAInbox() {
 
   const handleBatchAnswer = async (answer: string) => {
     const ids = Array.from(selectedIds);
-    await Promise.all(ids.map(id => api.answerQuestion(id, answer)));
-    ids.forEach(id => markAnswered(id, answer));
+    const results = await Promise.allSettled(ids.map(id => api.answerQuestion(id, answer)));
+    const succeeded: string[] = [];
+    let failCount = 0;
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        succeeded.push(ids[i]);
+      } else {
+        failCount++;
+      }
+    });
+    succeeded.forEach(id => markAnswered(id, answer));
+    if (failCount > 0) {
+      addError(
+        failCount === ids.length
+          ? `All ${ids.length} answers failed to send`
+          : `${failCount} of ${ids.length} answers failed to send`,
+      );
+    }
     setSelectedIds(new Set());
   };
 
@@ -100,6 +132,21 @@ export function QAInbox() {
 
   return (
     <div style={styles.page}>
+      {errorToasts.length > 0 && (
+        <div style={styles.errorToastContainer}>
+          {errorToasts.map(t => (
+            <div key={t.id} style={styles.errorToast}>
+              <span style={styles.toastText}>{t.message}</span>
+              <button
+                style={styles.toastClose}
+                onClick={() => setErrorToasts(prev => prev.filter(x => x.id !== t.id))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={styles.toolbar}>
         <h1 style={styles.heading}>Q&amp;A Inbox</h1>
         <div style={styles.chips}>
@@ -170,7 +217,7 @@ const styles = {
   } as React.CSSProperties,
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   } as React.CSSProperties,
   toolbar: {
     display: 'flex',
@@ -183,7 +230,7 @@ const styles = {
     margin: 0,
     fontSize: '1rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     flexShrink: 0,
   } as React.CSSProperties,
   chips: {
@@ -197,21 +244,21 @@ const styles = {
     alignItems: 'center',
     gap: '0.375rem',
     padding: '0.25rem 0.625rem',
-    background: '#27272a',
-    border: '1px solid #3f3f46',
+    background: T.colors.borderSubtle,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   chipActive: {
     background: '#1e3a5f',
-    borderColor: '#3b82f6',
-    color: '#e4e4e7',
+    borderColor: T.colors.accent,
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   chipCount: {
-    background: '#3f3f46',
+    background: T.colors.border,
     borderRadius: 9999,
     padding: '0 0.3rem',
     fontSize: '0.7rem',
@@ -220,35 +267,66 @@ const styles = {
     textAlign: 'center' as const,
   } as React.CSSProperties,
   batchBtn: {
+    ...T.btnGhost,
     padding: '0.25rem 0.75rem',
-    background: 'transparent',
     border: '1px solid #52525b',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
     flexShrink: 0,
   } as React.CSSProperties,
   batchBtnActive: {
-    borderColor: '#ef4444',
+    borderColor: T.colors.danger,
     color: '#fca5a5',
   } as React.CSSProperties,
   batchComposer: {
-    background: '#1c1c20',
+    background: T.colors.bgElevated,
     borderRadius: 6,
     padding: '0.75rem 1rem',
     marginBottom: '1rem',
-    borderLeft: '3px solid #3b82f6',
+    borderLeft: `3px solid ${T.colors.accent}`,
   } as React.CSSProperties,
   batchLabel: {
     margin: '0 0 0.5rem',
     fontSize: '0.875rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
   empty: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.875rem',
     margin: 0,
+  } as React.CSSProperties,
+  errorToastContainer: {
+    position: 'fixed',
+    bottom: '1.5rem',
+    right: '1.5rem',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  errorToast: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    background: '#991b1b',
+    color: '#fff',
+    padding: '0.75rem 1rem',
+    borderRadius: 6,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+    maxWidth: '24rem',
+    fontSize: '0.875rem',
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  toastText: {
+    flex: 1,
+  } as React.CSSProperties,
+  toastClose: {
+    background: 'none',
+    border: 'none',
+    color: '#fca5a5',
+    cursor: 'pointer',
+    fontSize: '1.125rem',
+    lineHeight: 1,
+    padding: 0,
+    flexShrink: 0,
   } as React.CSSProperties,
 };

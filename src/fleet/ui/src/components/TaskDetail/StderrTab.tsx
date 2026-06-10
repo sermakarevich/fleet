@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api';
 
 interface Props {
   taskId: string;
+  status?: string;
 }
 
-export function StderrTab({ taskId }: Props) {
-  const [content, setContent] = useState<string | null>(null);
+export function StderrTab({ taskId, status }: Props) {
   const bottomRef = useRef<HTMLPreElement>(null);
 
-  useEffect(() => {
-    api.getStderr(taskId).then(data => setContent(data.content));
-  }, [taskId]);
+  const { data } = useQuery({
+    queryKey: ['task', taskId, 'stderr'],
+    queryFn: () => api.getStderr(taskId),
+    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+  });
+
+  const content = data?.content ?? null;
 
   useEffect(() => {
     if (content != null && bottomRef.current) {
@@ -19,7 +24,7 @@ export function StderrTab({ taskId }: Props) {
     }
   }, [content]);
 
-  if (content == null) {
+  if (content === null) {
     return <p style={styles.msg}>Loading…</p>;
   }
 

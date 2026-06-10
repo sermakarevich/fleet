@@ -1,33 +1,22 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { useEffect } from 'react';
 import { NeedsYouPanel } from '../components/NeedsYouPanel';
 import { RecentOutcomes } from '../components/RecentOutcomes';
 import { RunningTable } from '../components/RunningTable';
 import { useTasksState } from '../hooks/useTasksState';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { useConfig } from '../hooks/useApi';
+import { useConfig, useTasks } from '../hooks/useApi';
 import type { TaskSummary } from '../types';
 
 export function Dashboard() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: polledTasks, isLoading, error } = useTasks();
   const { data: config } = useConfig();
   const thresholdPct = config?.context_pressure_threshold_pct ?? 90;
 
   const { tasks, setTasks, updateFromEvent } = useTasksState([]);
 
   useEffect(() => {
-    api
-      .getTasks()
-      .then(list => {
-        setTasks(list);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(String(err));
-        setLoading(false);
-      });
-  }, [setTasks]);
+    if (polledTasks) setTasks(polledTasks);
+  }, [polledTasks, setTasks]);
 
   useWebSocket(updateFromEvent);
 
@@ -35,12 +24,12 @@ export function Dashboard() {
   const running: TaskSummary[] = tasks.filter(t => t.status === 'in_progress');
   const closed: TaskSummary[] = tasks.filter(t => t.status === 'closed').slice(-20);
 
-  if (loading) {
+  if (isLoading && tasks.length === 0) {
     return <p style={styles.msg}>Loading…</p>;
   }
 
-  if (error) {
-    return <p style={{ ...styles.msg, color: '#ef4444' }}>Error: {error}</p>;
+  if (error && tasks.length === 0) {
+    return <p style={{ ...styles.msg, color: '#ef4444' }}>Error: {String(error)}</p>;
   }
 
   return (

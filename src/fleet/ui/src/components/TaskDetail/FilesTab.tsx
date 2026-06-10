@@ -1,23 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api';
 import type { FileOp } from '../../types';
 
 interface Props {
   taskId: string;
+  status?: string;
 }
 
-export function FilesTab({ taskId }: Props) {
-  const [files, setFiles] = useState<FileOp[]>([]);
-  const [loading, setLoading] = useState(true);
+export function FilesTab({ taskId, status }: Props) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['task', taskId, 'files'],
+    queryFn: () => api.getFiles(taskId),
+    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    api.getFiles(taskId)
-      .then(data => { setFiles(data.files); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [taskId]);
+  const files: FileOp[] = data?.files ?? [];
 
-  if (loading) return <p style={styles.msg}>Loading…</p>;
+  if (isLoading && !data) return <p style={styles.msg}>Loading…</p>;
   if (files.length === 0) return <p style={styles.msg}>No file operations recorded.</p>;
 
   return (

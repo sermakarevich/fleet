@@ -140,3 +140,50 @@ def test_kill_sentinel_removed_after_processing(tmp_path: Path) -> None:
     asyncio.run(_run())
 
     assert not kill_file.exists(), ".kill sentinel should be removed after processing"
+
+
+def test_stale_kill_sentinel_ignored_on_fresh_run(tmp_path: Path) -> None:
+    """A pre-existing .kill sentinel must not kill a freshly spawned run."""
+    queue = MemoryQueue()
+    queue.add_task(_task("t-003"))
+
+    # Plant the sentinel before the task is ever claimed or spawned.
+    task_dir = tmp_path / "tasks" / "t-003"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".kill").touch()
+
+    coder = FakeClaudeCoder(scenario="clean_exit")
+    config = fast_config(max_concurrent=1)
+    sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
+
+    done = asyncio.Event()
+
+    def on_event(method: str, task_id: str) -> None:
+        # Fire on either completion path so the test doesn't need to time out.
+        if method in ("release", "set_blocked") and task_id == "t-003":
+            done.set()
+
+    queue.add_listener(on_event)
+
+    async def _run() -> None:
+        sup_task = asyncio.create_task(sup.run())
+        try:
+            await asyncio.wait_for(done.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            await sup._shutdown()
+            try:
+                await asyncio.wait_for(sup_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                sup_task.cancel()
+                try:
+                    await sup_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+    asyncio.run(_run())
+
+    assert queue._tasks["t-003"].status != "blocked", (
+        "stale .kill sentinel must not block a freshly spawned run"
+    )

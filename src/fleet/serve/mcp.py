@@ -33,8 +33,64 @@ class PendingQuestion:
 
 
 class PendingQuestionStore:
-    def __init__(self) -> None:
+    def __init__(self, store_path: Path | None = None) -> None:
         self._questions: dict[str, PendingQuestion] = {}
+        self._store_path = store_path
+        if store_path is not None:
+            self._load()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _save(self) -> None:
+        if self._store_path is None:
+            return
+        data = [
+            {
+                "id": q.id,
+                "task_id": q.task_id,
+                "question": q.question,
+                "choices": q.choices,
+                "timeout_sec": q.timeout_sec,
+                "asked_at": q.asked_at.isoformat(),
+                "status": q.status,
+                "answer": q.answer,
+            }
+            for q in self._questions.values()
+        ]
+        tmp = self._store_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(self._store_path)
+
+    def _load(self) -> None:
+        if self._store_path is None or not self._store_path.exists():
+            return
+        try:
+            items = json.loads(self._store_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        for item in items:
+            try:
+                q = PendingQuestion(
+                    id=item["id"],
+                    task_id=item["task_id"],
+                    question=item["question"],
+                    choices=item.get("choices"),
+                    timeout_sec=item.get("timeout_sec"),
+                    asked_at=datetime.fromisoformat(item["asked_at"]),
+                    status=item["status"],
+                    answer=item.get("answer"),
+                )
+                if q.status != "open":
+                    q._event.set()
+                self._questions[q.id] = q
+            except (KeyError, ValueError):
+                continue
+
+    # ------------------------------------------------------------------
+    # Mutations
+    # ------------------------------------------------------------------
 
     def add(
         self,
@@ -53,6 +109,7 @@ class PendingQuestionStore:
             status="open",
         )
         self._questions[q.id] = q
+        self._save()
         return q
 
     def answer(self, question_id: str, answer: str) -> bool:
@@ -62,21 +119,32 @@ class PendingQuestionStore:
         q.answer = answer
         q.status = "answered"
         q._event.set()
+        self._save()
         return True
 
-    def defer(self, question_id: str) -> bool:
+    def defer(self, question_id: str) -> bool | str:
+        """Return True on success, False if not found/resolved, error string if bd fails."""
         q = self._questions.get(question_id)
         if q is None or q.status != "open":
             return False
+        result = subprocess.run(
+            ["bd", "update", q.task_id, "--status", "blocked"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return result.stderr.strip() or "bd update --status blocked failed"
         q.status = "deferred"
         q.answer = "__DEFERRED__"
-        subprocess.Popen(
-            ["bd", "update", q.task_id, "--status", "blocked"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
         q._event.set()
+        self._save()
         return True
+
+    def mark_timed_out(self, question_id: str) -> None:
+        q = self._questions.get(question_id)
+        if q is not None:
+            q.status = "timed_out"
+            self._save()
 
     def list(self) -> list[PendingQuestion]:
         return sorted(self._questions.values(), key=lambda q: q.asked_at, reverse=True)
@@ -178,7 +246,7 @@ async def _handle_ask_human(
             await q._event.wait()
         answer = q.answer or DEFAULT_ANSWER
     except asyncio.TimeoutError:
-        q.status = "timed_out"
+        store.mark_timed_out(q.id)
         answer = DEFAULT_ANSWER
 
     return _ok(req_id, {"content": [{"type": "text", "text": answer}]})
@@ -232,8 +300,11 @@ def create_qa_router(store: PendingQuestionStore) -> APIRouter:
 
     @router.post("/{question_id}/defer")
     async def defer_question(question_id: str) -> JSONResponse:
-        if store.defer(question_id):
+        result = store.defer(question_id)
+        if result is True:
             return JSONResponse({"ok": True})
-        return JSONResponse({"error": "not found or already resolved"}, status_code=404)
+        if result is False:
+            return JSONResponse({"error": "not found or already resolved"}, status_code=404)
+        return JSONResponse({"error": result}, status_code=502)
 
     return router

@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { useTask, useTasks, useConfig } from '../hooks/useApi';
 import { useTaskWebSocket } from '../hooks/useTaskWebSocket';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { Header } from '../components/TaskDetail/Header';
 import { LiveTab } from '../components/TaskDetail/LiveTab';
 import { PlanTab } from '../components/TaskDetail/PlanTab';
@@ -10,10 +11,11 @@ import { LogTab } from '../components/TaskDetail/LogTab';
 import { StderrTab } from '../components/TaskDetail/StderrTab';
 import { DiffTab } from '../components/TaskDetail/DiffTab';
 import { FilesTab } from '../components/TaskDetail/FilesTab';
+import { QATab } from '../components/TaskDetail/QATab';
 import { ActivityGutter } from '../components/TaskDetail/ActivityGutter';
 import type { FleetEvent } from '../types';
 
-type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'stderr' | 'diff' | 'files' | 'qa';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
@@ -23,10 +25,12 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'stderr', label: 'Stderr' },
   { id: 'diff', label: 'Diff' },
   { id: 'files', label: 'Files' },
+  { id: 'qa', label: 'QA' },
 ];
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
+  const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<TabId>('live');
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const { data: task, isLoading, error } = useTask(id!);
@@ -39,7 +43,12 @@ export function TaskDetail() {
     ? { ...task, status: tasksList?.find(t => t.id === id)?.status ?? task.status }
     : undefined;
 
+  const seenKeys = useRef(new Set<string>());
+
   const onEvent = useCallback((event: FleetEvent) => {
+    const key = `${event.ts}|${event.kind}`;
+    if (seenKeys.current.has(key)) return;
+    seenKeys.current.add(key);
     setEvents(prev => [...prev, event]);
   }, []);
 
@@ -60,10 +69,11 @@ export function TaskDetail() {
       case 'live': return <LiveTab events={events} />;
       case 'plan': return <PlanTab taskId={task!.id} />;
       case 'knowledge': return <KnowledgeTab taskId={task!.id} />;
-      case 'log': return <LogTab taskId={task!.id} />;
-      case 'stderr': return <StderrTab taskId={task!.id} />;
-      case 'diff': return <DiffTab taskId={task!.id} />;
-      case 'files': return <FilesTab taskId={task!.id} />;
+      case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'diff': return <DiffTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'files': return <FilesTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'qa': return <QATab taskId={task!.id} taskStatus={(taskWithStatus ?? task)!.status} />;
     }
   }
 
@@ -90,7 +100,7 @@ export function TaskDetail() {
             {renderTab()}
           </div>
         </div>
-        <ActivityGutter task={taskWithStatus ?? task} events={events} />
+        {!isMobile && <ActivityGutter task={taskWithStatus ?? task} events={events} />}
       </div>
     </div>
   );
@@ -100,7 +110,7 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - 40px)',
+    height: 'calc(100vh - var(--nav-h, 40px))',
     fontFamily: 'system-ui, sans-serif',
     background: '#09090b',
     color: '#e4e4e7',

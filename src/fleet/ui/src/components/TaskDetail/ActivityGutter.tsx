@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Sparkline } from '../Sparkline';
 import type { FleetEvent, TaskDetail } from '../../types';
 import { useKillTask } from '../../hooks/useApi';
-import { useNavigate } from 'react-router-dom';
 
 interface Props {
   task: TaskDetail;
@@ -29,13 +28,21 @@ function kindColor(kind: string): string {
 
 export function ActivityGutter({ task, events }: Props) {
   const { mutate: kill, isPending } = useKillTask();
-  const navigate = useNavigate();
   const [now, setNow] = useState(() => Date.now());
+  const [isStopping, setIsStopping] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (task.status !== 'in_progress' && task.status !== 'blocked') {
+      setIsStopping(false);
+      setConfirming(false);
+    }
+  }, [task.status]);
 
   const lastEvent = events[events.length - 1] ?? null;
   const lastEventKind = lastEvent?.kind ?? task.last_event_kind;
@@ -52,9 +59,19 @@ export function ActivityGutter({ task, events }: Props) {
 
   const canKill = ['in_progress', 'blocked'].includes(task.status);
 
-  function handleKill() {
+  function handleKillClick() {
     if (!canKill) return;
-    kill(task.id, { onSuccess: () => navigate('/') });
+    setConfirming(true);
+  }
+
+  function handleKillConfirm() {
+    setConfirming(false);
+    setIsStopping(true);
+    kill(task.id, { onError: () => setIsStopping(false) });
+  }
+
+  function handleKillCancel() {
+    setConfirming(false);
   }
 
   return (
@@ -83,13 +100,25 @@ export function ActivityGutter({ task, events }: Props) {
 
       {canKill && (
         <div style={styles.killSection}>
-          <button
-            style={{ ...styles.killBtn, opacity: isPending ? 0.5 : 1 }}
-            onClick={handleKill}
-            disabled={isPending}
-          >
-            {isPending ? 'Killing…' : 'Kill'}
-          </button>
+          {!confirming && !isPending && !isStopping && (
+            <button style={styles.killBtn} onClick={handleKillClick}>
+              Kill
+            </button>
+          )}
+          {confirming && (
+            <div style={styles.confirmWrap}>
+              <span style={styles.confirmLabel}>Confirm kill?</span>
+              <div style={styles.confirmBtns}>
+                <button style={styles.yesBtn} onClick={handleKillConfirm}>Yes</button>
+                <button style={styles.cancelBtn} onClick={handleKillCancel}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {(isPending || isStopping) && (
+            <button style={{ ...styles.killBtn, opacity: 0.5 }} disabled>
+              {isPending ? 'Killing…' : 'Stopping…'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -148,5 +177,40 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.8rem',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  confirmWrap: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.375rem',
+  },
+  confirmLabel: {
+    fontSize: '0.72rem',
+    color: '#a1a1aa',
+    whiteSpace: 'nowrap' as const,
+  },
+  confirmBtns: {
+    display: 'flex',
+    gap: '0.375rem',
+  },
+  yesBtn: {
+    flex: 1,
+    padding: '0.3rem 0.4rem',
+    background: '#991b1b',
+    border: '1px solid #991b1b',
+    borderRadius: 4,
+    color: '#fff',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  },
+  cancelBtn: {
+    flex: 1,
+    padding: '0.3rem 0.4rem',
+    background: 'transparent',
+    border: '1px solid #3f3f46',
+    borderRadius: 4,
+    color: '#a1a1aa',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
   },
 };

@@ -1,6 +1,7 @@
 """Full-text search route (FR-47)."""
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,7 +102,7 @@ def create_search_router() -> APIRouter:
         if not q.strip():
             return JSONResponse({"results": []})
         home = get_fleet_home()
-        results = search_tasks(home, q)
+        results = await asyncio.to_thread(search_tasks, home, q)
         return JSONResponse({
             "results": [
                 {

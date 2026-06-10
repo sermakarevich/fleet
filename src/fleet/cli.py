@@ -417,7 +417,15 @@ def _report_status(daemon: Daemon, label: str) -> None:
         parts.append(f"since {st.started_at}")
     if st.extra.get("port") is not None:
         parts.append(f"port {st.extra['port']}")
+    if st.version_fingerprint:
+        parts.append(f"fingerprint {st.version_fingerprint}")
     _console.print(f"{label}: [green]running[/] ({', '.join(parts)})")
+    if st.stale:
+        _restart_cmd = "fleet run restart" if daemon.spec.name == "supervisor" else "fleet serve restart"
+        _console.print(
+            f"[bold yellow]⚠  {label} is running stale code[/] — "
+            f"run [bold]{_restart_cmd}[/] to pick up changes."
+        )
 
 
 def _build_ui() -> None:

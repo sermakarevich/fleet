@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from fleet.config import load as load_config
+from fleet.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.mcp import PendingQuestionStore, create_mcp_router, create_qa_router
 from fleet.serve.routes.analytics import create_analytics_router
@@ -53,8 +55,9 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     """Create and configure the fleet FastAPI application."""
     mgr = ConnectionManager()
     watcher = FileWatcher()
-    store = PendingQuestionStore()
-    resolved_queue = queue if queue is not None else BeadsQueue(fleet_home())
+    home = fleet_home()
+    store = PendingQuestionStore(store_path=home / "pending_questions.json")
+    resolved_queue = queue if queue is not None else BeadsQueue(home)
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -90,7 +93,24 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
-        return JSONResponse({"status": "ok", "fleet_home": str(fleet_home())})
+        home = fleet_home()
+        stored_fp: str | None = None
+        serve_pid_file = home / ".serve.pid"
+        if serve_pid_file.exists():
+            try:
+                data = json.loads(serve_pid_file.read_text(encoding="utf-8"))
+                stored_fp = data.get("version_fingerprint") if isinstance(data, dict) else None
+            except (OSError, json.JSONDecodeError, ValueError):
+                pass
+        current_fp = code_fingerprint()
+        stale = stored_fp is not None and stored_fp != current_fp
+        return JSONResponse({
+            "status": "ok",
+            "fleet_home": str(home),
+            "version_fingerprint": stored_fp,
+            "current_fingerprint": current_fp,
+            "stale": stale,
+        })
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:

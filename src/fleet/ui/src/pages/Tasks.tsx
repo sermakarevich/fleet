@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useKillTask, useTasks } from '../hooks/useApi';
 import { useTasksState } from '../hooks/useTasksState';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { TaskSummary } from '../types';
+import * as T from '../styles/tokens';
 
 type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
 
@@ -32,7 +34,8 @@ function matchesFilter(task: TaskSummary, filter: StatusFilter): boolean {
 
 interface ChipStyle { label: string; color: string; bg: string }
 
-function statusChip(status: string): ChipStyle {
+function statusChip(status: string, stopping = false): ChipStyle {
+  if (stopping) return { label: 'Stopping…', color: '#fff', bg: '#92400e' };
   switch (status) {
     case 'in_progress': return { label: 'Running', color: '#fff', bg: '#16a34a' };
     case 'blocked':     return { label: 'Blocked', color: '#fff', bg: '#d97706' };
@@ -64,21 +67,23 @@ function formatContext(tokens: number | null, pct: number | null): string {
 interface RowProps {
   task: TaskSummary;
   confirmingId: string | null;
+  stoppingIds: Set<string>;
   onKillClick: (id: string) => void;
   onKillConfirm: (id: string) => void;
   onKillCancel: () => void;
   onRowClick: (id: string) => void;
 }
 
-function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel, onRowClick }: RowProps) {
-  const chip = statusChip(task.status);
+function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: RowProps) {
+  const isStopping = stoppingIds.has(task.id) && task.status === 'in_progress';
+  const chip = statusChip(task.status, isStopping);
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
   const isConfirming = confirmingId === task.id;
   const killEligible = KILL_ELIGIBLE.has(task.status);
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
 
   return (
-    <div style={styles.row} onClick={() => onRowClick(task.id)}>
+    <div style={styles.row} className="row-interactive" tabIndex={0} onClick={() => onRowClick(task.id)}>
       <span style={{ ...styles.chip, background: chip.bg, color: chip.color }}>
         {chip.label}
       </span>
@@ -99,10 +104,13 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
       <span style={styles.tsCell}>{formatTs(task.ended_at)}</span>
       <span style={styles.cwdCell} title={task.cwd ?? undefined}>{cwdShort}</span>
       <span style={styles.actionCell} onClick={e => e.stopPropagation()}>
-        {killEligible && !isConfirming && (
+        {killEligible && !isConfirming && !isStopping && (
           <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>
             Kill
           </button>
+        )}
+        {isStopping && (
+          <span style={styles.stoppingLabel}>stopping…</span>
         )}
         {isConfirming && (
           <span style={styles.confirm}>
@@ -116,13 +124,59 @@ function TaskRow({ task, confirmingId, onKillClick, onKillConfirm, onKillCancel,
   );
 }
 
+function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: RowProps) {
+  const isStopping = stoppingIds.has(task.id) && task.status === 'in_progress';
+  const chip = statusChip(task.status, isStopping);
+  const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
+  const isConfirming = confirmingId === task.id;
+  const killEligible = KILL_ELIGIBLE.has(task.status);
+  const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
+
+  return (
+    <div
+      style={cardStyles.card}
+      className="row-interactive"
+      tabIndex={0}
+      onClick={() => onRowClick(task.id)}
+    >
+      <div style={cardStyles.cardHead}>
+        <span style={{ ...styles.chip, ...cardStyles.chipInCard, background: chip.bg, color: chip.color }}>
+          {chip.label}
+        </span>
+        <span style={cardStyles.cardId}>{task.id}</span>
+        <span style={cardStyles.cardActions} onClick={e => e.stopPropagation()}>
+          {killEligible && !isConfirming && !isStopping && (
+            <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>Kill</button>
+          )}
+          {isStopping && <span style={styles.stoppingLabel}>stopping…</span>}
+          {isConfirming && (
+            <span style={styles.confirm}>
+              <button style={styles.yesBtn} onClick={() => onKillConfirm(task.id)}>Yes</button>
+              <button style={styles.cancelBtn} onClick={onKillCancel}>No</button>
+            </span>
+          )}
+        </span>
+      </div>
+      <div style={cardStyles.cardTitle}>{task.title}</div>
+      {task.description && <div style={cardStyles.cardDesc}>{task.description}</div>}
+      <div style={cardStyles.cardMeta}>
+        <span style={cardStyles.cardMetaText}>{coderModelStr || '(default)'}</span>
+        <span style={cardStyles.cardMetaText}>{formatTs(task.started_at)}</span>
+        <span style={cardStyles.cardMetaText} title={task.cwd ?? undefined}>{cwdShort}</span>
+      </div>
+    </div>
+  );
+}
+
 const PAGE_SIZE = 25;
 
 export function Tasks() {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [filter, setFilter] = useState<StatusFilter>('running');
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
 
   const { data: polledTasks, isLoading, error } = useTasks();
@@ -134,6 +188,14 @@ export function Tasks() {
   }, [polledTasks, setTasks]);
 
   useWebSocket(updateFromEvent);
+
+  useEffect(() => {
+    setStoppingIds(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Set([...prev].filter(id => tasks.find(t => t.id === id)?.status === 'in_progress'));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tasks]);
 
   const filtered = tasks.filter(t => {
     if (!matchesFilter(t, filter)) return false;
@@ -166,7 +228,9 @@ export function Tasks() {
   };
 
   const handleKillConfirm = (id: string) => {
-    void killTask.mutateAsync(id).finally(() => setConfirmingId(null));
+    void killTask.mutateAsync(id)
+      .then(() => setStoppingIds(prev => new Set([...prev, id])))
+      .finally(() => setConfirmingId(null));
   };
 
   if (isLoading && tasks.length === 0) {
@@ -177,12 +241,12 @@ export function Tasks() {
   }
 
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, padding: isMobile ? '0.75rem' : '1rem 1.5rem' }}>
       <div style={styles.topBar}>
         <h1 style={styles.heading}>tasks <span style={styles.count}>({sortedFiltered.length})</span></h1>
         <input
           type="search"
-          style={styles.searchInput}
+          style={{ ...styles.searchInput, width: isMobile ? '100%' : '13rem' }}
           placeholder="Search…"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
@@ -207,26 +271,40 @@ export function Tasks() {
       </div>
 
       <div style={styles.panel}>
-        <div style={styles.colHeader}>
-          <span style={styles.colStatus}>Status</span>
-          <span style={styles.colId}>ID</span>
-          <span style={styles.colTitle}>Title</span>
-          <span style={styles.colCoder}>Coder / Model</span>
-          <span style={styles.colContext}>Context</span>
-          <span style={styles.colTs}>Started</span>
-          <span style={styles.colTs}>Completed</span>
-          <span style={styles.colCwd}>Cwd</span>
-          <span style={styles.colAction} />
-        </div>
+        {!isMobile && (
+          <div style={styles.colHeader}>
+            <span style={styles.colStatus}>Status</span>
+            <span style={styles.colId}>ID</span>
+            <span style={styles.colTitle}>Title</span>
+            <span style={styles.colCoder}>Coder / Model</span>
+            <span style={styles.colContext}>Context</span>
+            <span style={styles.colTs}>Started</span>
+            <span style={styles.colTs}>Completed</span>
+            <span style={styles.colCwd}>Cwd</span>
+            <span style={styles.colAction} />
+          </div>
+        )}
 
         {sortedFiltered.length === 0 ? (
           <p style={styles.empty}>No tasks match this filter.</p>
         ) : (
-          pageItems.map(task => (
+          pageItems.map(task => isMobile ? (
+            <TaskCard
+              key={task.id}
+              task={task}
+              confirmingId={confirmingId}
+              stoppingIds={stoppingIds}
+              onKillClick={id => setConfirmingId(id)}
+              onKillConfirm={handleKillConfirm}
+              onKillCancel={() => setConfirmingId(null)}
+              onRowClick={id => navigate(`/tasks/${id}`)}
+            />
+          ) : (
             <TaskRow
               key={task.id}
               task={task}
               confirmingId={confirmingId}
+              stoppingIds={stoppingIds}
               onKillClick={id => setConfirmingId(id)}
               onKillConfirm={handleKillConfirm}
               onKillCancel={() => setConfirmingId(null)}
@@ -268,7 +346,7 @@ const styles = {
   } as React.CSSProperties,
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   topBar: {
@@ -282,19 +360,19 @@ const styles = {
     margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   } as React.CSSProperties,
   count: {
     fontWeight: 400,
-    color: '#71717a',
+    color: T.colors.textDim,
     fontSize: '0.875rem',
   } as React.CSSProperties,
   searchInput: {
     padding: '0.2rem 0.625rem',
-    background: '#09090b',
-    border: '1px solid #3f3f46',
+    background: T.colors.bgDeep,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
     outline: 'none',
@@ -306,19 +384,15 @@ const styles = {
     flexWrap: 'wrap' as const,
   } as React.CSSProperties,
   filterBtn: {
+    ...T.btnGhost,
     padding: '0.2rem 0.625rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#71717a',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
+    color: T.colors.textDim,
     lineHeight: 1.4,
   } as React.CSSProperties,
   filterBtnActive: {
-    background: '#3b82f6',
-    borderColor: '#3b82f6',
+    background: T.colors.accent,
+    borderColor: T.colors.accent,
     color: '#fff',
   } as React.CSSProperties,
   filterBtnInner: {
@@ -331,23 +405,21 @@ const styles = {
     width: 7,
     height: 7,
     borderRadius: '50%',
-    background: '#ef4444',
+    background: T.colors.danger,
     flexShrink: 0,
   } as React.CSSProperties,
   panel: {
-    background: '#1c1c20',
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    ...T.panel,
     overflow: 'hidden',
   } as React.CSSProperties,
   colHeader: {
     display: 'flex',
     alignItems: 'center',
     padding: '0.4rem 1rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     fontSize: '0.75rem',
     fontWeight: 600,
-    color: '#71717a',
+    color: T.colors.textDim,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.05em',
     gap: '0.75rem',
@@ -365,24 +437,17 @@ const styles = {
     alignItems: 'center',
     padding: '0.5rem 1rem',
     gap: '0.75rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     cursor: 'pointer',
     fontSize: '0.875rem',
     color: '#d4d4d8',
     transition: 'background 0.1s',
   } as React.CSSProperties,
   chip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...T.badge,
     width: '5rem',
     flexShrink: 0,
-    padding: '0.15rem 0.5rem',
-    borderRadius: 4,
-    fontSize: '0.75rem',
-    fontWeight: 600,
     letterSpacing: '0.01em',
-    boxSizing: 'border-box',
   } as React.CSSProperties,
   idCell: {
     width: '6rem',
@@ -412,7 +477,7 @@ const styles = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
     fontSize: '0.75rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
   } as React.CSSProperties,
   coderCell: {
     width: '9rem',
@@ -425,13 +490,13 @@ const styles = {
   contextCell: {
     width: '5rem',
     flexShrink: 0,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontSize: '0.8125rem',
   } as React.CSSProperties,
   tsCell: {
     width: '8.5rem',
     flexShrink: 0,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontSize: '0.8125rem',
     fontFamily: 'monospace',
   } as React.CSSProperties,
@@ -441,7 +506,7 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
-    color: '#71717a',
+    color: T.colors.textDim,
     fontSize: '0.8125rem',
   } as React.CSSProperties,
   actionCell: {
@@ -452,14 +517,15 @@ const styles = {
     gap: '0.375rem',
   } as React.CSSProperties,
   killBtn: {
+    ...T.btnDanger,
     padding: '0.2rem 0.625rem',
-    background: 'transparent',
-    border: '1px solid #ef4444',
-    borderRadius: 4,
-    color: '#ef4444',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+  stoppingLabel: {
+    fontSize: '0.8125rem',
+    color: '#fb923c',
+    fontStyle: 'italic',
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   confirm: {
     display: 'flex',
@@ -468,13 +534,13 @@ const styles = {
   } as React.CSSProperties,
   confirmLabel: {
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   yesBtn: {
     padding: '0.2rem 0.5rem',
-    background: '#ef4444',
-    border: '1px solid #ef4444',
+    background: T.colors.danger,
+    border: `1px solid ${T.colors.danger}`,
     borderRadius: 4,
     color: '#fff',
     cursor: 'pointer',
@@ -483,24 +549,19 @@ const styles = {
     fontWeight: 600,
   } as React.CSSProperties,
   cancelBtn: {
+    ...T.btnGhost,
     padding: '0.2rem 0.5rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   empty: {
     padding: '1.5rem 1rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.875rem',
     margin: 0,
     textAlign: 'center' as const,
   } as React.CSSProperties,
   dim: {
-    color: '#52525b',
+    color: T.colors.textMuted,
   } as React.CSSProperties,
   pagination: {
     display: 'flex',
@@ -511,14 +572,9 @@ const styles = {
     marginTop: '0.5rem',
   } as React.CSSProperties,
   pageBtn: {
+    ...T.btnGhost,
     padding: '0.2rem 0.75rem',
-    background: 'transparent',
-    border: '1px solid #3f3f46',
-    borderRadius: 4,
-    color: '#a1a1aa',
-    cursor: 'pointer',
     fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   pageBtnDisabled: {
     opacity: 0.35,
@@ -526,8 +582,67 @@ const styles = {
   } as React.CSSProperties,
   pageInfo: {
     fontSize: '0.8125rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     minWidth: '4rem',
     textAlign: 'center' as const,
+  } as React.CSSProperties,
+};
+
+const cardStyles = {
+  card: {
+    padding: '0.625rem 0.875rem',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.3rem',
+    fontSize: '0.875rem',
+    color: '#d4d4d8',
+  } as React.CSSProperties,
+  cardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  } as React.CSSProperties,
+  chipInCard: {
+    flexShrink: 0,
+    width: 'auto',
+  } as React.CSSProperties,
+  cardId: {
+    fontFamily: 'monospace',
+    color: '#60a5fa',
+    fontSize: '0.8125rem',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+    flexShrink: 0,
+  } as React.CSSProperties,
+  cardTitle: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardDesc: {
+    fontSize: '0.75rem',
+    color: T.colors.textMuted,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  cardMeta: {
+    display: 'flex',
+    gap: '0.625rem',
+    flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  cardMetaText: {
+    fontSize: '0.75rem',
+    color: T.colors.textSecondary,
   } as React.CSSProperties,
 };

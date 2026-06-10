@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { ChatQuestion } from '../types';
+import { colors } from '../styles/tokens';
 
 function typeLabel(q: ChatQuestion): string {
   if (!q.options) return 'text';
@@ -119,6 +120,8 @@ export function Chat() {
             <div
               key={q.id}
               style={{ ...s.item, ...(q.id === selectedId ? s.itemSel : {}) }}
+              className="row-interactive"
+              tabIndex={0}
               onClick={() => setSelectedId(q.id)}
             >
               <div style={s.itemTop}>
@@ -221,9 +224,9 @@ const s: Record<string, React.CSSProperties> = {
   root: {
     display: 'flex',
     height: 'calc(100vh - 40px)',
-    background: '#0d0f14',
-    color: '#e7e9ee',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+    background: colors.bgDeep,
+    color: colors.textPrimary,
+    fontFamily: 'system-ui, sans-serif',
     fontSize: 14,
     lineHeight: 1.55,
     overflow: 'hidden',
@@ -234,15 +237,15 @@ const s: Record<string, React.CSSProperties> = {
     width: 340,
     minWidth: 300,
     height: '100%',
-    background: '#15181f',
-    borderRight: '1px solid #272c37',
+    background: colors.bgSurface,
+    borderRight: `1px solid ${colors.borderSubtle}`,
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
   },
   sideHead: {
     padding: '16px 18px',
-    borderBottom: '1px solid #272c37',
+    borderBottom: `1px solid ${colors.borderSubtle}`,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -253,7 +256,7 @@ const s: Record<string, React.CSSProperties> = {
     gap: 8,
     fontWeight: 700,
     fontSize: 15,
-    color: '#e7e9ee',
+    color: colors.textPrimary,
   },
   dot: {
     width: 8,
@@ -270,7 +273,7 @@ const s: Record<string, React.CSSProperties> = {
     boxShadow: 'none',
   },
   count: {
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 12.5,
     fontWeight: 500,
     fontVariantNumeric: 'tabular-nums',
@@ -283,7 +286,7 @@ const s: Record<string, React.CSSProperties> = {
   emptyList: {
     padding: '40px 12px',
     textAlign: 'center',
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 13,
   },
 
@@ -296,7 +299,7 @@ const s: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   itemSel: {
-    background: '#1e2233',
+    background: colors.bgElevated,
     borderColor: '#818cf8',
   },
   itemTop: {
@@ -311,16 +314,16 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    color: '#e7e9ee',
+    color: colors.textPrimary,
   },
   age: {
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 11.5,
     whiteSpace: 'nowrap',
     fontVariantNumeric: 'tabular-nums',
   },
   preview: {
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 12.5,
     marginTop: 3,
     overflow: 'hidden',
@@ -342,8 +345,8 @@ const s: Record<string, React.CSSProperties> = {
     textTransform: 'uppercase',
     padding: '1px 7px',
     borderRadius: 9999,
-    background: '#1b1f28',
-    color: '#98a2b3',
+    background: colors.bgElevated,
+    color: colors.textSecondary,
   },
   tagPrio: {
     background: '#2a2310',
@@ -351,7 +354,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   tagId: {
     marginLeft: 'auto',
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 11,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   },
@@ -370,13 +373,13 @@ const s: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    color: '#98a2b3',
+    color: colors.textSecondary,
   },
   emptyIcon: {
     width: 46,
     height: 46,
     borderRadius: '50%',
-    background: '#1b1f28',
+    background: colors.bgElevated,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -390,19 +393,19 @@ const s: Record<string, React.CSSProperties> = {
   detailAgent: {
     fontSize: 22,
     fontWeight: 700,
-    color: '#e7e9ee',
+    color: colors.textPrimary,
   },
   detailMeta: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '6px 14px',
     marginTop: 8,
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 12.5,
   },
   mono: {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    color: '#98a2b3',
+    color: colors.textSecondary,
   },
   prioText: {
     color: '#fbbf24',
@@ -414,7 +417,7 @@ const s: Record<string, React.CSSProperties> = {
     lineHeight: 1.5,
     margin: '18px 0 26px',
     whiteSpace: 'pre-wrap',
-    color: '#e7e9ee',
+    color: colors.textPrimary,
   },
 
   // Answer form
@@ -432,9 +435,9 @@ const s: Record<string, React.CSSProperties> = {
     gap: 11,
     padding: '13px 15px',
     cursor: 'pointer',
-    border: '1px solid #272c37',
+    border: `1px solid ${colors.borderSubtle}`,
     borderRadius: 11,
-    background: '#15181f',
+    background: colors.bgSurface,
   },
   optInput: {
     width: 17,
@@ -445,7 +448,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   optText: {
     fontSize: 14.5,
-    color: '#e7e9ee',
+    color: colors.textPrimary,
   },
   textarea: {
     width: '100%',
@@ -453,9 +456,9 @@ const s: Record<string, React.CSSProperties> = {
     padding: '13px 15px',
     font: 'inherit',
     resize: 'vertical',
-    color: '#e7e9ee',
-    background: '#15181f',
-    border: '1px solid #272c37',
+    color: colors.textPrimary,
+    background: colors.bgSurface,
+    border: `1px solid ${colors.borderSubtle}`,
     borderRadius: 11,
     boxSizing: 'border-box',
   },
@@ -477,7 +480,7 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: 'inherit',
   },
   hint: {
-    color: '#98a2b3',
+    color: colors.textSecondary,
     fontSize: 12.5,
   },
 

@@ -80,7 +80,7 @@ export interface FleetEvent {
   usage: Record<string, number> | null;
   rate_info: Record<string, unknown> | null;
   raw: Record<string, unknown>;
-  extra: Record<string, unknown>;
+  extra?: Record<string, unknown>;
 }
 
 export interface QuestionSummary {
@@ -99,10 +99,21 @@ export interface QuestionSummary {
 export interface SupervisorStatus {
   pid: number | null;
   started_at: string | null;
+  running: boolean;
   max_concurrent: number;
   active_count: number;
   free_slots: number;
   paused: boolean;
+  version_fingerprint?: string | null;
+  stale?: boolean;
+}
+
+export interface HealthzStatus {
+  status: string;
+  fleet_home: string;
+  version_fingerprint?: string | null;
+  current_fingerprint?: string;
+  stale?: boolean;
 }
 
 export interface RuntimeConfig {
@@ -126,6 +137,12 @@ export interface CreateTaskInput {
 export interface Template {
   name: string;
   content: string;
+}
+
+export interface CoderInfo {
+  name: string;
+  context_limit: number;
+  default_model: string;
 }
 
 export interface ThroughputBucket {

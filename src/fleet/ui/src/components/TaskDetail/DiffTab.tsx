@@ -1,24 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { api } from '../../api';
 
 interface Props {
   taskId: string;
+  status?: string;
 }
 
-export function DiffTab({ taskId }: Props) {
-  const [diff, setDiff] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+export function DiffTab({ taskId, status }: Props) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['task', taskId, 'diff'],
+    queryFn: () => api.getDiff(taskId),
+    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    api.getDiff(taskId)
-      .then(data => { setDiff(data.diff); setLoading(false); })
-      .catch(() => { setDiff(''); setLoading(false); });
-  }, [taskId]);
+  const diff = data?.diff ?? null;
 
-  if (loading) return <p style={styles.msg}>Loading…</p>;
+  if (isLoading && !data) return <p style={styles.msg}>Loading…</p>;
   if (!diff) return <p style={styles.msg}>No diff available.</p>;
 
   return (

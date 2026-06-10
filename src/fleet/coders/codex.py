@@ -21,6 +21,7 @@ _TOOL_ITEM_TYPES = frozenset({
 class CodexCoder(Coder):
     name = "codex"
     context_limit = 128_000
+    default_model = "o4-mini"
 
     def __init__(self, model: str = "o4-mini") -> None:
         self.model = model

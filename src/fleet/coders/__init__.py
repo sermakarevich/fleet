@@ -17,3 +17,15 @@ def get_coder(name: str) -> type[Coder]:
     except KeyError:
         available = list(_REGISTRY)
         raise ValueError(f"Unknown coder {name!r}. Available: {available}") from None
+
+
+def list_coders() -> list[dict]:
+    """Return coder metadata for all registered coders."""
+    return [
+        {
+            "name": cls.name,
+            "context_limit": cls.context_limit,
+            "default_model": cls.default_model,
+        }
+        for cls in _REGISTRY.values()
+    ]

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api';
 import type { LogLine } from '../../types';
 
 interface Props {
   taskId: string;
+  status?: string;
 }
 
 const LEVELS = ['all', 'debug', 'info', 'warning', 'error'];
@@ -18,17 +20,16 @@ function levelColor(level: string): string {
   }
 }
 
-export function LogTab({ taskId }: Props) {
-  const [lines, setLines] = useState<LogLine[]>([]);
+export function LogTab({ taskId, status }: Props) {
   const [levelFilter, setLevelFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setLoading(true);
-    api.getLogs(taskId, levelFilter === 'all' ? undefined : levelFilter)
-      .then(data => { setLines(data.lines); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [taskId, levelFilter]);
+  const { data, isLoading } = useQuery({
+    queryKey: ['task', taskId, 'logs', levelFilter],
+    queryFn: () => api.getLogs(taskId, levelFilter === 'all' ? undefined : levelFilter),
+    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+  });
+
+  const lines: LogLine[] = data?.lines ?? [];
 
   function download() {
     const text = lines.map(l => `[${l.ts}] [${l.level}] ${l.message}`).join('\n');
@@ -58,8 +59,8 @@ export function LogTab({ taskId }: Props) {
         <button style={styles.downloadBtn} onClick={download}>Download</button>
       </div>
       <div style={styles.list}>
-        {loading && <p style={styles.msg}>Loading…</p>}
-        {!loading && lines.length === 0 && <p style={styles.msg}>No log entries.</p>}
+        {isLoading && !data && <p style={styles.msg}>Loading…</p>}
+        {!isLoading && lines.length === 0 && <p style={styles.msg}>No log entries.</p>}
         {lines.map((line, i) => (
           <div key={i} style={styles.row}>
             <span style={{ ...styles.level, color: levelColor(line.level) }}>{line.level}</span>

@@ -33,6 +33,7 @@ def _extract_usage_pct(info: dict) -> float | None:
 class ClaudeCoder(Coder):
     name = "claude"
     context_limit = 200_000
+    default_model = "sonnet"
 
     def __init__(self, model: str = "sonnet") -> None:
         self.model = model

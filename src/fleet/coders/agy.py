@@ -13,6 +13,7 @@ _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
 class AgyCoder(Coder):
     name = "agy"
     context_limit = 128_000
+    default_model = "GPT-OSS 120B"
 
     def __init__(self, model: str = "GPT-OSS 120B") -> None:
         # NOTE: the `agy` CLI binary does not accept a model flag; it reads

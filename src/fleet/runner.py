@@ -81,6 +81,7 @@ class TaskRunner:
         artifacts_dir = task_dir / "artifacts"
         task_dir.mkdir(parents=True, exist_ok=True)
         _ensure_artifact_stubs(artifacts_dir, task.id)
+        self._coder.write_runtime_config(self._project_root, task)
 
         with open_task_log(task_dir, task.id) as task_log:
             stderr_path = Path(task_log.stderr_file.name)

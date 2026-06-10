@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api';
 import type { CreateTaskInput, RuntimeConfig, TaskSummary } from '../types';
+import { useToast } from '../contexts/ToastContext';
 
 export function useTasks() {
   return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: 5000 });
@@ -93,23 +94,52 @@ export function useSupervisor() {
   });
 }
 
+export function useHealthz() {
+  return useQuery({
+    queryKey: ['healthz'],
+    queryFn: api.getHealthz,
+    refetchInterval: 30000,
+  });
+}
+
 export function useConfig() {
   return useQuery({ queryKey: ['config'], queryFn: api.getConfig });
 }
 
+const KILL_MESSAGES: Record<string, string> = {
+  killing: 'Kill signal sent — task will stop shortly.',
+  'supervisor-not-running': 'Kill signal written, but the supervisor is not running.',
+  'task-not-running': 'Task is not currently running — nothing to kill.',
+};
+
 export function useKillTask() {
   const qc = useQueryClient();
+  const { addToast } = useToast();
   return useMutation({
     mutationFn: (id: string) => api.killTask(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: (data, id) => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      void qc.invalidateQueries({ queryKey: ['task', id] });
+      addToast(KILL_MESSAGES[data.result] ?? `Kill result: ${data.result}`);
+    },
+    onError: (err: unknown) => {
+      addToast(`Kill failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
   });
 }
 
 export function useRequeueTask() {
   const qc = useQueryClient();
+  const { addToast } = useToast();
   return useMutation({
     mutationFn: (id: string) => api.requeueTask(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      addToast('Task re-queued.');
+    },
+    onError: (err: unknown) => {
+      addToast(`Re-queue failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
   });
 }
 
@@ -190,6 +220,14 @@ export function useResumeSupervisor() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.resumeSupervisor(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  });
+}
+
+export function useRestartSupervisor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.restartSupervisor(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
   });
 }

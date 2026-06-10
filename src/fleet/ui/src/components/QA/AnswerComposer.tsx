@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import * as T from '../../styles/tokens';
 
 interface Props {
   choices?: string[] | null;
@@ -91,23 +92,18 @@ const styles = {
   textarea: {
     flex: 1,
     resize: 'none' as const,
-    background: '#27272a',
-    border: '1px solid #3f3f46',
+    background: T.colors.borderSubtle,
+    border: `1px solid ${T.colors.border}`,
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.5rem',
     fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   sendBtn: {
+    ...T.btnPrimary,
     padding: '0.5rem 1rem',
-    background: '#2563eb',
-    color: '#fff',
     border: 'none',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    fontFamily: 'system-ui, sans-serif',
     flexShrink: 0,
   } as React.CSSProperties,
 };

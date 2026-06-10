@@ -134,6 +134,11 @@ class Supervisor:
         return coder_cls(model=model), coder_name, model
 
     def _spawn_runner(self, task: Task) -> None:
+        # Purge any stale .kill sentinel from a previous run before registering
+        # the runner — the kill_poll_loop only checks self._runners, so clearing
+        # the file here (before the runner is added) is race-free.
+        (self._project_root / "tasks" / task.id / ".kill").unlink(missing_ok=True)
+
         task_root = Path(task.cwd) if task.cwd else self._project_root
         try:
             coder, coder_name, model = self._resolve_coder(task)

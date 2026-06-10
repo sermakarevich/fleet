@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from fleet.serve.routes.tasks import _sync_remove_assignee
 from fleet.serve.stats import fleet_home as get_fleet_home
 
 # Statuses beads accepts via `bd update --status`. Used to reject arbitrary input.
@@ -166,6 +167,10 @@ def create_beads_router() -> APIRouter:
 
     @router.post("/beads/{bead_id}/remove-assignee")
     async def remove_bead_assignee(bead_id: str) -> JSONResponse:
-        return await _update(bead_id, ["--assignee", ""])
+        home = get_fleet_home()
+        ok, err = await asyncio.to_thread(_sync_remove_assignee, bead_id, home)
+        if not ok:
+            return JSONResponse({"error": err}, status_code=502)
+        return JSONResponse({"ok": True})
 
     return router

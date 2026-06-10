@@ -2,8 +2,10 @@ import type {
   Bead,
   BeadDetail,
   ChatQuestion,
+  CoderInfo,
   CreateTaskInput,
   FileOp,
+  HealthzStatus,
   LogLine,
   QuestionSummary,
   RuntimeConfig,
@@ -40,7 +42,7 @@ export const api = {
     return request(`/api/tasks/${id}`);
   },
 
-  killTask(id: string): Promise<void> {
+  killTask(id: string): Promise<{ ok: boolean; result: string }> {
     return request(`/api/tasks/${id}/kill`, { method: 'POST' });
   },
 
@@ -104,12 +106,20 @@ export const api = {
     return request('/api/supervisor');
   },
 
+  getHealthz(): Promise<HealthzStatus> {
+    return request('/healthz');
+  },
+
   pauseSupervisor(): Promise<void> {
     return request('/api/supervisor/pause', { method: 'POST' });
   },
 
   resumeSupervisor(): Promise<void> {
     return request('/api/supervisor/resume', { method: 'POST' });
+  },
+
+  restartSupervisor(): Promise<{ pid: number; alive: boolean; started_at: string | null }> {
+    return request('/api/supervisor/restart', { method: 'POST' });
   },
 
   getConfig(): Promise<RuntimeConfig> {
@@ -120,7 +130,7 @@ export const api = {
     return request('/api/config', json('PUT', updates));
   },
 
-  getCoders(): Promise<{ coders: string[] }> {
+  getCoders(): Promise<{ coders: CoderInfo[] }> {
     return request('/api/coders');
   },
 

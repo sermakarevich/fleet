@@ -164,14 +164,6 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
           </Command.List>
         </Command>
       </div>
-      <style>{`
-        .cmd-item[data-selected="true"],
-        .cmd-item[aria-selected="true"] {
-          background: #27272a !important;
-          outline: none;
-        }
-        .cmd-item:hover { background: #27272a !important; }
-      `}</style>
     </div>
   );
 }
