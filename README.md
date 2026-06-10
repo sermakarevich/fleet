@@ -50,6 +50,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
 - [Configuration reference](#configuration-reference)
 - [Telegram channel notifications](#telegram-channel-notifications)
 - [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
+- [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)
 - [Adding a custom coder](#adding-a-custom-coder)
 
 ---
@@ -469,7 +470,7 @@ directly in the file.
 
 ## Telegram channel notifications
 
-Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. This is a **one-way** integration: new questions posted by agents are sent to the channel as messages, but you still read the full context and answer them in the fleet chat UI.
+Fleet can forward blocked-agent questions to a Telegram channel so you get a push notification instead of having to watch the UI. When `TELEGRAM_BOT_TOKEN` and `telegram_chat_id` are set, new questions posted by agents are sent to the channel as messages. You can answer directly from Telegram (see [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)) or via the fleet chat UI.
 
 ### Quick start
 
@@ -624,6 +625,37 @@ If left empty, tasks are created without an explicit `cwd`.
 The allowlist is **default-deny**: if `telegram_allowed_ids` is empty, no inbound messages are processed. Any message from a sender or chat ID **not** on the list is silently rejected and logged at WARNING level.
 
 > **Keep the allowlist tight.** Anyone whose numeric ID appears in `telegram_allowed_ids` can send arbitrary task titles and descriptions that spawn coding agents on your machine with full filesystem access.
+
+---
+
+## Answering chat questions from Telegram
+
+When an agent blocks on an `ask_human` question, Fleet sends the question to your configured chat prefixed with the agent/task ID. You can answer directly from Telegram without opening the web UI.
+
+### How to answer
+
+There are three ways to submit an answer:
+
+1. **Reply to the bot message (recommended)** — use Telegram's built-in reply on the exact message the bot sent. This works regardless of how many questions are currently pending and is the most reliable method.
+2. **Plain-text message** — send a free-text answer when exactly one question is pending. Fleet routes it to the only open question automatically. If more than one question is pending, Fleet refuses the message and replies with a hint to use reply-to instead.
+3. **Bare option number** — when the question lists numbered options, send the number alone (e.g. `2`) to select that choice. Obeys the same single-question rule as plain text when not using reply-to.
+
+### What happens after you answer
+
+The answer is recorded with `answered_by = telegram` and unblocks the waiting agent immediately — no further action needed in the web UI.
+
+### Security
+
+Answering is gated by the same `telegram_allowed_ids` allowlist that controls `/task` creation. Messages from unlisted senders or chats are silently rejected.
+
+### Message mapping
+
+Fleet maintains `$FLEET_HOME/telegram_question_msgs.json` — a mapping from Telegram message IDs to open questions:
+
+- **Auto-managed** — created on first use, no setup required.
+- **Capped at 200 entries** — older entries are pruned automatically when the cap is hit.
+
+If you reply to a message that is no longer in the map (pruned after the cap, or the question was already answered), Fleet sends back an error reply.
 
 ---
 
