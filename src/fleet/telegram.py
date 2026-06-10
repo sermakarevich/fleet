@@ -111,6 +111,81 @@ async def send_message(token: str, chat_id: str, text: str) -> None:
         _log.error("telegram.send_message failed", error=str(exc))
 
 
+async def send_message_with_id(token: str, chat_id: str, text: str) -> int | None:
+    """POST text to Telegram sendMessage; return message_id on success, None on any failure."""
+    text = text[:_MAX_TEXT]
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
+
+    def _post() -> int | None:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            _log.error("telegram.send_message_with_id failed", error=str(exc))
+            return None
+        if not data.get("ok"):
+            _log.error("telegram.send_message_with_id not ok", description=data.get("description"))
+            return None
+        result = data.get("result") or {}
+        mid = result.get("message_id")
+        try:
+            return int(mid) if mid is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        return await asyncio.to_thread(_post)
+    except Exception as exc:
+        _log.error("telegram.send_message_with_id failed", error=str(exc))
+        return None
+
+
+_QUESTION_MSG_CAP = 200
+
+
+def record_question_message(path: Path, message_id: int, question_id: str) -> None:
+    """Persist message_id -> question_id; insertion-ordered, capped at 200 entries."""
+    try:
+        try:
+            raw = path.read_text(encoding="utf-8")
+            mapping: dict = json.loads(raw)
+            if not isinstance(mapping, dict):
+                mapping = {}
+        except (OSError, json.JSONDecodeError, ValueError):
+            mapping = {}
+
+        mapping[str(message_id)] = question_id
+
+        if len(mapping) > _QUESTION_MSG_CAP:
+            keys = list(mapping.keys())
+            for k in keys[: len(mapping) - _QUESTION_MSG_CAP]:
+                del mapping[k]
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(mapping), encoding="utf-8")
+    except OSError as exc:
+        _log.warning("telegram.record_question_message failed", error=str(exc))
+
+
+def lookup_question_for_message(path: Path, message_id: int) -> str | None:
+    """Return question_id for message_id, or None if not found or file missing."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+        mapping = json.loads(raw)
+        if isinstance(mapping, dict):
+            return mapping.get(str(message_id))
+        return None
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Inbound listener helpers
 # ---------------------------------------------------------------------------

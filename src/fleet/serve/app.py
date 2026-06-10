@@ -54,6 +54,7 @@ async def _question_poller(app: FastAPI) -> None:
                 continue
             questions = await asyncio.to_thread(_db_fetch_new_questions, watermark)
             new_wm = watermark
+            home = app.state.fleet_state.fleet_home
             for q in questions:
                 agent_id = q.get("agent_id") or "unknown"
                 prompt = q.get("prompt") or ""
@@ -62,7 +63,15 @@ async def _question_poller(app: FastAPI) -> None:
                 if options:
                     opts = options if isinstance(options, list) else [str(options)]
                     msg += "\n" + "\n".join(f"  {i + 1}. {o}" for i, o in enumerate(opts))
-                await tg.send_message(token, chat_id, msg)
+                message_id = await tg.send_message_with_id(token, chat_id, msg)
+                if message_id is not None:
+                    q_id = q.get("id")
+                    if q_id:
+                        tg.record_question_message(
+                            home / "telegram_question_msgs.json",
+                            message_id,
+                            q_id,
+                        )
                 created_at = float(q.get("created_at") or 0)
                 if created_at > new_wm:
                     new_wm = created_at

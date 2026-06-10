@@ -233,10 +233,11 @@ def test_poller_sends_new_question_exactly_once(
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(token: str, chat_id: str, text: str) -> int | None:
         sent.append(text)
+        return None
 
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(tg, "send_message_with_id", _fake_send)
 
     call_n = [0]
 
@@ -271,17 +272,17 @@ def test_poller_continues_after_send_error(
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    async def _failing_send(token: str, chat_id: str, text: str) -> None:
+    async def _failing_send(token: str, chat_id: str, text: str) -> int | None:
         raise RuntimeError("network boom")
 
-    monkeypatch.setattr(tg, "send_message", _failing_send)
+    monkeypatch.setattr(tg, "send_message_with_id", _failing_send)
 
     call_n = [0]
 
     async def _fake_sleep(s: float) -> None:
         call_n[0] += 1
         if call_n[0] == 1:
-            # Insert row so send_message is called (and fails)
+            # Insert row so send_message_with_id is called (and raises)
             _insert_question(db_path, qid="q1", prompt="failing", created_at=500.0)
         elif call_n[0] >= 4:
             raise asyncio.CancelledError()
@@ -756,3 +757,169 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
 
     assert fetched_offsets == [8], "Second run must use saved offset=8"
     app2.state.queue.create_task.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# send_message_with_id
+# ---------------------------------------------------------------------------
+
+class _JsonResp:
+    def __init__(self, body: dict) -> None:
+        self._data = json.dumps(body).encode()
+
+    def read(self) -> bytes:
+        return self._data
+
+    def __enter__(self) -> "_JsonResp":
+        return self
+
+    def __exit__(self, *a: object) -> None:
+        pass
+
+
+def test_send_message_with_id_returns_message_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Returns message_id int on a successful Telegram response."""
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda req, timeout=None: _JsonResp({"ok": True, "result": {"message_id": 42}}),
+    )
+    result = asyncio.run(tg.send_message_with_id("tok", "123", "hello"))
+    assert result == 42
+
+
+def test_send_message_with_id_returns_none_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Returns None when the HTTP call fails."""
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda req, timeout=None: (_ for _ in ()).throw(OSError("refused")),
+    )
+    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+
+
+def test_send_message_with_id_returns_none_when_ok_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Returns None when Telegram responds ok=false."""
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda req, timeout=None: _JsonResp({"ok": False, "description": "Bad Request"}),
+    )
+    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+
+
+def test_send_message_with_id_truncates_to_4096(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Text is truncated to 4096 chars before sending."""
+    lengths: list[int] = []
+
+    def _fake_urlopen(req, timeout=None):
+        lengths.append(len(json.loads(req.data.decode())["text"]))
+        return _JsonResp({"ok": True, "result": {"message_id": 1}})
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    asyncio.run(tg.send_message_with_id("tok", "cid", "x" * 5000))
+    assert lengths == [4096]
+
+
+# ---------------------------------------------------------------------------
+# record_question_message / lookup_question_for_message
+# ---------------------------------------------------------------------------
+
+def test_record_and_lookup_question_message(tmp_path: Path) -> None:
+    """Basic round-trip: record then look up."""
+    path = tmp_path / "q_msgs.json"
+    tg.record_question_message(path, 100, "q-abc")
+    assert tg.lookup_question_for_message(path, 100) == "q-abc"
+    assert tg.lookup_question_for_message(path, 999) is None
+
+
+def test_lookup_question_for_message_missing_file(tmp_path: Path) -> None:
+    """lookup returns None when the mapping file does not exist."""
+    assert tg.lookup_question_for_message(tmp_path / "missing.json", 1) is None
+
+
+def test_record_question_message_caps_at_200(tmp_path: Path) -> None:
+    """Oldest entries are evicted when the mapping exceeds 200 entries."""
+    path = tmp_path / "q_msgs.json"
+    for i in range(205):
+        tg.record_question_message(path, i, f"q-{i}")
+    mapping = json.loads(path.read_text())
+    assert len(mapping) == 200
+    # Oldest 5 entries evicted
+    for i in range(5):
+        assert str(i) not in mapping
+    assert "5" in mapping
+    assert "204" in mapping
+
+
+def test_record_question_message_overwrites_existing_key(tmp_path: Path) -> None:
+    """Recording the same message_id twice updates the value."""
+    path = tmp_path / "q_msgs.json"
+    tg.record_question_message(path, 1, "q-first")
+    tg.record_question_message(path, 1, "q-second")
+    assert tg.lookup_question_for_message(path, 1) == "q-second"
+
+
+def test_record_question_message_swallows_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OSError during write is swallowed; function must not raise."""
+    import pathlib
+
+    def _bad_write(self: Path, data: str, encoding: str | None = None, **kw: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pathlib.Path, "write_text", _bad_write)
+    # Must not raise
+    tg.record_question_message(tmp_path / "q_msgs.json", 1, "q-1")
+
+
+# ---------------------------------------------------------------------------
+# Poller records message_id -> question_id mapping
+# ---------------------------------------------------------------------------
+
+def test_poller_records_message_id_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When send_message_with_id returns a message_id the poller persists the mapping."""
+    db_path = tmp_path / "questions.db"
+    _create_questions_db(db_path)
+    _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
+
+    import fleet.serve.app as app_mod
+    import fleet.serve.routes.chat as chat_mod
+
+    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
+    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+
+    sent: list[str] = []
+
+    async def _fake_send_with_id(token: str, chat_id: str, text: str) -> int | None:
+        sent.append(text)
+        return 777
+
+    monkeypatch.setattr(tg, "send_message_with_id", _fake_send_with_id)
+
+    cfg = RuntimeConfig(telegram_chat_id="999")
+    fake_app = MagicMock()
+    fake_app.state.fleet_state.config = cfg
+    fake_app.state.fleet_state.fleet_home = tmp_path
+
+    call_n = [0]
+
+    async def _fake_sleep(s: float) -> None:
+        call_n[0] += 1
+        if call_n[0] == 1:
+            _insert_question(db_path, qid="q-new", prompt="ask me?", created_at=2000.0)
+        elif call_n[0] >= 3:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(app_mod._question_poller(fake_app))
+
+    assert len(sent) == 1
+    assert "ask me?" in sent[0]
+    mapping_path = tmp_path / "telegram_question_msgs.json"
+    assert mapping_path.exists()
+    mapping = json.loads(mapping_path.read_text())
+    assert mapping.get("777") == "q-new"
