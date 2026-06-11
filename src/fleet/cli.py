@@ -40,7 +40,7 @@ app = typer.Typer(
     help=(
         "fleet — parallel coding-agent supervisor.\n\n"
         "Pulls tasks from a centralized beads queue and runs them in parallel "
-        "through a coder CLI (claude, agy, or codex) in a headless loop. "
+        "through a coder CLI (claude, agy, codex, or opencode) in a headless loop. "
         "Each task carries its own project directory and optional coder/model "
         "override, so a single supervisor can drive work across many projects "
         "and agent backends from one machine.\n\n"

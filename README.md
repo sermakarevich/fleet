@@ -53,6 +53,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
 - [Inbound task creation from Telegram](#inbound-task-creation-from-telegram)
 - [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)
 - [The ask_human question broker (bundled MCP server)](#the-ask_human-question-broker-bundled-mcp-server)
+- [opencode coder](#opencode-coder)
 - [Adding a custom coder](#adding-a-custom-coder)
 
 ---
@@ -76,7 +77,7 @@ Requires:
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH`
 - [beads (`bd`)](https://github.com/gastownhall/beads) on your `PATH`
 - `git` on your `PATH` (beads stores its database inside a git repo)
-- At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, or `codex` (OpenAI Codex CLI)
+- At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, `codex` (OpenAI Codex CLI), or `opencode` (opencode CLI with Ollama backend)
 
 ---
 
@@ -185,7 +186,7 @@ so the supervisor knows where to spawn the agent. Pass `--json` to get the
 raw bd envelope back instead of the human-friendly summary line.
 
 `--coder` and `--model` are intercepted by fleet (not forwarded to `bd`):
-they're validated against the registered coders (`claude`, `agy`, `codex`)
+they're validated against the registered coders (`claude`, `agy`, `codex`, `opencode`)
 and persisted as per-task overrides in `task.json`, applied next time the
 supervisor claims the task. Always pass both together when overriding —
 or omit both to inherit the config defaults.
@@ -474,9 +475,9 @@ directly in the file.
 | Key | Default | Description |
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`. |
-| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`). |
-| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K). |
+| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`, `opencode`. |
+| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`; `opencode` maps it to an Ollama model, defaulting to `gpt-oss:20b`). |
+| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K, `opencode` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
 | `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
 | `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
@@ -778,9 +779,64 @@ On an options question the operator is never boxed in: a free-text `note` can su
 
 ---
 
+## opencode coder
+
+The `opencode` coder runs the [opencode](https://opencode.ai) CLI locally and routes LLM inference to an Ollama instance on a remote GPU box ("rtx") through an SSH tunnel.
+
+### Architecture
+
+- **Binary:** `opencode` on your `PATH` (tested with v1.3.17 at `~/.opencode/bin/opencode`).
+- **Backend:** Ollama on the rtx box, reached via an SSH tunnel: `127.0.0.1:11435` → `rtx:127.0.0.1:11434`. Port 11434 is reserved for a local Ollama install; fleet uses 11435.
+- **Config injection:** Before each spawn, fleet writes/refreshes an `ollama-rtx` provider entry in the target project's `opencode.json`. This is how opencode discovers the remote Ollama — environment variables (`OPENCODE_CONFIG`, `OLLAMA_HOST`) are ignored by opencode 1.3.17.
+
+### One-time setup
+
+Establish the tunnel once per session (or use VS Code's port-forward panel for port 11435):
+
+```bash
+just ollama-tunnel   # no-op if the tunnel is already up
+```
+
+To verify the backend is reachable:
+
+```bash
+curl http://127.0.0.1:11435/api/tags
+```
+
+### Default model
+
+The default model is **`gpt-oss:20b`** — a 13 GB model that fits the RTX 4090 and supports tool calls. Other models available on rtx: `qwen3.5:27b`, `deepseek-r1:32b`, `gemma4:26b`, `gemma4:31b`, etc.
+
+### Picking a different model per task
+
+Pass `--coder opencode --model <name>` at create time:
+
+```bash
+fleet bd create --coder opencode --model "qwen3.5:27b" --title "Heavy refactor on qwen"
+```
+
+The model string is resolved as follows:
+- Bare name (e.g. `qwen3.5:27b`) → `ollama-rtx/qwen3.5:27b`
+- Full provider/model id (e.g. `ollama-rtx/deepseek-r1:32b`) → used verbatim
+- Claude aliases (`sonnet`, `opus`, `haiku`) → replaced with `gpt-oss:20b` (fleet's global config default leaks these names into every coder)
+
+### FLEET_OPENCODE_OLLAMA_URL override
+
+If your tunnel uses a different port or host, set this env var before starting the supervisor:
+
+```bash
+export FLEET_OPENCODE_OLLAMA_URL="http://127.0.0.1:12345/v1"
+```
+
+### opencode.json in your project
+
+Fleet writes/refreshes an `ollama-rtx` provider entry in the target project's `opencode.json` before each spawn. Your other settings in that file (theme, other providers, etc.) are preserved. Whether to `gitignore` or commit `opencode.json` is up to you.
+
+---
+
 ## Adding a custom coder
 
-Fleet ships with three built-in coders (`claude`, `agy`, `codex`), but you can
+Fleet ships with four built-in coders (`claude`, `agy`, `codex`, `opencode`), but you can
 wrap any CLI agent in four small steps.
 
 ### Step 1 — Implement the `Coder` base class

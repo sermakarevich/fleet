@@ -47,3 +47,7 @@ set +PAIRS:
 # remove build artefacts and caches
 clean:
     rm -rf .pytest_cache .venv *.egg-info src/fleet/__pycache__ src/fleet/*/__pycache__ tests/__pycache__ tests/*/__pycache__
+
+# establish the ssh tunnel to rtx ollama (local 11435 -> rtx 11434); no-op if already up
+ollama-tunnel:
+    @curl -s --max-time 2 http://127.0.0.1:11435/api/tags > /dev/null 2>&1 && echo "tunnel already up (127.0.0.1:11435)" || (ssh -f -N -o ExitOnForwardFailure=no -L 11435:127.0.0.1:11434 rtx && echo "tunnel established (127.0.0.1:11435 -> rtx:11434)")

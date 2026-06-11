@@ -2,11 +2,13 @@ from fleet.coders.base import Coder
 from fleet.coders.claude import ClaudeCoder
 from fleet.coders.agy import AgyCoder
 from fleet.coders.codex import CodexCoder
+from fleet.coders.opencode import OpencodeCoder
 
 _REGISTRY: dict[str, type[Coder]] = {
     "claude": ClaudeCoder,
     "agy": AgyCoder,
     "codex": CodexCoder,
+    "opencode": OpencodeCoder,
 }
 
 
