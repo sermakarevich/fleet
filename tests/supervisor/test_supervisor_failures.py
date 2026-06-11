@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -341,3 +342,63 @@ def test_invalid_coder_does_not_freeze_task_meta(tmp_path: Path) -> None:
     s._spawn_runner(_task("t-004"))
 
     assert frozen == []
+
+
+# ---------------------------------------------------------------------------
+# Duplicate-claim guard: claim loop must not spawn a task already in flight
+# (e.g. a UI unblock / `bd update` flipped a running task back to claimable)
+# ---------------------------------------------------------------------------
+
+
+class _ClaimOnceQueue(StubQueue):
+    """claim_next returns the given task on the first call, then None."""
+
+    def __init__(self, task: Task) -> None:
+        super().__init__()
+        self._task = task
+        self.claims = 0
+
+    def claim_next(self, claimer_id):
+        self.claims += 1
+        return self._task if self.claims == 1 else None
+
+
+def _run_claim_loop_briefly(s: Supervisor, pre_in_flight: str | None) -> None:
+    async def _run() -> None:
+        fake_runner: asyncio.Task | None = None
+        if pre_in_flight is not None:
+            fake_runner = asyncio.create_task(asyncio.sleep(9999))
+            s.in_flight[pre_in_flight] = fake_runner
+        loop_task = asyncio.create_task(s._claim_and_spawn_loop())
+        await asyncio.sleep(0.1)
+        s._shutting_down = True
+        await asyncio.wait_for(loop_task, timeout=2)
+        if fake_runner is not None:
+            fake_runner.cancel()
+
+    asyncio.run(_run())
+
+
+def test_claim_loop_skips_task_already_in_flight(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.CLAIM_POLL_INTERVAL_SEC", 0.01)
+    queue = _ClaimOnceQueue(_task("t-dup"))
+    s = _make_supervisor(tmp_path, queue)
+    spawned: list[str] = []
+    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+
+    _run_claim_loop_briefly(s, pre_in_flight="t-dup")
+
+    assert queue.claims >= 1
+    assert spawned == []
+
+
+def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.supervisor.CLAIM_POLL_INTERVAL_SEC", 0.01)
+    queue = _ClaimOnceQueue(_task("t-new"))
+    s = _make_supervisor(tmp_path, queue)
+    spawned: list[str] = []
+    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+
+    _run_claim_loop_briefly(s, pre_in_flight=None)
+
+    assert spawned == ["t-new"]

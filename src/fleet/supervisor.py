@@ -110,6 +110,17 @@ class Supervisor:
             if decision == SpawnDecision.SPAWN:
                 task = self._queue.claim_next(claimer_id="supervisor")
                 if task is not None:
+                    if task.id in self.in_flight:
+                        # The task was flipped back to claimable externally
+                        # (UI unblock, `bd update`) while our runner is still
+                        # alive. Spawning again would orphan the live runner
+                        # and put two agents on the same working tree.
+                        self._log.warning(
+                            "task_already_in_flight",
+                            task_id=task.id,
+                            in_flight=len(self.in_flight),
+                        )
+                        continue
                     self._log.info(
                         "task_claimed",
                         task_id=task.id,
