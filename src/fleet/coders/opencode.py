@@ -146,7 +146,10 @@ class OpencodeCoder(Coder):
             return Event(kind="tool_use", raw=data, ts=ts, tool_name=tool_name)
 
         if t == "step_finish":
-            if part.get("reason") != "stop":
+            reason = part.get("reason")
+            if reason == "length":
+                return Event(kind="error", raw=data, ts=ts, session_id=session_id)
+            if reason != "stop":
                 return None
             tokens = part.get("tokens", {})
             cache = tokens.get("cache", {})

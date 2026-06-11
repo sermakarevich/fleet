@@ -16,6 +16,7 @@ _STEP_FINISH_TOOL_CALLS = '{"type":"step_finish","timestamp":1781181264225,"sess
 _TEXT = '{"type":"text","timestamp":1781181264469,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad324d001rlcct26AoaSGNK","messageID":"msg_eb6ad3164001I77nTRvr5Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"text","text":"DONE","time":{"start":1781181264468,"end":1781181264468}}}'
 _STEP_FINISH_STOP = '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad3255001219bWTz4Hcu2jt","reason":"stop","messageID":"msg_eb6ad3164001I77nTRvr5Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":10466,"input":10461,"output":5,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
 _TOOL_ERROR = '{"type":"tool_use","timestamp":1234,"sessionID":"ses_test","part":{"type":"tool","tool":"write","callID":"call_abc","state":{"status":"error"}}}'
+_STEP_FINISH_LENGTH = '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_xxx","reason":"length","messageID":"msg_xxx","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":131072,"input":131000,"output":72,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
 
 _SESSION_ID = "ses_14952f145ffe6i6cC5sr4MneT7"
 
@@ -206,6 +207,14 @@ def test_normalize_tool_completed_is_tool_result():
 
 def test_normalize_step_finish_tool_calls_returns_none():
     assert _coder().normalize_event(_STEP_FINISH_TOOL_CALLS) is None
+
+
+def test_normalize_step_finish_length_is_error():
+    # ollama returns finish_reason="length" when context is truncated; surface as error
+    evt = _coder().normalize_event(_STEP_FINISH_LENGTH)
+    assert evt is not None
+    assert evt.kind == "error"
+    assert evt.session_id == _SESSION_ID
 
 
 def test_normalize_text_is_assistant_text():
