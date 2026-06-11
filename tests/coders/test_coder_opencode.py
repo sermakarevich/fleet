@@ -263,11 +263,12 @@ def test_write_runtime_config_provider_entry_structure(tmp_path: Path):
     assert entry["models"]["gpt-oss:20b"]["tools"] is True
 
 
-def test_write_runtime_config_ollama_url_env_override(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("FLEET_OPENCODE_OLLAMA_URL", "http://127.0.0.1:12345/v1")
-    _coder().write_runtime_config(tmp_path, object())
-    data = json.loads((tmp_path / "opencode.json").read_text())
-    assert data["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
+def test_write_runtime_config_ollama_url_constructor(tmp_path: Path):
+    coder = OpencodeCoder(ollama_url="http://127.0.0.1:12345/v1")
+    task = _task()
+    coder.write_runtime_config(tmp_path, task)
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert cfg["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
 
 
 def test_write_runtime_config_preserves_foreign_keys(tmp_path: Path):

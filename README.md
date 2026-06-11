@@ -820,12 +820,12 @@ The model string is resolved as follows:
 - Full provider/model id (e.g. `ollama-rtx/deepseek-r1:32b`) → used verbatim
 - Claude aliases (`sonnet`, `opus`, `haiku`) → replaced with `gpt-oss:20b` (fleet's global config default leaks these names into every coder)
 
-### FLEET_OPENCODE_OLLAMA_URL override
+### opencode_ollama_url config key
 
-If your tunnel uses a different port or host, set this env var before starting the supervisor:
+If your tunnel uses a different port or host, set the `opencode_ollama_url` config key:
 
 ```bash
-export FLEET_OPENCODE_OLLAMA_URL="http://127.0.0.1:12345/v1"
+fleet config set opencode_ollama_url=http://127.0.0.1:12345/v1
 ```
 
 ### opencode.json in your project

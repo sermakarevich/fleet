@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,8 +33,9 @@ class OpencodeCoder(Coder):
     context_limit = 128_000
     default_model = "gpt-oss:20b"
 
-    def __init__(self, model: str = "gpt-oss:20b") -> None:
+    def __init__(self, model: str = "gpt-oss:20b", ollama_url: str = _DEFAULT_OLLAMA_URL) -> None:
         self.model = model
+        self.ollama_url = ollama_url
 
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
         artifacts_dir = task_dir / "artifacts"
@@ -78,7 +78,7 @@ class OpencodeCoder(Coder):
         provider_prefix = full_id.split("/", 1)[0]
         map_key = local_key if provider_prefix == _PROVIDER_ID else self.default_model
 
-        base_url = os.environ.get("FLEET_OPENCODE_OLLAMA_URL", _DEFAULT_OLLAMA_URL)
+        base_url = self.ollama_url
 
         ollama_entry = {
             "npm": "@ai-sdk/openai-compatible",

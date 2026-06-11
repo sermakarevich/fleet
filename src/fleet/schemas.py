@@ -81,3 +81,4 @@ class RuntimeConfig:
     telegram_chat_id: str = ""
     telegram_allowed_ids: str = ""
     telegram_default_cwd: str = ""
+    opencode_ollama_url: str = "http://127.0.0.1:11435/v1"

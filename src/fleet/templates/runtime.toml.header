@@ -14,3 +14,9 @@
 #
 # telegram_default_cwd: Working directory assigned to tasks created via Telegram.
 #   Empty string (default) leaves cwd unset on the created task.
+#
+# opencode_ollama_url: Base URL of the Ollama API used by the "opencode" coder.
+#   Defaults to http://127.0.0.1:11435/v1 (ssh tunnel to rtx GPU box).
+#   Override to point at a different Ollama instance, e.g. http://127.0.0.1:11434/v1
+#   for a local Ollama install.
+#   Set via: fleet config set opencode_ollama_url=http://...

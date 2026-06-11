@@ -131,7 +131,10 @@ class Supervisor:
         coder_name = task.coder or self.config.coder
         model = task.model or self.config.model
         coder_cls = get_coder(coder_name)
-        return coder_cls(model=model), coder_name, model
+        kwargs: dict = {}
+        if coder_name == "opencode":
+            kwargs["ollama_url"] = self.config.opencode_ollama_url
+        return coder_cls(model=model, **kwargs), coder_name, model
 
     def _spawn_runner(self, task: Task) -> None:
         # Purge any stale .kill sentinel from a previous run before registering
