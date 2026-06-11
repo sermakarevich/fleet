@@ -104,6 +104,7 @@ class Supervisor:
                 max_concurrent=self.config.max_concurrent,
                 threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
                 gauge=self.rate_gauge,
+                skip_rate_check=(self.config.coder != "claude"),
             )
 
             if decision == SpawnDecision.SPAWN:

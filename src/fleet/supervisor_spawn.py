@@ -25,9 +25,13 @@ class SpawnController:
         max_concurrent: int,
         threshold_pct: float,
         gauge: RateGauge,
+        skip_rate_check: bool = False,
     ) -> SpawnDecision:
         if in_flight >= max_concurrent:
             return SpawnDecision.PAUSED_FULL
+
+        if skip_rate_check:
+            return SpawnDecision.SPAWN
 
         current_pct = gauge.current_pct()
 

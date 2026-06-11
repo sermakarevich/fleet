@@ -200,3 +200,30 @@ def test_rate_limit_pause_log_includes_resets_at_none_when_missing() -> None:
     pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
     assert len(pause_logs) == 1
     assert pause_logs[0]["resets_at"] is None
+
+
+def test_skip_rate_check_spawns_despite_high_gauge() -> None:
+    # When skip_rate_check=True, a gauge above threshold must not block spawning.
+    d = _controller().decide(
+        in_flight=0, max_concurrent=3, threshold_pct=90.0,
+        gauge=_gauge(97.0), skip_rate_check=True,
+    )
+    assert d == SpawnDecision.SPAWN
+
+
+def test_skip_rate_check_still_respects_capacity() -> None:
+    # skip_rate_check=True does not bypass the capacity check.
+    d = _controller().decide(
+        in_flight=3, max_concurrent=3, threshold_pct=90.0,
+        gauge=_gauge(97.0), skip_rate_check=True,
+    )
+    assert d == SpawnDecision.PAUSED_FULL
+
+
+def test_skip_rate_check_false_is_default_behaviour() -> None:
+    # Omitting skip_rate_check (default False) retains existing gating.
+    d = _controller().decide(
+        in_flight=0, max_concurrent=3, threshold_pct=90.0,
+        gauge=_gauge(97.0),
+    )
+    assert d == SpawnDecision.PAUSED_RATE_LIMIT
