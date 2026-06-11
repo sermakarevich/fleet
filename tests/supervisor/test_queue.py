@@ -219,3 +219,34 @@ def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
     with patch("fleet.queue.subprocess.run", return_value=failed):
         with pytest.raises(BeadsError, match="issue not found"):
             q._bd("show", "nonexistent")
+
+
+def test_write_meta_atomic_leaves_no_tmp_file(tmp_path: Path) -> None:
+    """_write_meta renames a temp file into place and leaves nothing else behind."""
+    q = BeadsQueue(repo_root=tmp_path)
+
+    q.set_cwd("t-001", "/abs/project")
+
+    task_dir = tmp_path / "tasks" / "t-001"
+    import json
+    assert json.loads((task_dir / "task.json").read_text())["cwd"] == "/abs/project"
+    assert [p.name for p in task_dir.iterdir()] == ["task.json"]
+
+
+def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
+    """set_cwd keeps coder/model and any other fields already in task.json."""
+    q = BeadsQueue(repo_root=tmp_path)
+    task_dir = tmp_path / "tasks" / "t-001"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        '{"id": "t-001", "coder": "opencode", "model": "qwen3.6:latest"}',
+        encoding="utf-8",
+    )
+
+    q.set_cwd("t-001", "/abs/project")
+
+    import json
+    meta = json.loads((task_dir / "task.json").read_text())
+    assert meta["cwd"] == "/abs/project"
+    assert meta["coder"] == "opencode"
+    assert meta["model"] == "qwen3.6:latest"

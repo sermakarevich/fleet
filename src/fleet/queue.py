@@ -77,7 +77,13 @@ class BeadsQueue(Queue):
     def _write_meta(self, task_id: str, data: dict) -> None:
         path = self._meta_path(task_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # Write-then-rename so concurrent readers (UI, CLI, another
+        # supervisor) never see a half-written file: a torn read makes
+        # _load_meta return {}, and the next snapshot then silently drops
+        # fleet-managed fields that exist only in task.json (cwd).
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     def set_cwd(self, task_id: str, cwd: str) -> None:
         """Persist invocation cwd into task.json, preserving other fields if present."""

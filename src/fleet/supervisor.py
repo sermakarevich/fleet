@@ -155,6 +155,14 @@ class Supervisor:
         (self._project_root / "tasks" / task.id / ".kill").unlink(missing_ok=True)
 
         task_root = Path(task.cwd) if task.cwd else self._project_root
+        if task.cwd is None:
+            # Coding agents almost never mean to run in fleet's home; a
+            # missing cwd usually means task.json lost the field.
+            self._log.warning(
+                "task_cwd_missing",
+                task_id=task.id,
+                fallback_root=str(task_root),
+            )
         try:
             coder, coder_name, model = self._resolve_coder(task)
         except ValueError as exc:
