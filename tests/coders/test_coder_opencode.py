@@ -282,6 +282,8 @@ def test_write_runtime_config_preserves_foreign_keys(tmp_path: Path):
     assert data.get("theme") == "dark"
     assert "mine" in data["provider"]
     assert "ollama-rtx" in data["provider"]
+    assert "permission" in data
+    assert "mcp" in data
 
 
 def test_write_runtime_config_does_not_clobber_existing_schema(tmp_path: Path):
@@ -305,3 +307,26 @@ def test_write_runtime_config_idempotent(tmp_path: Path):
     _coder().write_runtime_config(tmp_path, object())
     second = (tmp_path / "opencode.json").read_bytes()
     assert first == second
+
+
+def test_write_runtime_config_permission_block(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert cfg["permission"] == {"external_directory": "allow"}
+
+
+def test_write_runtime_config_mcp_ask_human(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["mcp"]["ask-human"]
+    assert entry["type"] == "local"
+    assert any("fleet.ask_human.server" in part for part in entry["command"])
+
+
+def test_write_runtime_config_mcp_preserves_existing(tmp_path: Path):
+    existing = {"mcp": {"my-server": {"type": "local", "command": ["foo"]}}}
+    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert "my-server" in cfg["mcp"]
+    assert "ask-human" in cfg["mcp"]

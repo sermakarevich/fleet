@@ -90,13 +90,24 @@ class OpencodeCoder(Coder):
         provider: dict = dict(existing.get("provider", {}))
         provider[_PROVIDER_ID] = ollama_entry
 
+        fleet_root = Path(__file__).parent.parent.parent.parent
+        ask_human_entry = {
+            "type": "local",
+            "command": ["uv", "--directory", str(fleet_root), "run", "python", "-m", "fleet.ask_human.server"],
+            "enabled": True,
+        }
+        mcp: dict = dict(existing.get("mcp", {}))
+        mcp["ask-human"] = ask_human_entry
+
         result: dict = {}
         if "$schema" not in existing:
             result["$schema"] = "https://opencode.ai/config.json"
         for k, v in existing.items():
-            if k != "provider":
+            if k not in ("provider", "permission", "mcp"):
                 result[k] = v
         result["provider"] = provider
+        result["permission"] = {"external_directory": "allow"}
+        result["mcp"] = mcp
 
         target.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
