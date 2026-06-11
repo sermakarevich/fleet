@@ -26,12 +26,19 @@ def _coder() -> OpencodeCoder:
 
 
 def _task(task_id: str = "test-001", cwd: str | None = None) -> Task:
-    return Task(id=task_id, title="Test task", description="Do the thing.", status="in_progress", cwd=cwd)
+    return Task(
+        id=task_id,
+        title="Test task",
+        description="Do the thing.",
+        status="in_progress",
+        cwd=cwd,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+
 
 def test_get_coder_returns_opencode_class():
     assert get_coder("opencode") is OpencodeCoder
@@ -46,9 +53,46 @@ def test_opencode_coder_is_subclass_of_coder_base():
     assert issubclass(OpencodeCoder, Coder)
 
 
+def test_build_argv_context_limit_default():
+    coder = OpencodeCoder()
+    assert coder.context_limit == 128_000
+
+
+def test_build_argv_context_limit_custom():
+    coder = OpencodeCoder(context_limit=64_000)
+    assert coder.context_limit == 64_000
+
+
+def test_build_argv_default_model_custom_resolves_sonet():
+    # When default_model is "qwen3.6:latest", sonnet alias should resolve to it
+    argv = OpencodeCoder(model="sonnet", default_model="qwen3.6:latest").build_argv(
+        _task(), Path("/tmp")
+    )
+    idx = argv.index("--model")
+    assert argv[idx + 1] == "ollama-rtx/qwen3.6:latest"
+
+
+def test_build_argv_default_model_custom_used_directly():
+    # When default_model is a full provider model, it's used as-is
+    argv = OpencodeCoder(
+        model="qwen3.6:latest", default_model="qwen3.6:latest"
+    ).build_argv(_task(), Path("/tmp"))
+    idx = argv.index("--model")
+    assert argv[idx + 1] == "ollama-rtx/qwen3.6:latest"
+
+
+def test_write_runtime_config_default_model_in_provider_models(tmp_path: Path):
+    coder = OpencodeCoder(model="sonnet", default_model="qwen3.6:latest")
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["provider"]["ollama-rtx"]
+    assert "qwen3.6:latest" in entry["models"]
+
+
 # ---------------------------------------------------------------------------
 # build_argv
 # ---------------------------------------------------------------------------
+
 
 def test_build_argv_starts_with_opencode_run(tmp_path: Path):
     argv = _coder().build_argv(_task(), tmp_path)
@@ -75,7 +119,9 @@ def test_build_argv_uses_custom_model(tmp_path: Path):
 
 
 def test_build_argv_full_provider_model_passed_verbatim(tmp_path: Path):
-    argv = OpencodeCoder(model="ollama-rtx/deepseek-r1:32b").build_argv(_task(), tmp_path)
+    argv = OpencodeCoder(model="ollama-rtx/deepseek-r1:32b").build_argv(
+        _task(), tmp_path
+    )
     idx = argv.index("--model")
     assert argv[idx + 1] == "ollama-rtx/deepseek-r1:32b"
 
@@ -152,6 +198,7 @@ def test_default_model_attribute():
 # env
 # ---------------------------------------------------------------------------
 
+
 def test_env_includes_required_vars(tmp_path: Path):
     env = _coder().env(_task("t-42"), tmp_path)
     assert env["FLEET_TASK_ID"] == "t-42"
@@ -167,6 +214,7 @@ def test_env_exactly_three_keys(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # normalize_event — malformed / unknown
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_event_blank_returns_none():
     assert _coder().normalize_event("") is None
@@ -191,6 +239,7 @@ def test_normalize_event_unknown_type_returns_none():
 # normalize_event — real probe lines
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_step_start_is_session_started():
     evt = _coder().normalize_event(_STEP_START)
     assert evt is not None
@@ -205,8 +254,23 @@ def test_normalize_tool_completed_is_tool_result():
     assert evt.tool_name == "write"
 
 
-def test_normalize_step_finish_tool_calls_returns_none():
-    assert _coder().normalize_event(_STEP_FINISH_TOOL_CALLS) is None
+def test_normalize_step_finish_tool_calls_is_assistant_text_with_usage():
+    # step_finish with reason "tool-calls" should emit usage so the runner
+    # can track context growth mid-session (context-pressure reclaim).
+    evt = _coder().normalize_event(_STEP_FINISH_TOOL_CALLS)
+    assert evt is not None
+    assert evt.kind == "assistant_text"
+    assert evt.usage is not None
+    assert evt.usage["input_tokens"] == 10385
+    assert evt.usage["output_tokens"] == 135
+    assert evt.usage["cache_creation_input_tokens"] == 0
+    assert evt.usage["cache_read_input_tokens"] == 0
+
+
+def test_normalize_step_finish_tool_calls_no_tokens_returns_none():
+    # step_finish with a non-stop reason but no tokens payload → None
+    line = '{"type":"step_finish","timestamp":1781181264225,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_xxx","reason":"tool-calls","type":"step-finish"}}'
+    assert _coder().normalize_event(line) is None
 
 
 def test_normalize_step_finish_length_is_error():
@@ -252,6 +316,7 @@ def test_normalize_tool_error_is_error():
 # write_runtime_config
 # ---------------------------------------------------------------------------
 
+
 def test_write_runtime_config_fresh_dir_creates_file(tmp_path: Path):
     _coder().write_runtime_config(tmp_path, object())
     target = tmp_path / "opencode.json"
@@ -277,13 +342,18 @@ def test_write_runtime_config_ollama_url_constructor(tmp_path: Path):
     task = _task()
     coder.write_runtime_config(tmp_path, task)
     cfg = json.loads((tmp_path / "opencode.json").read_text())
-    assert cfg["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
+    assert (
+        cfg["provider"]["ollama-rtx"]["options"]["baseURL"]
+        == "http://127.0.0.1:12345/v1"
+    )
 
 
 def test_write_runtime_config_preserves_foreign_keys(tmp_path: Path):
     existing = {
         "theme": "dark",
-        "provider": {"mine": {"npm": "@custom/pkg", "name": "Mine", "options": {}, "models": {}}},
+        "provider": {
+            "mine": {"npm": "@custom/pkg", "name": "Mine", "options": {}, "models": {}}
+        },
     }
     (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
     _coder().write_runtime_config(tmp_path, object())
@@ -339,3 +409,85 @@ def test_write_runtime_config_mcp_preserves_existing(tmp_path: Path):
     cfg = json.loads((tmp_path / "opencode.json").read_text())
     assert "my-server" in cfg["mcp"]
     assert "ask-human" in cfg["mcp"]
+
+
+# ---------------------------------------------------------------------------
+# default_model / context_limit parameters
+# ---------------------------------------------------------------------------
+
+
+def test_default_model_constructor_defaults_to_gpt_oss():
+    coder = OpencodeCoder()
+    assert coder.model == "gpt-oss:20b"
+
+
+def test_default_context_limit_constructor():
+    coder = OpencodeCoder()
+    assert coder.context_limit == 128_000
+
+
+def test_build_argv_sonnet_with_custom_default_resolves_default():
+    argv = OpencodeCoder(model="sonnet", default_model="qwen3.5:27b").build_argv(
+        _task(), Path("/tmp")
+    )
+    idx = argv.index("--model")
+    assert argv[idx + 1] == "ollama-rtx/qwen3.5:27b"
+
+
+def test_build_argv_sonnet_with_gpt_oss_default_resolves_correctly():
+    argv = OpencodeCoder(model="sonnet", default_model="gpt-oss:20b").build_argv(
+        _task(), Path("/tmp")
+    )
+    idx = argv.index("--model")
+    assert argv[idx + 1] == "ollama-rtx/gpt-oss:20b"
+
+
+def test_build_argv_explicit_model_ignores_default():
+    argv = OpencodeCoder(
+        model="deepseek-r1:32b", default_model="gpt-oss:20b"
+    ).build_argv(_task(), Path("/tmp"))
+    idx = argv.index("--model")
+    assert argv[idx + 1] == "ollama-rtx/deepseek-r1:32b"
+
+
+def test_context_limit_custom_value():
+    coder = OpencodeCoder(context_limit=256_000)
+    assert coder.context_limit == 256_000
+
+
+def test_write_runtime_config_uses_default_model_in_entry(tmp_path: Path):
+    coder = OpencodeCoder(model="sonnet", default_model="qwen3.5:27b")
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["provider"]["ollama-rtx"]
+    assert "qwen3.5:27b" in entry["models"]
+    assert "gpt-oss:20b" not in entry["models"]
+
+
+def test_write_runtime_config_merges_existing_models_and_permissions(tmp_path: Path):
+    existing = {
+        "provider": {
+            "ollama-rtx": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Ollama (rtx)",
+                "options": {"baseURL": "http://127.0.0.1:11435/v1"},
+                "models": {"other-model": {"name": "other-model", "tools": True}},
+            }
+        },
+        "permission": {"bash": "ask"},
+    }
+    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["provider"]["ollama-rtx"]
+    assert "other-model" in entry["models"]
+    assert "gpt-oss:20b" in entry["models"]
+    assert cfg["permission"]["bash"] == "ask"
+    assert cfg["permission"]["external_directory"] == "allow"
+
+
+def test_write_runtime_config_no_tmp_file_left_behind(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    target = tmp_path / "opencode.json"
+    tmp = tmp_path / (target.name + ".tmp")
+    assert not tmp.exists()
