@@ -11,7 +11,14 @@ import structlog
 from fleet.coders.base import Coder
 from fleet.logging import append_event, open_task_log
 from fleet.queue import Queue
-from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord, SHUTDOWN_GRACE_SEC
+from fleet.schemas import (
+    Event,
+    RuntimeConfig,
+    Task,
+    TaskOutcome,
+    TaskOutcomeRecord,
+    SHUTDOWN_GRACE_SEC,
+)
 
 _STDERR_TAIL_BYTES = 2048
 
@@ -20,8 +27,10 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 def _input_tokens(usage: dict) -> int:
     """Sum prompt-side tokens for context tracking; missing or non-int fields → 0."""
+
     def _int(v: object) -> int:
         return v if isinstance(v, int) and not isinstance(v, bool) else 0
+
     return (
         _int(usage.get("input_tokens"))
         + _int(usage.get("cache_creation_input_tokens"))
@@ -89,6 +98,8 @@ class TaskRunner:
             argv = self._coder.build_argv(task, task_dir)
             extra_env = self._coder.env(task, task_dir)
             proc_env = {**os.environ, **extra_env}
+            if "BEADS_DIR" not in proc_env:
+                proc_env["BEADS_DIR"] = str(self._fleet_home / ".beads")
 
             task_log.log.info(
                 "subprocess_started",
@@ -117,6 +128,7 @@ class TaskRunner:
 
             outcome: TaskOutcomeRecord | None = None
             peak_context_tokens: int = 0
+            _logged_session_started = False
 
             assert proc.stdout is not None
             # Default StreamReader limit is 64 KB; large MCP tool results (e.g. full
@@ -145,22 +157,22 @@ class TaskRunner:
 
                 append_event(task_dir, evt)
 
-                if evt.kind == "session_started":
+                if evt.kind == "session_started" and not _logged_session_started:
+                    _logged_session_started = True
                     self._log.info("agent_session_started")
                 elif evt.kind == "tool_use":
                     self._log.info(
                         "agent_tool_use",
-                        tool=evt.raw.get("tool_name") or evt.raw.get("name"),
+                        tool=evt.tool_name
+                        or evt.raw.get("tool_name")
+                        or evt.raw.get("name"),
                     )
                 elif evt.kind == "session_ended":
                     self._log.info("agent_session_ended")
 
                 if evt.kind == "rate_limit_info":
                     self._rate_gauge.update(evt)
-                elif (
-                    evt.usage is not None
-                    and evt.kind != "session_ended"
-                ):
+                elif evt.usage is not None and evt.kind != "session_ended":
                     prompt = _input_tokens(evt.usage)
                     if prompt > 0:
                         peak_context_tokens = max(peak_context_tokens, prompt)

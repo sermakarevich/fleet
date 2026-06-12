@@ -137,3 +137,36 @@ def test_write_atomic_valid_coder_round_trips(tmp_path):
     result = write_atomic(cfg_path, {"coder": "codex"})
     assert result.coder == "codex"
     assert load(cfg_path).coder == "codex"
+
+
+def test_write_atomic_opencode_keys_round_trip(tmp_path):
+    cfg_path = tmp_path / "runtime.toml"
+    load(cfg_path)
+
+    result = write_atomic(
+        cfg_path,
+        {
+            "opencode_context_limit": "256000",
+            "opencode_default_model": "qwen3.6:latest",
+        },
+    )
+    assert result.opencode_context_limit == 256_000
+    assert result.opencode_default_model == "qwen3.6:latest"
+    reloaded = load(cfg_path)
+    assert reloaded.opencode_context_limit == 256_000
+    assert reloaded.opencode_default_model == "qwen3.6:latest"
+
+
+def test_load_picks_up_opencode_keys_from_toml(tmp_path):
+    cfg_path = tmp_path / "runtime.toml"
+    cfg_path.write_text(
+        """opencode_context_limit = 64000
+opencode_default_model = "qwen3.6:latest"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load(cfg_path)
+
+    assert cfg.opencode_context_limit == 64_000
+    assert cfg.opencode_default_model == "qwen3.6:latest"

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
+
 
 class StubCoder:
     name = "stub"
@@ -64,7 +66,9 @@ class StubQueue:
         pass
 
     def get(self, task_id: str) -> Task:
-        return Task(id=task_id, title="Test", description=None, status=self._task_status)
+        return Task(
+            id=task_id, title="Test", description=None, status=self._task_status
+        )
 
     def list_ready(self, limit: int = 50) -> list[Task]:
         return []
@@ -87,7 +91,9 @@ def _make_runner(
     config: RuntimeConfig | None = None,
     context_limit: int = 200_000,
 ) -> tuple[TaskRunner, StubQueue, StubRateGauge]:
-    task = Task(id=task_id, title="Test task", description="Do the thing.", status="in_progress")
+    task = Task(
+        id=task_id, title="Test task", description="Do the thing.", status="in_progress"
+    )
     queue = StubQueue(task_status=task_status)
     gauge = StubRateGauge()
     runner = TaskRunner(
@@ -107,8 +113,13 @@ def _make_runner(
 # Test: Clean-exit SUCCESS
 # ---------------------------------------------------------------------------
 
+
 def test_clean_exit_returns_success(tmp_path: Path) -> None:
-    lines = [l for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines() if l.strip()]
+    lines = [
+        l
+        for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
+        if l.strip()
+    ]
     script = (
         "import sys\n"
         f"lines = {lines!r}\n"
@@ -125,7 +136,11 @@ def test_clean_exit_returns_success(tmp_path: Path) -> None:
 
 
 def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
-    lines = [l for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines() if l.strip()]
+    lines = [
+        l
+        for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
+        if l.strip()
+    ]
     script = (
         "import sys\n"
         f"lines = {lines!r}\n"
@@ -144,7 +159,9 @@ def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
 
 
 def test_clean_exit_creates_task_dir(tmp_path: Path) -> None:
-    runner, _, _ = _make_runner(tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"])
+    runner, _, _ = _make_runner(
+        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+    )
 
     asyncio.run(runner.run())
 
@@ -154,7 +171,9 @@ def test_clean_exit_creates_task_dir(tmp_path: Path) -> None:
 
 
 def test_runner_creates_plan_and_status_and_knowledge_stubs(tmp_path: Path) -> None:
-    runner, _, _ = _make_runner(tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"])
+    runner, _, _ = _make_runner(
+        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+    )
 
     asyncio.run(runner.run())
 
@@ -176,7 +195,9 @@ def test_runner_does_not_overwrite_existing_stubs(tmp_path: Path) -> None:
     (artifacts_dir / "PLAN_AND_STATUS.md").write_text("custom plan content")
     (artifacts_dir / "KNOWLEDGE.md").write_text("custom knowledge content")
 
-    runner, _, _ = _make_runner(tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"])
+    runner, _, _ = _make_runner(
+        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+    )
 
     asyncio.run(runner.run())
 
@@ -211,8 +232,11 @@ def test_runner_calls_write_runtime_config_before_spawn(tmp_path: Path) -> None:
 # Test: Rate-limit rejection → RATE_LIMIT + queue.release
 # ---------------------------------------------------------------------------
 
+
 def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
-    rate_event = json.dumps({"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999})
+    rate_event = json.dumps(
+        {"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999}
+    )
     script = (
         "import sys, time\n"
         f"sys.stdout.write({rate_event!r} + '\\n')\n"
@@ -231,7 +255,9 @@ def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
 
 
 def test_rate_limit_calls_queue_release(tmp_path: Path) -> None:
-    rate_event = json.dumps({"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999})
+    rate_event = json.dumps(
+        {"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999}
+    )
     script = (
         "import sys, time\n"
         f"sys.stdout.write({rate_event!r} + '\\n')\n"
@@ -313,6 +339,7 @@ def test_context_pressure_wins_over_rc0(tmp_path: Path) -> None:
 # Test: Non-zero rc → FAILURE + stderr_tail
 # ---------------------------------------------------------------------------
 
+
 def test_nonzero_rc_returns_failure(tmp_path: Path) -> None:
     script = (
         "import sys\n"
@@ -347,6 +374,7 @@ def test_nonzero_rc_populates_stderr_tail(tmp_path: Path) -> None:
 # Test: cancel() → SIGKILL escalation when child ignores SIGTERM
 # ---------------------------------------------------------------------------
 
+
 def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
     script = (
         "import signal, time\n"
@@ -373,13 +401,16 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
 # Test: Context pressure from usage (works for any coder emitting usage data)
 # ---------------------------------------------------------------------------
 
+
 def _usage_script(input_tokens: int) -> str:
     """Script that emits one assistant event with the given input_tokens then sleeps."""
-    event = json.dumps({
-        "type": "assistant",
-        "message": {"content": [], "usage": {"input_tokens": input_tokens}},
-        "session_id": "s-ctx",
-    })
+    event = json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": input_tokens}},
+            "session_id": "s-ctx",
+        }
+    )
     return (
         "import sys\n"
         f"sys.stdout.write({event!r} + '\\n')\n"
@@ -417,7 +448,9 @@ def test_context_pressure_from_usage_flag_removed(tmp_path: Path) -> None:
     assert not cp_flag.exists()
 
 
-def test_context_pressure_from_usage_not_triggered_below_threshold(tmp_path: Path) -> None:
+def test_context_pressure_from_usage_not_triggered_below_threshold(
+    tmp_path: Path,
+) -> None:
     """Usage below threshold does not trigger context pressure; process exits normally."""
     runner, _, _ = _make_runner(
         tmp_path,
@@ -467,3 +500,168 @@ def test_context_pressure_from_usage_uses_coder_context_limit(tmp_path: Path) ->
     result = asyncio.run(runner.run())
 
     assert result.outcome == TaskOutcome.SUCCESS
+
+
+# ---------------------------------------------------------------------------
+# Test: BEADS_DIR injection
+# ---------------------------------------------------------------------------
+
+
+def test_beads_dir_injected_into_subprocess(tmp_path: Path) -> None:
+    """Agent subprocess receives BEADS_DIR ending with '.beads'."""
+    beads_dir = str(tmp_path / ".beads")
+    script = (
+        "import os, sys\n"
+        f"sys.exit(0 if os.environ.get('BEADS_DIR','') == {beads_dir!r} else 3)\n"
+    )
+    runner, _, _ = _make_runner(tmp_path, argv=[sys.executable, "-c", script])
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+    assert result.exit_code == 0
+
+
+class _BeadsDirCoder(StubCoder):
+    """StubCoder that returns an explicit BEADS_DIR in env."""
+
+    def env(self, task: Task, task_dir: Path) -> dict[str, str]:
+        env = super().env(task, task_dir)
+        env["BEADS_DIR"] = "/custom/.beads"
+        return env
+
+
+def test_subprocess_sees_coder_provided_beads_dir(tmp_path: Path) -> None:
+    """When coder provides BEADS_DIR, TaskRunner must not override it."""
+    script = (
+        "import os, sys\n"
+        "sys.exit(0 if os.environ.get('BEADS_DIR') == '/custom/.beads' else 3)\n"
+    )
+    task = Task(id="t-002", title="Test task", description=None, status="in_progress")
+    coder = _BeadsDirCoder(argv=[sys.executable, "-c", script])
+    runner = TaskRunner(
+        task=task,
+        coder=coder,
+        queue=StubQueue(),
+        config=RuntimeConfig(),
+        rate_gauge=StubRateGauge(),
+        project_root=tmp_path,
+        fleet_home=tmp_path,
+        log=structlog.get_logger(),
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+    assert result.exit_code == 0
+
+
+# -----------------------------------------------------------------------
+# Test: tool_use log records tool name from normalized field
+# -----------------------------------------------------------------------
+
+
+class _ToolUseCoder(StubCoder):
+    def __init__(self, tool_name: str) -> None:
+        super().__init__(argv=[sys.executable, "-c", tool_use_script])
+        self._tool_name = tool_name
+
+    def normalize_event(self, raw_line: str) -> Event | None:
+        if "emit_tool_use" in raw_line:
+            return Event(
+                kind="tool_use",
+                raw={"name": self._tool_name},
+                ts=datetime.now(),
+                tool_name=self._tool_name,
+            )
+        return self._cli.normalize_event(raw_line)
+
+
+tool_use_event_json = json.dumps({"_": True, "emit_tool_use": True})
+tool_use_script = (
+    "import sys\n"
+    f"sys.stdout.write({tool_use_event_json!r} + '\\n')\n"
+    "sys.stdout.flush()\n"
+    "sys.exit(0)\n"
+)
+
+
+def test_runner_logs_tool_use_name(tmp_path: Path) -> None:
+    """Coder emitting a tool_use event -> events.jsonl contains it with correct tool_name."""
+    coder = _ToolUseCoder("bash")
+    task = Task(id="t-tu", title="Test task", description=None, status="in_progress")
+    runner = TaskRunner(
+        task=task,
+        coder=coder,
+        queue=StubQueue(),
+        config=RuntimeConfig(),
+        rate_gauge=StubRateGauge(),
+        project_root=tmp_path,
+        fleet_home=tmp_path,
+        log=structlog.get_logger(),
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+    events_path = tmp_path / "tasks" / "t-tu" / "events.jsonl"
+    records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    tool_use_records = [r for r in records if r.get("kind") == "tool_use"]
+    assert len(tool_use_records) >= 1
+    assert tool_use_records[-1].get("tool_name") == "bash"
+
+
+# -----------------------------------------------------------------------
+# Test: session_started dedup – multiple events, only one log line
+# -----------------------------------------------------------------------
+
+
+class _SessionStartedCoder(StubCoder):
+    def __init__(self) -> None:
+        super().__init__(argv=[sys.executable, "-c", ss_script])
+        self._count = 0
+
+    def normalize_event(self, raw_line: str) -> Event | None:
+        if "emit_session" in raw_line:
+            self._count += 1
+            sid = f"s-{self._count}"
+            return Event(
+                kind="session_started",
+                raw={"session_id": sid},
+                ts=datetime.now(),
+                session_id=sid,
+            )
+        return None
+
+
+ss_event_1 = json.dumps({"_": True, "emit_session": True, "session_id": "s-1"})
+ss_event_2 = json.dumps({"_": True, "emit_session": True, "session_id": "s-2"})
+ss_script = (
+    "import sys\n"
+    f"sys.stdout.write({ss_event_1!r} + '\\n' + {ss_event_2!r} + '\\n')\n"
+    "sys.stdout.flush()\n"
+    "sys.exit(0)\n"
+)
+
+
+def test_session_started_dedup(tmp_path: Path) -> None:
+    """Two session_started events -> both in events.jsonl, run completes SUCCESS."""
+    coder = _SessionStartedCoder()
+    task = Task(id="t-ss", title="Test task", description=None, status="in_progress")
+    runner = TaskRunner(
+        task=task,
+        coder=coder,
+        queue=StubQueue(),
+        config=RuntimeConfig(),
+        rate_gauge=StubRateGauge(),
+        project_root=tmp_path,
+        fleet_home=tmp_path,
+        log=structlog.get_logger(),
+    )
+
+    asyncio.run(runner.run())
+
+    events_path = tmp_path / "tasks" / "t-ss" / "events.jsonl"
+    records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    session_started_records = [r for r in records if r.get("kind") == "session_started"]
+    assert len(session_started_records) == 2

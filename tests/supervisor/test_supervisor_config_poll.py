@@ -7,7 +7,14 @@ from pathlib import Path
 import structlog
 
 from fleet.config import write_atomic
-from fleet.schemas import Event, RATE_LIMIT_THRESHOLD_PCT, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.schemas import (
+    Event,
+    RATE_LIMIT_THRESHOLD_PCT,
+    RuntimeConfig,
+    Task,
+    TaskOutcome,
+    TaskOutcomeRecord,
+)
 from fleet.supervisor import Supervisor
 from fleet.supervisor_spawn import SpawnDecision
 
@@ -59,7 +66,9 @@ class TrackingQueue:
         return []
 
 
-def _make_supervisor(tmp_path: Path, queue: TrackingQueue, config: RuntimeConfig | None = None) -> Supervisor:
+def _make_supervisor(
+    tmp_path: Path, queue: TrackingQueue, config: RuntimeConfig | None = None
+) -> Supervisor:
     s = Supervisor(
         coder=StubCoder(),
         queue=queue,
@@ -92,7 +101,9 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
 
             t = asyncio.create_task(forever())
             s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+            s.in_flight_tasks[task_id] = Task(
+                id=task_id, title="T", description=None, status="in_progress"
+            )
 
         initial_count = len(s.in_flight)
 
@@ -122,7 +133,9 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: Path) -> None:
+def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
+    tmp_path: Path,
+) -> None:
     """After lowering cap, spawn remains blocked until in-flight count falls below new cap."""
     queue = TrackingQueue()
     s = _make_supervisor(tmp_path, queue)
@@ -139,7 +152,9 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
 
             t = asyncio.create_task(forever())
             s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+            s.in_flight_tasks[task_id] = Task(
+                id=task_id, title="T", description=None, status="in_progress"
+            )
 
         decision = s.spawn_controller.decide(
             in_flight=len(s.in_flight),
@@ -201,7 +216,9 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(tmp_path: P
 # ---------------------------------------------------------------------------
 
 
-def test_rate_threshold_blocks_spawning_when_gauge_above_threshold(tmp_path: Path) -> None:
+def test_rate_threshold_blocks_spawning_when_gauge_above_threshold(
+    tmp_path: Path,
+) -> None:
     """When gauge > RATE_LIMIT_THRESHOLD_PCT, controller returns PAUSED_RATE_LIMIT."""
     queue = TrackingQueue()
     s = _make_supervisor(tmp_path, queue)
@@ -260,7 +277,9 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
 
             t = asyncio.create_task(forever())
             s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+            s.in_flight_tasks[task_id] = Task(
+                id=task_id, title="T", description=None, status="in_progress"
+            )
 
         initial_count = len(s.in_flight)
 
@@ -325,3 +344,53 @@ def test_config_poll_loop_detects_file_change(tmp_path: Path, monkeypatch) -> No
             pass
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# _resolve_coder — opencode kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_coder_opencode_passes_context_limit_and_default_model(tmp_path: Path):
+    """When coder_name == 'opencode', _resolve_coder passes context_limit and default_model."""
+    queue = TrackingQueue()
+    runtime_toml = tmp_path / "runtime.toml"
+    write_atomic(
+        runtime_toml,
+        {
+            "opencode_context_limit": "256000",
+            "opencode_default_model": "qwen3.6:latest",
+        },
+    )
+    from fleet.coders.opencode import OpencodeCoder
+    from fleet.schemas import RuntimeConfig
+
+    # Load config from file to get the values
+    # We manually set them since write_atomic writes strings
+    s = Supervisor(
+        coder=None,
+        queue=queue,
+        runtime_toml_path=runtime_toml,
+        project_root=tmp_path,
+        log=structlog.get_logger(),
+    )
+    s.config = RuntimeConfig(
+        coder="opencode",
+        opencode_context_limit=256_000,
+        opencode_default_model="qwen3.6:latest",
+    )
+
+    task = Task(
+        id="t-opencode-01",
+        title="Opencode test",
+        description=None,
+        status="in_progress",
+        cwd=str(tmp_path),
+    )
+    coder, coder_name, model = s._resolve_coder(task)
+
+    assert coder_name == "opencode"
+    assert isinstance(coder, OpencodeCoder)
+    assert coder.context_limit == 256_000
+    assert coder.default_model == "qwen3.6:latest"
+    assert coder.model == "sonnet"  # falls back to RuntimeConfig.model

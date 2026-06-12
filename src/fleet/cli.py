@@ -1,4 +1,5 @@
 """fleet CLI — typer-based surface for the fleet supervisor (FR-32)."""
+
 from __future__ import annotations
 
 import argparse
@@ -34,6 +35,7 @@ from fleet.serve.stats import (
     task_runtime_stats,
 )
 from fleet.supervisor import Supervisor
+from fleet import tailview
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -71,7 +73,9 @@ def _queue() -> BeadsQueue:
 
 @app.command()
 def init(
-    force: Annotated[bool, typer.Option("--force", help="Re-init even if .beads already exists.")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Re-init even if .beads already exists.")
+    ] = False,
 ) -> None:
     """Initialize the fleet home directory (beads + defaults)."""
     home = _fleet_home()
@@ -101,7 +105,9 @@ def init(
 
 @app.command()
 def ready(
-    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", help="Maximum tasks to list.")
+    ] = 50,
 ) -> None:
     """List ready tasks."""
     q = _queue()
@@ -122,7 +128,9 @@ def ready(
 @app.command()
 def show(
     task_id: Annotated[str, typer.Argument(help="Task ID.")],
-    json_output: Annotated[bool, typer.Option("--json", help="Emit raw bd show JSON envelope.")] = False,
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Emit raw bd show JSON envelope.")
+    ] = False,
 ) -> None:
     """Show one task."""
     root = _fleet_home()
@@ -200,7 +208,7 @@ def _extract_flag(args: list[str], flag: str) -> tuple[list[str], str | None]:
                 i += 1
             continue
         if token.startswith(eq_prefix):
-            value = token[len(eq_prefix):]
+            value = token[len(eq_prefix) :]
             i += 1
             continue
         out.append(token)
@@ -397,9 +405,7 @@ def _report_start(daemon: Daemon, result: StartResult, label: str) -> None:
         _console.print(f"[yellow]{label} already running[/] (pid {result.pid}).")
         return
     if not result.alive:
-        _console.print(
-            f"[red]{label} failed to start[/] — process exited immediately."
-        )
+        _console.print(f"[red]{label} failed to start[/] — process exited immediately.")
         _tail_logfile(daemon.spec.logfile)
         raise typer.Exit(1)
     _console.print(
@@ -422,7 +428,11 @@ def _report_status(daemon: Daemon, label: str) -> None:
         parts.append(f"fingerprint {st.version_fingerprint}")
     _console.print(f"{label}: [green]running[/] ({', '.join(parts)})")
     if st.stale:
-        _restart_cmd = "fleet run restart" if daemon.spec.name == "supervisor" else "fleet serve restart"
+        _restart_cmd = (
+            "fleet run restart"
+            if daemon.spec.name == "supervisor"
+            else "fleet serve restart"
+        )
         _console.print(
             f"[bold yellow]⚠  {label} is running stale code[/] — "
             f"run [bold]{_restart_cmd}[/] to pick up changes."
@@ -446,7 +456,9 @@ def _build_ui() -> None:
     _console.print("Building UI ([bold]make ui-build[/])…")
     result = subprocess.run(["make", "ui-build"], cwd=str(repo_root))
     if result.returncode != 0:
-        _console.print("[red]UI build failed[/] — leaving the running server untouched.")
+        _console.print(
+            "[red]UI build failed[/] — leaving the running server untouched."
+        )
         raise typer.Exit(result.returncode)
     _console.print("[green]UI build complete.[/]")
 
@@ -532,7 +544,9 @@ app.add_typer(serve_app, name="serve")
 
 @serve_app.command("foreground")
 def serve_foreground(
-    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
+    port: Annotated[
+        int, typer.Option("--port", help="Port to listen on.")
+    ] = DEFAULT_SERVE_PORT,
 ) -> None:
     """Run the UI server in the foreground (blocks). This is what `start` execs."""
     import uvicorn
@@ -547,7 +561,9 @@ def serve_foreground(
 
 @serve_app.command("start")
 def serve_start(
-    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
+    port: Annotated[
+        int, typer.Option("--port", help="Port to listen on.")
+    ] = DEFAULT_SERVE_PORT,
 ) -> None:
     """Start the UI server as a background daemon on 127.0.0.1 (FR-48, FR-49)."""
     daemon = Daemon(_serve_spec(port))
@@ -566,7 +582,9 @@ def serve_stop() -> None:
 def serve_restart(
     port: Annotated[
         Optional[int],
-        typer.Option("--port", help="Port to listen on (default: reuse the running port)."),
+        typer.Option(
+            "--port", help="Port to listen on (default: reuse the running port)."
+        ),
     ] = None,
     no_build: Annotated[
         bool, typer.Option("--no-build", help="Skip `make ui-build` before restarting.")
@@ -801,7 +819,9 @@ def kill_cmd(
 
 @app.command("tasks")
 def tasks_cmd(
-    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", help="Maximum tasks to list.")
+    ] = 50,
 ) -> None:
     """List currently running tasks with start time, elapsed, idle, context usage, events."""
     q = _queue()
@@ -845,9 +865,7 @@ def _running_tasks_help_text() -> str:
     for t in tasks:
         coder = t.coder or default_coder
         model = t.model or default_model
-        rows.append(
-            f"  {t.id:<{width}}[{coder}/{model}]  {t.title}"
-        )
+        rows.append(f"  {t.id:<{width}}[{coder}/{model}]  {t.title}")
     # Double newlines preserve line breaks through typer's rich epilog renderer,
     # which collapses single newlines within a paragraph to spaces.
     return header + "\n\n" + "\n\n".join(rows)
@@ -898,6 +916,143 @@ def task_cmd(
 
 
 # ---------------------------------------------------------------------------
+# tail
+# ---------------------------------------------------------------------------
+
+
+def _task_events_path(task_id: str) -> Path:
+    """Return the path to <task_dir>/events.jsonl for *task_id*."""
+    return _task_dir(task_id) / "events.jsonl"
+
+
+@app.command("tail")
+def tail_cmd(
+    task_id: Annotated[str, typer.Argument(help="Task ID.")],
+    n: Annotated[
+        int,
+        typer.Option("--lines", "-n", help="Number of last rendered lines to show."),
+    ] = 30,
+    follow: Annotated[
+        bool,
+        typer.Option("--follow", "-f", help="Follow new events as they arrive."),
+    ] = False,
+) -> None:
+    """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
+    events_path = _task_events_path(task_id)
+    task_dir_path = _task_dir(task_id)
+
+    if not task_dir_path.exists():
+        typer.echo(f"No task directory for {task_id} at {task_dir_path}", err=True)
+        raise typer.Exit(1)
+
+    # If events.jsonl does not exist yet, still print header; --follow will wait.
+    if not events_path.exists():
+        stats = _task_runtime_stats(task_id)
+        typer.echo(f"{task_id}  events=0  last_event=-  context_tokens=-")
+        typer.echo("(events.jsonl does not exist yet)")
+        if not follow:
+            return
+        # wait until it appears
+        while not events_path.exists():
+            import time
+
+            time.sleep(1)
+        # fall through to normal path
+
+    # Header
+    stats = _task_runtime_stats(task_id)
+    last_event_str = (
+        stats.last_event_at.strftime("%H:%M:%S")
+        if stats.last_event_at is not None
+        else "-"
+    )
+    ctx = stats.context_tokens if stats.context_tokens is not None else "-"
+    typer.echo(
+        f"{task_id}  events={stats.events}  last_event={last_event_str}  context_tokens={ctx}"
+    )
+
+    # Read and render all lines
+    try:
+        raw_lines = events_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        typer.echo(f"Error: cannot read {events_path}", err=True)
+        raise typer.Exit(1)
+
+    rendered = tailview.render_lines(raw_lines)
+
+    if not rendered:
+        typer.echo("(no renderable events)")
+        return
+
+    # Show last N lines
+    if n > 0:
+        display = rendered[-n:]
+    else:
+        display = rendered
+
+    for line in display:
+        typer.echo(line)
+
+    if follow:
+        _tail_follow(events_path, n)
+
+
+def _tail_follow(events_path: Path, buffer_n: int) -> None:
+    """Follow events.jsonl incrementally, rendering new lines as they arrive."""
+    import time
+    import sys
+    from pathlib import Path as _Path
+
+    # Start from end of file
+    try:
+        offset = events_path.stat().st_size
+    except OSError:
+        return
+
+    remainder = ""
+    state: dict = {"last_session": None}
+
+    try:
+        while True:
+            time.sleep(1)
+            try:
+                current_size = events_path.stat().st_size
+            except OSError:
+                continue
+            if current_size <= offset:
+                continue
+
+            # Read new bytes from offset
+            with events_path.open("r", encoding="utf-8") as fh:
+                fh.seek(offset)
+                new_bytes = fh.read()
+            offset = fh.tell()
+
+            # Combine remainder + new bytes, but keep partial last line
+            chunk = remainder + new_bytes
+            remainder = ""
+
+            if "\n" in chunk:
+                lines_part, remainder = chunk.rsplit("\n", 1)
+            else:
+                lines_part = chunk
+                remainder = ""
+
+            if not lines_part.strip():
+                continue
+
+            new_lines = lines_part.splitlines()
+            rendered = tailview.render_lines(new_lines)
+            if rendered:
+                display = rendered[-buffer_n:] if buffer_n > 0 else rendered
+                for line in display:
+                    typer.echo(line)
+
+    except KeyboardInterrupt:
+        sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
 # Config sub-commands
 # ---------------------------------------------------------------------------
 
@@ -923,13 +1078,19 @@ def config_show(
 
 @config_app.command("set")
 def config_set(
-    pairs: Annotated[list[str], typer.Argument(metavar="key=value", help="One or more key=value pairs.")],
+    pairs: Annotated[
+        list[str],
+        typer.Argument(metavar="key=value", help="One or more key=value pairs."),
+    ],
 ) -> None:
     """Update one or more runtime config keys atomically."""
     updates: dict[str, str] = {}
     for pair in pairs:
         if "=" not in pair:
-            typer.echo(f"Error: invalid argument {pair!r} — expected key=value format.", err=True)
+            typer.echo(
+                f"Error: invalid argument {pair!r} — expected key=value format.",
+                err=True,
+            )
             raise typer.Exit(1)
         k, _, v = pair.partition("=")
         updates[k.strip()] = v.strip()
@@ -980,7 +1141,9 @@ def telegram_status() -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     cfg = load_config(_runtime_toml_path())
 
-    typer.echo(f"{'TELEGRAM_BOT_TOKEN':<{_TELE_W}} {_mask_token(token) if token else '(not set)'}")
+    typer.echo(
+        f"{'TELEGRAM_BOT_TOKEN':<{_TELE_W}} {_mask_token(token) if token else '(not set)'}"
+    )
 
     bot_ok = False
     if token:
@@ -996,15 +1159,25 @@ def telegram_status() -> None:
 
     typer.echo("")
     typer.echo(f"{'telegram_chat_id':<{_TELE_W}} {cfg.telegram_chat_id or '(not set)'}")
-    typer.echo(f"{'telegram_allowed_ids':<{_TELE_W}} {cfg.telegram_allowed_ids or '(not set)'}")
-    typer.echo(f"{'telegram_default_cwd':<{_TELE_W}} {cfg.telegram_default_cwd or '(not set)'}")
+    typer.echo(
+        f"{'telegram_allowed_ids':<{_TELE_W}} {cfg.telegram_allowed_ids or '(not set)'}"
+    )
+    typer.echo(
+        f"{'telegram_default_cwd':<{_TELE_W}} {cfg.telegram_default_cwd or '(not set)'}"
+    )
 
     outbound_ok = bot_ok and bool(cfg.telegram_chat_id)
     inbound_ok = bot_ok and bool(cfg.telegram_allowed_ids)
 
     typer.echo("")
-    out_verdict = "ok" if outbound_ok else "NOT configured — need valid token + telegram_chat_id"
-    in_verdict = "ok" if inbound_ok else "NOT configured — need valid token + telegram_allowed_ids"
+    out_verdict = (
+        "ok" if outbound_ok else "NOT configured — need valid token + telegram_chat_id"
+    )
+    in_verdict = (
+        "ok"
+        if inbound_ok
+        else "NOT configured — need valid token + telegram_allowed_ids"
+    )
     typer.echo(f"{'outbound notifications':<{_TELE_W}} {out_verdict}")
     typer.echo(f"{'inbound /task creation':<{_TELE_W}} {in_verdict}")
 
@@ -1014,7 +1187,9 @@ def telegram_status() -> None:
 
 @telegram_app.command("test")
 def telegram_test(
-    message: Annotated[str, typer.Option("--message", help="Text to send.")] = "fleet: test message",
+    message: Annotated[
+        str, typer.Option("--message", help="Text to send.")
+    ] = "fleet: test message",
 ) -> None:
     """Send a test message to the configured Telegram chat."""
     from fleet.telegram import send_message_raise as _send
@@ -1045,7 +1220,10 @@ def telegram_test(
 def telegram_setup(
     chat_id: Annotated[
         Optional[str],
-        typer.Option("--chat-id", help="Chat/channel ID to use directly (skip discovery polling)."),
+        typer.Option(
+            "--chat-id",
+            help="Chat/channel ID to use directly (skip discovery polling).",
+        ),
     ] = None,
     allowed_ids: Annotated[
         Optional[str],
@@ -1056,7 +1234,9 @@ def telegram_setup(
     ] = None,
     default_cwd: Annotated[
         Optional[str],
-        typer.Option("--default-cwd", help="Default working directory for inbound tasks."),
+        typer.Option(
+            "--default-cwd", help="Default working directory for inbound tasks."
+        ),
     ] = None,
     no_test: Annotated[
         bool, typer.Option("--no-test", help="Skip sending a test message after setup.")
@@ -1064,7 +1244,8 @@ def telegram_setup(
     yes: Annotated[
         bool,
         typer.Option(
-            "--yes", "-y",
+            "--yes",
+            "-y",
             help="Non-interactive: skip 'Press Enter' pauses; auto-select first found chat.",
         ),
     ] = False,
@@ -1185,7 +1366,9 @@ def telegram_setup(
                 raise typer.Exit(1)
 
         chosen_chat_id = chosen["id"]
-        typer.echo(f"Selected: [{chosen['type']}] {chosen['title']}  (id: {chosen_chat_id})")
+        typer.echo(
+            f"Selected: [{chosen['type']}] {chosen['title']}  (id: {chosen_chat_id})"
+        )
     else:
         chosen_chat_id = chat_id
         offset = None
@@ -1229,7 +1412,11 @@ def telegram_setup(
                     from_user = msg.get("from") or {}
                     fid = str(from_user.get("id", ""))
                     if fid and fid not in seen_users:
-                        uname = from_user.get("username") or from_user.get("first_name") or "?"
+                        uname = (
+                            from_user.get("username")
+                            or from_user.get("first_name")
+                            or "?"
+                        )
                         seen_users[fid] = uname
                 if seen_users:
                     break
@@ -1288,7 +1475,6 @@ def telegram_setup(
         typer.echo("  (nothing written — all values were provided via flags)")
 
 
-
 # ---------------------------------------------------------------------------
 # ask-human (vendored human-in-the-loop question broker)
 # ---------------------------------------------------------------------------
@@ -1324,7 +1510,9 @@ def ask_human_list() -> None:
 
 @ask_human_app.command("answer")
 def ask_human_answer(
-    qid: Annotated[str, typer.Argument(help="Question id (a unique prefix is enough).")],
+    qid: Annotated[
+        str, typer.Argument(help="Question id (a unique prefix is enough).")
+    ],
     text: Annotated[
         list[str],
         typer.Argument(
@@ -1341,7 +1529,8 @@ def ask_human_answer(
 @ask_human_app.command("watch")
 def ask_human_watch(
     interval: Annotated[
-        float, typer.Option("--interval", help="Seconds between auto-refreshes while idle.")
+        float,
+        typer.Option("--interval", help="Seconds between auto-refreshes while idle."),
     ] = 2.0,
 ) -> None:
     """Auto-refreshing answer loop (interactive operator console)."""
@@ -1353,7 +1542,8 @@ def ask_human_watch(
 @ask_human_app.command("web")
 def ask_human_web(
     addr: Annotated[
-        Optional[str], typer.Option("--addr", help="host:port (default 127.0.0.1:8765).")
+        Optional[str],
+        typer.Option("--addr", help="host:port (default 127.0.0.1:8765)."),
     ] = None,
 ) -> None:
     """Launch the web dashboard for answering questions."""
@@ -1365,7 +1555,8 @@ def ask_human_web(
 @ask_human_app.command("install")
 def ask_human_install(
     scope: Annotated[
-        str, typer.Option("--scope", help="Claude Code MCP scope: user, project, or local.")
+        str,
+        typer.Option("--scope", help="Claude Code MCP scope: user, project, or local."),
     ] = "user",
 ) -> None:
     """Register the vendored MCP server with Claude Code (`claude mcp add ask_human`)."""
@@ -1379,14 +1570,29 @@ def ask_human_install(
 
     subprocess.run(
         [claude, "mcp", "remove", "ask_human", "--scope", scope],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     result = subprocess.run(
-        [claude, "mcp", "add", "ask_human", "--scope", scope, "--", fleet_bin, "ask-human", "serve"],
-        capture_output=True, text=True,
+        [
+            claude,
+            "mcp",
+            "add",
+            "ask_human",
+            "--scope",
+            scope,
+            "--",
+            fleet_bin,
+            "ask-human",
+            "serve",
+        ],
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         typer.echo(f"Error: claude mcp add failed: {result.stderr.strip()}", err=True)
         raise typer.Exit(1)
-    typer.echo(f"Registered MCP server 'ask_human' ({scope} scope) -> {fleet_bin} ask-human serve")
+    typer.echo(
+        f"Registered MCP server 'ask_human' ({scope} scope) -> {fleet_bin} ask-human serve"
+    )
     typer.echo("Verify with: claude mcp list")

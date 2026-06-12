@@ -1,0 +1,36 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "external_directory": "allow"
+  },
+  "provider": {
+    "ollama-rtx": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (rtx)",
+      "options": {
+        "baseURL": "http://127.0.0.1:11435/v1"
+      },
+      "models": {
+        "qwen3.6:latest": {
+          "name": "qwen3.6:latest",
+          "tools": true
+        }
+      }
+    }
+  },
+  "mcp": {
+    "ask-human": {
+      "type": "local",
+      "command": [
+        "uv",
+        "--directory",
+        "/Users/makarevychsergii/git/fleet",
+        "run",
+        "python",
+        "-m",
+        "fleet.ask_human.server"
+      ],
+      "enabled": true
+    }
+  }
+}
