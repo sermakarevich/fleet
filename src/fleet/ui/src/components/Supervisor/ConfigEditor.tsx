@@ -83,7 +83,6 @@ export function ConfigEditor({ config, onSave }: Props) {
               value={threshold}
               onChange={e => setThreshold(e.target.value)}
               min={0}
-              max={100}
             />
           </label>
         </div>

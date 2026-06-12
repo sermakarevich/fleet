@@ -11,16 +11,18 @@ import { LogTab } from '../components/TaskDetail/LogTab';
 import { StderrTab } from '../components/TaskDetail/StderrTab';
 import { DiffTab } from '../components/TaskDetail/DiffTab';
 import { FilesTab } from '../components/TaskDetail/FilesTab';
+import { EventsTab } from '../components/TaskDetail/EventsTab';
 import { ActivityGutter } from '../components/TaskDetail/ActivityGutter';
 import type { FleetEvent } from '../types';
 
-type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'plan', label: 'Plan' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'log', label: 'Log' },
+  { id: 'events', label: 'Events' },
   { id: 'stderr', label: 'Stderr' },
   { id: 'diff', label: 'Diff' },
   { id: 'files', label: 'Files' },
@@ -68,6 +70,7 @@ export function TaskDetail() {
       case 'plan': return <PlanTab taskId={task!.id} />;
       case 'knowledge': return <KnowledgeTab taskId={task!.id} />;
       case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'events': return <EventsTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'diff': return <DiffTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'files': return <FilesTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;

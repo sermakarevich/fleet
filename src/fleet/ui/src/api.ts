@@ -9,6 +9,7 @@ import type {
   LogLine,
   RuntimeConfig,
   SearchResult,
+  StreamEvent,
   SupervisorStatus,
   TaskDetail,
   TaskSummary,
@@ -155,6 +156,18 @@ export const api = {
 
   getFiles(id: string): Promise<{ files: FileOp[] }> {
     return request(`/api/tasks/${id}/files`);
+  },
+
+  getTaskEvents(
+    id: string,
+    opts?: { offset?: number; limit?: number; kind?: string },
+  ): Promise<{ total: number; offset: number; events: StreamEvent[] }> {
+    const parts: string[] = [];
+    if (opts?.offset !== undefined) parts.push(`offset=${opts.offset}`);
+    if (opts?.limit !== undefined) parts.push(`limit=${opts.limit}`);
+    if (opts?.kind) parts.push(`kind=${encodeURIComponent(opts.kind)}`);
+    const qs = parts.length ? "?" + parts.join("&") : "";
+    return request(`/api/tasks/${id}/events${qs}`);
   },
 
   async getChatQuestions(): Promise<{ now: number; pending: ChatQuestion[] }> {

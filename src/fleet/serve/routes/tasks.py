@@ -1,4 +1,5 @@
 """Task CRUD + actions REST routes (FR-07, FR-11..FR-21, FR-31..FR-34)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +21,9 @@ from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_ca
 # TTL cache for _get_beads_status_map — key: str(home), value: (expires_at, result)
 _beads_map_cache: dict[str, tuple[float, dict[str, dict] | None]] = {}
 _BEADS_CACHE_TTL: float = 5.0
-_beads_list_call_count: int = 0  # incremented on each real subprocess call; observable in tests
+_beads_list_call_count: int = (
+    0  # incremented on each real subprocess call; observable in tests
+)
 
 
 @dataclass
@@ -46,7 +49,11 @@ def _parse_log_line(line: str) -> LogEntry | None:
     ts = row.get("timestamp") or row.get("ts") or ""
     level = row.get("level") or "info"
     message = row.get("event") or row.get("message") or ""
-    extra = {k: v for k, v in row.items() if k not in ("timestamp", "ts", "level", "event", "message")}
+    extra = {
+        k: v
+        for k, v in row.items()
+        if k not in ("timestamp", "ts", "level", "event", "message")
+    }
     return LogEntry(ts=str(ts), level=str(level), message=str(message), extra=extra)
 
 
@@ -118,7 +125,9 @@ def _build_task_summary(data: dict, home: Path) -> dict:
 
     now = datetime.now(tz=timezone.utc)
     started_at = info.started_at
-    elapsed_sec: float | None = (now - started_at).total_seconds() if started_at else None
+    elapsed_sec: float | None = (
+        (now - started_at).total_seconds() if started_at else None
+    )
     idle_sec: float | None = (
         (now - info.last_event_at).total_seconds() if info.last_event_at else None
     )
@@ -210,7 +219,9 @@ def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             data = json.loads(result.stdout)
-            items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+            items: list = (
+                data.get("data", data) if isinstance(data, dict) else (data or [])
+            )
             if isinstance(items, list):
                 result_value = {
                     item["id"]: {
@@ -218,7 +229,8 @@ def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
                         "created_at": item.get("created_at"),
                         "priority": item.get("priority"),
                     }
-                    for item in items if item.get("id")
+                    for item in items
+                    if item.get("id")
                 }
     except Exception:
         pass
@@ -250,7 +262,8 @@ def _get_beads_task_info(task_id: str, home: Path) -> dict | None:
         if not isinstance(body, dict):
             return None
         depends_on = [
-            d["id"] for d in (body.get("dependencies") or [])
+            d["id"]
+            for d in (body.get("dependencies") or [])
             if isinstance(d, dict) and d.get("id")
         ]
         return {
@@ -451,7 +464,13 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "PLAN_AND_STATUS.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime, "path": str(f.resolve())})
+        return JSONResponse(
+            {
+                "content": f.read_text(encoding="utf-8"),
+                "mtime": f.stat().st_mtime,
+                "path": str(f.resolve()),
+            }
+        )
 
     @router.get("/tasks/{task_id}/artifacts/knowledge")
     async def get_artifact_knowledge(task_id: str) -> JSONResponse:
@@ -459,7 +478,13 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "KNOWLEDGE.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime, "path": str(f.resolve())})
+        return JSONResponse(
+            {
+                "content": f.read_text(encoding="utf-8"),
+                "mtime": f.stat().st_mtime,
+                "path": str(f.resolve()),
+            }
+        )
 
     @router.get("/tasks/{task_id}/artifacts/qa")
     async def get_artifact_qa(task_id: str) -> JSONResponse:
@@ -467,7 +492,9 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "Q&A.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime})
+        return JSONResponse(
+            {"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime}
+        )
 
     @router.get("/tasks/{task_id}/logs")
     async def get_task_logs(task_id: str, level: str | None = None) -> JSONResponse:
@@ -482,7 +509,14 @@ def create_tasks_router() -> APIRouter:
                         continue
                     if level and entry.level != level:
                         continue
-                    entries.append({"ts": entry.ts, "level": entry.level, "message": entry.message, "extra": entry.extra})
+                    entries.append(
+                        {
+                            "ts": entry.ts,
+                            "level": entry.level,
+                            "message": entry.message,
+                            "extra": entry.extra,
+                        }
+                    )
             except OSError:
                 pass
         return JSONResponse({"lines": entries})
@@ -509,7 +543,10 @@ def create_tasks_router() -> APIRouter:
             return JSONResponse({"diff": ""})
         try:
             proc = await asyncio.create_subprocess_exec(
-                "git", "-C", cwd, "diff",
+                "git",
+                "-C",
+                cwd,
+                "diff",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -529,6 +566,174 @@ def create_tasks_router() -> APIRouter:
             for path, fc in sorted(counts.items())
         ]
         return JSONResponse({"files": files})
+
+    def _event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
+        """Derive a ~200-char one-line summary from a raw event dict."""
+        if kind == "assistant_text":
+            text = None
+            part = raw.get("part")
+            if isinstance(part, dict):
+                t = part.get("text")
+                if t is not None:
+                    text = str(t)
+            if text is None and isinstance(raw, dict):
+                t = raw.get("text")
+                if t is not None:
+                    text = str(t)
+            if text:
+                return " ".join(text.split())[:200]
+            usage = raw.get("usage", {})
+            if isinstance(usage, dict):
+                in_t = usage.get("input_tokens")
+                out_t = usage.get("output_tokens")
+                parts = []
+                if in_t is not None:
+                    parts.append(f"in={in_t}")
+                if out_t is not None:
+                    parts.append(f"out={out_t}")
+                if parts:
+                    return "Tokens: " + ", ".join(parts)
+            return ""
+        if kind == "tool_use":
+            tool = tool_name or raw.get("tool", "") or ""
+            inp = None
+            state = raw.get("state")
+            if isinstance(state, dict):
+                inp = state.get("input")
+            if inp is None:
+                part = raw.get("part")
+                if isinstance(part, dict):
+                    ps = part.get("state", {})
+                    if isinstance(ps, dict):
+                        inp = ps.get("input")
+            if isinstance(inp, dict) or isinstance(inp, list):
+                return json.dumps(
+                    {"tool": tool, "input": inp},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )[:200]
+            if inp is not None:
+                return tool + " " + str(inp)[:200]
+            return tool
+        if kind == "tool_result":
+            tool = tool_name or raw.get("tool", "") or ""
+            state = raw.get("state", {})
+            out_str = ""
+            if isinstance(state, dict):
+                out = state.get("output")
+                if out is not None:
+                    if isinstance(out, str):
+                        out_str = out[:200]
+                    else:
+                        out_str = str(out)[:200]
+            if out_str:
+                return tool + " " + out_str
+            return tool
+        if kind == "error":
+            err = None
+            part = raw.get("part")
+            if isinstance(part, dict):
+                st = part.get("state", {})
+                if isinstance(st, dict):
+                    err = st.get("error")
+            if err is None and isinstance(raw, dict):
+                err = raw.get("error") or raw.get("message")
+            display_tool = tool_name or raw.get("tool", "") or ""
+            if display_tool:
+                if err is not None:
+                    return display_tool + ": " + str(err)[:200]
+                return display_tool + ": " + json.dumps(raw, ensure_ascii=False)[:200]
+            if err is not None:
+                return "Error: " + str(err)[:200]
+            return "Error: " + json.dumps(raw, ensure_ascii=False)[:200]
+        if kind == "session_started":
+            sid = raw.get("sessionID", "") or raw.get("session_id", "") or ""
+            last8 = str(sid)[-8:] if sid else "?"
+            return "Step start (session " + last8 + ")"
+        if kind == "session_ended":
+            tokens = raw.get("tokens", {})
+            if isinstance(tokens, dict):
+                in_t = tokens.get("input")
+                out_t = tokens.get("output")
+                parts = []
+                if in_t is not None:
+                    parts.append(f"in={in_t}")
+                if out_t is not None:
+                    parts.append(f"out={out_t}")
+                if parts:
+                    return "Session end (" + ", ".join(parts) + ")"
+            return "Session end"
+        return ""
+
+    @router.get("/tasks/{task_id}/events")
+    async def get_task_events(
+        task_id: str,
+        offset: int | None = None,
+        limit: int = 100,
+        kind: str | None = None,
+    ) -> JSONResponse:
+        home = get_fleet_home()
+        task_dir = home / "tasks" / task_id
+        if not task_dir.is_dir():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        events_file = task_dir / "events.jsonl"
+        if not events_file.exists():
+            return JSONResponse({"total": 0, "offset": 0, "events": []})
+        # Read and parse
+        allow_kinds: set[str] | None = None
+        if kind:
+            allow_kinds = {k.strip() for k in kind.split(",") if k.strip()}
+        all_events: list[dict] = []
+        raw_total = 0
+        try:
+            with events_file.open("r", encoding="utf-8") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    raw_total += 1
+                    row_kind = row.get("kind", "")
+                    if allow_kinds is not None and row_kind not in allow_kinds:
+                        continue
+                    raw_data = row.get("raw", {})
+                    if isinstance(raw_data, str):
+                        try:
+                            raw_data = json.loads(raw_data)
+                        except (json.JSONDecodeError, ValueError):
+                            raw_data = {}
+                    evt = {
+                        "i": 0,
+                        "ts": row.get("ts", ""),
+                        "kind": row_kind,
+                        "session_id": row.get("session_id", row.get("sessionID")),
+                        "tool_name": row.get("tool_name"),
+                        "usage": row.get("usage"),
+                        "summary": _event_summary(
+                            row_kind,
+                            raw_data if isinstance(raw_data, dict) else {},
+                            row.get("tool_name"),
+                        ),
+                        "raw": raw_data if isinstance(raw_data, dict) else {},
+                    }
+                    all_events.append(evt)
+        except OSError:
+            pass
+        filtered = all_events
+        total = len(filtered)
+        if offset is None:
+            # Return tail (last `limit` events)
+            start = max(0, total - limit)
+            offset = start
+        else:
+            offset = max(0, offset)
+        page = filtered[offset : offset + limit]
+        for idx, evt in enumerate(page):
+            evt["i"] = offset + idx
+        return JSONResponse({"total": total, "offset": offset, "events": page})
 
     @router.get("/coders")
     async def list_coders() -> JSONResponse:

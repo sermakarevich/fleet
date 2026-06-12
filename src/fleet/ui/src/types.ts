@@ -189,6 +189,23 @@ export interface FileOp {
   write: number;
 }
 
+export interface StreamEvent {
+  i: number;
+  ts: string;
+  kind: string;
+  session_id: string | null;
+  tool_name: string | null;
+  usage: Record<string, number> | null;
+  summary: string;
+  raw: Record<string, unknown>;
+}
+
+export interface StreamEventsResponse {
+  total: number;
+  offset: number;
+  events: StreamEvent[];
+}
+
 export interface ChatQuestion {
   id: string;
   agent_id: string | null;
