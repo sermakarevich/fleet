@@ -97,7 +97,11 @@ class OpencodeCoder(Coder):
         existing_provider: dict = existing.get("provider", {})
         existing_ollama: dict = existing_provider.get(_PROVIDER_ID, {})
         merged_models: dict = dict(existing_ollama.get("models", {}))
-        merged_models[map_key] = {"name": map_key, "tools": True}
+        merged_models[map_key] = {
+            "name": map_key,
+            "tools": True,
+            "limit": {"context": int(self.context_limit), "output": 8192},
+        }
 
         ollama_entry = {
             "npm": "@ai-sdk/openai-compatible",

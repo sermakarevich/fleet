@@ -491,3 +491,72 @@ def test_write_runtime_config_no_tmp_file_left_behind(tmp_path: Path):
     target = tmp_path / "opencode.json"
     tmp = tmp_path / (target.name + ".tmp")
     assert not tmp.exists()
+
+
+def test_write_runtime_config_model_has_limit_context(tmp_path: Path):
+    """limit.context must match the constructor's context_limit (default 128_000)."""
+    coder = OpencodeCoder()
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    models = cfg["provider"]["ollama-rtx"]["models"]
+    model_key = coder.model  # "gpt-oss:20b"
+    assert models[model_key]["limit"]["context"] == 128_000
+
+
+def test_write_runtime_config_limit_context_custom(tmp_path: Path):
+    """limit.context must reflect an explicit context_limit value (252_000)."""
+    coder = OpencodeCoder(context_limit=252_000)
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    models = cfg["provider"]["ollama-rtx"]["models"]
+    model_key = coder.model
+    assert models[model_key]["limit"]["context"] == 252_000
+
+
+def test_write_runtime_config_limit_output_always_8192(tmp_path: Path):
+    """limit.output MUST always be 8192."""
+    coder = OpencodeCoder()
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    models = cfg["provider"]["ollama-rtx"]["models"]
+    model_key = coder.model
+    assert models[model_key]["limit"]["output"] == 8192
+
+
+def test_write_runtime_config_limit_propagates_with_custom_model(tmp_path: Path):
+    """limit block is written when using a custom model and context_limit."""
+    coder = OpencodeCoder(model="qwen3.5:27b", context_limit=200_000)
+    coder.write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    models = cfg["provider"]["ollama-rtx"]["models"]
+    assert models["qwen3.5:27b"]["limit"]["context"] == 200_000
+    assert models["qwen3.5:27b"]["limit"]["output"] == 8192
+
+
+def test_write_runtime_config_merge_preserves_existing_models_limit(tmp_path: Path):
+    """Models merged from existing configs keep their original entries; current model gets limit."""
+    existing = {
+        "provider": {
+            "ollama-rtx": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Ollama (rtx)",
+                "options": {"baseURL": "http://127.0.0.1:11435/v1"},
+                "models": {"other-model": {"name": "other-model", "tools": True}},
+            }
+        },
+        "permission": {"bash": "ask"},
+    }
+    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
+    coder = OpencodeCoder(context_limit=99_000)
+    writer = coder.write_runtime_config
+    writer(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    models = cfg["provider"]["ollama-rtx"]["models"]
+    # current model gets limit
+    assert models["gpt-oss:20b"]["limit"]["context"] == 99_000
+    assert models["gpt-oss:20b"]["limit"]["output"] == 8192
+    # existing models are preserved
+    assert "other-model" in models
+    assert models["other-model"]["name"] == "other-model"
+    # merge keeps permission
+    assert cfg["permission"]["bash"] == "ask"
