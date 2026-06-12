@@ -81,7 +81,7 @@ export function Config() {
                   onChange={e => setPermission('ask_human', e.target.checked)}
                   style={styles.checkbox}
                 />
-                Q&amp;A questions
+                Chat questions
               </label>
             </div>
             <div style={styles.toggleRow}>

@@ -109,7 +109,7 @@ export function Chat() {
               style={{ ...s.dot, ...(questions.length === 0 ? s.dotIdle : {}) }}
               title={questions.length ? `${questions.length} unanswered` : 'No pending questions'}
             />
-            ask_human
+            Chat
           </div>
           <div style={s.count}>{questions.length} pending</div>
         </div>
