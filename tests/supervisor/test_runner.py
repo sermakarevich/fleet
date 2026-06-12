@@ -665,3 +665,92 @@ def test_session_started_dedup(tmp_path: Path) -> None:
     records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
     session_started_records = [r for r in records if r.get("kind") == "session_started"]
     assert len(session_started_records) == 2
+
+
+# ---------------------------------------------------------------------------
+# Test: Context usage bucket logging at 10% steps
+# ---------------------------------------------------------------------------
+
+
+def test_context_usage_bucket_logging(tmp_path: Path) -> None:
+    """Usage events crossing 10% and 20% of context_limit produce two context_usage log lines."""
+    event_10 = json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": 101}},
+            "session_id": "s-ctx",
+        }
+    )
+    event_20 = json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": 201}},
+            "session_id": "s-ctx",
+        }
+    )
+    clean_script = (
+        "import sys, json\n"
+        f"sys.stdout.write({event_10!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        f"sys.stdout.write({event_20!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.exit(0)\n"
+    )
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", clean_script],
+        context_limit=1_000,
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+    log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
+    log_records = [
+        json.loads(l) for l in log_path.read_text().splitlines() if l.strip()
+    ]
+    context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
+    # The first usage at 101 (pct=10.1 -> bucket=1) logs, the second at 201 (pct=20.1 -> bucket=2) logs.
+    assert len(context_usage_events) >= 2
+
+
+def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
+    """Usage events within same 10% bucket produce only one context_usage log line."""
+    event_15 = json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": 150}},
+            "session_id": "s-ctx",
+        }
+    )
+    event_12 = json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": 120}},
+            "session_id": "s-ctx",
+        }
+    )
+    clean_script = (
+        "import sys, json\n"
+        f"sys.stdout.write({event_15!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        f"sys.stdout.write({event_12!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "sys.exit(0)\n"
+    )
+    runner, _, _ = _make_runner(
+        tmp_path,
+        argv=[sys.executable, "-c", clean_script],
+        context_limit=1_000,
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert result.outcome == TaskOutcome.SUCCESS
+    log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
+    log_records = [
+        json.loads(l) for l in log_path.read_text().splitlines() if l.strip()
+    ]
+    context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
+    # Both are in 10-19% range (bucket=1), so only one log line.
+    assert len(context_usage_events) == 1

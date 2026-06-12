@@ -88,11 +88,13 @@ def _read_fleet_log(log_root: Path) -> list[dict]:
 
 def test_runtime_config_has_status_log_interval_default() -> None:
     from fleet.schemas import STATUS_LOG_INTERVAL_SEC
+
     assert STATUS_LOG_INTERVAL_SEC == 30
 
 
 def test_runtime_config_status_log_interval_override() -> None:
     from fleet.schemas import STATUS_LOG_INTERVAL_SEC
+
     assert STATUS_LOG_INTERVAL_SEC == 30  # constant, cannot override per-instance
 
 
@@ -249,7 +251,9 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
 
     s._handle_outcome(
         Task(id="t-001", title="X", description=None, status="in_progress"),
-        TaskOutcomeRecord(outcome=TaskOutcome.RATE_LIMIT, exit_code=None, resets_at=None),
+        TaskOutcomeRecord(
+            outcome=TaskOutcome.RATE_LIMIT, exit_code=None, resets_at=None
+        ),
     )
 
     records = _read_fleet_log(log_root)
@@ -261,3 +265,14 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
     # task_rate_limit_release still uses its own paused_until (str(datetime))
     assert isinstance(rl[0]["paused_until"], str)
     structlog.reset_defaults()
+
+
+def test_fleet_log_context_includes_context_tokens_key(tmp_path: Path) -> None:
+    s = _make_supervisor(tmp_path)
+    s.in_flight["t-001"] = None  # type: ignore[assignment]
+    ctx = s._fleet_log_context()
+    assert "context_tokens" in ctx
+    assert isinstance(ctx["context_tokens"], dict)
+    assert "t-001" in ctx["context_tokens"]
+    # When no events.jsonl exists the value should be 0.
+    assert ctx["context_tokens"]["t-001"] == 0

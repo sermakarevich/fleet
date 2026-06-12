@@ -128,6 +128,7 @@ class TaskRunner:
 
             outcome: TaskOutcomeRecord | None = None
             peak_context_tokens: int = 0
+            last_logged_bucket: int = -1
             _logged_session_started = False
 
             assert proc.stdout is not None
@@ -176,6 +177,17 @@ class TaskRunner:
                     prompt = _input_tokens(evt.usage)
                     if prompt > 0:
                         peak_context_tokens = max(peak_context_tokens, prompt)
+                        pct = peak_context_tokens / self._coder.context_limit * 100
+                        bucket = int(pct // 10)
+                        if bucket > last_logged_bucket:
+                            task_log.log.info(
+                                "context_usage",
+                                task_id=task.id,
+                                context_tokens=peak_context_tokens,
+                                context_limit=self._coder.context_limit,
+                                pct=round(pct, 1),
+                            )
+                            last_logged_bucket = bucket
                         threshold = (
                             self._coder.context_limit
                             * self._config.context_pressure_threshold_pct

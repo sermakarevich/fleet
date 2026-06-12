@@ -35,6 +35,7 @@ from fleet.schemas import (
     TaskOutcomeRecord,
 )
 from fleet.supervisor_spawn import SpawnController, SpawnDecision
+from fleet.serve.stats import task_runtime_stats
 
 
 class Supervisor:
@@ -342,6 +343,10 @@ class Supervisor:
             ),
             "rate_limit_resets_at": self.rate_gauge.resets_at,
             "task_ids": sorted(self.in_flight.keys()),
+            "context_tokens": {
+                tid: (task_runtime_stats(tid).context_tokens or 0)
+                for tid in self.in_flight
+            },
         }
 
     def _handle_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
