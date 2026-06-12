@@ -9,7 +9,12 @@ import structlog
 
 from fleet.coders.base import Coder
 from fleet.coders import get_coder
-from fleet.failures import increment_failure
+from fleet.failures import (
+    increment_failure,
+    increment_noclose,
+    noclose_count,
+    reset_noclose,
+)
 from fleet.config import load, reload_if_changed
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
@@ -20,6 +25,7 @@ from fleet.schemas import (
     RATE_LIMIT_DEFAULT_SLEEP_SEC,
     RATE_LIMIT_THRESHOLD_PCT,
     RETRY_LIMIT,
+    NOCLOSE_LIMIT,
     SHUTDOWN_GRACE_SEC,
     STATUS_LOG_INTERVAL_SEC,
     LOG_ROOT,
@@ -139,13 +145,19 @@ class Supervisor:
         task.coder / task.model, falling back to config defaults.
         """
         if self._coder_pin is not None:
-            return self._coder_pin, self._coder_pin.name, getattr(self._coder_pin, "model", None)
+            return (
+                self._coder_pin,
+                self._coder_pin.name,
+                getattr(self._coder_pin, "model", None),
+            )
         coder_name = task.coder or self.config.coder
         model = task.model or self.config.model
         coder_cls = get_coder(coder_name)
         kwargs: dict = {}
         if coder_name == "opencode":
             kwargs["ollama_url"] = self.config.opencode_ollama_url
+            kwargs["context_limit"] = self.config.opencode_context_limit
+            kwargs["default_model"] = self.config.opencode_default_model
         return coder_cls(model=model, **kwargs), coder_name, model
 
     def _spawn_runner(self, task: Task) -> None:
@@ -301,7 +313,9 @@ class Supervisor:
             "usage_pct": usage_pct,
             "threshold_pct": RATE_LIMIT_THRESHOLD_PCT,
             "paused_until": (
-                self._paused_until.isoformat() if self._paused_until is not None else None
+                self._paused_until.isoformat()
+                if self._paused_until is not None
+                else None
             ),
             "rate_limit_resets_at": self.rate_gauge.resets_at,
             "task_ids": sorted(self.in_flight.keys()),
@@ -318,18 +332,51 @@ class Supervisor:
                 except Exception:
                     pass
                 if still_in_progress:
-                    self._queue.release(
-                        task.id,
-                        reason="agent exited rc=0 without close; re-queueing",
-                    )
-                    self._log.info(
-                        "task_completed_success_re_queued", task_id=task.id, **fleet_ctx
-                    )
+                    count = increment_noclose(self._task_dir_for(task))
+                    if count >= NOCLOSE_LIMIT:
+                        self._queue.set_blocked(
+                            task.id,
+                            reason=(
+                                f"agent exited rc=0 without closing {count} times; "
+                                f"needs human review"
+                            ),
+                        )
+                        self._queue.comment(
+                            task.id,
+                            (
+                                f"[fleet] task exhausted {count} no-close re-queues "
+                                f"(limit {NOCLOSE_LIMIT}). The agent has been exiting rc=0 "
+                                f"without calling `bd close`. This may indicate the model "
+                                f"forgot the protocol. Requires human review."
+                            ),
+                        )
+                        self._log.error(
+                            "task_noclose_exhausted",
+                            task_id=task.id,
+                            noclose=count,
+                            noclose_limit=NOCLOSE_LIMIT,
+                            **fleet_ctx,
+                        )
+                    else:
+                        self._queue.release(
+                            task.id,
+                            reason=f"agent exited rc=0 without close (#{count}/{NOCLOSE_LIMIT}); re-queueing",
+                        )
+                        self._log.info(
+                            "task_completed_success_re_queued",
+                            task_id=task.id,
+                            **fleet_ctx,
+                        )
                 else:
-                    self._log.info("task_completed_success", task_id=task.id, **fleet_ctx)
+                    reset_noclose(self._task_dir_for(task))
+                    self._log.info(
+                        "task_completed_success", task_id=task.id, **fleet_ctx
+                    )
 
             case TaskOutcome.CONTEXT_PRESSURE:
-                self._queue.release(task.id, reason="context_pressure; resume on next claim")
+                self._queue.release(
+                    task.id, reason="context_pressure; resume on next claim"
+                )
                 self._log.info(
                     "task_context_pressure_release", task_id=task.id, **fleet_ctx
                 )

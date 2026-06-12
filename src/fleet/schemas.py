@@ -7,6 +7,7 @@ LOG_ROOT = "logging"
 
 RATE_LIMIT_THRESHOLD_PCT: int = 90
 RETRY_LIMIT: int = 2
+NOCLOSE_LIMIT: int = 12
 CONFIG_POLL_INTERVAL_SEC: int = 5
 CLAIM_POLL_INTERVAL_SEC: int = 5
 SHUTDOWN_GRACE_SEC: int = 30
@@ -82,3 +83,5 @@ class RuntimeConfig:
     telegram_allowed_ids: str = ""
     telegram_default_cwd: str = ""
     opencode_ollama_url: str = "http://127.0.0.1:11435/v1"
+    opencode_context_limit: int = 128000
+    opencode_default_model: str = "qwen3.6:latest"

@@ -58,7 +58,9 @@ class StubQueue:
         return []
 
 
-def _make_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None) -> Supervisor:
+def _make_supervisor(
+    tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
+) -> Supervisor:
     s = Supervisor(
         coder=StubCoder(),
         queue=queue,
@@ -100,7 +102,9 @@ def test_failure_under_limit_calls_release(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
+    )
     assert len(queue.released) == 1
     assert "rc=1" in queue.released[0][1]
 
@@ -155,7 +159,9 @@ def test_failure_exhausted_reason_in_blocked(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash"))
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash")
+    )
     assert "retry limit" in queue.blocked[0][1]
 
 
@@ -174,7 +180,9 @@ def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
     assert s._paused_until > before
 
 
-def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path, monkeypatch) -> None:
+def test_rate_limit_paused_until_uses_resets_at_when_later(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 5)
     queue = StubQueue()
     far_future = int(datetime.now(tz=timezone.utc).timestamp()) + 9999
@@ -233,6 +241,7 @@ def test_success_task_still_in_progress_calls_release(tmp_path: Path) -> None:
     s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
+    assert "#1/" in queue.released[0][1]
 
 
 def test_success_task_already_closed_no_release(tmp_path: Path) -> None:
@@ -247,6 +256,77 @@ def test_success_does_not_increment_failure_count(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ------ -------------------------- ---- ------ ------ ------ ------ ----------- ----
+# NOCLOSE counter: SUCCESS with still_in_progress caps at NOCLOSE_LIMIT
+# ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------
+
+
+def test_eleven_noclose_successes_released_each_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 12)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(11):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.released) == 11
+    for i in range(11):
+        assert f"#{i + 1}/" in queue.released[i][1]
+    assert len(queue.blocked) == 0
+
+
+def test_noclose_twelfth_exhausts_limit(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(11):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-001"
+    assert "needs human review" in queue.blocked[0][1]
+
+
+def test_noclose_exhausted_posts_comment(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(12):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.comments) >= 1
+    assert any("exhausted" in c[1] for c in queue.comments)
+
+
+def test_noclose_counter_file_created(tmp_path: Path, monkeypatch) -> None:
+    from fleet.failures import noclose_count
+
+    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 12)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    task_dir = s._task_dir_for(_task())
+    assert (task_dir / ".noclose").exists()
+    assert noclose_count(task_dir) == 1
+
+
+def test_success_with_bead_closed_resets_noclose_counter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from fleet.failures import noclose_count
+
+    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 12)
+    queue_in_progress = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue_in_progress)
+    task = _task()
+    for _ in range(11):
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    task_dir = s._task_dir_for(task)
+    assert noclose_count(task_dir) == 11
+    queue_closed = StubQueue(status="closed")
+    s2 = _make_supervisor(tmp_path, queue_closed)
+    s2._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    assert noclose_count(task_dir) == 0
+    assert not (task_dir / ".noclose").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +355,9 @@ def test_blocked_by_agent_no_failure_increment(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _unpinned_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig) -> Supervisor:
+def _unpinned_supervisor(
+    tmp_path: Path, queue: StubQueue, config: RuntimeConfig
+) -> Supervisor:
     """Build a supervisor without a pinned coder so _resolve_coder runs the registry lookup."""
     s = Supervisor(
         queue=queue,
