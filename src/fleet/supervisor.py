@@ -13,6 +13,7 @@ from fleet.failures import (
     increment_failure,
     increment_noclose,
     noclose_count,
+    reset_failure,
     reset_noclose,
 )
 from fleet.config import load, reload_if_changed
@@ -328,6 +329,12 @@ class Supervisor:
             else:
                 self._stall_warned.discard(task_id)
 
+    def _bead_in_progress(self, task_id: str) -> bool:
+        try:
+            return self._queue.get(task_id).status == "in_progress"
+        except Exception:
+            return False
+
     def _fleet_log_context(self) -> dict:
         """Snapshot of live fleet stats — in-flight count, rate-limit usage."""
         usage_pct = self.rate_gauge.current_pct()  # may trigger auto-reset
@@ -353,13 +360,7 @@ class Supervisor:
         fleet_ctx = self._fleet_log_context()
         match outcome.outcome:
             case TaskOutcome.SUCCESS:
-                still_in_progress = False
-                try:
-                    current = self._queue.get(task.id)
-                    still_in_progress = current.status == "in_progress"
-                except Exception:
-                    pass
-                if still_in_progress:
+                if self._bead_in_progress(task.id):
                     count = increment_noclose(self._task_dir_for(task))
                     if count >= NOCLOSE_LIMIT:
                         self._queue.set_blocked(
@@ -402,6 +403,15 @@ class Supervisor:
                     )
 
             case TaskOutcome.CONTEXT_PRESSURE:
+                if not self._bead_in_progress(task.id):
+                    reset_failure(self._task_dir_for(task))
+                    self._log.info(
+                        "task_already_closed_on_exit",
+                        task_id=task.id,
+                        outcome="CONTEXT_PRESSURE",
+                        **fleet_ctx,
+                    )
+                    return
                 self._queue.release(
                     task.id, reason="context_pressure; resume on next claim"
                 )
@@ -432,6 +442,15 @@ class Supervisor:
                 self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
 
             case TaskOutcome.KILLED:
+                if not self._bead_in_progress(task.id):
+                    reset_failure(self._task_dir_for(task))
+                    self._log.info(
+                        "task_already_closed_on_exit",
+                        task_id=task.id,
+                        outcome="KILLED",
+                        **fleet_ctx,
+                    )
+                    return
                 self._queue.set_blocked(
                     task.id,
                     reason="manually interrupted",
@@ -443,6 +462,15 @@ class Supervisor:
                 self._log.info("task_killed", task_id=task.id, **fleet_ctx)
 
             case TaskOutcome.FAILURE:
+                if not self._bead_in_progress(task.id):
+                    reset_failure(self._task_dir_for(task))
+                    self._log.info(
+                        "task_already_closed_on_exit",
+                        task_id=task.id,
+                        outcome="FAILURE",
+                        **fleet_ctx,
+                    )
+                    return
                 new_count = increment_failure(self._task_dir_for(task))
                 if new_count >= RETRY_LIMIT:
                     self._queue.set_blocked(

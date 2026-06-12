@@ -13,7 +13,11 @@
       "models": {
         "qwen3.6:latest": {
           "name": "qwen3.6:latest",
-          "tools": true
+          "tools": true,
+          "limit": {
+            "context": 128000,
+            "output": 8192
+          }
         }
       }
     }

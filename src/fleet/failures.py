@@ -53,3 +53,8 @@ def increment_noclose(task_dir: Path) -> int:
 def reset_noclose(task_dir: Path) -> None:
     """Remove the no-close counter file so a later reopen starts fresh."""
     _noclose_path(task_dir).unlink(missing_ok=True)
+
+
+def reset_failure(task_dir: Path) -> None:
+    """Remove the failure counter file so a later reopen starts fresh."""
+    _counter_path(task_dir).unlink(missing_ok=True)

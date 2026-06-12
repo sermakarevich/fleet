@@ -100,7 +100,7 @@ def _outcome(
 
 def test_failure_under_limit_calls_release(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(
         _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
@@ -111,7 +111,7 @@ def test_failure_under_limit_calls_release(tmp_path: Path, monkeypatch) -> None:
 
 def test_failure_under_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.comments) == 1
@@ -119,7 +119,7 @@ def test_failure_under_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
 
 def test_failure_under_limit_no_set_blocked(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 0
@@ -131,7 +131,7 @@ def test_failure_under_limit_no_set_blocked(tmp_path: Path, monkeypatch) -> None
 
 
 def test_failure_at_limit_calls_set_blocked(tmp_path: Path) -> None:
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     # RETRY_LIMIT=2 by default; trigger two failures to exhaust
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
@@ -141,7 +141,7 @@ def test_failure_at_limit_calls_set_blocked(tmp_path: Path) -> None:
 
 def test_failure_at_limit_no_release(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.released) == 0
@@ -149,7 +149,7 @@ def test_failure_at_limit_no_release(tmp_path: Path, monkeypatch) -> None:
 
 def test_failure_at_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.comments) == 1
@@ -157,7 +157,7 @@ def test_failure_at_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
 
 def test_failure_exhausted_reason_in_blocked(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 1)
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(
         _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash")
@@ -216,7 +216,7 @@ def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -
 
 
 def test_context_pressure_calls_release(tmp_path: Path) -> None:
-    queue = StubQueue()
+    queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert len(queue.released) == 1
@@ -228,6 +228,98 @@ def test_context_pressure_does_not_increment_failure_count(tmp_path: Path) -> No
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# CONTEXT_PRESSURE when bead already closed → skip release, reset counters
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_context_pressure_closed_bead_no_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert len(queue.released) == 0
+
+
+def test_context_pressure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert len(queue.blocked) == 0
+
+
+def test_context_pressure_closed_bead_resets_failure_counter(tmp_path: Path) -> None:
+    task = _task()
+    task_dir = Path(tmp_path) / "tasks" / task.id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".failures").write_text("3")
+    assert failure_count(task_dir) == 3
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(task, _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert failure_count(task_dir) == 0
+    assert not (task_dir / ".failures").exists()
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# FAILURE when bead already closed → no retry counter, no set_blocked
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_failure_closed_bead_no_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.released) == 0
+
+
+def test_failure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.blocked) == 0
+
+
+def test_failure_closed_bead_no_retry_counter_file(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    task = _task()
+    task_dir = s._task_dir_for(task)
+    assert not (task_dir / ".failures").exists()
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# KILLED when bead already closed → no set_blocked, no comment
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_killed_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    assert len(queue.blocked) == 0
+
+
+def test_killed_closed_bead_no_comment(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    assert len(queue.comments) == 0
+
+
+def test_killed_closed_bead_resets_failure_counter(tmp_path: Path) -> None:
+    task = _task()
+    task_dir = Path(tmp_path) / "tasks" / task.id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".failures").write_text("5")
+    assert failure_count(task_dir) == 5
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED))
+    assert failure_count(task_dir) == 0
+    assert not (task_dir / ".failures").exists()
 
 
 # ---------------------------------------------------------------------------
