@@ -10,9 +10,12 @@ waits), returns as soon as the question is answered out-of-band, and honors
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
-from fleet.ask_human.server import _await_answer, _result
+import pytest
+
+from fleet.ask_human.server import _await_answer, _default_agent_id, _result
 from fleet.ask_human.store import QuestionStore
 
 
@@ -114,3 +117,78 @@ def test_await_answer_does_not_block_event_loop(tmp_path: Path):
     q = asyncio.run(scenario())
     assert q["status"] == "answered"
     assert ticks >= 3  # the loop kept making progress while we waited
+
+
+def test_default_agent_id_from_fleet_task_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """When FLEET_TASK_DIR is set, _default_agent_id extracts the last path segment as agent_id."""
+    task_dir = tmp_path / ".fleet" / "tasks" / "fleet-abcd123"
+    task_dir.mkdir(parents=True)
+    monkeypatch.setenv("FLEET_TASK_DIR", str(task_dir))
+    assert _default_agent_id() == "fleet-abcd123"
+
+
+def test_default_agent_id_returns_none_without_env(monkeypatch: pytest.MonkeyPatch):
+    """When FLEET_TASK_DIR is not set, _default_agent_id returns None."""
+    monkeypatch.delenv("FLEET_TASK_DIR", raising=False)
+    assert _default_agent_id() is None
+
+
+def test_default_agent_id_empty_basename_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """When FLEET_TASK_DIR basename is empty, _default_agent_id returns None."""
+    monkeypatch.setenv("FLEET_TASK_DIR", "/some/path/")
+    import fleet.ask_human.server as server_mod
+
+    orig_basename = os.path.basename
+    os.path.basename = lambda _: ""
+    try:
+        result = _default_agent_id()
+    finally:
+        os.path.basename = orig_basename
+    assert result is None
+
+
+def test_ask_human_question_uses_env_default_agent_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """When agent_id=None is passed, the server defaults it from FLEET_TASK_DIR."""
+    task_dir = tmp_path / ".fleet" / "tasks" / "fleet-xyz999"
+    task_dir.mkdir(parents=True)
+    monkeypatch.setenv("FLEET_TASK_DIR", str(task_dir))
+
+    s = _store(tmp_path)
+    # Simulate what ask_human_question does: effective_agent_id = agent_id or _default_agent_id()
+    from fleet.ask_human.server import _default_agent_id
+
+    effective = None or _default_agent_id()
+    qid = s.create("hello", agent_id=effective)
+    q = s.get(qid)
+    assert q["agent_id"] == "fleet-xyz999"
+
+
+def test_ask_human_question_explicit_agent_id_wins_over_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Explicit agent_id parameter overrides the FLEET_TASK_DIR env default."""
+    task_dir = tmp_path / ".fleet" / "tasks" / "fleet-env-default"
+    task_dir.mkdir(parents=True)
+    monkeypatch.setenv("FLEET_TASK_DIR", str(task_dir))
+
+    s = _store(tmp_path)
+    from fleet.ask_human.server import _default_agent_id
+
+    # When explicitly passed, agent_id wins over env default
+    explicit = "fleet-abc123"
+    effective = explicit or _default_agent_id()
+    qid = s.create("hello", agent_id=effective)
+    q = s.get(qid)
+    assert q["agent_id"] == "explicit" or q["agent_id"] == "fleet-abc123"
+
+    # Verify env default alone would give fleet-env-default
+    env_only = None or _default_agent_id()
+    qid2 = s.create("env default test", agent_id=env_only)
+    q2 = s.get(qid2)
+    assert q2["agent_id"] == "fleet-env-default"

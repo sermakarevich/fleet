@@ -23,6 +23,7 @@ behavior-identical so the two stay easy to diff.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any, Optional
 
@@ -61,11 +62,24 @@ def _result(q: dict) -> dict[str, Any]:
     """Project a stored question down to what the calling agent needs."""
     return {
         "id": q["id"],
-        "status": q["status"],          # answered | expired | cancelled
-        "answer": q["answer"],          # str, list[str] (multi_select), or None
-        "note": q.get("note"),          # operator's free-text note/correction, or None
+        "status": q["status"],  # answered | expired | cancelled
+        "answer": q["answer"],  # str, list[str] (multi_select), or None
+        "note": q.get("note"),  # operator's free-text note/correction, or None
         "answered_by": q.get("answered_by"),
     }
+
+
+def _default_agent_id() -> Optional[str]:
+    """Derive a task-id agent_id from the FLEET_TASK_DIR env var when none is passed."""
+    task_dir = os.environ.get("FLEET_TASK_DIR")
+    if task_dir:
+        # Extract task id from path like /.../.fleet/tasks/fleet-xxxx
+        from os.path import basename
+
+        name = basename(task_dir)
+        if name:
+            return name
+    return None
 
 
 async def _await_answer(
@@ -149,11 +163,15 @@ async def ask_human_question(
         do X" or "your premise is wrong"). When `note` is present, treat it as the
         operator's authoritative intent.
     """
+    # Default agent_id from FLEET_TASK_DIR env var when none is passed,
+    # so the operator always sees attribution (env default > none).
+    effective_agent_id = agent_id or _default_agent_id()
+
     qid = store.create(
         prompt=prompt,
         options=options,
         multi_select=multi_select,
-        agent_id=agent_id,
+        agent_id=effective_agent_id,
         session_id=session_id,
         priority=priority,
     )

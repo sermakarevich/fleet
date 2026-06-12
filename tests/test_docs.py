@@ -1,4 +1,5 @@
 """Grep-based tests asserting documentation contracts (task-10)."""
+
 from __future__ import annotations
 
 import re
@@ -25,7 +26,11 @@ def _lines_matching_as_command(path: Path, pattern: str) -> list[str]:
     for ln in path.read_text().splitlines():
         if re.search(pattern, ln, re.IGNORECASE):
             # Allow lines that are explicit "not provided" / "deferred" footnotes
-            if re.search(r"\bnot\s+provide|\bdoes\s+not|\bdeferred\b|\bno\s+fleet\b", ln, re.IGNORECASE):
+            if re.search(
+                r"\bnot\s+provide|\bdoes\s+not|\bdeferred\b|\bno\s+fleet\b",
+                ln,
+                re.IGNORECASE,
+            ):
                 continue
             results.append(ln)
     return results
@@ -33,22 +38,30 @@ def _lines_matching_as_command(path: Path, pattern: str) -> list[str]:
 
 def test_no_fleet_block_in_instruction_md():
     matches = _lines_matching_as_command(INSTRUCTION_MD, r"fleet\s+block")
-    assert not matches, f"fleet/templates/INSTRUCTION.md contains 'fleet block' as a usage example: {matches}"
+    assert not matches, (
+        f"fleet/templates/INSTRUCTION.md contains 'fleet block' as a usage example: {matches}"
+    )
 
 
 def test_no_fleet_answer_in_instruction_md():
     matches = _lines_matching_as_command(INSTRUCTION_MD, r"fleet\s+answer")
-    assert not matches, f"fleet/templates/INSTRUCTION.md contains 'fleet answer' as a usage example: {matches}"
+    assert not matches, (
+        f"fleet/templates/INSTRUCTION.md contains 'fleet answer' as a usage example: {matches}"
+    )
 
 
 def test_no_fleet_block_in_fleet_readme():
     matches = _lines_matching_as_command(FLEET_README, r"fleet\s+block")
-    assert not matches, f"fleet/README.md contains 'fleet block' as a usage example: {matches}"
+    assert not matches, (
+        f"fleet/README.md contains 'fleet block' as a usage example: {matches}"
+    )
 
 
 def test_no_fleet_answer_in_fleet_readme():
     matches = _lines_matching_as_command(FLEET_README, r"fleet\s+answer")
-    assert not matches, f"fleet/README.md contains 'fleet answer' as a usage example: {matches}"
+    assert not matches, (
+        f"fleet/README.md contains 'fleet answer' as a usage example: {matches}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +73,11 @@ def test_resume_flag_only_as_negation_in_instruction_md():
     content = INSTRUCTION_MD.read_text()
     for ln in content.splitlines():
         if "--resume" in ln:
-            assert re.search(r"\bnot\b|\bNOT\b|\bnever\b|\bNEVER\b|\bdoes not\b|\bdoes NOT\b", ln, re.IGNORECASE), (
+            assert re.search(
+                r"\bnot\b|\bNOT\b|\bnever\b|\bNEVER\b|\bdoes not\b|\bdoes NOT\b",
+                ln,
+                re.IGNORECASE,
+            ), (
                 f"INSTRUCTION.md line contains '--resume' without negation context: {ln!r}"
             )
 
@@ -71,19 +88,34 @@ def test_resume_flag_only_as_negation_in_instruction_md():
 
 
 def test_instruction_md_mentions_bd_update():
-    assert "bd update" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention 'bd update'"
+    assert "bd update" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention 'bd update'"
+    )
 
 
 def test_instruction_md_mentions_status_blocked():
-    assert "--status blocked" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention '--status blocked'"
+    assert "--status blocked" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention '--status blocked'"
+    )
 
 
 def test_instruction_md_mentions_status_open():
-    assert "--status open" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention '--status open'"
+    assert "--status open" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention '--status open'"
+    )
 
 
 def test_instruction_md_mentions_ask_human():
-    assert "ask_human" in INSTRUCTION_MD.read_text(), "INSTRUCTION.md must mention 'ask_human'"
+    assert "ask_human" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention 'ask_human'"
+    )
+
+
+def test_instruction_md_mentions_agent_id():
+    """INSTRUCTION.md must document agent_id for ask_human questions."""
+    assert "agent_id" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention 'agent_id'"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +124,9 @@ def test_instruction_md_mentions_ask_human():
 
 
 def test_instruction_md_exists():
-    assert INSTRUCTION_MD.exists(), f"fleet/templates/INSTRUCTION.md does not exist at {INSTRUCTION_MD}"
+    assert INSTRUCTION_MD.exists(), (
+        f"fleet/templates/INSTRUCTION.md does not exist at {INSTRUCTION_MD}"
+    )
 
 
 def test_fleet_readme_exists():
@@ -109,6 +143,8 @@ def test_read_files_first_is_first_section():
     sections = [ln for ln in content.splitlines() if ln.startswith("## ")]
     assert sections, "INSTRUCTION.md has no ## sections"
     first = sections[0].lower()
-    assert "read" in first and ("first" in first or "fresh" in first or "start" in first), (
+    assert "read" in first and (
+        "first" in first or "fresh" in first or "start" in first
+    ), (
         f"First ## section in INSTRUCTION.md should be the 'read files first' instruction, got: {sections[0]!r}"
     )

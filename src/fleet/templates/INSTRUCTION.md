@@ -22,9 +22,9 @@ Finalize `PLAN_AND_STATUS.md` (In progress → Done), run `bd close <task_id> --
 
 `AskUserQuestion` is denied by a PreToolUse hook; use this instead.
 
-Call the `mcp__ask_human__ask_human_question` MCP tool with your question. It blocks until the human answers via the fleet chat tab or Telegram, then returns their answer directly — no file writing or re-invocation needed.
+Call the `mcp__ask_human__ask_human_question` MCP tool with your question. Pass `agent_id` set to your task id (e.g. `fleet-xxxx`) so the operator can attribute the question. When `agent_id` is omitted, the server defaults it from `$FLEET_TASK_DIR`. It blocks until the human answers via the fleet chat tab or Telegram, then returns their answer directly — no file writing or re-invocation needed.
 
-1. Call `mcp__ask_human__ask_human_question` with a clear question and optional `options` list for multiple-choice decisions.
+1. Call `mcp__ask_human__ask_human_question` with a clear question and optional `options` list for multiple-choice decisions. Always pass `agent_id` set to your task id.
 2. `bd update <task_id> --status blocked --notes "QUESTION: <summary>"` before calling (so the UI shows blocked state).
 3. Resume immediately from the returned answer — do NOT exit.
 4. After resuming, `bd update <task_id> --status open`.
