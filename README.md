@@ -456,14 +456,10 @@ See [Telegram channel notifications](#telegram-channel-notifications) for the fu
 
 ```bash
 fleet ask-human install                     # register the bundled MCP server with Claude Code
-fleet ask-human serve                       # run the MCP server on stdio (what `install` registers)
-fleet ask-human watch                       # auto-refreshing operator console
-fleet ask-human list                        # show pending questions
-fleet ask-human answer <id> "<text>"        # answer one (id may be a prefix)
-fleet ask-human web                         # browser dashboard at http://127.0.0.1:8765
+fleet ask-human serve                       # run the MCP server on stdio (what `install` registers — only one you'll need)
 ```
 
-Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. See [The ask_human question broker](#the-ask_human-question-broker-bundled-mcp-server) for the full guide.
+Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. Answer from the Fleet web UI Chat tab (`fleet serve`) or Telegram.
 
 ---
 
@@ -742,8 +738,7 @@ Headless agents have no built-in way to ask you anything — Claude Code filters
  └──────────────────────┘     └──────────────────┘
                                   ▲           ▲
                        web UI chat tab     Telegram reply
-                       fleet ask-human     (see section above)
-                       watch / web
+                        fleet ask-human     (see section above)
 ```
 
 The SQLite store is the single source of truth; every frontend is a thin client. Answering is an atomic `UPDATE … WHERE status='pending'`, so the first responder wins and channels can never double-answer.
@@ -763,10 +758,8 @@ Agents spawned by the fleet supervisor pick up the user-scope registration autom
 
 Every frontend writes to the same store, so use whichever is closest:
 
-- **Fleet web UI** — the chat tab in `fleet serve` (questions appear live).
+- **Fleet web UI** — the chat tab in `fleet serve` (questions appear live). Use this as your primary interface.
 - **Telegram** — reply to the question notification (see [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)).
-- **`fleet ask-human watch`** — auto-refreshing terminal console. Type the answer when one question is pending, or `<id> <answer>` with several. Append `| your note` to add free text alongside (or instead of) an option.
-- **`fleet ask-human web`** — standalone browser dashboard on `http://127.0.0.1:8765`.
 
 On an options question the operator is never boxed in: a free-text `note` can supplement or replace the selection, and agents are instructed to treat it as authoritative.
 
@@ -775,7 +768,6 @@ On an options question the operator is never boxed in: a free-text `note` can su
 | Env | Default | Purpose |
 |-----|---------|---------|
 | `ASK_HUMAN_DB` | `~/.claude/ask_human/questions.db` | shared SQLite file (set the same for server + frontends) |
-| `ASK_HUMAN_WEB_ADDR` | `127.0.0.1:8765` | web dashboard bind address |
 
 ---
 

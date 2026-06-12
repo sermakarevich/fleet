@@ -1479,17 +1479,10 @@ def telegram_setup(
 # ask-human (vendored human-in-the-loop question broker)
 # ---------------------------------------------------------------------------
 
-_ASK_HUMAN_HELP = "Human-in-the-loop questions: MCP server + operator console."
+_ASK_HUMAN_HELP = "ask_human MCP server — the backend of the fleet chat tab."
 
 ask_human_app = typer.Typer(no_args_is_help=True, help=_ASK_HUMAN_HELP)
 app.add_typer(ask_human_app, name="ask-human", help=_ASK_HUMAN_HELP)
-
-
-def _ask_human_store():
-    """Build a QuestionStore, resolving ASK_HUMAN_DB at call time (not import time)."""
-    from fleet.ask_human.store import DEFAULT_DB_PATH, QuestionStore
-
-    return QuestionStore(Path(os.environ.get("ASK_HUMAN_DB") or DEFAULT_DB_PATH))
 
 
 @ask_human_app.command("serve")
@@ -1498,58 +1491,6 @@ def ask_human_serve() -> None:
     from fleet.ask_human.server import main as _serve_main
 
     _serve_main()
-
-
-@ask_human_app.command("list")
-def ask_human_list() -> None:
-    """Show pending questions."""
-    from fleet.ask_human import cli as _ah_cli
-
-    _ah_cli.cmd_list(_ask_human_store(), argparse.Namespace())
-
-
-@ask_human_app.command("answer")
-def ask_human_answer(
-    qid: Annotated[
-        str, typer.Argument(help="Question id (a unique prefix is enough).")
-    ],
-    text: Annotated[
-        list[str],
-        typer.Argument(
-            help="The answer (comma-separated for multi-select; add '| note' to reply in free text)."
-        ),
-    ],
-) -> None:
-    """Answer a pending question."""
-    from fleet.ask_human import cli as _ah_cli
-
-    _ah_cli.cmd_answer(_ask_human_store(), argparse.Namespace(id=qid, text=text))
-
-
-@ask_human_app.command("watch")
-def ask_human_watch(
-    interval: Annotated[
-        float,
-        typer.Option("--interval", help="Seconds between auto-refreshes while idle."),
-    ] = 2.0,
-) -> None:
-    """Auto-refreshing answer loop (interactive operator console)."""
-    from fleet.ask_human import cli as _ah_cli
-
-    _ah_cli.cmd_watch(_ask_human_store(), argparse.Namespace(interval=interval))
-
-
-@ask_human_app.command("web")
-def ask_human_web(
-    addr: Annotated[
-        Optional[str],
-        typer.Option("--addr", help="host:port (default 127.0.0.1:8765)."),
-    ] = None,
-) -> None:
-    """Launch the web dashboard for answering questions."""
-    from fleet.ask_human import web as _ah_web
-
-    _ah_web.serve(addr)
 
 
 @ask_human_app.command("install")

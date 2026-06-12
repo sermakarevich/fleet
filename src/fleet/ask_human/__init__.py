@@ -1,9 +1,8 @@
 """fleet.ask_human — human-in-the-loop question broker (vendored).
 
 An MCP server (``fleet.ask_human.server``) lets headless agents ask a human and
-block for the answer; the operator console (``fleet.ask_human.cli``, exposed as
-``fleet ask-human``) and web dashboard (``fleet.ask_human.web``) answer them,
-all over one shared SQLite store (``fleet.ask_human.store``).
+block for the answer; the operator answers via the fleet web UI Chat tab or
+Telegram, using the shared SQLite store (``fleet.ask_human.store``).
 
 Vendored from the standalone ``agent-chat`` project (~/git/claude/mcp/ask_human)
 so fleet is self-contained; the original remains the upstream. Keep changes here
