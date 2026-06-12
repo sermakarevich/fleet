@@ -68,6 +68,7 @@ class Supervisor:
         self._paused_until: datetime | None = None
         self._shutting_down: bool = False
         self._done: asyncio.Event | None = None
+        self._stall_warned: set[str] = set()
 
     async def run(self) -> int:
         self._done = asyncio.Event()
@@ -247,6 +248,7 @@ class Supervisor:
                 bead_task = self.in_flight_tasks.pop(task_id)
                 self.in_flight.pop(task_id)
                 self._runners.pop(task_id, None)
+                self._stall_warned.discard(task_id)
 
                 try:
                     outcome: TaskOutcomeRecord = async_task.result()
@@ -303,6 +305,27 @@ class Supervisor:
 
     def _log_status_snapshot(self) -> None:
         self._log.info("supervisor_status", **self._fleet_log_context())
+        if self.config.stall_warning_minutes <= 0:
+            return
+        now = datetime.now(tz=timezone.utc).timestamp()
+        for task_id in list(self.in_flight):
+            events_path = self._project_root / "tasks" / task_id / "events.jsonl"
+            try:
+                mtime = events_path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            idle = now - mtime
+            if idle > self.config.stall_warning_minutes * 60:
+                if task_id not in self._stall_warned:
+                    self._log.warning(
+                        "task_stalled",
+                        task_id=task_id,
+                        idle_seconds=int(idle),
+                        stall_warning_minutes=self.config.stall_warning_minutes,
+                    )
+                    self._stall_warned.add(task_id)
+            else:
+                self._stall_warned.discard(task_id)
 
     def _fleet_log_context(self) -> dict:
         """Snapshot of live fleet stats — in-flight count, rate-limit usage."""
