@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { RuntimeConfig, TaskDetail } from '../../types';
 import * as T from '../../styles/tokens';
 
@@ -47,6 +48,11 @@ function CoderModel({ task, config }: { task: TaskDetail; config: RuntimeConfig 
 }
 
 export function Header({ task, config }: Props) {
+  const [descExpanded, setDescExpanded] = useState(false);
+  const desc = task.description;
+  const descLong = typeof desc === 'string' && desc.length > 400;
+  const descVisible = descExpanded || !descLong;
+
   return (
     <div style={styles.header}>
       <div style={styles.row}>
@@ -61,6 +67,27 @@ export function Header({ task, config }: Props) {
         </span>
         <span style={styles.title}>{task.title}</span>
       </div>
+      {desc && (
+        <div style={styles.descContainer}>
+          <span
+            style={{
+              ...styles.desc,
+              maxHeight: descVisible ? 'none' : `${12 * 16}px`,
+              overflow: 'hidden',
+            }}
+          >
+            {desc}
+          </span>
+          {descLong && (
+            <button
+              style={styles.descToggle}
+              onClick={() => setDescExpanded(!descExpanded)}
+            >
+              {descExpanded ? 'show less' : 'show more'}
+            </button>
+          )}
+        </div>
+      )}
       <div style={styles.meta}>
         <CoderModel task={task} config={config} />
         <span style={styles.metaSep}>·</span>
@@ -160,5 +187,24 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  descContainer: {
+    marginTop: '0.35rem',
+  },
+  desc: {
+    fontSize: '0.8rem',
+    color: T.colors.textMuted,
+    whiteSpace: 'pre-wrap',
+    display: 'block',
+  },
+  descToggle: {
+    fontSize: '0.75rem',
+    color: '#60a5fa',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '0.15rem 0',
+    fontFamily: 'inherit',
+    marginTop: '0.1rem',
   },
 };
