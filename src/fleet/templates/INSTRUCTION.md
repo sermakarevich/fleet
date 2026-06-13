@@ -31,6 +31,16 @@ Call the `mcp__ask_human__ask_human_question` MCP tool with your question. Pass 
 
 Fleet does not provide `fleet block` or `fleet answer` — use `bd` directly.
 
+## Consulting claude_code (stronger model + web)
+For a hard problem you cannot resolve yourself, or when you need current/web information, call the
+`mcp__claude_code__ask_claude` MCP tool with ONE clear, self-contained question. It runs a stronger
+model (Opus) that can search the web, fetch URLs, and reason more deeply, then returns a final
+answer. Two cases:
+- Advisor: stuck on a complex decision, tricky bug, or design choice → ask for a recommendation.
+- Research: you need facts, docs, or current info from the internet → ask it to search and summarize.
+Use it sparingly: send one focused question, then act on the answer. It is slow and costly, so do
+NOT call it for things you can do yourself.
+
 ## Failure / retries
 
 Non-zero exit → supervisor releases the task and retries up to `retry_limit` (default 2). Rate-limit and context-pressure exits do NOT count toward `retry_limit`.
