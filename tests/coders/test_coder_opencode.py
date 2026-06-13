@@ -442,6 +442,18 @@ def test_write_runtime_config_mcp_playwright_available(tmp_path: Path):
     assert "--isolated" in entry["command"]
 
 
+def test_write_runtime_config_mcp_web_fetch_available(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["mcp"]["web_fetch"]
+    assert entry["enabled"] is True
+    assert entry["type"] == "local"
+    assert entry["command"][-1] == "fleet.web_fetch.server"
+    assert entry["environment"]["FLEET_WEBFETCH_MODEL"]
+    assert entry["environment"]["FLEET_WEBFETCH_OLLAMA_URL"]
+    assert "ask-human" in cfg["mcp"]
+
+
 def test_write_runtime_config_mcp_ask_human_not_removed_after_playwright(
     tmp_path: Path,
 ):

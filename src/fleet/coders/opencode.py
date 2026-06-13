@@ -134,6 +134,25 @@ class OpencodeCoder(Coder):
         mcp: dict = dict(existing.get("mcp", {}))
         mcp["ask-human"] = ask_human_entry
 
+        web_fetch_entry = {
+            "type": "local",
+            "command": [
+                "uv",
+                "--directory",
+                str(fleet_root),
+                "run",
+                "python",
+                "-m",
+                "fleet.web_fetch.server",
+            ],
+            "environment": {
+                "FLEET_WEBFETCH_MODEL": local_key,
+                "FLEET_WEBFETCH_OLLAMA_URL": base_url,
+            },
+            "enabled": True,
+        }
+        mcp["web_fetch"] = web_fetch_entry
+
         playwright_entry = {
             "type": "local",
             "command": [
