@@ -87,6 +87,9 @@ class TestTaskRecordFull:
         assert r["errors"] == 2
         assert r["tool_counts"] == {"Read": 1, "Edit": 1}
         assert r["output_tokens"] == 500  # 200 + 300
+        assert r["input_tokens"] == 250  # 100 + 150
+        assert r["cache_creation_tokens"] == 80  # 50 + 30
+        assert r["cache_read_tokens"] == 30  # 10 + 20
         assert r["peak_context_tokens"] == 200
         assert r["rate_limited"] == 0
         assert r["noclose"] is False
@@ -142,6 +145,9 @@ class TestMissingEvents:
         assert r["errors"] == 0
         assert r["tool_counts"] == {}
         assert r["output_tokens"] == 0
+        assert r["input_tokens"] == 0
+        assert r["cache_creation_tokens"] == 0
+        assert r["cache_read_tokens"] == 0
         assert r["peak_context_tokens"] is None
         assert r["rate_limited"] == 0
         assert r["hour_hist"] == {}

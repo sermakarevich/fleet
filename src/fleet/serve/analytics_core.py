@@ -93,6 +93,9 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
     errors = 0
     tool_counts: dict[str, int] = {}
     output_tokens = 0
+    input_tokens = 0
+    cache_creation_tokens = 0
+    cache_read_tokens = 0
     peak_context_tokens: int | None = None
     rate_limited = 0
     rate_limit_events_ts: list[str] = []
@@ -151,6 +154,13 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
                         usage = row.get("usage")
                         if isinstance(usage, dict):
                             output_tokens += _safe_int(usage.get("output_tokens"))
+                            input_tokens += _safe_int(usage.get("input_tokens"))
+                            cache_creation_tokens += _safe_int(
+                                usage.get("cache_creation_input_tokens")
+                            )
+                            cache_read_tokens += _safe_int(
+                                usage.get("cache_read_input_tokens")
+                            )
 
                     # peak_context_tokens (exclude session_ended)
                     if kind != "session_ended":
@@ -210,6 +220,9 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
         "errors": errors,
         "tool_counts": tool_counts,
         "output_tokens": output_tokens,
+        "input_tokens": input_tokens,
+        "cache_creation_tokens": cache_creation_tokens,
+        "cache_read_tokens": cache_read_tokens,
         "peak_context_tokens": peak_context_tokens,
         "rate_limited": rate_limited,
         "rate_limit_events": rate_limit_events_ts,
