@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKillTask, useTasks } from '../hooks/useApi';
 import { useTasksState } from '../hooks/useTasksState';
@@ -7,29 +7,18 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import type { TaskSummary } from '../types';
 import * as T from '../styles/tokens';
 
-type SortKey = 'activity' | 'status' | 'id' | 'title' | 'coder' | 'context' | 'started' | 'completed' | 'cwd';
-type SortDir = 'desc' | 'asc';
 
-function readSort(): { key: SortKey; dir: SortDir } | null {
-  try {
-    const raw = localStorage.getItem('fleet.tasks.sort');
-    const p = raw ? JSON.parse(raw) : null;
-    if (p && typeof p.key === 'string' && typeof p.dir === 'string' && (p.dir === 'asc' || p.dir === 'desc')) {
-      const ALLOWED: SortKey[] = ['activity','status','id','title','coder','context','started','completed','cwd'];
-      if (ALLOWED.includes(p.key)) return { key: p.key, dir: p.dir as SortDir };
-    }
-  } catch { /* ignore */ }
-  return null;
-}
 
-function readPageSize(): number | null {
-  const raw = localStorage.getItem('fleet.tasks.pageSize');
-  if (raw) {
-    const n = Number(raw);
-    if ([25, 50, 100].includes(n)) return n;
-  }
-  return null;
-}
+type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
+
+const FILTERS: Array<{ key: StatusFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'running', label: 'Running' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'blocked', label: 'Blocked' },
+  { key: 'done', label: 'Done' },
+  { key: 'failed', label: 'Failed' },
+];
 
 const ALERT_FILTERS = new Set<StatusFilter>(['blocked', 'failed']);
 
