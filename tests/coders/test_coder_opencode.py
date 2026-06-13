@@ -431,6 +431,28 @@ def test_write_runtime_config_mcp_claude_code_available(tmp_path: Path):
     assert entry["command"][-1].endswith("claude_code/server.py")
 
 
+def test_write_runtime_config_mcp_playwright_available(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["mcp"]["playwright"]
+    assert entry["enabled"] is True
+    assert entry["type"] == "local"
+    assert "@playwright/mcp@latest" in entry["command"]
+    assert "--headless" in entry["command"]
+    assert "--isolated" in entry["command"]
+
+
+def test_write_runtime_config_mcp_ask_human_not_removed_after_playwright(
+    tmp_path: Path,
+):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert "ask-human" in cfg["mcp"]
+    assert any(
+        "fleet.ask_human.server" in part for part in cfg["mcp"]["ask-human"]["command"]
+    )
+
+
 def test_write_runtime_config_mcp_ask_human_not_removed(tmp_path: Path):
     _coder().write_runtime_config(tmp_path, object())
     cfg = json.loads((tmp_path / "opencode.json").read_text())

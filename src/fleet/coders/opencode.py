@@ -134,6 +134,19 @@ class OpencodeCoder(Coder):
         mcp: dict = dict(existing.get("mcp", {}))
         mcp["ask-human"] = ask_human_entry
 
+        playwright_entry = {
+            "type": "local",
+            "command": [
+                "npx",
+                "-y",
+                "@playwright/mcp@latest",
+                "--headless",
+                "--isolated",
+            ],
+            "enabled": True,
+        }
+        mcp["playwright"] = playwright_entry
+
         claude_code_entry = {
             "type": "local",
             "command": [
