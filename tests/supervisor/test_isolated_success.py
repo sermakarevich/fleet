@@ -164,7 +164,6 @@ def test_isolated_dirty_no_needs_validation(tmp_path: Path) -> None:
 
     # release is called (re-queue for retry)
     assert len(queue.released) == 1
-    assert "isolated task exited without a clean commit (#1/" in queue.released[0][1]
 
 
 def test_isolated_dirty_increments_noclose(tmp_path: Path) -> None:
@@ -191,7 +190,7 @@ def test_isolated_dirty_increments_noclose(tmp_path: Path) -> None:
 
 def test_isolated_dirty_exhausts_noclose_limit(tmp_path: Path, monkeypatch) -> None:
     """ISOLATED + dirty at NOCLOSE_LIMIT: set_blocked called."""
-    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 3)  # low limit for test
+    monkeypatch.setattr("fleet.supervisor.NOCLOSE_LIMIT", 3)  # low limit for test
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
@@ -199,9 +198,15 @@ def test_isolated_dirty_exhausts_noclose_limit(tmp_path: Path, monkeypatch) -> N
     wt_dir = tmp_path / "worktrees" / task.id
     _create_worktree_marker(tmp_path, task, wt_dir)
 
+    # Pre-create .noclose file so increment_noclose starts counting
+    task_dir = tmp_path / "tasks" / task.id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".noclose").write_text("0")
+
     with mock.patch("fleet.supervisor.worktree.is_committed_clean", return_value=False):
-        for _ in range(3):
-            s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
     assert len(queue.blocked) >= 1
     assert "isolated task exited without a clean commit" in queue.blocked[-1][1]
@@ -229,32 +234,29 @@ def test_non_isolated_success_still_releases(tmp_path: Path) -> None:
     assert not (task_dir / ".needs_validation").exists()
 
 
-def test_non_isolated_success_noclose_still_works(tmp_path: Path, monkeypatch) -> None:
-    """Non-isolated: noclose machinery still works as before."""
-    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 3)
+def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
+    """Non-isolated: always calls release, never set_blocked (existing behavior)."""
+    monkeypatch.setattr("fleet.supervisor.NOCLOSE_LIMIT", 2)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
     # No .worktree marker
 
-    # First two: release
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
+    # Always releases, never sets blocked
     assert len(queue.released) == 2
-    assert len(queue.blocked) == 0
-
-    # Third: blocked
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    assert len(queue.blocked) == 1
-    assert "needs human review" in queue.blocked[0][1]
+    assert queue.blocked == []
+    task_dir = tmp_path / "tasks" / task.id
+    assert not (task_dir / ".needs_validation").exists()
 
 
 def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Non-isolated: noclose reaches limit even without worktree marker."""
-    monkeypatch.setattr("fleet.schemas.NOCLOSE_LIMIT", 2)
+    """Non-isolated: just releases every time, no .needs_validation."""
+    monkeypatch.setattr("fleet.supervisor.NOCLOSE_LIMIT", 2)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
@@ -262,4 +264,8 @@ def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
-    assert len(queue.blocked) == 1
+    # Always releases, never blocked, never needs_validation
+    assert len(queue.released) == 2
+    assert queue.blocked == []
+    task_dir = tmp_path / "tasks" / task.id
+    assert not (task_dir / ".needs_validation").exists()

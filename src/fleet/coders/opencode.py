@@ -134,6 +134,24 @@ class OpencodeCoder(Coder):
         mcp: dict = dict(existing.get("mcp", {}))
         mcp["ask-human"] = ask_human_entry
 
+        claude_code_entry = {
+            "type": "local",
+            "command": [
+                "uv",
+                "run",
+                "--script",
+                str(
+                    Path.home()
+                    / ".claude"
+                    / "mcp-servers"
+                    / "claude_code"
+                    / "server.py"
+                ),
+            ],
+            "enabled": True,
+        }
+        mcp["claude_code"] = claude_code_entry
+
         result: dict = {}
         if "$schema" not in existing:
             result["$schema"] = "https://opencode.ai/config.json"

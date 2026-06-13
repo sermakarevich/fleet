@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAnalyticsSummary } from '../hooks/useApi';
 import { KpiCards } from '../components/Analytics/KpiCards';
+import { ThroughputChart } from '../components/Analytics/ThroughputChart';
+import { LeaderboardTable } from '../components/Analytics/LeaderboardTable';
+import { PerProjectTable } from '../components/Analytics/PerProjectTable';
 import type { AnalyticsKpis } from '../types';
 import * as T from '../styles/tokens';
 
@@ -54,8 +57,32 @@ export function Analytics() {
   var isLoading = _q.isLoading;
   var error = _q.error;
 
+  var bucketSize = useMemo(function () {
+    if (days <= 1) return 'hour' as const;
+    return 'day' as const;
+  }, [days]);
+
+  var throughputBuckets = useMemo(function () {
+    if (!data) return [];
+    return data.throughput.buckets.map(function (b) {
+      return { bucket: b.bucket, success: b.success, failed: b.failed, blocked: b.blocked };
+    });
+  }, [data]);
+
+  var byModelRows = useMemo(function () {
+    if (!data) return [];
+    return data.by_model;
+  }, [data]);
+
+  var byProjectRows = useMemo(function () {
+    if (!data) return [];
+    return data.by_project;
+  }, [data]);
+
   if (isLoading) return <p style={styles.msg}>Loading analytics…</p>;
   if (error) return <p style={styles.err}>Error: {String(error)}</p>;
+
+  var kpis = data ? data.kpis : DEFAULT_KPIS;
 
   return (
     <div style={styles.page}>
@@ -73,7 +100,12 @@ export function Analytics() {
           );
         })}
       </div>
-      <KpiCards kpis={data ? data.kpis : DEFAULT_KPIS} />
+      <KpiCards kpis={kpis} />
+      <ThroughputChart bucketSize={bucketSize} buckets={throughputBuckets} />
+      <div style={styles.tableRow}>
+        <LeaderboardTable rows={byModelRows} />
+        <PerProjectTable rows={byProjectRows} />
+      </div>
     </div>
   );
 }
@@ -116,5 +148,10 @@ var styles = {
     background: T.colors.accent,
     borderColor: T.colors.accent,
     color: '#fff',
+  } as React.CSSProperties,
+  tableRow: {
+    display: 'flex',
+    gap: '1.5rem',
+    flexWrap: 'wrap',
   } as React.CSSProperties,
 };

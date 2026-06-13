@@ -403,7 +403,7 @@ class Supervisor:
         match outcome.outcome:
             case TaskOutcome.SUCCESS:
                 if self._bead_in_progress(task.id):
-                    task_dir = self._task_dir_for(task.id)
+                    task_dir = self._task_dir_for(task)
                     wt_marker = task_dir / ".worktree"
                     if wt_marker.exists():
                         # ISOLATED task: implementer is not expected to close.
@@ -422,6 +422,21 @@ class Supervisor:
                             return
                     # Non-isolated: fall through to existing no-close logic
                     count = increment_noclose(task_dir)
+                    reason = f"re-queueing (success without close; #{count})"
+                    self._queue.release(task.id, reason=reason)
+                    self._queue.comment(
+                        task.id,
+                        f"[fleet] success #{count}: rc=0 with the bead still open. "
+                        f"This is a no-close count. At {NOCLOSE_LIMIT} "
+                        f"the task will be blocked for human review.",
+                    )
+                    self._log.warning(
+                        "task_success_noclose",
+                        task_id=task.id,
+                        count=count,
+                        limit=NOCLOSE_LIMIT,
+                    )
+                    return
                 else:
                     reset_noclose(self._task_dir_for(task))
                     self._log.info(

@@ -422,6 +422,24 @@ def test_write_runtime_config_mcp_ask_human(tmp_path: Path):
     assert any("fleet.ask_human.server" in part for part in entry["command"])
 
 
+def test_write_runtime_config_mcp_claude_code_available(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    entry = cfg["mcp"]["claude_code"]
+    assert entry["enabled"] is True
+    assert entry["type"] == "local"
+    assert entry["command"][-1].endswith("claude_code/server.py")
+
+
+def test_write_runtime_config_mcp_ask_human_not_removed(tmp_path: Path):
+    _coder().write_runtime_config(tmp_path, object())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert "ask-human" in cfg["mcp"]
+    assert any(
+        "fleet.ask_human.server" in part for part in cfg["mcp"]["ask-human"]["command"]
+    )
+
+
 def test_write_runtime_config_mcp_preserves_existing(tmp_path: Path):
     existing = {"mcp": {"my-server": {"type": "local", "command": ["foo"]}}}
     (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))

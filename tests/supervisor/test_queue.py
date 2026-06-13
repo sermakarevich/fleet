@@ -8,6 +8,18 @@ import pytest
 from fleet.queue import BeadsError, BeadsQueue
 
 
+def test_order_ready_priority_then_oldest():
+    """Claim order: highest priority first, then oldest created_at within same priority."""
+    items = [
+        {"id": "new-p2", "priority": 2, "created_at": "2026-06-13T16:00:00Z"},
+        {"id": "old-p2", "priority": 2, "created_at": "2026-06-11T04:00:00Z"},
+        {"id": "newest-p0", "priority": 0, "created_at": "2026-06-13T17:00:00Z"},
+    ]
+    ordered = [c["id"] for c in BeadsQueue._order_ready(items)]
+    # P0 wins despite being newest; within P2 the older one comes first.
+    assert ordered == ["newest-p0", "old-p2", "new-p2"]
+
+
 def test_claim_next_empty_ready_list_returns_none(queue: BeadsQueue) -> None:
     """claim_next returns None when no ready tasks exist."""
     with patch.object(queue, "_bd", return_value={"data": []}):
@@ -21,7 +33,9 @@ def test_claim_next_contention_at_most_one_winner(tmp_path: Path) -> None:
     claim_counter = {"n": 0}
     counter_lock = threading.Lock()
 
-    def shared_mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
+    def shared_mock_bd(
+        *args: str, json_envelope: bool = True, actor: str | None = None
+    ) -> dict | None:
         if args and args[0] == "ready":
             return {"data": task_data}
         if "--claim" in args:
@@ -65,7 +79,9 @@ def test_claim_next_reads_cwd_from_meta_file(tmp_path: Path) -> None:
 
     task_data = [{"id": "t-001", "title": "Task 1", "description": None}]
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
+    def mock_bd(
+        *args: str, json_envelope: bool = True, actor: str | None = None
+    ) -> dict | None:
         if args and args[0] == "ready":
             return {"data": task_data}
         return None
@@ -82,7 +98,9 @@ def test_claim_next_no_meta_file_yields_none_cwd(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     task_data = [{"id": "t-002", "title": "Task 2", "description": None}]
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
+    def mock_bd(
+        *args: str, json_envelope: bool = True, actor: str | None = None
+    ) -> dict | None:
         if args and args[0] == "ready":
             return {"data": task_data}
         return None
@@ -98,11 +116,20 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
     """create_task with cwd= writes <repo_root>/tasks/<id>/task.json with the cwd."""
     q = BeadsQueue(repo_root=tmp_path)
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
+    def mock_bd(
+        *args: str, json_envelope: bool = True, actor: str | None = None
+    ) -> dict | None:
         if "create" in args:
             return {"data": {"id": "t-100"}}
         if "show" in args:
-            return {"data": {"id": "t-100", "title": "x", "description": None, "status": "open"}}
+            return {
+                "data": {
+                    "id": "t-100",
+                    "title": "x",
+                    "description": None,
+                    "status": "open",
+                }
+            }
         return None
 
     with patch.object(q, "_bd", side_effect=mock_bd):
@@ -111,6 +138,7 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
     meta_path = tmp_path / "tasks" / "t-100" / "task.json"
     assert meta_path.exists()
     import json
+
     assert json.loads(meta_path.read_text())["cwd"] == "/some/project"
     assert task.cwd == "/some/project"
 
@@ -127,6 +155,7 @@ def test_freeze_coder_model_writes_coder_and_model(tmp_path: Path) -> None:
     q.freeze_coder_model("t-001", "claude", "opus")
 
     import json
+
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "claude"
     assert meta["model"] == "opus"
@@ -142,6 +171,7 @@ def test_freeze_coder_model_creates_meta_if_missing(tmp_path: Path) -> None:
     q.freeze_coder_model("t-002", "agy", "GPT-OSS 120B")
 
     import json
+
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "agy"
     assert meta["model"] == "GPT-OSS 120B"
@@ -159,6 +189,7 @@ def test_freeze_coder_model_overwrites_prior_values(tmp_path: Path) -> None:
     q.freeze_coder_model("t-003", "claude", "sonnet")
 
     import json
+
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "claude"
     assert meta["model"] == "sonnet"
@@ -176,10 +207,11 @@ def test_set_overrides_writes_only_provided_fields(tmp_path: Path) -> None:
     q.set_overrides("t-ovr-1", coder="agy")
 
     import json
+
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "agy"
     assert meta["model"] == "opus"  # untouched
-    assert meta["cwd"] == "/x"      # untouched
+    assert meta["cwd"] == "/x"  # untouched
 
 
 def test_set_overrides_noop_when_both_none(tmp_path: Path) -> None:
@@ -202,6 +234,7 @@ def test_set_overrides_creates_meta_if_missing(tmp_path: Path) -> None:
     q.set_overrides("t-ovr-3", coder="claude", model="opus")
 
     import json
+
     meta = json.loads((tmp_path / "tasks" / "t-ovr-3" / "task.json").read_text())
     assert meta["coder"] == "claude"
     assert meta["model"] == "opus"
@@ -229,6 +262,7 @@ def test_write_meta_atomic_leaves_no_tmp_file(tmp_path: Path) -> None:
 
     task_dir = tmp_path / "tasks" / "t-001"
     import json
+
     assert json.loads((task_dir / "task.json").read_text())["cwd"] == "/abs/project"
     assert [p.name for p in task_dir.iterdir()] == ["task.json"]
 
@@ -246,6 +280,7 @@ def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
     q.set_cwd("t-001", "/abs/project")
 
     import json
+
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["cwd"] == "/abs/project"
     assert meta["coder"] == "opencode"

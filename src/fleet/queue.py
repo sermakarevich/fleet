@@ -142,7 +142,11 @@ class BeadsQueue(Queue):
             "coder": coder if coder is not None else existing.get("coder"),
             "model": model if model is not None else existing.get("model"),
         }
-        priority = body.get("priority") if body.get("priority") is not None else existing.get("priority")
+        priority = (
+            body.get("priority")
+            if body.get("priority") is not None
+            else existing.get("priority")
+        )
         if priority is not None:
             result["priority"] = priority
         deps = depends_on if depends_on is not None else existing.get("depends_on")
@@ -150,7 +154,9 @@ class BeadsQueue(Queue):
             result["depends_on"] = deps
         return result
 
-    def _bd(self, *args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
+    def _bd(
+        self, *args: str, json_envelope: bool = True, actor: str | None = None
+    ) -> dict | None:
         env = {**os.environ}
         if json_envelope:
             env["BD_JSON_ENVELOPE"] = "1"
@@ -169,7 +175,18 @@ class BeadsQueue(Queue):
             return json.loads(result.stdout)
         return None
 
-    def _task_from_dict(self, body: dict, *, status_override: str | None = None) -> Task:
+    @staticmethod
+    def _order_ready(items: list) -> list:
+        """Claim order: highest priority first (lower number = higher priority),
+        then oldest first (earliest created_at) within the same priority."""
+        return sorted(
+            items,
+            key=lambda c: (c.get("priority", 99), c.get("created_at") or ""),
+        )
+
+    def _task_from_dict(
+        self, body: dict, *, status_override: str | None = None
+    ) -> Task:
         meta = self._load_meta(body["id"])
         return Task(
             id=body["id"],
@@ -182,21 +199,35 @@ class BeadsQueue(Queue):
         )
 
     def claim_next(self, claimer_id: str) -> Task | None:
-        ready = self._bd("ready", "--json", "--limit", "10")
-        items: list = ready.get("data", ready) if isinstance(ready, dict) else (ready or [])
+        ready = self._bd(
+            "ready", "--json", "--limit", "0"
+        )  # 0 = unlimited; we sort below
+        items: list = (
+            ready.get("data", ready) if isinstance(ready, dict) else (ready or [])
+        )
         if not isinstance(items, list):
             items = []
-        for cand in items:
+        for cand in self._order_ready(items):
             try:
-                self._bd("update", cand["id"], "--claim", json_envelope=False, actor=claimer_id)
+                self._bd(
+                    "update",
+                    cand["id"],
+                    "--claim",
+                    json_envelope=False,
+                    actor=claimer_id,
+                )
             except BeadsError:
                 continue
-            self._write_meta(cand["id"], self._snapshot_meta(cand, status="in_progress"))
+            self._write_meta(
+                cand["id"], self._snapshot_meta(cand, status="in_progress")
+            )
             return self._task_from_dict(cand, status_override="in_progress")
         return None
 
     def release(self, task_id: str, reason: str = "") -> None:
-        self._bd("update", task_id, "--status", "open", "--assignee", "", json_envelope=False)
+        self._bd(
+            "update", task_id, "--status", "open", "--assignee", "", json_envelope=False
+        )
         if reason:
             self._bd("comment", task_id, reason, json_envelope=False)
         meta = self._load_meta(task_id) or {"id": task_id}
@@ -204,7 +235,15 @@ class BeadsQueue(Queue):
         self._write_meta(task_id, meta)
 
     def set_blocked(self, task_id: str, reason: str) -> None:
-        self._bd("update", task_id, "--status", "blocked", "--notes", reason, json_envelope=False)
+        self._bd(
+            "update",
+            task_id,
+            "--status",
+            "blocked",
+            "--notes",
+            reason,
+            json_envelope=False,
+        )
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "blocked"
         self._write_meta(task_id, meta)
@@ -281,6 +320,12 @@ class BeadsQueue(Queue):
         # task.json, adding fleet-managed fields (cwd, coder, model) if provided.
         self._write_meta(
             task_id,
-            self._snapshot_meta(body or {"id": task_id}, cwd=cwd, coder=coder, model=model, depends_on=depends_on),
+            self._snapshot_meta(
+                body or {"id": task_id},
+                cwd=cwd,
+                coder=coder,
+                model=model,
+                depends_on=depends_on,
+            ),
         )
         return self.get(task_id)
