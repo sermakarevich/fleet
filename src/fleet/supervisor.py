@@ -18,6 +18,7 @@ from fleet.failures import (
     reset_failure,
     reset_noclose,
     set_needs_validation,
+    clear_needs_validation,
 )
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
@@ -169,6 +170,43 @@ class Supervisor:
                         usage_pct=self.rate_gauge.current_pct(),
                     )
                     self._spawn_runner(task)
+
+            await self._run_pending_validations()
+
+    async def _run_pending_validations(self) -> None:
+        tasks_root = Path.home() / ".fleet" / "tasks"
+        if not tasks_root.exists():
+            return
+        for task_dir in sorted(tasks_root.iterdir()):
+            task_id = task_dir.name
+            if task_id in self.in_flight:
+                continue
+            if not needs_validation(task_dir):
+                continue
+            result = worktree.merge_to_base(
+                self._project_root, task_id, base_ref="main"
+            )
+            if result.ok:
+                self._queue.close(
+                    task_id, reason=f"validated: merged fleet/{task_id} into main"
+                )
+                self._log.info("task.validated", task_id=task_id)
+            else:
+                reason = (
+                    f"merge conflict into main; resolve on branch fleet/{task_id} then close"
+                    if result.conflict
+                    else f"validation merge failed: {result.message}"
+                )
+                self._queue.set_blocked(task_id, reason)
+                self._log.warning(
+                    "task.validation_failed",
+                    task_id=task_id,
+                    conflict=result.conflict,
+                )
+            worktree.remove_worktree(self._project_root, task_id)
+            clear_needs_validation(task_dir)
+            (task_dir / ".worktree").unlink(missing_ok=True)
+            return  # ONE per tick
 
     def _resolve_coder(self, task: Task):
         """Pick (coder, coder_name, model) for a task.

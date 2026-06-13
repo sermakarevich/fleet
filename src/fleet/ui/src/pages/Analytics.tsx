@@ -4,6 +4,9 @@ import { KpiCards } from '../components/Analytics/KpiCards';
 import { ThroughputChart } from '../components/Analytics/ThroughputChart';
 import { LeaderboardTable } from '../components/Analytics/LeaderboardTable';
 import { PerProjectTable } from '../components/Analytics/PerProjectTable';
+import { ToolUsageBar } from '../components/Analytics/ToolUsageBar';
+import { ContextHistogram } from '../components/Analytics/ContextHistogram';
+import { ActivityHeatmap } from '../components/Analytics/ActivityHeatmap';
 import type { AnalyticsKpis } from '../types';
 import * as T from '../styles/tokens';
 
@@ -79,6 +82,21 @@ export function Analytics() {
     return data.by_project;
   }, [data]);
 
+  var toolsData = useMemo(function () {
+    if (!data) return null;
+    return data.tools;
+  }, [data]);
+
+  var ctxBuckets = useMemo(function () {
+    if (!data) return [];
+    return data.context_histogram.buckets;
+  }, [data]);
+
+  var heatData = useMemo(function () {
+    if (!data) return null;
+    return data.heatmap;
+  }, [data]);
+
   if (isLoading) return <p style={styles.msg}>Loading analytics…</p>;
   if (error) return <p style={styles.err}>Error: {String(error)}</p>;
 
@@ -106,6 +124,15 @@ export function Analytics() {
         <LeaderboardTable rows={byModelRows} />
         <PerProjectTable rows={byProjectRows} />
       </div>
+      {toolsData && (
+        <div style={styles.visualRow}>
+          <ToolUsageBar tools={toolsData} />
+          <ContextHistogram buckets={ctxBuckets} />
+        </div>
+      )}
+      {heatData && (
+        <ActivityHeatmap heatmap={heatData} />
+      )}
     </div>
   );
 }
@@ -153,5 +180,11 @@ var styles = {
     display: 'flex',
     gap: '1.5rem',
     flexWrap: 'wrap',
+  } as React.CSSProperties,
+  visualRow: {
+    display: 'flex',
+    gap: '1.5rem',
+    flexWrap: 'wrap',
+    marginBottom: '1rem',
   } as React.CSSProperties,
 };
