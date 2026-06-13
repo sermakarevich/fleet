@@ -16,14 +16,13 @@ from fastapi.responses import JSONResponse
 from fleet.coders import _REGISTRY, get_coder, list_coders as _list_coders
 from fleet.daemon import _pid_alive
 from fleet.queue import BeadsError
-from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_cached
-
-# TTL cache for _get_beads_status_map — key: str(home), value: (expires_at, result)
-_beads_map_cache: dict[str, tuple[float, dict[str, dict] | None]] = {}
-_BEADS_CACHE_TTL: float = 5.0
-_beads_list_call_count: int = (
-    0  # incremented on each real subprocess call; observable in tests
+from fleet.serve.beads_info import (
+    get_beads_status_map,
+    _beads_map_cache,
+    _BEADS_CACHE_TTL,
+    _beads_list_call_count,
 )
+from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_cached
 
 
 @dataclass
@@ -195,49 +194,6 @@ def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
     return True, ""
 
 
-def _get_beads_status_map(home: Path) -> dict[str, dict] | None:
-    """Return {task_id: {status, created_at}} for all tasks in the beads DB at `home`.
-
-    Returns None if beads is unavailable so the caller can skip reconciliation.
-    Results are cached for _BEADS_CACHE_TTL seconds to avoid a subprocess on every poll.
-    """
-    global _beads_list_call_count
-    key = str(home)
-    now = time.monotonic()
-    cached = _beads_map_cache.get(key)
-    if cached is not None and now < cached[0]:
-        return cached[1]
-
-    _beads_list_call_count += 1
-    result_value: dict[str, dict] | None = None
-    try:
-        result = subprocess.run(
-            ["bd", "list", "--all", "--json", "--limit", "0"],
-            capture_output=True,
-            text=True,
-            cwd=home,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            data = json.loads(result.stdout)
-            items: list = (
-                data.get("data", data) if isinstance(data, dict) else (data or [])
-            )
-            if isinstance(items, list):
-                result_value = {
-                    item["id"]: {
-                        "status": item.get("status", "open"),
-                        "created_at": item.get("created_at"),
-                        "priority": item.get("priority"),
-                    }
-                    for item in items
-                    if item.get("id")
-                }
-    except Exception:
-        pass
-    _beads_map_cache[key] = (now + _BEADS_CACHE_TTL, result_value)
-    return result_value
-
-
 def _get_beads_task_status(task_id: str, home: Path) -> str | None:
     """Return the beads status for a single task, or None if unavailable."""
     info = _get_beads_task_info(task_id, home)
@@ -324,7 +280,7 @@ def create_tasks_router() -> APIRouter:
         # Tasks in beads get beads' status; tasks not in beads at all are orphaned
         # (completed before the current beads DB, or from a reset) and shown as closed.
         # Falls back to raw task.json status if beads is unavailable.
-        beads_map = await asyncio.to_thread(_get_beads_status_map, home)
+        beads_map = await asyncio.to_thread(get_beads_status_map, home)
         reconciled: list[dict] = []
         for data in task_jsons:
             task_id = data.get("id", "")

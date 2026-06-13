@@ -1,4 +1,5 @@
 """Tests for REST API routes (FR-07, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, FR-44)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +37,9 @@ def _make_task_dir(
     return task_dir
 
 
-def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tasks_list_returns_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks returns task list with correct shape (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -84,7 +87,9 @@ def test_task_kill_killing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert (task_dir / ".kill").exists(), ".kill sentinel should be written"
 
 
-def test_task_kill_supervisor_not_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_kill_supervisor_not_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """POST /api/tasks/{id}/kill returns supervisor-not-running when no live supervisor (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -104,7 +109,9 @@ def test_task_kill_supervisor_not_running(tmp_path: Path, monkeypatch: pytest.Mo
     assert (task_dir / ".kill").exists(), ".kill sentinel should still be written"
 
 
-def test_task_kill_queued_closes_immediately(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_kill_queued_closes_immediately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """POST /api/tasks/{id}/kill closes queued tasks via queue.close, writes no sentinel (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -122,7 +129,9 @@ def test_task_kill_queued_closes_immediately(tmp_path: Path, monkeypatch: pytest
     resp = asyncio.run(_run())
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "result": "closed"}
-    assert not (task_dir / ".kill").exists(), ".kill sentinel should NOT be written for non-running task"
+    assert not (task_dir / ".kill").exists(), (
+        ".kill sentinel should NOT be written for non-running task"
+    )
     mock_queue.close.assert_called_once_with("task-kill-nr", "killed")
 
 
@@ -141,7 +150,9 @@ def test_task_kill_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 404
 
 
-def test_task_summary_includes_priority_and_depends_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_summary_includes_priority_and_depends_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks includes priority and depends_on in each summary (FR-10, FR-11)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -172,7 +183,9 @@ def test_task_summary_includes_priority_and_depends_on(tmp_path: Path, monkeypat
     assert tasks["task-bd2"]["depends_on"] == []
 
 
-def test_config_get_returns_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_get_returns_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/config returns all RuntimeConfig fields (FR-43)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -192,7 +205,9 @@ def test_config_get_returns_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "context_pressure_threshold_pct" in data
 
 
-def test_config_put_updates_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_put_updates_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """PUT /api/config updates runtime.toml atomically and returns new config (FR-43)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -210,7 +225,9 @@ def test_config_put_updates_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert (tmp_path / "runtime.toml").exists()
 
 
-def test_analytics_throughput_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analytics_throughput_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/analytics/throughput returns buckets list with correct keys (FR-35, FR-36)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -240,7 +257,10 @@ def test_analytics_throughput_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 # Artifact endpoints (FR-11..FR-21)
 # ---------------------------------------------------------------------------
 
-def test_artifact_plan_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_artifact_plan_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/artifacts/plan returns content and mtime (FR-14)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-plan")
@@ -280,7 +300,9 @@ def test_artifact_plan_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert resp.status_code == 404
 
 
-def test_artifact_knowledge_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_artifact_knowledge_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/artifacts/knowledge returns KNOWLEDGE.md content (FR-15)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-kb")
@@ -303,7 +325,9 @@ def test_artifact_knowledge_returns_content(tmp_path: Path, monkeypatch: pytest.
     assert isinstance(data["mtime"], float)
 
 
-def test_artifact_qa_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_artifact_qa_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/artifacts/qa returns Q&A.md content (FR-16)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-qa")
@@ -326,13 +350,19 @@ def test_artifact_qa_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert isinstance(data["mtime"], float)
 
 
-def test_logs_returns_parsed_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_logs_returns_parsed_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/logs returns parsed log lines (FR-17)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-logs")
     log_lines = [
-        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "started"}),
-        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "failed"}),
+        json.dumps(
+            {"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "started"}
+        ),
+        json.dumps(
+            {"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "failed"}
+        ),
         "bad line",  # malformed line should be skipped
     ]
     (task_dir / "log.jsonl").write_text("\n".join(log_lines))
@@ -360,8 +390,12 @@ def test_logs_level_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-logfilter")
     log_lines = [
-        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "ok"}),
-        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "boom"}),
+        json.dumps(
+            {"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "ok"}
+        ),
+        json.dumps(
+            {"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "boom"}
+        ),
     ]
     (task_dir / "log.jsonl").write_text("\n".join(log_lines))
 
@@ -380,7 +414,9 @@ def test_logs_level_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert data["lines"][0]["level"] == "error"
 
 
-def test_stderr_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stderr_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/stderr returns raw stderr content (FR-18)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-stderr")
@@ -400,7 +436,9 @@ def test_stderr_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "some error output" in data["content"]
 
 
-def test_stderr_empty_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stderr_empty_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/stderr returns empty content when log.stderr absent (FR-18)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-nostderr")
@@ -454,9 +492,16 @@ def test_supervisor_running_counts_active_tasks(
     _make_task_dir(tasks_root, "done-1", "completed")
 
     import os
+
     pid = os.getpid()
     (tmp_path / ".supervisor.pid").write_text(
-        json.dumps({"pid": pid, "started_at": "2024-01-01T00:00:00", "version_fingerprint": "x"})
+        json.dumps(
+            {
+                "pid": pid,
+                "started_at": "2024-01-01T00:00:00",
+                "version_fingerprint": "x",
+            }
+        )
     )
 
     app = create_app()
@@ -475,7 +520,9 @@ def test_supervisor_running_counts_active_tasks(
     assert data["free_slots"] == data["max_concurrent"] - 1
 
 
-def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_diff_returns_empty_for_non_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/tasks/{id}/diff returns empty diff when cwd is not a git repo (FR-19)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     work_dir = tmp_path / "workdir"
@@ -495,7 +542,9 @@ def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.Monk
     assert resp.json()["diff"] == ""
 
 
-def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tasks_list_cache_hit_skips_rescan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Second GET /api/tasks poll does not re-scan unchanged events.jsonl."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cachecheck")
@@ -532,7 +581,9 @@ def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.M
     assert scan_count == 1  # only one scan despite two polls
 
 
-def test_tasks_list_cache_invalidated_on_events_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tasks_list_cache_invalidated_on_events_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Cache is invalidated when events.jsonl changes; events count reflects the update."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cacheinv")
@@ -577,11 +628,11 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
 
-    from fleet.serve.routes import tasks as tasks_mod
+    from fleet.serve.beads_info import _beads_map_cache, _beads_list_call_count
 
     # Reset module-level cache and counter so this test is isolated.
-    monkeypatch.setattr(tasks_mod, "_beads_map_cache", {})
-    monkeypatch.setattr(tasks_mod, "_beads_list_call_count", 0)
+    monkeypatch.setattr("fleet.serve.beads_info._beads_map_cache", {})
+    monkeypatch.setattr("fleet.serve.beads_info._beads_list_call_count", 0)
 
     app = create_app()
 
@@ -596,9 +647,11 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     r1, r2 = asyncio.run(_run())
     assert r1.status_code == 200
     assert r2.status_code == 200
-    assert tasks_mod._beads_list_call_count == 1, (
+    from fleet.serve.beads_info import _beads_list_call_count
+
+    assert _beads_list_call_count == 1, (
         "Expected exactly one bd-list subprocess call for two rapid polls; "
-        f"got {tasks_mod._beads_list_call_count}"
+        f"got {_beads_list_call_count}"
     )
 
 
@@ -607,10 +660,26 @@ def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-files")
     events = [
-        {"kind": "tool_use", "tool_name": "Read", "raw": {"input": {"file_path": "/foo.py"}}},
-        {"kind": "tool_use", "tool_name": "Edit", "raw": {"input": {"file_path": "/foo.py"}}},
-        {"kind": "tool_use", "tool_name": "Write", "raw": {"input": {"file_path": "/bar.py"}}},
-        {"kind": "tool_use", "tool_name": "Read", "raw": {"input": {"file_path": "/foo.py"}}},
+        {
+            "kind": "tool_use",
+            "tool_name": "Read",
+            "raw": {"input": {"file_path": "/foo.py"}},
+        },
+        {
+            "kind": "tool_use",
+            "tool_name": "Edit",
+            "raw": {"input": {"file_path": "/foo.py"}},
+        },
+        {
+            "kind": "tool_use",
+            "tool_name": "Write",
+            "raw": {"input": {"file_path": "/bar.py"}},
+        },
+        {
+            "kind": "tool_use",
+            "tool_name": "Read",
+            "raw": {"input": {"file_path": "/foo.py"}},
+        },
         {"kind": "tool_result", "tool_name": None, "raw": {}},  # non-tool_use, ignored
     ]
     (task_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
