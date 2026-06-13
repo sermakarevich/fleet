@@ -7,6 +7,8 @@ import pytest
 from fleet.worktree import (
     create_worktree,
     is_committed_clean,
+    merge_to_base,
+    MergeResult,
     remove_worktree,
     worktree_isolation_enabled,
     worktree_path,
@@ -168,3 +170,209 @@ class TestRemoveWorktree:
         task_id = "test-rm-2"
         remove_worktree(git_repo, task_id)
         # Should not raise
+
+
+class TestMergeToBase:
+    def _set_user(self, path: Path) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "wip",
+            ],
+            cwd=path,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_clean_merge(self, git_repo: Path):
+        task_id = "test-merge-1"
+        branch = f"fleet/{task_id}"
+
+        # Create branch from main and add a new file on it
+        subprocess.run(
+            ["git", "-C", str(git_repo), "checkout", "-b", branch],
+            capture_output=True,
+            check=True,
+        )
+        new_file = git_repo / "feature.txt"
+        new_file.write_text("feature content")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "add",
+                "feature.txt",
+            ],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "add feature",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        # Switch back to main
+        subprocess.run(
+            ["git", "-C", str(git_repo), "checkout", "main"],
+            capture_output=True,
+            check=True,
+        )
+
+        result = merge_to_base(git_repo, task_id)
+        assert result.ok is True
+        assert result.conflict is False
+        assert new_file.exists()
+        assert new_file.read_text() == "feature content"
+
+    def test_conflict(self, git_repo: Path):
+        task_id = "test-merge-2"
+        branch = f"fleet/{task_id}"
+
+        # Create a tracked file on main
+        tracked_file = git_repo / "tracked.txt"
+        tracked_file.write_text("line1\nline2\n")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "add",
+                "tracked.txt",
+            ],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "initial content",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        # Create branch from main
+        subprocess.run(
+            ["git", "-C", str(git_repo), "checkout", "-b", branch],
+            capture_output=True,
+            check=True,
+        )
+        # Edit line 1 on the branch
+        tracked_file.write_text("branch version\nline2\n")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "add",
+                "tracked.txt",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "edit on branch",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        # Switch back to main and edit the same line differently
+        subprocess.run(
+            ["git", "-C", str(git_repo), "checkout", "main"],
+            capture_output=True,
+            check=True,
+        )
+        tracked_file.write_text("main version\nline2\n")
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "add",
+                "tracked.txt",
+            ],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(git_repo),
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=test",
+                "commit",
+                "-m",
+                "edit on main",
+            ],
+            capture_output=True,
+            check=True,
+        )
+
+        result = merge_to_base(git_repo, task_id)
+        assert result.ok is False
+        assert result.conflict is True
+
+        # Verify merge was aborted - status should be clean
+        status = subprocess.run(
+            ["git", "-C", str(git_repo), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+        assert status.stdout.strip() == ""

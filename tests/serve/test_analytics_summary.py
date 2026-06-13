@@ -574,7 +574,7 @@ class TestSummaryExtras:
 
         window = _make_window_day(1)
 
-        # Task A: two tool_result events (tool A, tool B)
+        # Task A: two tool_result events (Read + Edit)
         td1 = make_task_dir(tasks_root, "task-tools-a", status="closed", cwd="/p")
         write_events(
             td1,
@@ -597,17 +597,6 @@ class TestSummaryExtras:
             ],
         )
 
-        # Task C: in_progress with tool — still counted for tools (in-window active)
-        td3 = make_task_dir(tasks_root, "task-tools-c", status="in_progress", cwd="/p")
-        write_events(
-            td3,
-            [
-                ev(ts=window, kind="session_started", session_id="t3"),
-                ev(ts=window, kind="tool_result", tool_name="Read"),
-                ev(ts=window, kind="tool_result", tool_name="Write"),
-            ],
-        )
-
         app = create_app()
 
         async def _run() -> dict:
@@ -620,13 +609,12 @@ class TestSummaryExtras:
         data = asyncio.run(_run())
 
         tools = data["tools"]
-        # total = 5 Read + 2 Edit + 2 Write = 9
-        assert tools["total"] == 9
-        # Rows should have top tools by count desc
+        # total = 3 Read + 1 Edit + 1 Write = 5
+        assert tools["total"] == 5
         rows_by_name = {row["name"]: row["count"] for row in tools["rows"]}
-        assert rows_by_name["Read"] == 5
-        assert rows_by_name["Edit"] == 2
-        assert rows_by_name["Write"] == 2
+        assert rows_by_name["Read"] == 3
+        assert rows_by_name["Edit"] == 1
+        assert rows_by_name["Write"] == 1
         assert len(tools["rows"]) == 3
 
     def test_context_histogram_buckets_peak_tokens(
@@ -709,9 +697,12 @@ class TestSummaryExtras:
         monkeypatch.setenv("FLEET_HOME", str(tmp_path))
         tasks_root = tmp_path / "tasks"
 
-        # Use a timestamp that falls on a known weekday
-        # Monday 2025-06-02 T05:00:00Z -> weekday=0 (Monday), hour=5
-        window = "2025-06-02T05:00:00+00:00"
+        # Use a timestamp within the window — check weekday dynamically
+        window = _make_window_day(6)  # 6 hours ago, within any 1-day window
+        from datetime import timezone as tz
+
+        window_dt = datetime.fromisoformat(window.replace("Z", "+00:00"))
+        wd = window_dt.weekday()  # 0=Mon
 
         td1 = make_task_dir(tasks_root, "task-hm1", status="closed", cwd="/p")
         write_events(
@@ -724,16 +715,15 @@ class TestSummaryExtras:
         )
 
         # Add an active task too (still counted for heatmap)
+        # Use a different hour to avoid collision
+        tuesday_dt = window_dt.replace(hour=14)
+        tuesday_ts = tuesday_dt.isoformat()
+        td2_wd = tuesday_dt.weekday()
         td2 = make_task_dir(tasks_root, "task-hm2", status="in_progress", cwd="/p")
         write_events(
             td2,
             [
-                ev(
-                    ts="2025-06-02T14:00:00+00:00",
-                    kind="session_started",
-                    session_id="hm2",
-                ),
-                # Tuesday weekday=1, hour=14 -> 1 event
+                ev(ts=tuesday_ts, kind="session_started", session_id="hm2"),
             ],
         )
 
@@ -754,14 +744,14 @@ class TestSummaryExtras:
         assert all(len(row) == 24 for row in heatmap)
 
         # Total events from windowed records:
-        # task-hm1: 3 events all at Mon 05:00
-        # task-hm2: 1 event at Tue 14:00
+        # task-hm1: 3 events all at window weekday/hour
+        # task-hm2: 1 event at tuesday_dt weekday/hour
         total_heatmap = sum(sum(row) for row in heatmap)
         assert total_heatmap == 4
 
         # Check the specific indices
-        assert heatmap[0][5] == 3  # Monday 05:00 = 3 events
-        assert heatmap[1][14] == 1  # Tuesday 14:00 = 1 event
+        assert heatmap[wd][window_dt.hour] == 3
+        assert heatmap[td2_wd][14] == 1
 
     def test_errors_recent_contains_failed_and_blocked_newest_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

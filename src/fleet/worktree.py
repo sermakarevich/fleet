@@ -6,6 +6,7 @@ It changes zero runtime behavior — it is called by no existing code.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import subprocess
 from pathlib import Path
@@ -93,3 +94,65 @@ def is_committed_clean(worktree_path_arg: Path, base_ref: str = "main") -> bool:
         return head_result.stdout.strip() != base_result.stdout.strip()
     except Exception:
         return False
+
+
+@dataclass
+class MergeResult:
+    ok: bool
+    conflict: bool
+    message: str
+
+
+def merge_to_base(repo_root: Path, task_id: str, base_ref: str = "main") -> MergeResult:
+    branch = f"fleet/{task_id}"
+
+    # 1. checkout base
+    checkout_result = subprocess.run(
+        ["git", "-C", str(repo_root), "checkout", base_ref],
+        capture_output=True,
+        text=True,
+    )
+    if checkout_result.returncode != 0:
+        return MergeResult(ok=False, conflict=False, message=checkout_result.stderr)
+
+    # 2. attempt merge (no check=True — we inspect return code)
+    merge_result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "merge",
+            "--no-ff",
+            branch,
+            "-m",
+            f"merge {branch}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if merge_result.returncode == 0:
+        return MergeResult(ok=True, conflict=False, message="merged")
+
+    # Non-zero return: detect conflict via stderr/stdout "CONFLICT" or unmerged files
+    combined_output = merge_result.stdout + merge_result.stderr
+    is_conflict = "CONFLICT" in combined_output
+    if not is_conflict:
+        # Double-check with ls-files -u
+        ls_result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-u"],
+            capture_output=True,
+            text=True,
+        )
+        if ls_result.returncode == 0 and ls_result.stdout.strip():
+            is_conflict = True
+
+    if is_conflict:
+        subprocess.run(
+            ["git", "-C", str(repo_root), "merge", "--abort"],
+            capture_output=True,
+            text=True,
+        )
+        return MergeResult(ok=False, conflict=True, message=merge_result.stderr)
+
+    return MergeResult(ok=False, conflict=False, message=merge_result.stderr)
