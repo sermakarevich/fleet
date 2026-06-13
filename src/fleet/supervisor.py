@@ -206,7 +206,9 @@ class Supervisor:
             task_root = worktree.create_worktree(
                 self._project_root, task.id, base_ref="main"
             )
-            (self._task_dir_for(task.id) / ".worktree").write_text(str(task_root))
+            task_dir = self._task_dir_for(task)
+            task_dir.mkdir(parents=True, exist_ok=True)
+            (task_dir / ".worktree").write_text(str(task_root))
         else:
             task_root = base_cwd
         if task.cwd is None:
