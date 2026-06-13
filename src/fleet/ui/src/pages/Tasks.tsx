@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKillTask, useTasks } from '../hooks/useApi';
 import { useTasksState } from '../hooks/useTasksState';
@@ -7,16 +7,29 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import type { TaskSummary } from '../types';
 import * as T from '../styles/tokens';
 
-type StatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
+type SortKey = 'activity' | 'status' | 'id' | 'title' | 'coder' | 'context' | 'started' | 'completed' | 'cwd';
+type SortDir = 'desc' | 'asc';
 
-const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: 'running', label: 'Running' },
-  { key: 'blocked', label: 'Blocked' },
-  { key: 'pending', label: 'Pending' },
-  { key: 'done', label: 'Done' },
-  { key: 'failed', label: 'Failed' },
-  { key: 'all', label: 'All' },
-];
+function readSort(): { key: SortKey; dir: SortDir } | null {
+  try {
+    const raw = localStorage.getItem('fleet.tasks.sort');
+    const p = raw ? JSON.parse(raw) : null;
+    if (p && typeof p.key === 'string' && typeof p.dir === 'string' && (p.dir === 'asc' || p.dir === 'desc')) {
+      const ALLOWED: SortKey[] = ['activity','status','id','title','coder','context','started','completed','cwd'];
+      if (ALLOWED.includes(p.key)) return { key: p.key, dir: p.dir as SortDir };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function readPageSize(): number | null {
+  const raw = localStorage.getItem('fleet.tasks.pageSize');
+  if (raw) {
+    const n = Number(raw);
+    if ([25, 50, 100].includes(n)) return n;
+  }
+  return null;
+}
 
 const ALERT_FILTERS = new Set<StatusFilter>(['blocked', 'failed']);
 
@@ -202,8 +215,8 @@ export function Tasks() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
-        t.id.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
+        (t.id ?? '').toLowerCase().includes(q) ||
+        (t.title ?? '').toLowerCase().includes(q) ||
         (t.cwd ?? '').toLowerCase().includes(q)
       );
     }
