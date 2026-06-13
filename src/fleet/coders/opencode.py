@@ -8,6 +8,7 @@ from fleet.schemas import Event, Task
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
 _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
+_ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 _DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
@@ -62,6 +63,9 @@ class OpencodeCoder(Coder):
             .strip()
         )
         prompt = f"{header}\n\n---\n\n{instructions}"
+        if (task_dir / ".worktree").exists():
+            isolated = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
+            prompt += f"\n\n---\n\n{isolated}"
         full_id, _ = _resolve_model(self.model, self.default_model)
         argv = ["opencode", "run", "--format", "json", "--model", full_id]
         if task.cwd:

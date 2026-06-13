@@ -99,9 +99,9 @@ export function useConfig() {
 }
 
 const KILL_MESSAGES: Record<string, string> = {
-  killing: 'Kill signal sent — task will stop shortly.',
+  killing: 'Kill signal sent \u2014 task will stop shortly.',
   'supervisor-not-running': 'Kill signal written, but the supervisor is not running.',
-  'task-not-running': 'Task is not currently running — nothing to kill.',
+  'task-not-running': 'Task is not currently running \u2014 nothing to kill.',
 };
 
 export function useKillTask() {
@@ -207,26 +207,10 @@ export function useRestartSupervisor() {
   });
 }
 
-export function useAnalytics() {
-  const throughput = useQuery({ queryKey: ['analytics', 'throughput'], queryFn: () => api.getAnalytics('throughput') });
-  const leaderboard = useQuery({ queryKey: ['analytics', 'leaderboard'], queryFn: () => api.getAnalytics('leaderboard') });
-  const burnouts = useQuery({ queryKey: ['analytics', 'burnouts'], queryFn: () => api.getAnalytics('burnouts') });
-  const rateLimits = useQuery({ queryKey: ['analytics', 'rate-limits'], queryFn: () => api.getAnalytics('rate-limits') });
-  const perProject = useQuery({ queryKey: ['analytics', 'per-project'], queryFn: () => api.getAnalytics('per-project') });
-
-  const loading =
-    throughput.isLoading ||
-    leaderboard.isLoading ||
-    burnouts.isLoading ||
-    rateLimits.isLoading ||
-    perProject.isLoading;
-
-  return {
-    throughput: throughput.data,
-    leaderboard: leaderboard.data,
-    burnouts: burnouts.data,
-    rateLimits: rateLimits.data,
-    perProject: perProject.data,
-    loading,
-  };
+export function useAnalyticsSummary(days: number) {
+  return useQuery({
+    queryKey: ['analytics', 'summary', days],
+    queryFn: () => api.getAnalyticsSummary(days),
+    refetchInterval: 30000,
+  });
 }

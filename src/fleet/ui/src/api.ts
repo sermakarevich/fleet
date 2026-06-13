@@ -1,4 +1,5 @@
 import type {
+  AnalyticsSummary,
   Bead,
   BeadDetail,
   ChatQuestion,
@@ -19,7 +20,7 @@ import type {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, init);
   if (!resp.ok) {
-    throw new Error(`${init?.method ?? 'GET'} ${path} → ${resp.status}`);
+    throw new Error(`${init?.method ?? 'GET'} ${path} \u2192 ${resp.status}`);
   }
   return resp.json() as Promise<T>;
 }
@@ -124,8 +125,8 @@ export const api = {
     return request('/api/templates');
   },
 
-  getAnalytics(endpoint: string): Promise<unknown> {
-    return request(`/api/analytics/${endpoint}`);
+  async getAnalyticsSummary(days: number): Promise<AnalyticsSummary> {
+    return request(`/api/analytics/summary?days=${days}`);
   },
 
   async search(q: string): Promise<SearchResult[]> {

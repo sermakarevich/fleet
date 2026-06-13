@@ -17,6 +17,7 @@ from fleet.failures import (
     noclose_count,
     reset_failure,
     reset_noclose,
+    set_needs_validation,
 )
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
@@ -402,41 +403,25 @@ class Supervisor:
         match outcome.outcome:
             case TaskOutcome.SUCCESS:
                 if self._bead_in_progress(task.id):
-                    count = increment_noclose(self._task_dir_for(task))
-                    if count >= NOCLOSE_LIMIT:
-                        self._queue.set_blocked(
-                            task.id,
-                            reason=(
-                                f"agent exited rc=0 without closing {count} times; "
-                                f"needs human review"
-                            ),
-                        )
-                        self._queue.comment(
-                            task.id,
-                            (
-                                f"[fleet] task exhausted {count} no-close re-queues "
-                                f"(limit {NOCLOSE_LIMIT}). The agent has been exiting rc=0 "
-                                f"without calling `bd close`. This may indicate the model "
-                                f"forgot the protocol. Requires human review."
-                            ),
-                        )
-                        self._log.error(
-                            "task_noclose_exhausted",
-                            task_id=task.id,
-                            noclose=count,
-                            noclose_limit=NOCLOSE_LIMIT,
-                            **fleet_ctx,
-                        )
-                    else:
-                        self._queue.release(
-                            task.id,
-                            reason=f"agent exited rc=0 without close (#{count}/{NOCLOSE_LIMIT}); re-queueing",
-                        )
-                        self._log.info(
-                            "task_completed_success_re_queued",
-                            task_id=task.id,
-                            **fleet_ctx,
-                        )
+                    task_dir = self._task_dir_for(task.id)
+                    wt_marker = task_dir / ".worktree"
+                    if wt_marker.exists():
+                        # ISOLATED task: implementer is not expected to close.
+                        wt_path = Path(wt_marker.read_text().strip())
+                        if worktree.is_committed_clean(wt_path, base_ref="main"):
+                            set_needs_validation(task_dir)
+                            self._log.info("task.needs_validation", task_id=task.id)
+                            return
+                        else:
+                            count = increment_noclose(task_dir)
+                            reason = f"isolated task exited without a clean commit ({count}x)"
+                            if count >= NOCLOSE_LIMIT:
+                                self._queue.set_blocked(task.id, reason)
+                            else:
+                                self._queue.release(task.id)
+                            return
+                    # Non-isolated: fall through to existing no-close logic
+                    count = increment_noclose(task_dir)
                 else:
                     reset_noclose(self._task_dir_for(task))
                     self._log.info(

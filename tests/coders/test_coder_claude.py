@@ -17,19 +17,21 @@ def _coder() -> ClaudeCoder:
 
 
 def _task(task_id: str = "test-001") -> Task:
-    return Task(id=task_id, title="Test task", description="Do the thing.", status="in_progress")
+    return Task(
+        id=task_id, title="Test task", description="Do the thing.", status="in_progress"
+    )
 
 
 def _lines(fixture: str) -> list[str]:
     return [
-        line for line in (FIXTURES / fixture).read_text().splitlines()
-        if line.strip()
+        line for line in (FIXTURES / fixture).read_text().splitlines() if line.strip()
     ]
 
 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+
 
 def test_get_coder_returns_claude_class():
     cls = get_coder("claude")
@@ -48,6 +50,7 @@ def test_claude_coder_is_subclass_of_coder_base():
 # ---------------------------------------------------------------------------
 # build_argv — FR-10
 # ---------------------------------------------------------------------------
+
 
 def test_build_argv_starts_with_claude_p(tmp_path: Path):
     coder = _coder()
@@ -140,6 +143,7 @@ def test_build_argv_does_not_reference_external_protocol_file(tmp_path: Path):
 # env
 # ---------------------------------------------------------------------------
 
+
 def test_env_includes_required_vars(tmp_path: Path):
     coder = _coder()
     task = _task("t-42")
@@ -162,8 +166,33 @@ def test_env_does_not_include_fleet_attempt(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# build_argv — isolation / worktree marker
+# ---------------------------------------------------------------------------
+
+
+def test_build_argv_with_worktree_marker_includes_isolation_protocol(tmp_path: Path):
+    """When a .worktree marker exists, the prompt must contain the isolation block."""
+    (tmp_path / ".worktree").touch()
+    coder = _coder()
+    task = _task("wt-001")
+    argv = coder.build_argv(task, tmp_path)
+    prompt = argv[-1]
+    assert "Do NOT run `bd close`" in prompt
+
+
+def test_build_argv_without_worktree_marker_excludes_isolation_protocol(tmp_path: Path):
+    """Without a .worktree marker, the prompt must NOT contain the isolation block."""
+    coder = _coder()
+    task = _task()
+    argv = coder.build_argv(task, tmp_path)
+    prompt = argv[-1]
+    assert "Do NOT run `bd close`" not in prompt
+
+
+# ---------------------------------------------------------------------------
 # normalize_event — malformed input
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_event_returns_none_for_malformed_json():
     coder = _coder()
@@ -186,6 +215,7 @@ def test_normalize_event_returns_none_for_unknown_type():
 # normalize_event — assistant_text
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_assistant_text():
     coder = _coder()
     [line] = _lines("claude_stream_basic.jsonl")[:1]
@@ -201,6 +231,7 @@ def test_normalize_assistant_text():
 # normalize_event — tool_use
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_tool_use():
     coder = _coder()
     lines = _lines("claude_stream_basic.jsonl")
@@ -215,6 +246,7 @@ def test_normalize_tool_use():
 # normalize_event — tool_result
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_tool_result():
     coder = _coder()
     lines = _lines("claude_stream_basic.jsonl")
@@ -228,6 +260,7 @@ def test_normalize_tool_result():
 # ---------------------------------------------------------------------------
 # normalize_event — session_started / session_ended
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_session_started():
     coder = _coder()
@@ -252,6 +285,7 @@ def test_normalize_session_ended():
 # ---------------------------------------------------------------------------
 # normalize_event — rate_limit_info (FR-19 soft path)
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_rate_limit_info():
     coder = _coder()
@@ -281,15 +315,17 @@ def test_normalize_rate_limit_info_utilization_fraction():
 def test_normalize_rate_limit_info_utilization_above_one():
     """`utilization` can exceed 1.0 for the session cap; gauge must accept it."""
     coder = _coder()
-    raw = json.dumps({
-        "type": "rate_limit_event",
-        "rate_limit_info": {
-            "status": "allowed_warning",
-            "utilization": 1.07,
-            "rateLimitType": "five_hour",
-            "resetsAt": 1779564600,
-        },
-    })
+    raw = json.dumps(
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed_warning",
+                "utilization": 1.07,
+                "rateLimitType": "five_hour",
+                "resetsAt": 1779564600,
+            },
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.rate_info is not None
@@ -299,15 +335,17 @@ def test_normalize_rate_limit_info_utilization_above_one():
 def test_normalize_rate_limit_overage_returns_none():
     """Overage events track a long-horizon budget and must not gate spawning."""
     coder = _coder()
-    raw = json.dumps({
-        "type": "rate_limit_event",
-        "rate_limit_info": {
-            "status": "allowed_warning",
-            "utilization": 1.07,
-            "rateLimitType": "overage",
-            "resetsAt": 1779564600,
-        },
-    })
+    raw = json.dumps(
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed_warning",
+                "utilization": 1.07,
+                "rateLimitType": "overage",
+                "resetsAt": 1779564600,
+            },
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is None
 
@@ -323,15 +361,17 @@ def test_normalize_rate_limit_weekly_returns_none():
 def test_normalize_rate_limit_weekly_ignored_inline():
     """Inline weekly event also returns None."""
     coder = _coder()
-    raw = json.dumps({
-        "type": "rate_limit_event",
-        "rate_limit_info": {
-            "status": "allowed_warning",
-            "rateLimitType": "weekly",
-            "utilization": 0.72,
-            "resetsAt": 1779564600,
-        },
-    })
+    raw = json.dumps(
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed_warning",
+                "rateLimitType": "weekly",
+                "utilization": 0.72,
+                "resetsAt": 1779564600,
+            },
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is None
 
@@ -339,14 +379,16 @@ def test_normalize_rate_limit_weekly_ignored_inline():
 def test_normalize_rate_limit_info_missing_usage_fields():
     """No usage_pct, usagePct, or utilization -> rate_info['usage_pct'] is None."""
     coder = _coder()
-    raw = json.dumps({
-        "type": "rate_limit_event",
-        "rate_limit_info": {
-            "status": "allowed",
-            "resetsAt": 1779564600,
-            "rateLimitType": "five_hour",
-        },
-    })
+    raw = json.dumps(
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed",
+                "resetsAt": 1779564600,
+                "rateLimitType": "five_hour",
+            },
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.rate_info is not None
@@ -357,6 +399,7 @@ def test_normalize_rate_limit_info_missing_usage_fields():
 # ---------------------------------------------------------------------------
 # normalize_event — rate_limit (FR-19 hard rejection)
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_rate_limit_rejected():
     coder = _coder()
@@ -373,16 +416,19 @@ def test_normalize_rate_limit_rejected():
 # normalize_event — thinking blocks
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_thinking_event():
     coder = _coder()
-    raw = json.dumps({
-        "type": "assistant",
-        "message": {
-            "content": [{"type": "thinking", "thinking": "Let me reason..."}],
-            "usage": {"input_tokens": 50, "output_tokens": 30},
-        },
-        "session_id": "sess_think",
-    })
+    raw = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [{"type": "thinking", "thinking": "Let me reason..."}],
+                "usage": {"input_tokens": 50, "output_tokens": 30},
+            },
+            "session_id": "sess_think",
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "thinking"
@@ -393,6 +439,7 @@ def test_normalize_thinking_event():
 # No anthropic / claude-agent-sdk imports in coder files (FR-33, FR-35)
 # ---------------------------------------------------------------------------
 
+
 def test_no_anthropic_import_in_coder_module():
     import fleet.coders.base as coder_mod
     import fleet.coders.claude as cli_mod
@@ -401,4 +448,6 @@ def test_no_anthropic_import_in_coder_module():
     for mod in (coder_mod, cli_mod, schemas_mod):
         src = Path(mod.__file__).read_text()
         assert "anthropic" not in src, f"anthropic import found in {mod.__file__}"
-        assert "claude-agent-sdk" not in src, f"agent-sdk import found in {mod.__file__}"
+        assert "claude-agent-sdk" not in src, (
+            f"agent-sdk import found in {mod.__file__}"
+        )

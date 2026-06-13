@@ -10,6 +10,7 @@ from fleet.schemas import Event, Task
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
 _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
+_ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 
 def _extract_usage_pct(info: dict) -> float | None:
@@ -42,21 +43,30 @@ class ClaudeCoder(Coder):
         artifacts_dir = task_dir / "artifacts"
         instructions = _INSTRUCTION_PATH.read_text(encoding="utf-8").strip()
         invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
-        header = _HEADER_PATH.read_text(encoding="utf-8").format(
-            task_id=task.id,
-            task_title=task.title,
-            task_description=task.description or "",
-            task_dir=task_dir,
-            artifacts_dir=artifacts_dir,
-            invocation_line=invocation_line,
-        ).strip()
+        header = (
+            _HEADER_PATH.read_text(encoding="utf-8")
+            .format(
+                task_id=task.id,
+                task_title=task.title,
+                task_description=task.description or "",
+                task_dir=task_dir,
+                artifacts_dir=artifacts_dir,
+                invocation_line=invocation_line,
+            )
+            .strip()
+        )
         prompt = f"{header}\n\n---\n\n{instructions}"
+        if (task_dir / ".worktree").exists():
+            isolated = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
+            prompt += f"\n\n---\n\n{isolated}"
         return [
             "claude",
             "-p",
             "--verbose",
-            "--model", self.model,
-            "--output-format", "stream-json",
+            "--model",
+            self.model,
+            "--output-format",
+            "stream-json",
             prompt,
         ]
 
@@ -102,13 +112,20 @@ class ClaudeCoder(Coder):
             "PreToolUse": {
                 "_fleet_managed": True,
                 "matcher": "AskUserQuestion",
-                "hooks": [{"type": "command", "command": ".fleet/hooks/pretool_askuserquestion.sh"}],
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": ".fleet/hooks/pretool_askuserquestion.sh",
+                    }
+                ],
             },
         }
 
         hooks: dict = dict(existing.get("hooks", {}))
         for event_type, fleet_entry in fleet_hook_entries.items():
-            non_fleet = [e for e in hooks.get(event_type, []) if not e.get("_fleet_managed")]
+            non_fleet = [
+                e for e in hooks.get(event_type, []) if not e.get("_fleet_managed")
+            ]
             hooks[event_type] = non_fleet + [fleet_entry]
 
         result = {**existing, "hooks": hooks}

@@ -132,6 +132,80 @@ export interface CoderInfo {
   default_model: string;
 }
 
+// --- Analytics Summary ---
+
+export interface AnalyticsSummary {
+  window_days: number;
+  kpis: AnalyticsKpis;
+  throughput: { bucket_size: string; buckets: AnalyticsThroughputBucket[] };
+  by_model: AnalyticsByModelProject[];
+  by_project: AnalyticsByModelProject[];
+  tools: { total: number; rows: AnalyticsToolRow[] };
+  context_histogram: { buckets: number[] };
+  heatmap: number[][];
+  errors_recent: AnalyticsErrorRecent[];
+  rate_limits: AnalyticsRateLimit[];
+}
+
+export interface AnalyticsKpis {
+  completed: number;
+  success_rate: number;
+  active_now: number;
+  queued: number;
+  median_run_sec: number | null;
+  p90_run_sec: number | null;
+  median_queue_wait_sec: number | null;
+  total_output_tokens: number | null;
+  total_steps: number | null;
+  avg_segments: number | null;
+  error_events: number | null;
+  noclose_count: number | null;
+  rate_limited_tasks: number | null;
+}
+
+export interface AnalyticsThroughputBucket {
+  bucket: string;
+  success: number;
+  failed: number;
+  blocked: number;
+}
+
+export interface AnalyticsByModelProject {
+  coder: string;
+  model: string;
+  total: number;
+  success_rate: number;
+  median_run_sec: number;
+  mean_peak_context_tokens: number;
+  output_tokens: number | null;
+  avg_segments: number | null;
+  errors: number;
+  rate_limited: number;
+}
+
+export interface AnalyticsToolRow {
+  tool: string;
+  count: number;
+}
+
+export interface AnalyticsErrorRecent {
+  id: string;
+  title: string;
+  coder: string | null;
+  model: string | null;
+  outcome: string | null;
+  ended_at: string | null;
+}
+
+export interface AnalyticsRateLimit {
+  id: string;
+  ts: string;
+  provider: string;
+  duration_sec: number | null;
+}
+
+// --- Legacy analytics types (used by follow-up charts/tables) ---
+
 export interface ThroughputBucket {
   hour: string;
   success: number;

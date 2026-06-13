@@ -212,6 +212,26 @@ def test_env_exactly_three_keys(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# build_argv — isolation / worktree marker
+# ---------------------------------------------------------------------------
+
+
+def test_build_argv_with_worktree_marker_includes_isolation_protocol(tmp_path: Path):
+    """When a .worktree marker exists, the prompt must contain the isolation block."""
+    (tmp_path / ".worktree").touch()
+    argv = _coder().build_argv(_task("wt-001"), tmp_path)
+    prompt = argv[-1]
+    assert "Do NOT run `bd close`" in prompt
+
+
+def test_build_argv_without_worktree_marker_excludes_isolation_protocol(tmp_path: Path):
+    """Without a .worktree marker, the prompt must NOT contain the isolation block."""
+    argv = _coder().build_argv(_task(), tmp_path)
+    prompt = argv[-1]
+    assert "Do NOT run `bd close`" not in prompt
+
+
+# ---------------------------------------------------------------------------
 # normalize_event — malformed / unknown
 # ---------------------------------------------------------------------------
 
