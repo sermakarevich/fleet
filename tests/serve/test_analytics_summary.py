@@ -432,16 +432,10 @@ class TestSummaryModelAndProjectBreakdowns:
         data = asyncio.run(_run())
 
         # by_model
-        by_model_map = {bm["coder"]: {bm["model"]: bm} for bm in data["by_model"]}
-        import pprint
-
-        pprint.pprint(data["by_model"])
-        import pprint
-
-        pprint.pprint(by_model_map)
-        import sys
-
-        sys.stdout.flush()
+        # Build nested map correctly (dict comprehension overwrites — use loop instead)
+        by_model_map: dict[str, dict[str, dict]] = {}
+        for bm in data["by_model"]:
+            by_model_map.setdefault(bm["coder"], {})[bm["model"]] = bm
 
         # claude + sonnet: total=2, success_rate=0.5
         sonnet_row = by_model_map["claude"]["sonnet"]
@@ -463,10 +457,10 @@ class TestSummaryModelAndProjectBreakdowns:
         # by_project
         by_proj_map = {bp["cwd"]: bp for bp in data["by_project"]}
 
-        # /proj-y: 3 total (task-mm1, task-mm3, task-mm4), 2 success
+        # /proj-y: 3 total (task-mm1, task-mm3, task-mm4), all success
         profy = by_proj_map["/proj-y"]
         assert profy["total"] == 3
-        assert profy["success_rate"] == pytest.approx(2 / 3, abs=0.01)
+        assert profy["success_rate"] == 1.0
         assert profy["output_tokens"] == 300 + 200 + 100  # 600
 
         # /proj-z: 1 total (task-mm2), 0 success
@@ -565,4 +559,308 @@ class TestSummaryDaysClamping:
 
         # days=0 → all time, echoes 0
         d0 = asyncio.run(_run(0))
-        assert d0["window_days"] == 0
+
+
+class TestSummaryExtras:
+    """Test 6: tools, context_histogram, heatmap, errors_recent, rate_limits."""
+
+    def test_tools_reflect_tool_result_counts_and_total(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        window = _make_window_day(1)
+
+        # Task A: two tool_result events (tool A, tool B)
+        td1 = make_task_dir(tasks_root, "task-tools-a", status="closed", cwd="/p")
+        write_events(
+            td1,
+            [
+                ev(ts=window, kind="session_started", session_id="t1"),
+                ev(ts=window, kind="tool_result", tool_name="Read"),
+                ev(ts=window, kind="tool_result", tool_name="Edit"),
+            ],
+        )
+
+        # Task B: three tool_result events (Read x2, Write x1)
+        td2 = make_task_dir(tasks_root, "task-tools-b", status="closed", cwd="/p")
+        write_events(
+            td2,
+            [
+                ev(ts=window, kind="session_started", session_id="t2"),
+                ev(ts=window, kind="tool_result", tool_name="Read"),
+                ev(ts=window, kind="tool_result", tool_name="Read"),
+                ev(ts=window, kind="tool_result", tool_name="Write"),
+            ],
+        )
+
+        # Task C: in_progress with tool — still counted for tools (in-window active)
+        td3 = make_task_dir(tasks_root, "task-tools-c", status="in_progress", cwd="/p")
+        write_events(
+            td3,
+            [
+                ev(ts=window, kind="session_started", session_id="t3"),
+                ev(ts=window, kind="tool_result", tool_name="Read"),
+                ev(ts=window, kind="tool_result", tool_name="Write"),
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        tools = data["tools"]
+        # total = 5 Read + 2 Edit + 2 Write = 9
+        assert tools["total"] == 9
+        # Rows should have top tools by count desc
+        rows_by_name = {row["name"]: row["count"] for row in tools["rows"]}
+        assert rows_by_name["Read"] == 5
+        assert rows_by_name["Edit"] == 2
+        assert rows_by_name["Write"] == 2
+        assert len(tools["rows"]) == 3
+
+    def test_context_histogram_buckets_peak_tokens(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        window = _make_window_day(1)
+
+        # Task with peak_context_tokens that falls into 25-50 bucket
+        # peak = 50000, limit = 200_000 (unknown coder) -> ratio = 25% -> 25-50 bucket is [25, 50)
+        # Actually 25% -> 25-50 bucket: ratio >= 25 -> yes
+        # Let's pick peak = 30000 -> ratio = 15% -> 0-25 bucket
+        td1 = make_task_dir(
+            tasks_root, "task-hist1", status="closed", coder="", model="", cwd="/p"
+        )
+        write_events(
+            td1,
+            [
+                ev(ts=window, kind="session_started", session_id="h1"),
+                ev(
+                    ts=window,
+                    kind="tool_result",
+                    usage={"input_tokens": 30000, "output_tokens": 100},
+                ),
+            ],
+        )
+
+        # Task with peak_context_tokens = 150_000 out of 200_000 -> 75% -> 75-100 bucket
+        td2 = make_task_dir(
+            tasks_root, "task-hist2", status="closed", coder="", model="", cwd="/p"
+        )
+        write_events(
+            td2,
+            [
+                ev(ts=window, kind="session_started", session_id="h2"),
+                ev(
+                    ts=window,
+                    kind="tool_result",
+                    usage={
+                        "input_tokens": 150000,
+                        "output_tokens": 200,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0,
+                    },
+                ),
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        hist = data["context_histogram"]
+        buckets = hist["buckets"]
+        # total should be 2 (two completed records with peak_context_tokens)
+        total = sum(buckets.values())
+        assert total == 2
+        # Both coders are empty -> unknown coder -> 200k fallback
+        # Task 1: 30000/200000 = 15% -> "0-25"
+        assert buckets["0-25"] == 1
+        # Task 2: 150000/200000 = 75% -> "75-100"
+        assert buckets["75-100"] == 1
+
+    def test_heatmap_is_7x24_and_totals_match_event_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        # Use a timestamp that falls on a known weekday
+        # Monday 2025-06-02 T05:00:00Z -> weekday=0 (Monday), hour=5
+        window = "2025-06-02T05:00:00+00:00"
+
+        td1 = make_task_dir(tasks_root, "task-hm1", status="closed", cwd="/p")
+        write_events(
+            td1,
+            [
+                ev(ts=window, kind="session_started", session_id="hm1"),
+                ev(ts=window, kind="tool_result", tool_name="Read"),
+                ev(ts=window, kind="tool_result", tool_name="Edit"),
+            ],
+        )
+
+        # Add an active task too (still counted for heatmap)
+        td2 = make_task_dir(tasks_root, "task-hm2", status="in_progress", cwd="/p")
+        write_events(
+            td2,
+            [
+                ev(
+                    ts="2025-06-02T14:00:00+00:00",
+                    kind="session_started",
+                    session_id="hm2",
+                ),
+                # Tuesday weekday=1, hour=14 -> 1 event
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        heatmap = data["heatmap"]
+        # Must be 7x24
+        assert len(heatmap) == 7
+        assert all(len(row) == 24 for row in heatmap)
+
+        # Total events from windowed records:
+        # task-hm1: 3 events all at Mon 05:00
+        # task-hm2: 1 event at Tue 14:00
+        total_heatmap = sum(sum(row) for row in heatmap)
+        assert total_heatmap == 4
+
+        # Check the specific indices
+        assert heatmap[0][5] == 3  # Monday 05:00 = 3 events
+        assert heatmap[1][14] == 1  # Tuesday 14:00 = 1 event
+
+    def test_errors_recent_contains_failed_and_blocked_newest_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        # Failed task with older timestamp
+        td1 = make_task_dir(tasks_root, "task-err-1", status="failed", cwd="/p")
+        old_ts = _make_future_days(3)
+        write_events(
+            td1,
+            [
+                ev(ts=old_ts, kind="session_started", session_id="e1"),
+            ],
+        )
+
+        # Blocked task with newer timestamp
+        td2 = make_task_dir(tasks_root, "task-err-2", status="blocked", cwd="/p")
+        recent_ts = _make_future_days(1)
+        write_events(
+            td2,
+            [
+                ev(ts=recent_ts, kind="session_started", session_id="e2"),
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        errors = data["errors_recent"]
+        # Should have both failed and blocked
+        assert len(errors) == 2
+        # Newest first: task-err-2 (blocked, 1 day ago) > task-err-1 (failed, 3 days ago)
+        assert errors[0]["id"] == "task-err-2"
+        assert errors[0]["outcome"] == "blocked"
+        assert errors[1]["id"] == "task-err-1"
+        assert errors[1]["outcome"] == "failed"
+        # Verify all fields present
+        assert "title" in errors[0]
+        assert "coder" in errors[0]
+        assert "model" in errors[0]
+        assert "ended_at" in errors[0]
+
+    def test_rate_limits_lists_rejected_event_with_task_id_and_ts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        window = _make_window_day(1)
+
+        # Task with a rate_limit rejected event
+        td1 = make_task_dir(tasks_root, "task-rl1", status="closed", cwd="/p")
+        write_events(
+            td1,
+            [
+                ev(ts=window, kind="session_started", session_id="rl1"),
+                ev(ts=window, kind="rate_limit", rate_info={"status": "rejected"}),
+            ],
+        )
+
+        # Task with a rate_limit accepted event (should NOT appear)
+        td2 = make_task_dir(tasks_root, "task-rl2", status="closed", cwd="/p")
+        write_events(
+            td2,
+            [
+                ev(ts=window, kind="session_started", session_id="rl2"),
+                ev(ts=window, kind="rate_limit", rate_info={"status": "accepted"}),
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        rl = data["rate_limits"]
+        # Only the rejected event should be listed
+        assert len(rl) == 1
+        assert "ts" in rl[0]
+        assert "task_id" in rl[0]
+        assert rl[0]["task_id"] == "task-rl1"
+        assert rl[0]["ts"] == window

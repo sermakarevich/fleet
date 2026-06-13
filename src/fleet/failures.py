@@ -58,3 +58,22 @@ def reset_noclose(task_dir: Path) -> None:
 def reset_failure(task_dir: Path) -> None:
     """Remove the failure counter file so a later reopen starts fresh."""
     _counter_path(task_dir).unlink(missing_ok=True)
+
+
+# ---- .needs_validation marker helpers ----
+
+
+def _needs_validation_path(task_dir: Path) -> Path:
+    return task_dir / ".needs_validation"
+
+
+def set_needs_validation(task_dir: Path) -> None:
+    _needs_validation_path(task_dir).write_text("1")
+
+
+def needs_validation(task_dir: Path) -> bool:
+    return _needs_validation_path(task_dir).exists()
+
+
+def clear_needs_validation(task_dir: Path) -> None:
+    _needs_validation_path(task_dir).unlink(missing_ok=True)
