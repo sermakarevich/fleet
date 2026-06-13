@@ -295,8 +295,28 @@ def _supervisor_alive(home: Path) -> bool:
 def create_tasks_router() -> APIRouter:
     router = APIRouter(prefix="/api")
 
+    def _recency_key(data: dict) -> str:
+        """Return a string that sorts by recency descending (latest first).
+
+        Uses ended_at > started_at > created_at — ISO strings compare correctly.
+        None values are mapped to the empty string which sorts before any ISO date
+        when we reverse (i.e. they fall to the bottom).
+        """
+        ended = data.get("ended_at") or ""
+        started = data.get("started_at") or ""
+        created = data.get("created_at") or ""
+        # ended_at is only set in the summary, not the raw data, so fall through
+        # to started_at / created_at which are always on the raw task.json data.
+        for key in ("ended_at", "started_at", "created_at"):
+            val = data.get(key)
+            if val:
+                return val
+        return ""
+
     @router.get("/tasks")
-    async def list_tasks() -> JSONResponse:
+    async def list_tasks(
+        closed_limit: int = 300,
+    ) -> JSONResponse:
         home = get_fleet_home()
         task_jsons = _read_task_jsons(home)
 
@@ -321,6 +341,8 @@ def create_tasks_router() -> APIRouter:
                     data = {**data, "status": "closed"}
             reconciled.append(data)
 
+        closed_limit = max(0, min(closed_limit, 2000))
+
         active: list[dict] = []
         closed: list[dict] = []
         for data in reconciled:
@@ -329,8 +351,18 @@ def create_tasks_router() -> APIRouter:
             else:
                 active.append(data)
 
-        selected = active + closed[-20:]
+        # Sort closed tasks by recency descending
+        closed.sort(key=_recency_key, reverse=True)
+
+        if closed_limit > 0:
+            closed = closed[:closed_limit]
+
+        selected = active + closed
         summaries = await asyncio.to_thread(_build_all_summaries, selected, home)
+
+        # Sort all summaries by recency descending
+        summaries.sort(key=lambda s: _recency_key(s) or "", reverse=True)
+
         return JSONResponse({"tasks": summaries})
 
     @router.get("/tasks/{task_id}")
