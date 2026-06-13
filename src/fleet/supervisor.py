@@ -9,14 +9,15 @@ import structlog
 
 from fleet.coders.base import Coder
 from fleet.coders import get_coder
+from fleet.config import load, reload_if_changed
 from fleet.failures import (
     increment_failure,
     increment_noclose,
+    needs_validation,
     noclose_count,
     reset_failure,
     reset_noclose,
 )
-from fleet.config import load, reload_if_changed
 from fleet.queue import Queue
 from fleet.rate_gauge import RateGauge
 from fleet.runner import TaskRunner
@@ -37,6 +38,8 @@ from fleet.schemas import (
 )
 from fleet.supervisor_spawn import SpawnController, SpawnDecision
 from fleet.serve.stats import task_runtime_stats
+from fleet import worktree
+from fleet.worktree import remove_worktree, worktree_path
 
 
 class Supervisor:
@@ -77,6 +80,8 @@ class Supervisor:
         loop = asyncio.get_running_loop()
         self._install_signal_handlers(loop)
 
+        self._sweep_orphan_worktrees()
+
         bg = [
             asyncio.create_task(self._claim_and_spawn_loop(), name="claim_and_spawn"),
             asyncio.create_task(self._reap_loop(), name="reap"),
@@ -92,6 +97,30 @@ class Supervisor:
         await asyncio.gather(*bg, return_exceptions=True)
 
         return 0
+
+    def _sweep_orphan_worktrees(self) -> None:
+        """Remove worktrees with no corresponding active task (startup sweep)."""
+        worktrees_dir = worktree_path("")
+        if not worktrees_dir.is_dir():
+            return
+
+        fleet_home = worktrees_dir.parent
+
+        for worktree_dir in worktrees_dir.iterdir():
+            if not worktree_dir.is_dir():
+                continue
+
+            task_id = worktree_dir.name
+
+            if task_id in self.in_flight:
+                continue
+
+            task_dir = fleet_home / "tasks" / task_id
+            if needs_validation(task_dir):
+                continue
+
+            self._log.info("worktree.sweep.removed", task_id=task_id)
+            remove_worktree(self._project_root, task_id)
 
     async def _claim_and_spawn_loop(self) -> None:
         while not self._shutting_down:
@@ -169,7 +198,17 @@ class Supervisor:
         # the file here (before the runner is added) is race-free.
         (self._project_root / "tasks" / task.id / ".kill").unlink(missing_ok=True)
 
-        task_root = Path(task.cwd) if task.cwd else self._project_root
+        base_cwd = Path(task.cwd) if task.cwd else self._project_root
+        use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(
+            base_cwd
+        )
+        if use_worktree:
+            task_root = worktree.create_worktree(
+                self._project_root, task.id, base_ref="main"
+            )
+            (self._task_dir_for(task.id) / ".worktree").write_text(str(task_root))
+        else:
+            task_root = base_cwd
         if task.cwd is None:
             # Coding agents almost never mean to run in fleet's home; a
             # missing cwd usually means task.json lost the field.
@@ -574,3 +613,6 @@ class Supervisor:
 
     def _task_dir_for(self, task: Task) -> Path:
         return self._project_root / "tasks" / task.id
+
+    def _is_fleet_repo(self, path: Path) -> bool:
+        return path.resolve() == self._project_root.resolve()
