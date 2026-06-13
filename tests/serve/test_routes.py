@@ -45,6 +45,10 @@ def test_tasks_list_returns_tasks(
     tasks_root = tmp_path / "tasks"
     _make_task_dir(tasks_root, "task-abc", "in_progress")
 
+    monkeypatch.setattr(
+        "fleet.serve.routes.tasks.get_beads_status_map", MagicMock(return_value=None)
+    )
+
     app = create_app()
 
     async def _run() -> httpx.Response:

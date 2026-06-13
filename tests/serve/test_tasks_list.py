@@ -50,6 +50,13 @@ def _get(app, path: str, **kwargs) -> httpx.Response:
     return asyncio.run(_run())
 
 
+def _mock_beads_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Monkey-patch get_beads_status_map to return None (skip beads in tests)."""
+    monkeypatch.setattr(
+        "fleet.serve.routes.tasks.get_beads_status_map", MagicMock(return_value=None)
+    )
+
+
 def test_default_returns_all_active_plus_most_recent_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -94,12 +101,7 @@ def test_default_returns_all_active_plus_most_recent_closed(
         started_at="2024-01-05T00:00:01Z",
     )
 
-    # Mock beads away so raw task.json statuses are used (bd is unavailable in tests)
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
@@ -158,11 +160,7 @@ def test_closed_limit_keeps_exactly_n_most_recent(
         started_at="2024-01-05T00:00:01Z",
     )
 
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
@@ -193,11 +191,7 @@ def test_closed_limit_zero_returns_everything(
             tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
         )
 
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
@@ -229,11 +223,7 @@ def test_response_shape_is_correct(
         started_at="2024-06-10T10:00:01Z",
     )
 
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
@@ -272,11 +262,7 @@ def test_clamped_limit_to_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
             tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
         )
 
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
@@ -300,11 +286,7 @@ def test_closed_limit_is_clamped_to_min(
             tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
         )
 
-    from fleet.serve.routes import tasks as tasks_mod
-
-    monkeypatch.setattr(
-        tasks_mod, "_get_beads_status_map", MagicMock(return_value=None)
-    )
+    _mock_beads_monkeypatch(monkeypatch)
 
     app = create_app()
 
