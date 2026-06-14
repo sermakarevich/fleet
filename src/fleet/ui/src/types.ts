@@ -215,43 +215,6 @@ export interface AnalyticsRateLimit {
   duration_sec: number | null;
 }
 
-// --- Legacy analytics types (used by follow-up charts/tables) ---
-
-export interface ThroughputBucket {
-  hour: string;
-  success: number;
-  failure: number;
-  rate_limit: number;
-  context_pressure: number;
-  blocked_by_agent: number;
-}
-
-export interface LeaderboardRow {
-  coder: string;
-  model: string;
-  success_rate: number;
-  mean_elapsed_sec: number;
-  mean_tokens: number;
-}
-
-export interface BurnoutRow {
-  coder: string;
-  model: string;
-  count: number;
-}
-
-export interface RateLimitEvent {
-  ts: string;
-  provider: string;
-  duration_sec: number | null;
-}
-
-export interface PerProjectRow {
-  cwd: string;
-  task_count: number;
-  success_rate: number;
-  mean_elapsed_sec: number;
-}
 
 export interface SearchResult {
   task_id: string;

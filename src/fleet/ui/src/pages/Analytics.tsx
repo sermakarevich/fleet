@@ -8,7 +8,9 @@ import { PerProjectTable } from '../components/Analytics/PerProjectTable';
 import { ToolUsageBar } from '../components/Analytics/ToolUsageBar';
 import { ContextHistogram } from '../components/Analytics/ContextHistogram';
 import { ActivityHeatmap } from '../components/Analytics/ActivityHeatmap';
-import type { AnalyticsKpis } from '../types';
+import { NeedsAttention } from '../components/Analytics/NeedsAttention';
+import { RateLimitTimeline } from '../components/Analytics/RateLimitTimeline';
+import type { AnalyticsKpis, AnalyticsErrorRecent } from '../types';
 import * as T from '../styles/tokens';
 
 const RANGE_OPTIONS = [
@@ -103,6 +105,16 @@ export function Analytics() {
     return data.heatmap;
   }, [data]);
 
+  var errorsRows = useMemo(function (): AnalyticsErrorRecent[] {
+    if (!data) return [];
+    return data.errors_recent;
+  }, [data]);
+
+  var rateLimitEvents = useMemo(function (): { ts: string; task_id: string }[] {
+    if (!data) return [];
+    return data.rate_limits.map(function (r) { return { ts: r.ts, task_id: r.id }; });
+  }, [data]);
+
   if (isLoading) return <p style={styles.msg}>Loading analytics…</p>;
   if (error) return <p style={styles.err}>Error: {String(error)}</p>;
 
@@ -140,6 +152,12 @@ export function Analytics() {
       {heatData && (
         <ActivityHeatmap heatmap={heatData} />
       )}
+      <div style={styles.visualRow}>
+        <NeedsAttention rows={errorsRows} />
+        {rateLimitEvents.length > 0 && (
+          <RateLimitTimeline events={rateLimitEvents} />
+        )}
+      </div>
     </div>
   );
 }
