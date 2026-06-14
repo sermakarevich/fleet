@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAnalyticsSummary } from '../hooks/useApi';
 import { KpiCards } from '../components/Analytics/KpiCards';
 import { ThroughputChart } from '../components/Analytics/ThroughputChart';
+import { TokenUsageChart } from '../components/Analytics/TokenUsageChart';
 import { LeaderboardTable } from '../components/Analytics/LeaderboardTable';
 import { PerProjectTable } from '../components/Analytics/PerProjectTable';
 import { ToolUsageBar } from '../components/Analytics/ToolUsageBar';
@@ -72,6 +73,11 @@ export function Analytics() {
     });
   }, [data]);
 
+  var tokenBuckets = useMemo(function () {
+    if (!data || !data.token_throughput) return [];
+    return data.token_throughput.buckets;
+  }, [data]);
+
   var byModelRows = useMemo(function () {
     if (!data) return [];
     return data.by_model;
@@ -120,6 +126,7 @@ export function Analytics() {
       </div>
       <KpiCards kpis={kpis} />
       <ThroughputChart bucketSize={bucketSize} buckets={throughputBuckets} />
+      <TokenUsageChart bucketSize={bucketSize} buckets={tokenBuckets} />
       <div style={styles.tableRow}>
         <LeaderboardTable rows={byModelRows} />
         <PerProjectTable rows={byProjectRows} />
