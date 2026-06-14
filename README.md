@@ -826,6 +826,47 @@ Fleet writes/refreshes an `ollama-rtx` provider entry in the target project's `o
 
 ---
 
+## Using AWS Bedrock models (opencode coder)
+
+Fleet can route opencode tasks to **Claude on Amazon Bedrock** — Anthropic models
+served through AWS — instead of the default Ollama backend.
+
+### Model naming
+
+Pass the full bedrock model id via `--model` with the `amazon-bedrock/` prefix:
+
+```
+fleet bd create --title "My task" --body-file spec.md -p 2 \
+  --coder opencode --model "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0" \
+  --cwd /path/to/repo
+```
+
+The inference-profile prefix (`us.` / `eu.` / `apac.`) must match the AWS region
+in use.
+
+### Credentials (three options, in order of preference)
+
+1. **AWS profile / SSO** — `fleet config set opencode_bedrock_profile=<aws-profile>`
+2. **Supervisor shell environment** — inherit `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, etc. from your shell (works with zero fleet config).
+3. **Bedrock API key** — set `AWS_BEARER_TOKEN_BEDROCK` in the supervisor's environment.
+
+Region: `fleet config set opencode_bedrock_region=us-east-1` or inherit `AWS_REGION`.
+
+### Settings
+
+| Key | Default | Description |
+|---|---|---|
+| `opencode_bedrock_region` | `""` (inherit from environment) | AWS region for Bedrock. |
+| `opencode_bedrock_profile` | `""` (inherit from environment) | AWS profile name for credentials. |
+| `opencode_bedrock_context_limit` | `200000` | Context window size; drives opencode autocompaction and the context-usage display. |
+
+> **Bedrock usage costs real money per token** (unlike local Ollama).
+> Missing or invalid AWS credentials surface as error events on the task —
+> fleet performs no preflight check for credentials.
+
+---
+
 ## Adding a custom coder
 
 Fleet ships with four built-in coders (`claude`, `agy`, `codex`, `opencode`), but you can
