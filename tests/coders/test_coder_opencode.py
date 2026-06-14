@@ -605,6 +605,22 @@ def test_write_runtime_config_limit_propagates_with_custom_model(tmp_path: Path)
     assert models["qwen3.5:27b"]["limit"]["output"] == 8192
 
 
+def test_bedrock_params_stored_on_instance():
+    coder = OpencodeCoder(
+        bedrock_region="us-east-1", bedrock_profile="dev", bedrock_context_limit=150_000
+    )
+    assert coder.bedrock_region == "us-east-1"
+    assert coder.bedrock_profile == "dev"
+    assert coder.bedrock_context_limit == 150_000
+
+
+def test_bedrock_params_default_values():
+    coder = OpencodeCoder()
+    assert coder.bedrock_region == ""
+    assert coder.bedrock_profile == ""
+    assert coder.bedrock_context_limit == 200_000
+
+
 def test_write_runtime_config_merge_preserves_existing_models_limit(tmp_path: Path):
     """Models merged from existing configs keep their original entries; current model gets limit."""
     existing = {

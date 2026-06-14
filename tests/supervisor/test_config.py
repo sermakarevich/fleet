@@ -170,3 +170,10 @@ opencode_default_model = "qwen3.6:latest"
 
     assert cfg.opencode_context_limit == 64_000
     assert cfg.opencode_default_model == "qwen3.6:latest"
+
+
+def test_bedrock_config_defaults():
+    cfg = RuntimeConfig()
+    assert cfg.opencode_bedrock_region == ""
+    assert cfg.opencode_bedrock_profile == ""
+    assert cfg.opencode_bedrock_context_limit == 200_000

@@ -85,4 +85,7 @@ class RuntimeConfig:
     opencode_ollama_url: str = "http://127.0.0.1:11435/v1"
     opencode_context_limit: int = 128000
     opencode_default_model: str = "qwen3.6:latest"
+    opencode_bedrock_region: str = ""
+    opencode_bedrock_profile: str = ""
+    opencode_bedrock_context_limit: int = 200000
     stall_warning_minutes: int = 15

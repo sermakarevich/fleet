@@ -32,6 +32,7 @@ def _resolve_model(model: str, default: str) -> tuple[str, str]:
 class OpencodeCoder(Coder):
     name = "opencode"
     context_limit = 128_000
+    bedrock_context_limit = 200_000
     default_model = "gpt-oss:20b"
 
     def __init__(
@@ -40,11 +41,17 @@ class OpencodeCoder(Coder):
         ollama_url: str = _DEFAULT_OLLAMA_URL,
         context_limit: int = 128_000,
         default_model: str = "gpt-oss:20b",
+        bedrock_region: str = "",
+        bedrock_profile: str = "",
+        bedrock_context_limit: int = 200_000,
     ) -> None:
         self.model = model
         self.ollama_url = ollama_url
         self.context_limit = context_limit
         self.default_model = default_model
+        self.bedrock_region = bedrock_region
+        self.bedrock_profile = bedrock_profile
+        self.bedrock_context_limit = bedrock_context_limit
 
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
         artifacts_dir = task_dir / "artifacts"

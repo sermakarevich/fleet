@@ -261,6 +261,9 @@ class Supervisor:
             kwargs["ollama_url"] = self.config.opencode_ollama_url
             kwargs["context_limit"] = self.config.opencode_context_limit
             kwargs["default_model"] = self.config.opencode_default_model
+            kwargs["bedrock_region"] = self.config.opencode_bedrock_region
+            kwargs["bedrock_profile"] = self.config.opencode_bedrock_profile
+            kwargs["bedrock_context_limit"] = self.config.opencode_bedrock_context_limit
         return coder_cls(model=model, **kwargs), coder_name, model
 
     def _spawn_runner(self, task: Task) -> None:

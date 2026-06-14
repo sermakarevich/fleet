@@ -20,3 +20,15 @@
 #   Override to point at a different Ollama instance, e.g. http://127.0.0.1:11434/v1
 #   for a local Ollama install.
 #   Set via: fleet config set opencode_ollama_url=http://...
+#
+# opencode_bedrock_region: AWS Bedrock region for Claude-on-Bedrock.
+#   Empty string (default) inherits region from environment/AWS config.
+#   Set via: fleet config set opencode_bedrock_region=us-east-1
+#
+# opencode_bedrock_profile: AWS profile name for Bedrock credentials.
+#   Empty string (default) inherits credentials from the environment.
+#   Set via: fleet config set opencode_bedrock_profile=dev
+#
+# opencode_bedrock_context_limit: Context window size for Claude-on-Bedrock.
+#   Defaults to 200000 (Claude context window).
+#   Set via: fleet config set opencode_bedrock_context_limit=200000..
