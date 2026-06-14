@@ -12,6 +12,7 @@ _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 _DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
+_BEDROCK_PROVIDER_ID = "amazon-bedrock"
 
 # Fleet's global RuntimeConfig.model defaults to "sonnet" and leaks into every
 # coder via supervisor._resolve_coder; these are Claude aliases, never valid
@@ -52,6 +53,13 @@ class OpencodeCoder(Coder):
         self.bedrock_region = bedrock_region
         self.bedrock_profile = bedrock_profile
         self.bedrock_context_limit = bedrock_context_limit
+        if self.is_bedrock:
+            self.context_limit = self.bedrock_context_limit
+
+    @property
+    def is_bedrock(self) -> bool:
+        full_id, _ = _resolve_model(self.model, self.default_model)
+        return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
 
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
         artifacts_dir = task_dir / "artifacts"

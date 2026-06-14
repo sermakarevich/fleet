@@ -648,3 +648,42 @@ def test_write_runtime_config_merge_preserves_existing_models_limit(tmp_path: Pa
     assert models["other-model"]["name"] == "other-model"
     # merge keeps permission
     assert cfg["permission"]["bash"] == "ask"
+
+
+def test_bedrock_model_is_bedrock_true_and_context_limit():
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    assert coder.is_bedrock is True
+    assert coder.context_limit == 200_000
+
+
+def test_bedrock_model_with_custom_context_limit():
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        bedrock_context_limit=150_000,
+    )
+    assert coder.is_bedrock is True
+    assert coder.context_limit == 150_000
+
+
+def test_non_bedrock_model_is_bedrock_false():
+    coder = OpencodeCoder(model="qwen3.6:latest")
+    assert coder.is_bedrock is False
+    assert coder.context_limit == 128_000
+
+
+def test_ollama_model_is_bedrock_false():
+    coder = OpencodeCoder(model="ollama-rtx/qwen3.6:latest")
+    assert coder.is_bedrock is False
+
+
+def test_build_argv_bedrock_model_passed_verbatim(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    argv = coder.build_argv(_task(), tmp_path)
+    idx = argv.index("--model")
+    assert (
+        argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
