@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
@@ -191,6 +192,37 @@ class Supervisor:
                     task_id, reason=f"validated: merged fleet/{task_id} into main"
                 )
                 self._log.info("task.validated", task_id=task_id)
+
+                # the merge just landed on main; rebuild the UI only if UI files changed
+                diff = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(self._project_root),
+                        "diff",
+                        "--name-only",
+                        "HEAD~1",
+                        "HEAD",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if any(
+                    line.startswith("src/fleet/ui/")
+                    for line in diff.stdout.splitlines()
+                ):
+                    proc = await asyncio.create_subprocess_exec(
+                        "make",
+                        "ui-build",
+                        cwd=str(self._project_root),
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    rc = await proc.wait()
+                    if rc == 0:
+                        self._log.info("ui.rebuilt", task_id=task_id)
+                    else:
+                        self._log.error("ui.rebuild_failed", task_id=task_id)
             else:
                 reason = (
                     f"merge conflict into main; resolve on branch fleet/{task_id} then close"
