@@ -15,17 +15,21 @@ function fmtCount(n: number): string {
 }
 
 interface ContextHistogramProps {
-  buckets: number[];
+  buckets: number[] | Record<string, number>;
 }
 
 export function ContextHistogram({ buckets }: ContextHistogramProps) {
-  const maxCount = Math.max(...buckets, 1);
+  // Backend sends buckets as an object keyed by label ({"0-25": n, ...}); older/array shape also OK.
+  const counts: number[] = Array.isArray(buckets)
+    ? buckets
+    : BUCKET_LABELS.map((l) => buckets[l] ?? 0);
+  const maxCount = Math.max(...counts, 1);
 
   return (
     <div style={panel}>
       <div style={title}>Peak context vs limit</div>
       <div style={flexRow}>
-        {buckets.map((count, i) => {
+        {counts.map((count, i) => {
           const heightPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
           const color = LABEL_COLORS[i] ?? T.colors.accent;
           const barHeight = count === 0 ? `${MIN_HEIGHT_PX}px` : `${Math.max((heightPct / 100) * MAX_HEIGHT_PX, MIN_HEIGHT_PX)}px`;
