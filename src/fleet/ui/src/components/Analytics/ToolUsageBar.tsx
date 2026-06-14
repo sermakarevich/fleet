@@ -55,7 +55,7 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
         </div>
       </div>
       {top.map(row => (
-        <div key={row.tool} style={rowContainer}>
+        <div key={row.name} style={rowContainer}>
           <span
             style={{
               fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
@@ -68,9 +68,9 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
               whiteSpace: 'nowrap',
               flexShrink: 0,
             }}
-            title={row.tool}
+            title={row.name}
           >
-            {row.tool}
+            {row.name}
           </span>
           <div style={track}>
             <div

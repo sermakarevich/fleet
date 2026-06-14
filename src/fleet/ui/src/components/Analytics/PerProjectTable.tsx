@@ -23,7 +23,7 @@ const COLUMNS: Column[] = [
 ];
 
 function projectFromCwd(r: AnalyticsByModelProject): string {
-  return (r.model || '').split('/').filter(Boolean).pop() ?? (r.model || '\u2014');
+  return (r.cwd || '').split('/').filter(Boolean).pop() ?? (r.cwd || '\u2014');
 }
 
 function nullLast(a: number | null, b: number | null): number {
@@ -102,7 +102,7 @@ export function PerProjectTable({ rows }: Props) {
           <tbody>
             {sorted.map((r, i) => (
               <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#1c1c20' }}>
-                <td style={styles.td} title={r.coder || r.model || ''}>
+                <td style={styles.td} title={r.cwd || ''}>
                   {projectFromCwd(r)}
                 </td>
                 <td style={{ ...styles.td, textAlign: 'right' }}>{r.total}</td>

@@ -184,6 +184,7 @@ export interface AnalyticsTokenBucket {
 export interface AnalyticsByModelProject {
   coder: string;
   model: string;
+  cwd?: string | null;
   total: number;
   success_rate: number;
   median_run_sec: number;
@@ -195,7 +196,7 @@ export interface AnalyticsByModelProject {
 }
 
 export interface AnalyticsToolRow {
-  tool: string;
+  name: string;
   count: number;
 }
 
