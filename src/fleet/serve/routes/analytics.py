@@ -412,6 +412,13 @@ def _compute_summary(home: Path, days: int) -> dict:
     median_queue_wait_sec = _percentile(sorted(queue_secs), 50) if queue_secs else 0.0
 
     total_output_tokens = sum(r.get("output_tokens", 0) for r in completed_in_window)
+    total_input_tokens = sum(r.get("input_tokens", 0) for r in completed_in_window)
+    total_cache_read_tokens = sum(
+        r.get("cache_read_tokens", 0) for r in completed_in_window
+    )
+    total_cache_creation_tokens = sum(
+        r.get("cache_creation_tokens", 0) for r in completed_in_window
+    )
     total_steps = sum(r.get("steps", 0) for r in completed_in_window)
 
     # avg_segments over completed
@@ -437,6 +444,9 @@ def _compute_summary(home: Path, days: int) -> dict:
         "p90_run_sec": p90_run_sec,
         "median_queue_wait_sec": median_queue_wait_sec,
         "total_output_tokens": total_output_tokens,
+        "total_input_tokens": total_input_tokens,
+        "total_cache_read_tokens": total_cache_read_tokens,
+        "total_cache_creation_tokens": total_cache_creation_tokens,
         "total_steps": total_steps,
         "avg_segments": avg_segments,
         "error_events": error_events,
@@ -480,6 +490,38 @@ def _compute_summary(home: Path, days: int) -> dict:
     throughput = {
         "bucket_size": bucket_size,
         "buckets": sorted(throughput_buckets.values(), key=lambda b: b["bucket"]),
+    }
+
+    # ---- token_throughput: tokens per time bucket (same bucketing as throughput) ----
+    token_buckets: dict[str, dict] = {}
+    for r in completed_in_window:
+        last_ts_str = r.get("last_ts")
+        if not last_ts_str:
+            continue
+        lt = parse_iso(last_ts_str)
+        if lt is None:
+            continue
+        if bucket_size == "hour":
+            key = lt.replace(minute=0, second=0, microsecond=0).isoformat()
+        else:
+            key = lt.date().isoformat()
+        if key not in token_buckets:
+            token_buckets[key] = {
+                "bucket": key,
+                "output_tokens": 0,
+                "input_tokens": 0,
+                "cache_tokens": 0,
+            }
+        tb = token_buckets[key]
+        tb["output_tokens"] += r.get("output_tokens", 0)
+        tb["input_tokens"] += r.get("input_tokens", 0)
+        tb["cache_tokens"] += r.get("cache_read_tokens", 0) + r.get(
+            "cache_creation_tokens", 0
+        )
+
+    token_throughput = {
+        "bucket_size": bucket_size,
+        "buckets": sorted(token_buckets.values(), key=lambda b: b["bucket"]),
     }
 
     # ---- by_model ----
@@ -677,6 +719,7 @@ def _compute_summary(home: Path, days: int) -> dict:
         "window_days": clamped,
         "kpis": kpis,
         "throughput": throughput,
+        "token_throughput": token_throughput,
         "by_model": by_model_rows,
         "by_project": by_project_rows,
         "tools": tools,

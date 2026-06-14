@@ -854,3 +854,61 @@ class TestSummaryExtras:
         assert "task_id" in rl[0]
         assert rl[0]["task_id"] == "task-rl1"
         assert rl[0]["ts"] == window
+
+
+class TestSummaryTokenStats:
+    """Token totals KPIs + token_throughput series."""
+
+    def test_token_totals_and_throughput(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+        window = _make_window_day(1)
+
+        td = make_task_dir(
+            tasks_root, "task-tok", status="closed", cwd="/p", created_at=window
+        )
+        write_events(
+            td,
+            [
+                ev(ts=window, kind="session_started", session_id="tk1"),
+                ev(
+                    ts=window,
+                    kind="tool_result",
+                    tool_name="Read",
+                    usage={
+                        "output_tokens": 100,
+                        "input_tokens": 1000,
+                        "cache_creation_input_tokens": 40,
+                        "cache_read_input_tokens": 60,
+                    },
+                ),
+            ],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary?days=7")
+                return r.json()
+
+        data = asyncio.run(_run())
+        kpis = data["kpis"]
+        assert kpis["total_output_tokens"] == 100
+        assert kpis["total_input_tokens"] == 1000
+        assert kpis["total_cache_creation_tokens"] == 40
+        assert kpis["total_cache_read_tokens"] == 60
+
+        tt = data["token_throughput"]
+        assert tt["bucket_size"] == "day"
+        assert len(tt["buckets"]) == 1
+        b = tt["buckets"][0]
+        assert b["output_tokens"] == 100
+        assert b["input_tokens"] == 1000
+        assert b["cache_tokens"] == 100  # 40 + 60
