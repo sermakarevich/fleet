@@ -667,6 +667,68 @@ def test_bedrock_model_with_custom_context_limit():
     assert coder.context_limit == 150_000
 
 
+def test_write_runtime_config_bedrock_model_has_bedrock_provider(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    coder.write_runtime_config(tmp_path, _task())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    bedrock_entry = cfg["provider"]["amazon-bedrock"]
+    assert bedrock_entry["name"] == "Amazon Bedrock"
+    model_key = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert bedrock_entry["models"][model_key]["limit"]["context"] == 200_000
+    assert bedrock_entry["models"][model_key]["tools"] is True
+    assert "ollama-rtx" in cfg["provider"]
+
+
+def test_write_runtime_config_bedrock_merges_existing_bedrock_entry(tmp_path: Path):
+    existing = {
+        "provider": {
+            "amazon-bedrock": {
+                "name": "Amazon Bedrock",
+                "models": {
+                    "us.anthropic.claude-3-5-sonnet-20241022-v2:0": {
+                        "name": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+                        "tools": True,
+                    }
+                },
+            }
+        }
+    }
+    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    coder.write_runtime_config(tmp_path, _task())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    bedrock_entry = cfg["provider"]["amazon-bedrock"]
+    assert "us.anthropic.claude-3-5-sonnet-20241022-v2:0" in bedrock_entry["models"]
+    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in bedrock_entry["models"]
+    assert (
+        bedrock_entry["models"]["us.anthropic.claude-sonnet-4-5-20250929-v1:0"][
+            "limit"
+        ]["context"]
+        == 200_000
+    )
+
+
+def test_write_runtime_config_bedrock_not_added_for_ollama_model(tmp_path: Path):
+    coder = OpencodeCoder(model="qwen3.6:latest")
+    coder.write_runtime_config(tmp_path, _task())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert "amazon-bedrock" not in cfg.get("provider", {})
+
+
+def test_write_runtime_config_bedrock_preserves_mcp_and_permission(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+    coder.write_runtime_config(tmp_path, _task())
+    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    assert "ask-human" in cfg["mcp"]
+    assert cfg["permission"]["external_directory"] == "allow"
+
+
 def test_non_bedrock_model_is_bedrock_false():
     coder = OpencodeCoder(model="qwen3.6:latest")
     assert coder.is_bedrock is False

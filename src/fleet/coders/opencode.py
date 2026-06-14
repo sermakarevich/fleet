@@ -132,6 +132,21 @@ class OpencodeCoder(Coder):
         provider: dict = dict(existing.get("provider", {}))
         provider[_PROVIDER_ID] = ollama_entry
 
+        if self.is_bedrock:
+            existing_bedrock: dict = existing.get("provider", {}).get(
+                _BEDROCK_PROVIDER_ID, {}
+            )
+            bedrock_models: dict = dict(existing_bedrock.get("models", {}))
+            bedrock_models[local_key] = {
+                "name": local_key,
+                "tools": True,
+                "limit": {"context": int(self.context_limit), "output": 8192},
+            }
+            provider[_BEDROCK_PROVIDER_ID] = {
+                "name": "Amazon Bedrock",
+                "models": bedrock_models,
+            }
+
         fleet_root = Path(__file__).parent.parent.parent.parent
         ask_human_entry = {
             "type": "local",
