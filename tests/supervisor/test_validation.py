@@ -621,7 +621,14 @@ class TestConflict:
         asyncio.run(s._run_pending_validations())
 
         status = subprocess.run(
-            ["git", "-C", str(tmp_path), "status", "--porcelain"],
+            [
+                "git",
+                "-C",
+                str(tmp_path),
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+            ],
             capture_output=True,
             text=True,
         )
@@ -702,9 +709,14 @@ class TestInFlightSkip:
             await asyncio.sleep(0)
             return "done"
 
-        s.in_flight[task_id] = asyncio.get_event_loop().run_until_complete(
-            asyncio.create_task(_make_task())
-        )
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            s.in_flight[task_id] = loop.create_task(_make_task())
+        finally:
+            loop.close()
+
+        asyncio.run(s._run_pending_validations())
 
         asyncio.run(s._run_pending_validations())
 

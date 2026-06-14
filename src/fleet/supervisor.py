@@ -174,7 +174,7 @@ class Supervisor:
             await self._run_pending_validations()
 
     async def _run_pending_validations(self) -> None:
-        tasks_root = Path.home() / ".fleet" / "tasks"
+        tasks_root = self._project_root / "tasks"
         if not tasks_root.exists():
             return
         for task_dir in sorted(tasks_root.iterdir()):
