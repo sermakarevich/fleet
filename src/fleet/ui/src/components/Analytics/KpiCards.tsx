@@ -24,6 +24,8 @@ export function KpiCards({ kpis }: CardProps) {
     { label: 'Median run', value: fmtDuration(kpis.median_run_sec) },
     { label: 'Median wait', value: fmtDuration(kpis.median_queue_wait_sec) },
     { label: 'Output tokens', value: fmtTokens(kpis.total_output_tokens) },
+    { label: 'Input tokens', value: fmtTokens(kpis.total_input_tokens ?? null) },
+    { label: 'Cache tokens', value: fmtTokens(((kpis.total_cache_read_tokens ?? 0) + (kpis.total_cache_creation_tokens ?? 0)) || null) },
     { label: 'Respawns/task', value: kpis.avg_segments != null ? kpis.avg_segments.toFixed(1) : '\u2014' },
   ];
 
