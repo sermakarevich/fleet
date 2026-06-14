@@ -138,6 +138,7 @@ export interface AnalyticsSummary {
   window_days: number;
   kpis: AnalyticsKpis;
   throughput: { bucket_size: string; buckets: AnalyticsThroughputBucket[] };
+  token_throughput?: { bucket_size: string; buckets: AnalyticsTokenBucket[] };
   by_model: AnalyticsByModelProject[];
   by_project: AnalyticsByModelProject[];
   tools: { total: number; rows: AnalyticsToolRow[] };
@@ -156,6 +157,9 @@ export interface AnalyticsKpis {
   p90_run_sec: number | null;
   median_queue_wait_sec: number | null;
   total_output_tokens: number | null;
+  total_input_tokens?: number | null;
+  total_cache_read_tokens?: number | null;
+  total_cache_creation_tokens?: number | null;
   total_steps: number | null;
   avg_segments: number | null;
   error_events: number | null;
@@ -168,6 +172,13 @@ export interface AnalyticsThroughputBucket {
   success: number;
   failed: number;
   blocked: number;
+}
+
+export interface AnalyticsTokenBucket {
+  bucket: string;
+  output_tokens: number;
+  input_tokens: number;
+  cache_tokens: number;
 }
 
 export interface AnalyticsByModelProject {
