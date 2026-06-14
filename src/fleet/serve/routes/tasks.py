@@ -109,11 +109,11 @@ def _read_task_jsons(home: Path) -> list[dict]:
     return results
 
 
-def _coder_context_limit(coder_name: str | None) -> int:
+def _coder_context_limit(coder_name: str | None, model: str | None = None) -> int:
     if not coder_name:
         return 200_000
     try:
-        return get_coder(coder_name).context_limit
+        return get_coder(coder_name).context_limit_for(model)
     except ValueError:
         return 200_000
 
@@ -133,7 +133,7 @@ def _build_task_summary(data: dict, home: Path) -> dict:
     context_tokens = info.context_tokens
     context_pct: float | None = None
     if context_tokens is not None:
-        limit = _coder_context_limit(data.get("coder"))
+        limit = _coder_context_limit(data.get("coder"), data.get("model"))
         context_pct = context_tokens / limit * 100
 
     status = data.get("status", "")

@@ -653,7 +653,7 @@ def _compute_summary(home: Path, days: int) -> dict:
             continue
         coder = r.get("coder") or ""
         try:
-            limit = get_coder(coder).context_limit
+            limit = get_coder(coder).context_limit_for(r.get("model"))
         except (ValueError, TypeError, IndexError):
             limit = 200_000
         if limit <= 0:

@@ -783,3 +783,21 @@ def test_build_argv_bedrock_model_passed_verbatim(tmp_path: Path):
     assert (
         argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     )
+
+
+# ------ tests for context_limit_for classmethod ------
+
+def test_context_limit_for_bedrock_model():
+    assert (
+        OpencodeCoder.context_limit_for("amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+        
+ == 200_000
+    )
+
+
+def test_context_limit_for_ollama_model():
+    assert OpencodeCoder.context_limit_for("qwen3.6:latest") == 128_000
+
+
+def test_context_limit_for_none_model():
+    assert OpencodeCoder.context_limit_for(None) == 128_000

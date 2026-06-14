@@ -36,6 +36,18 @@ class OpencodeCoder(Coder):
     bedrock_context_limit = 200_000
     default_model = "gpt-oss:20b"
 
+    @classmethod
+    def context_limit_for(cls, model: str | None) -> int:
+        """Return the context limit for the given model string.
+
+        Bedrock models get the bedrock_context_limit (200k).
+        Class-level defaults are intentional here -- serve-side display
+        does not read runtime.toml overrides.
+        """
+        if model and model.split("/", 1)[0] == _BEDROCK_PROVIDER_ID:
+            return cls.bedrock_context_limit
+        return cls.context_limit
+
     def __init__(
         self,
         model: str = "gpt-oss:20b",

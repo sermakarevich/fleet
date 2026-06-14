@@ -9,6 +9,11 @@ class Coder(ABC):
     context_limit: int = 200_000
     default_model: str = ""
 
+    @classmethod
+    def context_limit_for(cls, model: str | None) -> int:
+        """Context limit for the given model string; defaults to the class limit."""
+        return cls.context_limit
+
     @abstractmethod
     def build_argv(self, task: Task, task_dir: Path) -> list[str]:
         """Return the argv list to spawn the coder CLI subprocess."""
