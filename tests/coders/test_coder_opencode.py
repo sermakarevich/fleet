@@ -211,6 +211,40 @@ def test_env_exactly_three_keys(tmp_path: Path):
     assert set(env.keys()) == {"FLEET_TASK_ID", "FLEET_TASK_DIR", "FLEET_ARTIFACT_DIR"}
 
 
+def test_env_bedrock_injects_aws_profile_and_region(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        bedrock_profile="dev",
+        bedrock_region="us-east-1",
+    )
+    env = coder.env(_task("t-42"), tmp_path)
+    assert env["AWS_PROFILE"] == "dev"
+    assert env["AWS_REGION"] == "us-east-1"
+    assert env["FLEET_TASK_ID"] == "t-42"
+    assert env["FLEET_TASK_DIR"] == str(tmp_path)
+    assert env["FLEET_ARTIFACT_DIR"] == str(tmp_path / "artifacts")
+
+
+def test_env_bedrock_empty_config_no_aws_keys(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    )
+    env = coder.env(_task(), tmp_path)
+    assert "AWS_PROFILE" not in env
+    assert "AWS_REGION" not in env
+
+
+def test_env_ollama_model_no_aws_keys_even_with_bedrock_config(tmp_path: Path):
+    coder = OpencodeCoder(
+        model="qwen3.6:latest",
+        bedrock_profile="dev",
+        bedrock_region="us-east-1",
+    )
+    env = coder.env(_task(), tmp_path)
+    assert "AWS_PROFILE" not in env
+    assert "AWS_REGION" not in env
+
+
 # ---------------------------------------------------------------------------
 # build_argv — isolation / worktree marker
 # ---------------------------------------------------------------------------

@@ -89,11 +89,17 @@ class OpencodeCoder(Coder):
         return argv
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        return {
+        e = {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
             "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
+        if self.is_bedrock:
+            if self.bedrock_profile:
+                e["AWS_PROFILE"] = self.bedrock_profile
+            if self.bedrock_region:
+                e["AWS_REGION"] = self.bedrock_region
+        return e
 
     def write_runtime_config(self, project: Path, task: object) -> None:
         """Write/refresh the ollama-rtx provider entry in project-root opencode.json."""
