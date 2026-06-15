@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAnalyticsSummary } from '../hooks/useApi';
 import { KpiCards } from '../components/Analytics/KpiCards';
 import { ThroughputChart } from '../components/Analytics/ThroughputChart';
+import { CumulativeCompletedChart } from '../components/Analytics/CumulativeCompletedChart';
 import { TokenUsageChart } from '../components/Analytics/TokenUsageChart';
 import { LeaderboardTable } from '../components/Analytics/LeaderboardTable';
 import { PerProjectTable } from '../components/Analytics/PerProjectTable';
@@ -138,6 +139,7 @@ export function Analytics() {
       </div>
       <KpiCards kpis={kpis} />
       <ThroughputChart bucketSize={bucketSize} buckets={throughputBuckets} />
+      <CumulativeCompletedChart bucketSize={bucketSize} buckets={throughputBuckets} />
       <TokenUsageChart bucketSize={bucketSize} buckets={tokenBuckets} />
       <div style={styles.tableRow}>
         <LeaderboardTable rows={byModelRows} />
