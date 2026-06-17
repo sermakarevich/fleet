@@ -1,3 +1,17 @@
+/* Base theme. The UI is dark (dark nav, dark panels, dark chart tooltips, and a
+   light-on-dark text palette in styles/tokens.ts), but no element set a page
+   background — so routed pages fell back to the browser-default white and the
+   light-grey text became nearly invisible. Anchor the dark background here. */
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+  background: #09090b;
+  color: #e4e4e7;
+  color-scheme: dark;
+}
+
 /* Focus ring for all interactive elements */
 button:focus-visible,
 a:focus-visible {
