@@ -26,8 +26,9 @@ class SpawnController:
         threshold_pct: float,
         gauge: RateGauge,
         skip_rate_check: bool = False,
+        enforce_full_cap: bool = True,
     ) -> SpawnDecision:
-        if in_flight >= max_concurrent:
+        if enforce_full_cap and in_flight >= max_concurrent:
             return SpawnDecision.PAUSED_FULL
 
         if skip_rate_check:

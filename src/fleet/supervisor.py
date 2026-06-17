@@ -11,6 +11,7 @@ import structlog
 from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.config import load, reload_if_changed
+from fleet.concurrency import cap_for_coder, running_by_coder
 from fleet.failures import (
     increment_failure,
     increment_noclose,
@@ -146,10 +147,26 @@ class Supervisor:
                 threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
                 gauge=self.rate_gauge,
                 skip_rate_check=(self.config.coder != "claude"),
+                enforce_full_cap=False,
             )
 
             if decision == SpawnDecision.SPAWN:
-                task = self._queue.claim_next(claimer_id="supervisor")
+
+                def _can_claim(coder: str | None) -> bool:
+                    running = running_by_coder(
+                        self.in_flight_tasks.values(), self.config.coder
+                    )
+                    effective = coder or self.config.coder
+                    cap = cap_for_coder(
+                        effective,
+                        self.config.max_concurrent,
+                        self.config.max_concurrent_overrides,
+                    )
+                    return running.get(effective, 0) < cap
+
+                task = self._queue.claim_next(
+                    claimer_id="supervisor", can_claim=_can_claim
+                )
                 if task is not None:
                     if task.id in self.in_flight:
                         # The task was flipped back to claimable externally
@@ -257,7 +274,7 @@ class Supervisor:
         model = task.model or self.config.model
         coder_cls = get_coder(coder_name)
         kwargs: dict = {}
-        if coder_name == "opencode":
+        if coder_name in ("opencode", "pi"):
             kwargs["ollama_url"] = self.config.opencode_ollama_url
             kwargs["context_limit"] = self.config.opencode_context_limit
             kwargs["default_model"] = self.config.opencode_default_model

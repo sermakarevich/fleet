@@ -15,7 +15,7 @@ class BeadsError(RuntimeError):
 
 class Queue(ABC):
     @abstractmethod
-    def claim_next(self, claimer_id: str) -> Task | None: ...
+    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None: ...
 
     @abstractmethod
     def release(self, task_id: str, reason: str = "") -> None: ...
@@ -198,7 +198,7 @@ class BeadsQueue(Queue):
             model=meta.get("model"),
         )
 
-    def claim_next(self, claimer_id: str) -> Task | None:
+    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
         ready = self._bd(
             "ready", "--json", "--limit", "0"
         )  # 0 = unlimited; we sort below
@@ -208,6 +208,10 @@ class BeadsQueue(Queue):
         if not isinstance(items, list):
             items = []
         for cand in self._order_ready(items):
+            if can_claim is not None:
+                cand_coder = self._load_meta(cand["id"]).get("coder")
+                if not can_claim(cand_coder):
+                    continue
             try:
                 self._bd(
                     "update",

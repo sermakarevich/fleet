@@ -35,6 +35,44 @@
         "fleet.ask_human.server"
       ],
       "enabled": true
+    },
+    "web_fetch": {
+      "type": "local",
+      "command": [
+        "uv",
+        "--directory",
+        "/Users/makarevychsergii/git/fleet",
+        "run",
+        "python",
+        "-m",
+        "fleet.web_fetch.server"
+      ],
+      "environment": {
+        "FLEET_WEBFETCH_MODEL": "qwen3.6:latest",
+        "FLEET_WEBFETCH_OLLAMA_URL": "http://127.0.0.1:11435/v1"
+      },
+      "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest",
+        "--headless",
+        "--isolated"
+      ],
+      "enabled": true
+    },
+    "claude_code": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--script",
+        "/Users/makarevychsergii/.claude/mcp-servers/claude_code/server.py"
+      ],
+      "enabled": true
     }
   }
 }

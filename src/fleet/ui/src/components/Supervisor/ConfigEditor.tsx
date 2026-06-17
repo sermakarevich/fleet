@@ -9,6 +9,7 @@ interface Props {
 
 export function ConfigEditor({ config, onSave }: Props) {
   const [maxConcurrent, setMaxConcurrent] = useState(String(config.max_concurrent));
+  const [maxOverrides, setMaxOverrides] = useState(config.max_concurrent_overrides);
   const [model, setModel] = useState(config.model);
   const [coder, setCoder] = useState(config.coder);
   const [threshold, setThreshold] = useState(String(config.context_pressure_threshold_pct));
@@ -18,6 +19,7 @@ export function ConfigEditor({ config, onSave }: Props) {
 
   useEffect(() => {
     setMaxConcurrent(String(config.max_concurrent));
+    setMaxOverrides(config.max_concurrent_overrides);
     setModel(config.model);
     setCoder(config.coder);
     setThreshold(String(config.context_pressure_threshold_pct));
@@ -31,6 +33,7 @@ export function ConfigEditor({ config, onSave }: Props) {
     try {
       await onSave({
         max_concurrent: Number(maxConcurrent),
+        max_concurrent_overrides: maxOverrides,
         model,
         coder,
         context_pressure_threshold_pct: Number(threshold),
@@ -57,6 +60,15 @@ export function ConfigEditor({ config, onSave }: Props) {
               value={maxConcurrent}
               onChange={e => setMaxConcurrent(e.target.value)}
               min={1}
+            />
+          </label>
+          <label style={styles.label}>
+            Per-coder concurrency (e.g. claude:2,opencode:4)
+            <input
+              style={styles.input}
+              value={maxOverrides}
+              onChange={e => setMaxOverrides(e.target.value)}
+              placeholder="claude:2,opencode:4"
             />
           </label>
           <label style={styles.label}>

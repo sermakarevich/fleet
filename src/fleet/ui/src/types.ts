@@ -105,6 +105,7 @@ export interface HealthzStatus {
 
 export interface RuntimeConfig {
   max_concurrent: number;
+  max_concurrent_overrides: string;
   model: string;
   coder: string;
   context_pressure_threshold_pct: number;

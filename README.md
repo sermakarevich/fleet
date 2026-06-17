@@ -77,7 +77,7 @@ Requires:
 - [`uv`](https://docs.astral.sh/uv/) on your `PATH`
 - [beads (`bd`)](https://github.com/gastownhall/beads) on your `PATH`
 - `git` on your `PATH` (beads stores its database inside a git repo)
-- At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, `codex` (OpenAI Codex CLI), or `opencode` (opencode CLI with Ollama backend)
+- At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, `codex` (OpenAI Codex CLI), `opencode` (opencode CLI with Ollama backend), or `pi` (pi CLI)
 
 ---
 
@@ -86,6 +86,7 @@ Requires:
 ```bash
 fleet init                                          # initialize ~/.fleet (beads DB + default config)
 fleet config set max_concurrent=3                   # cap how many agents run in parallel
+fleet config set max_concurrent_overrides=claude:2,opencode:4   # per-coder limits; unlisted coders use max_concurrent
 cd /path/to/your/project                            # any project you want the agent to work in
 
 # Title + description:
@@ -186,7 +187,7 @@ so the supervisor knows where to spawn the agent. Pass `--json` to get the
 raw bd envelope back instead of the human-friendly summary line.
 
 `--coder` and `--model` are intercepted by fleet (not forwarded to `bd`):
-they're validated against the registered coders (`claude`, `agy`, `codex`, `opencode`)
+they're validated against the registered coders (`claude`, `agy`, `codex`, `opencode`, `pi`)
 and persisted as per-task overrides in `task.json`, applied next time the
 supervisor claims the task. Always pass both together when overriding —
 or omit both to inherit the config defaults.
@@ -471,9 +472,10 @@ directly in the file.
 | Key | Default | Description |
 |---|---|---|
 | `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`, `opencode`. |
+| `max_concurrent_overrides` | `""` | Per-coder concurrency limits as comma-separated `coder:limit` pairs, e.g. `claude:2,opencode:4`. A coder not listed here uses `max_concurrent` as its limit. Total parallelism is the sum of all per-coder limits. |
+| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`, `opencode`, `pi`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`; `opencode` maps it to an Ollama model, defaulting to `gpt-oss:20b`). |
-| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K, `opencode` 128K). |
+| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K, `opencode` 128K, `pi` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
 | `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
 | `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
@@ -824,6 +826,14 @@ fleet config set opencode_ollama_url=http://127.0.0.1:12345/v1
 
 Fleet writes/refreshes an `ollama-rtx` provider entry in the target project's `opencode.json` before each spawn. Your other settings in that file (theme, other providers, etc.) are preserved. Whether to `gitignore` or commit `opencode.json` is up to you.
 
+## pi coder
+
+The `pi` coder runs the local `pi` CLI and emits JSON event lines (modelled on the opencode coder's event stream).
+
+- Inference goes to the same local Ollama backend as the opencode coder. Before each spawn, fleet writes/refreshes a `pi-ollama` provider entry in the target project's `pi.json`.
+- **Default model:** `qwen3.6:latest`.
+- Pin a different model per task: `fleet bd create --coder pi --model <name> --title "..."`.
+
 ---
 
 ## Using AWS Bedrock models (opencode coder)
@@ -869,7 +879,7 @@ Region: `fleet config set opencode_bedrock_region=us-east-1` or inherit `AWS_REG
 
 ## Adding a custom coder
 
-Fleet ships with four built-in coders (`claude`, `agy`, `codex`, `opencode`), but you can
+Fleet ships with five built-in coders (`claude`, `agy`, `codex`, `opencode`, `pi`), but you can
 wrap any CLI agent in four small steps.
 
 ### Step 1 — Implement the `Coder` base class
