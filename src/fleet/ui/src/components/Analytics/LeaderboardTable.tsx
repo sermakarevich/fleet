@@ -37,15 +37,13 @@ export function LeaderboardTable({ rows }: Props) {
   const [sortKey, setSortKey] = useState<ColumnKey>('total');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  const handleSort = useCallback(() => {
-    setSortKey(prev => {
-      if (prev === sortKey) {
-        setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        return prev;
-      }
+  const handleSort = useCallback((colKey: ColumnKey) => {
+    if (colKey === sortKey) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(colKey);
       setSortDir('desc');
-      return prev;
-    });
+    }
   }, [sortKey]);
 
   const sorted = [...rows].sort((a, b) => {
@@ -64,7 +62,7 @@ export function LeaderboardTable({ rows }: Props) {
   });
 
   const sortIndicator = (colKey: ColumnKey) => {
-    if (sortKey !== colKey) return '\u239C';
+    if (sortKey !== colKey) return null;
     return sortDir === 'desc' ? '\u25BC' : '\u25B3';
   };
 
@@ -90,7 +88,7 @@ export function LeaderboardTable({ rows }: Props) {
               {COLUMNS.map(col => (
                 <th
                   key={col.key}
-                  onClick={col.numeric || col.key === 'model' ? handleSort : undefined}
+                  onClick={col.numeric || col.key === 'model' ? () => handleSort(col.key) : undefined}
                   style={{
                     ...styles.th,
                     width: col.width || undefined,

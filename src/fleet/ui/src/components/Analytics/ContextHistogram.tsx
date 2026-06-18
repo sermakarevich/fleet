@@ -5,8 +5,9 @@ const LABEL_COLORS: Record<number, string> = {
   3: '#d97706',
   4: '#dc2626',
 };
-const MAX_HEIGHT_PX = 120;
 const MIN_HEIGHT_PX = 2;
+// Total height of the chart row (count label + bar area + bucket label + gaps).
+const CHART_HEIGHT_PX = 140;
 
 function fmtCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -30,9 +31,8 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
       <div style={title}>Peak context vs limit</div>
       <div style={flexRow}>
         {counts.map((count, i) => {
-          const heightPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
+          const heightPct = (count / maxCount) * 100;
           const color = LABEL_COLORS[i] ?? T.colors.accent;
-          const barHeight = count === 0 ? `${MIN_HEIGHT_PX}px` : `${Math.max((heightPct / 100) * MAX_HEIGHT_PX, MIN_HEIGHT_PX)}px`;
 
           return (
             <div key={BUCKET_LABELS[i]} style={bucketWrapper}>
@@ -40,14 +40,15 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
               <div style={barContainer}>
                 <div
                   style={{
-                    height: barHeight,
+                    width: '100%',
+                    height: `${heightPct}%`,
+                    minHeight: `${MIN_HEIGHT_PX}px`,
                     background: color,
                     borderRadius: '4px 4px 0 0',
-                    marginBottom: 'auto',
                   }}
                 />
               </div>
-              <div style={label}>{BUCKET_LABELS[i]}%</div>
+              <div style={bucketLabel}>{BUCKET_LABELS[i]}%</div>
             </div>
           );
         })}
@@ -75,9 +76,9 @@ const title: React.CSSProperties = {
 
 const flexRow: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'flex-end',
+  alignItems: 'stretch',
   gap: '0.75rem',
-  height: `${MAX_HEIGHT_PX}px`,
+  height: `${CHART_HEIGHT_PX}px`,
 };
 
 const bucketWrapper: React.CSSProperties = {
@@ -86,27 +87,33 @@ const bucketWrapper: React.CSSProperties = {
   flexDirection: 'column' as const,
   alignItems: 'center',
   gap: '0.25rem',
-  height: '100%',
 };
 
 const countLabel: React.CSSProperties = {
   fontSize: '0.6875rem',
   color: T.colors.textDim,
   height: '1rem',
+  lineHeight: '1rem',
   flexShrink: 0,
+  whiteSpace: 'nowrap' as const,
 };
 
 const barContainer: React.CSSProperties = {
-  width: '2rem',
-  height: '100%',
+  flex: 1,
+  width: '100%',
   display: 'flex',
-  alignItems: 'flex-end',
-  justifyContent: 'center',
+  flexDirection: 'column' as const,
+  justifyContent: 'flex-end',
+  alignItems: 'center',
+  overflow: 'hidden',
 };
 
-const label: React.CSSProperties = {
+const bucketLabel: React.CSSProperties = {
   fontSize: '0.6875rem',
   color: T.colors.textDim,
   textAlign: 'center' as const,
   flexShrink: 0,
+  height: '1rem',
+  lineHeight: '1rem',
+  whiteSpace: 'nowrap' as const,
 };
