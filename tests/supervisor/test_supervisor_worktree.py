@@ -9,8 +9,6 @@ from fleet.supervisor_worktree import (
     ensure_worktree,
     is_task_advanced,
     is_committed_clean,
-    worktree_isolation_enabled,
-    worktree_path,
 )
 
 
@@ -169,7 +167,6 @@ class TestIsWorktreeCommitClean:
 class TestModuleImports:
     def test_no_circular_imports(self):
         """supervisor_worktree should only import from fleet.worktree."""
-        import importlib
 
         # Reload fresh to test import chain
         import fleet.supervisor_worktree as mod

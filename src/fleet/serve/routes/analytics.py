@@ -686,7 +686,7 @@ def _compute_summary(home: Path, days: int) -> dict:
                     heatmap[wd][hr] += val
             except (ValueError, IndexError):
                 pass
-    heatmap_sum = sum(sum(row) for row in heatmap)
+    sum(sum(row) for row in heatmap)
 
     # ---- errors_recent: up to 10 completed failed/blocked, newest last_ts first ----
     errors_candidates = [r for r in completed if r["outcome"] in ("failed", "blocked")]

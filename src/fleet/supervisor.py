@@ -16,7 +16,6 @@ from fleet.failures import (
     increment_failure,
     increment_noclose,
     needs_validation,
-    noclose_count,
     reset_failure,
     reset_noclose,
     set_needs_validation,

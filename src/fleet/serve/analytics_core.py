@@ -8,7 +8,7 @@ changes.  Re-uses ``parse_iso`` and ``_safe_int`` from stats.py.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from .stats import parse_iso

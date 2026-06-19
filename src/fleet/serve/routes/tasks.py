@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,14 +12,11 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from fleet.coders import _REGISTRY, get_coder, list_coders as _list_coders
+from fleet.coders import get_coder, list_coders as _list_coders
 from fleet.daemon import _pid_alive
 from fleet.queue import BeadsError
 from fleet.serve.beads_info import (
     get_beads_status_map,
-    _beads_map_cache,
-    _BEADS_CACHE_TTL,
-    _beads_list_call_count,
 )
 from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_cached
 
@@ -258,9 +254,9 @@ def create_tasks_router() -> APIRouter:
         None values are mapped to the empty string which sorts before any ISO date
         when we reverse (i.e. they fall to the bottom).
         """
-        ended = data.get("ended_at") or ""
-        started = data.get("started_at") or ""
-        created = data.get("created_at") or ""
+        data.get("ended_at") or ""
+        data.get("started_at") or ""
+        data.get("created_at") or ""
         # ended_at is only set in the summary, not the raw data, so fall through
         # to started_at / created_at which are always on the raw task.json data.
         for key in ("ended_at", "started_at", "created_at"):

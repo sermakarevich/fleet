@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -110,7 +109,7 @@ class TestSummaryDefaultDays:
         monkeypatch.setenv("FLEET_HOME", str(tmp_path))
         tasks_root = tmp_path / "tasks"
 
-        now = _make_now()
+        _make_now()
         window = _make_window_day(1)
 
         # Task 1: closed success with session_ids and output_tokens (within window)
@@ -258,7 +257,7 @@ class TestSummaryDaysParam:
         _reset_analytics_cache(monkeypatch)
         tasks_root = tmp_path / "tasks"
 
-        now = _make_now()
+        _make_now()
         window = _make_window_day(1)
 
         # Task 1: completed 3 days ago — should be excluded with days=1
@@ -558,7 +557,7 @@ class TestSummaryDaysClamping:
         assert d7["window_days"] == 7
 
         # days=0 → all time, echoes 0
-        d0 = asyncio.run(_run(0))
+        asyncio.run(_run(0))
 
 
 class TestSummaryExtras:
@@ -699,7 +698,6 @@ class TestSummaryExtras:
 
         # Use a timestamp within the window — check weekday dynamically
         window = _make_window_day(6)  # 6 hours ago, within any 1-day window
-        from datetime import timezone as tz
 
         window_dt = datetime.fromisoformat(window.replace("Z", "+00:00"))
         wd = window_dt.weekday()  # 0=Mon

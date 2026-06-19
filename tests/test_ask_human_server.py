@@ -140,7 +140,6 @@ def test_default_agent_id_empty_basename_returns_none(
 ):
     """When FLEET_TASK_DIR basename is empty, _default_agent_id returns None."""
     monkeypatch.setenv("FLEET_TASK_DIR", "/some/path/")
-    import fleet.ask_human.server as server_mod
 
     orig_basename = os.path.basename
     os.path.basename = lambda _: ""

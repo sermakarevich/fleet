@@ -13,7 +13,6 @@ from tests.integration.conftest import (
     fast_config,
     init_beads_queue,
     make_supervisor,
-    run_until,
 )
 
 
@@ -151,7 +150,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
     import json
     events_path = task_dir / "events.jsonl"
     assert events_path.exists()
-    lines = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    lines = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
     assert len(lines) >= 2, (
         f"events from both runs should be appended; got {len(lines)} records"
     )

@@ -1,8 +1,6 @@
 import json
-import os
 from pathlib import Path
 
-import pytest
 
 from fleet.coders.base import Coder
 from fleet.coders import get_coder, list_coders

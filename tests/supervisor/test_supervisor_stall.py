@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
 
 from fleet.logging import setup_supervisor_logger
 from fleet.schemas import RuntimeConfig
-from fleet.supervisor import Supervisor
 
 from tests.supervisor.test_supervisor_status_log import _make_supervisor
 

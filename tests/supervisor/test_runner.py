@@ -116,9 +116,9 @@ def _make_runner(
 
 def test_clean_exit_returns_success(tmp_path: Path) -> None:
     lines = [
-        l
-        for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
-        if l.strip()
+        line
+        for line in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
+        if line.strip()
     ]
     script = (
         "import sys\n"
@@ -137,9 +137,9 @@ def test_clean_exit_returns_success(tmp_path: Path) -> None:
 
 def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
     lines = [
-        l
-        for l in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
-        if l.strip()
+        line
+        for line in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
+        if line.strip()
     ]
     script = (
         "import sys\n"
@@ -154,7 +154,7 @@ def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
 
     events_path = tmp_path / "tasks" / "t-001" / "events.jsonl"
     assert events_path.exists()
-    records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    records = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
     assert len(records) >= 1
 
 
@@ -463,7 +463,7 @@ def test_context_pressure_from_usage_not_triggered_below_threshold(
     # use a script that exits cleanly after emitting low-usage events.
     clean_script = (
         "import sys, json\n"
-        f"event = json.dumps({{'type': 'assistant', 'message': {{'content': [], 'usage': {{'input_tokens': 800}}}}, 'session_id': 's1'}})\n"
+        "event = json.dumps({'type': 'assistant', 'message': {'content': [], 'usage': {'input_tokens': 800}}, 'session_id': 's1'})\n"
         "sys.stdout.write(event + '\\n')\n"
         "sys.stdout.flush()\n"
         "sys.exit(0)\n"
@@ -605,7 +605,7 @@ def test_runner_logs_tool_use_name(tmp_path: Path) -> None:
 
     assert result.outcome == TaskOutcome.SUCCESS
     events_path = tmp_path / "tasks" / "t-tu" / "events.jsonl"
-    records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    records = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
     tool_use_records = [r for r in records if r.get("kind") == "tool_use"]
     assert len(tool_use_records) >= 1
     assert tool_use_records[-1].get("tool_name") == "bash"
@@ -662,7 +662,7 @@ def test_session_started_dedup(tmp_path: Path) -> None:
     asyncio.run(runner.run())
 
     events_path = tmp_path / "tasks" / "t-ss" / "events.jsonl"
-    records = [json.loads(l) for l in events_path.read_text().splitlines() if l.strip()]
+    records = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
     session_started_records = [r for r in records if r.get("kind") == "session_started"]
     assert len(session_started_records) == 2
 
@@ -707,7 +707,7 @@ def test_context_usage_bucket_logging(tmp_path: Path) -> None:
     assert result.outcome == TaskOutcome.SUCCESS
     log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
     log_records = [
-        json.loads(l) for l in log_path.read_text().splitlines() if l.strip()
+        json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
     ]
     context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
     # The first usage at 101 (pct=10.1 -> bucket=1) logs, the second at 201 (pct=20.1 -> bucket=2) logs.
@@ -749,7 +749,7 @@ def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
     assert result.outcome == TaskOutcome.SUCCESS
     log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
     log_records = [
-        json.loads(l) for l in log_path.read_text().splitlines() if l.strip()
+        json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
     ]
     context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
     # Both are in 10-19% range (bucket=1), so only one log line.

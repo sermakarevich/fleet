@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
@@ -1001,7 +1000,6 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
     """Follow events.jsonl incrementally, rendering new lines as they arrive."""
     import time
     import sys
-    from pathlib import Path as _Path
 
     # Start from end of file
     try:
@@ -1010,7 +1008,6 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
         return
 
     remainder = ""
-    state: dict = {"last_session": None}
 
     try:
         while True:

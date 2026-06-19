@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 
@@ -8,7 +7,6 @@ from fleet.worktree import (
     create_worktree,
     is_committed_clean,
     merge_to_base,
-    MergeResult,
     remove_worktree,
     worktree_isolation_enabled,
     worktree_path,

@@ -11,8 +11,6 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from fleet.queue import BeadsQueue
-from fleet.schemas import Task
 from fleet.serve.app import create_app
 
 
@@ -632,7 +630,7 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
 
-    from fleet.serve.beads_info import _beads_map_cache, _beads_list_call_count
+    from fleet.serve.beads_info import _beads_list_call_count
 
     # Reset module-level cache and counter so this test is isolated.
     monkeypatch.setattr("fleet.serve.beads_info._beads_map_cache", {})
@@ -651,7 +649,6 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     r1, r2 = asyncio.run(_run())
     assert r1.status_code == 200
     assert r2.status_code == 200
-    from fleet.serve.beads_info import _beads_list_call_count
 
     assert _beads_list_call_count == 1, (
         "Expected exactly one bd-list subprocess call for two rapid polls; "

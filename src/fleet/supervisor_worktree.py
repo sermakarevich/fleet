@@ -7,7 +7,6 @@ runtime behavior on its own — it is called by no existing code.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fleet.worktree import (
@@ -15,7 +14,6 @@ from fleet.worktree import (
     is_committed_clean,
     remove_worktree,
     worktree_isolation_enabled,
-    worktree_path,
 )
 
 

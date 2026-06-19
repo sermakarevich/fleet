@@ -95,7 +95,7 @@ def test_rate_limit_pause_emitted_on_first_paused_decision() -> None:
             in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(92.0)
         )
 
-    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    pause_logs = [log for log in logs if log.get("event") == "rate_limit_pause"]
     assert len(pause_logs) == 1
     assert pause_logs[0]["current_usage_pct"] == 92.0
     assert pause_logs[0]["rate_limit_threshold_pct"] == 90.0
@@ -110,7 +110,7 @@ def test_rate_limit_pause_emitted_only_once_while_sustained() -> None:
                 in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(92.0)
             )
 
-    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    pause_logs = [log for log in logs if log.get("event") == "rate_limit_pause"]
     assert len(pause_logs) == 1
 
 
@@ -124,7 +124,7 @@ def test_rate_limit_resume_emitted_on_leaving_paused_state() -> None:
             in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(85.0)
         )  # resume
 
-    resume_logs = [l for l in logs if l.get("event") == "rate_limit_resume"]
+    resume_logs = [log for log in logs if log.get("event") == "rate_limit_resume"]
     assert len(resume_logs) == 1
     assert resume_logs[0]["current_usage_pct"] == 85.0
     assert resume_logs[0]["rate_limit_threshold_pct"] == 90.0
@@ -147,7 +147,7 @@ def test_rate_limit_resume_emitted_only_once_per_transition() -> None:
             in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(70.0)
         )  # spawn again
 
-    resume_logs = [l for l in logs if l.get("event") == "rate_limit_resume"]
+    resume_logs = [log for log in logs if log.get("event") == "rate_limit_resume"]
     assert len(resume_logs) == 1
 
 
@@ -161,7 +161,7 @@ def test_no_resume_log_without_prior_pause() -> None:
             in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(40.0)
         )
 
-    resume_logs = [l for l in logs if l.get("event") == "rate_limit_resume"]
+    resume_logs = [log for log in logs if log.get("event") == "rate_limit_resume"]
     assert len(resume_logs) == 0
 
 
@@ -181,8 +181,8 @@ def test_multiple_pause_resume_cycles_each_logged_once() -> None:
             in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=_gauge(70.0)
         )  # resume 2
 
-    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
-    resume_logs = [l for l in logs if l.get("event") == "rate_limit_resume"]
+    pause_logs = [log for log in logs if log.get("event") == "rate_limit_pause"]
+    resume_logs = [log for log in logs if log.get("event") == "rate_limit_resume"]
     assert len(pause_logs) == 2
     assert len(resume_logs) == 2
 
@@ -237,7 +237,7 @@ def test_rate_limit_pause_log_includes_resets_at() -> None:
         ctrl = SpawnController(log=structlog.get_logger())
         ctrl.decide(in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=g)
 
-    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    pause_logs = [log for log in logs if log.get("event") == "rate_limit_pause"]
     assert len(pause_logs) == 1
     assert pause_logs[0]["resets_at"] == resets_at
 
@@ -249,7 +249,7 @@ def test_rate_limit_pause_log_includes_resets_at_none_when_missing() -> None:
         ctrl = SpawnController(log=structlog.get_logger())
         ctrl.decide(in_flight=0, max_concurrent=3, threshold_pct=90.0, gauge=g)
 
-    pause_logs = [l for l in logs if l.get("event") == "rate_limit_pause"]
+    pause_logs = [log for log in logs if log.get("event") == "rate_limit_pause"]
     assert len(pause_logs) == 1
     assert pause_logs[0]["resets_at"] is None
 

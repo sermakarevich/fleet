@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from fleet.serve.analytics_core import collect_records, task_record_cached
 

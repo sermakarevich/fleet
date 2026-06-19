@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
 import httpx
@@ -342,7 +341,7 @@ def test_no_events_jsonl_returns_empty(
     """Missing events.jsonl returns empty list."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
-    task_dir = _make_task(tasks_root, "task-ev6")
+    _make_task(tasks_root, "task-ev6")
     # No events.jsonl
 
     app = create_app()

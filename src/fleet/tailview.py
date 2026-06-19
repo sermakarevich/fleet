@@ -39,7 +39,7 @@ def render_event(evt: dict, state: dict) -> str | None:
     (currently just *last_session*).
     """
     kind = evt.get("kind")
-    ts = _ts_prefix(evt)
+    _ts_prefix(evt)
     raw = evt.get("raw") or {}
     if isinstance(raw, str):
         try:
@@ -155,7 +155,7 @@ def render_event(evt: dict, state: dict) -> str | None:
             in_s = str(in_t) if in_t is not None else "?"
             out_s = str(out_t) if out_t is not None else "?"
             return f"\u2500\u2500 session ended (in={in_s} out={out_s}) \u2500\u2500"
-        return f"\u2500\u2500 session ended \u2500\u2500"
+        return "\u2500\u2500 session ended \u2500\u2500"
 
     return None
 

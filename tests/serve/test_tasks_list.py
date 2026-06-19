@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -114,12 +114,12 @@ def test_default_returns_all_active_plus_most_recent_closed(
     assert len(data["tasks"]) == 6
 
     # Check sorting: newest first
-    statuses = [t["status"] for t in data["tasks"]]
+    [t["status"] for t in data["tasks"]]
     # In_progress/active should come first, then closed sorted by recency descending
     task_ids = [t["id"] for t in data["tasks"]]
 
     # task-xxx (in_progress) and task-ooo (open) should be first (active)
-    active_ids = [tid for tid in task_ids if tid in ("task-xxx", "task-ooo")]
+    [tid for tid in task_ids if tid in ("task-xxx", "task-ooo")]
     closed_ids = [
         tid
         for tid in task_ids

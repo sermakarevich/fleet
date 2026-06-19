@@ -7,12 +7,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
 import fleet.cli as climod
 from fleet.cli import app
-from fleet.tailview import render_event, render_lines
+from fleet.tailview import render_lines
 
 runner = CliRunner()
 
@@ -311,11 +310,11 @@ def test_tail_cli_n_limit(tmp_path: Path, monkeypatch: pytest.FixtureManager) ->
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
     # Count lines that look like rendered output (have emoji or symbols)
-    content_lines = [l for l in result.output.splitlines() if l.strip()]
+    [line for line in result.output.splitlines() if line.strip()]
     # Should have header + separator lines (──) + the last 2 rendered lines
     assert "──" not in result.output.split("──")[-1] if "──" in result.output else True
     display_lines = [
-        l for l in result.output.splitlines() if "──" not in l and l.strip()
+        line for line in result.output.splitlines() if "──" not in line and line.strip()
     ]
     assert len(display_lines) <= 2
 

@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.config import load as load_config
