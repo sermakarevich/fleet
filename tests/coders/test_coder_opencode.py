@@ -79,10 +79,9 @@ def test_build_argv_default_model_custom_used_directly():
     assert argv[idx + 1] == "ollama-rtx/qwen3.6:latest"
 
 
-def test_write_runtime_config_default_model_in_provider_models(tmp_path: Path):
+def test_build_config_default_model_in_provider_models():
     coder = OpencodeCoder(model="sonnet", default_model="qwen3.6:latest")
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    cfg = coder._build_config()
     entry = cfg["provider"]["ollama-rtx"]
     assert "qwen3.6:latest" in entry["models"]
 
@@ -204,9 +203,28 @@ def test_env_includes_required_vars(tmp_path: Path):
     assert env["FLEET_ARTIFACT_DIR"] == str(tmp_path / "artifacts")
 
 
-def test_env_exactly_three_keys(tmp_path: Path):
+def test_env_keys_ollama(tmp_path: Path):
     env = _coder().env(_task(), tmp_path)
-    assert set(env.keys()) == {"FLEET_TASK_ID", "FLEET_TASK_DIR", "FLEET_ARTIFACT_DIR"}
+    assert set(env.keys()) == {
+        "FLEET_TASK_ID",
+        "FLEET_TASK_DIR",
+        "FLEET_ARTIFACT_DIR",
+        "OPENCODE_CONFIG_CONTENT",
+    }
+
+
+def test_env_config_content_is_valid_json_with_provider(tmp_path: Path):
+    env = _coder().env(_task(), tmp_path)
+    cfg = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+    assert "ollama-rtx" in cfg["provider"]
+    assert cfg["$schema"] == "https://opencode.ai/config.json"
+
+
+def test_env_does_not_write_opencode_json(tmp_path: Path):
+    coder = _coder()
+    coder.write_runtime_config(tmp_path, object())
+    coder.env(_task(), tmp_path)
+    assert not (tmp_path / "opencode.json").exists()
 
 
 def test_env_bedrock_injects_aws_profile_and_region(tmp_path: Path):
@@ -369,19 +387,22 @@ def test_normalize_tool_error_is_error():
 # ---------------------------------------------------------------------------
 
 
-def test_write_runtime_config_fresh_dir_creates_file(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    target = tmp_path / "opencode.json"
-    assert target.exists()
-    data = json.loads(target.read_text())
-    assert data["$schema"] == "https://opencode.ai/config.json"
-    assert "ollama-rtx" in data["provider"]
+def test_write_runtime_config_is_noop(tmp_path: Path):
+    # Config now travels via OPENCODE_CONFIG_CONTENT in env(); the on-disk
+    # write was removed so task directories stay clean.
+    assert _coder().write_runtime_config(tmp_path, object()) is None
+    assert not (tmp_path / "opencode.json").exists()
 
 
-def test_write_runtime_config_provider_entry_structure(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    data = json.loads((tmp_path / "opencode.json").read_text())
-    entry = data["provider"]["ollama-rtx"]
+def test_build_config_schema_and_provider():
+    cfg = _coder()._build_config()
+    assert cfg["$schema"] == "https://opencode.ai/config.json"
+    assert "ollama-rtx" in cfg["provider"]
+
+
+def test_build_config_provider_entry_structure():
+    cfg = _coder()._build_config()
+    entry = cfg["provider"]["ollama-rtx"]
     assert entry["npm"] == "@ai-sdk/openai-compatible"
     assert entry["name"] == "Ollama (rtx)"
     assert entry["options"]["baseURL"] == "http://127.0.0.1:11435/v1"
@@ -389,84 +410,35 @@ def test_write_runtime_config_provider_entry_structure(tmp_path: Path):
     assert entry["models"]["gpt-oss:20b"]["tools"] is True
 
 
-def test_write_runtime_config_ollama_url_constructor(tmp_path: Path):
+def test_build_config_ollama_url_constructor():
     coder = OpencodeCoder(ollama_url="http://127.0.0.1:12345/v1")
-    task = _task()
-    coder.write_runtime_config(tmp_path, task)
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    cfg = coder._build_config()
     assert (
         cfg["provider"]["ollama-rtx"]["options"]["baseURL"]
         == "http://127.0.0.1:12345/v1"
     )
 
 
-def test_write_runtime_config_preserves_foreign_keys(tmp_path: Path):
-    existing = {
-        "theme": "dark",
-        "provider": {
-            "mine": {"npm": "@custom/pkg", "name": "Mine", "options": {}, "models": {}}
-        },
-    }
-    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
-    _coder().write_runtime_config(tmp_path, object())
-    data = json.loads((tmp_path / "opencode.json").read_text())
-    assert data.get("theme") == "dark"
-    assert "mine" in data["provider"]
-    assert "ollama-rtx" in data["provider"]
-    assert "permission" in data
-    assert "mcp" in data
-
-
-def test_write_runtime_config_does_not_clobber_existing_schema(tmp_path: Path):
-    existing = {"$schema": "https://custom.example.com/schema.json"}
-    (tmp_path / "opencode.json").write_text(json.dumps(existing))
-    _coder().write_runtime_config(tmp_path, object())
-    data = json.loads((tmp_path / "opencode.json").read_text())
-    assert data["$schema"] == "https://custom.example.com/schema.json"
-
-
-def test_write_runtime_config_tolerates_corrupted_json(tmp_path: Path):
-    (tmp_path / "opencode.json").write_text("{not valid json!!")
-    _coder().write_runtime_config(tmp_path, object())
-    data = json.loads((tmp_path / "opencode.json").read_text())
-    assert "ollama-rtx" in data["provider"]
-
-
-def test_write_runtime_config_idempotent(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    first = (tmp_path / "opencode.json").read_bytes()
-    _coder().write_runtime_config(tmp_path, object())
-    second = (tmp_path / "opencode.json").read_bytes()
-    assert first == second
-
-
-def test_write_runtime_config_permission_block(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+def test_build_config_permission_block():
+    cfg = _coder()._build_config()
     assert cfg["permission"] == {"external_directory": "allow"}
 
 
-def test_write_runtime_config_mcp_ask_human(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    entry = cfg["mcp"]["ask-human"]
+def test_build_config_mcp_ask_human():
+    entry = _coder()._build_config()["mcp"]["ask-human"]
     assert entry["type"] == "local"
     assert any("fleet.ask_human.server" in part for part in entry["command"])
 
 
-def test_write_runtime_config_mcp_claude_code_available(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    entry = cfg["mcp"]["claude_code"]
+def test_build_config_mcp_claude_code_available():
+    entry = _coder()._build_config()["mcp"]["claude_code"]
     assert entry["enabled"] is True
     assert entry["type"] == "local"
     assert entry["command"][-1].endswith("claude_code/server.py")
 
 
-def test_write_runtime_config_mcp_playwright_available(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    entry = cfg["mcp"]["playwright"]
+def test_build_config_mcp_playwright_available():
+    entry = _coder()._build_config()["mcp"]["playwright"]
     assert entry["enabled"] is True
     assert entry["type"] == "local"
     assert "@playwright/mcp@latest" in entry["command"]
@@ -474,44 +446,14 @@ def test_write_runtime_config_mcp_playwright_available(tmp_path: Path):
     assert "--isolated" in entry["command"]
 
 
-def test_write_runtime_config_mcp_web_fetch_available(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+def test_build_config_mcp_web_fetch_available():
+    cfg = _coder()._build_config()
     entry = cfg["mcp"]["web_fetch"]
     assert entry["enabled"] is True
     assert entry["type"] == "local"
     assert entry["command"][-1] == "fleet.web_fetch.server"
     assert entry["environment"]["FLEET_WEBFETCH_MODEL"]
     assert entry["environment"]["FLEET_WEBFETCH_OLLAMA_URL"]
-    assert "ask-human" in cfg["mcp"]
-
-
-def test_write_runtime_config_mcp_ask_human_not_removed_after_playwright(
-    tmp_path: Path,
-):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    assert "ask-human" in cfg["mcp"]
-    assert any(
-        "fleet.ask_human.server" in part for part in cfg["mcp"]["ask-human"]["command"]
-    )
-
-
-def test_write_runtime_config_mcp_ask_human_not_removed(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    assert "ask-human" in cfg["mcp"]
-    assert any(
-        "fleet.ask_human.server" in part for part in cfg["mcp"]["ask-human"]["command"]
-    )
-
-
-def test_write_runtime_config_mcp_preserves_existing(tmp_path: Path):
-    existing = {"mcp": {"my-server": {"type": "local", "command": ["foo"]}}}
-    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    assert "my-server" in cfg["mcp"]
     assert "ask-human" in cfg["mcp"]
 
 
@@ -559,80 +501,38 @@ def test_context_limit_custom_value():
     assert coder.context_limit == 256_000
 
 
-def test_write_runtime_config_uses_default_model_in_entry(tmp_path: Path):
+def test_build_config_uses_default_model_in_entry():
     coder = OpencodeCoder(model="sonnet", default_model="qwen3.5:27b")
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    entry = cfg["provider"]["ollama-rtx"]
+    entry = coder._build_config()["provider"]["ollama-rtx"]
     assert "qwen3.5:27b" in entry["models"]
     assert "gpt-oss:20b" not in entry["models"]
 
 
-def test_write_runtime_config_merges_existing_models_and_permissions(tmp_path: Path):
-    existing = {
-        "provider": {
-            "ollama-rtx": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "Ollama (rtx)",
-                "options": {"baseURL": "http://127.0.0.1:11435/v1"},
-                "models": {"other-model": {"name": "other-model", "tools": True}},
-            }
-        },
-        "permission": {"bash": "ask"},
-    }
-    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
-    _coder().write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    entry = cfg["provider"]["ollama-rtx"]
-    assert "other-model" in entry["models"]
-    assert "gpt-oss:20b" in entry["models"]
-    assert cfg["permission"]["bash"] == "ask"
-    assert cfg["permission"]["external_directory"] == "allow"
-
-
-def test_write_runtime_config_no_tmp_file_left_behind(tmp_path: Path):
-    _coder().write_runtime_config(tmp_path, object())
-    target = tmp_path / "opencode.json"
-    tmp = tmp_path / (target.name + ".tmp")
-    assert not tmp.exists()
-
-
-def test_write_runtime_config_model_has_limit_context(tmp_path: Path):
+def test_build_config_model_has_limit_context():
     """limit.context must match the constructor's context_limit (default 128_000)."""
     coder = OpencodeCoder()
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    models = cfg["provider"]["ollama-rtx"]["models"]
-    model_key = coder.model  # "gpt-oss:20b"
-    assert models[model_key]["limit"]["context"] == 128_000
+    models = coder._build_config()["provider"]["ollama-rtx"]["models"]
+    assert models[coder.model]["limit"]["context"] == 128_000
 
 
-def test_write_runtime_config_limit_context_custom(tmp_path: Path):
+def test_build_config_limit_context_custom():
     """limit.context must reflect an explicit context_limit value (252_000)."""
     coder = OpencodeCoder(context_limit=252_000)
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    models = cfg["provider"]["ollama-rtx"]["models"]
-    model_key = coder.model
-    assert models[model_key]["limit"]["context"] == 252_000
+    models = coder._build_config()["provider"]["ollama-rtx"]["models"]
+    assert models[coder.model]["limit"]["context"] == 252_000
 
 
-def test_write_runtime_config_limit_output_always_8192(tmp_path: Path):
+def test_build_config_limit_output_always_8192():
     """limit.output MUST always be 8192."""
     coder = OpencodeCoder()
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    models = cfg["provider"]["ollama-rtx"]["models"]
-    model_key = coder.model
-    assert models[model_key]["limit"]["output"] == 8192
+    models = coder._build_config()["provider"]["ollama-rtx"]["models"]
+    assert models[coder.model]["limit"]["output"] == 8192
 
 
-def test_write_runtime_config_limit_propagates_with_custom_model(tmp_path: Path):
+def test_build_config_limit_propagates_with_custom_model():
     """limit block is written when using a custom model and context_limit."""
     coder = OpencodeCoder(model="qwen3.5:27b", context_limit=200_000)
-    coder.write_runtime_config(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    models = cfg["provider"]["ollama-rtx"]["models"]
+    models = coder._build_config()["provider"]["ollama-rtx"]["models"]
     assert models["qwen3.5:27b"]["limit"]["context"] == 200_000
     assert models["qwen3.5:27b"]["limit"]["output"] == 8192
 
@@ -653,35 +553,6 @@ def test_bedrock_params_default_values():
     assert coder.bedrock_context_limit == 200_000
 
 
-def test_write_runtime_config_merge_preserves_existing_models_limit(tmp_path: Path):
-    """Models merged from existing configs keep their original entries; current model gets limit."""
-    existing = {
-        "provider": {
-            "ollama-rtx": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "Ollama (rtx)",
-                "options": {"baseURL": "http://127.0.0.1:11435/v1"},
-                "models": {"other-model": {"name": "other-model", "tools": True}},
-            }
-        },
-        "permission": {"bash": "ask"},
-    }
-    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
-    coder = OpencodeCoder(context_limit=99_000)
-    writer = coder.write_runtime_config
-    writer(tmp_path, object())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    models = cfg["provider"]["ollama-rtx"]["models"]
-    # current model gets limit
-    assert models["gpt-oss:20b"]["limit"]["context"] == 99_000
-    assert models["gpt-oss:20b"]["limit"]["output"] == 8192
-    # existing models are preserved
-    assert "other-model" in models
-    assert models["other-model"]["name"] == "other-model"
-    # merge keeps permission
-    assert cfg["permission"]["bash"] == "ask"
-
-
 def test_bedrock_model_is_bedrock_true_and_context_limit():
     coder = OpencodeCoder(
         model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
@@ -699,12 +570,11 @@ def test_bedrock_model_with_custom_context_limit():
     assert coder.context_limit == 150_000
 
 
-def test_write_runtime_config_bedrock_model_has_bedrock_provider(tmp_path: Path):
+def test_build_config_bedrock_model_has_bedrock_provider():
     coder = OpencodeCoder(
         model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     )
-    coder.write_runtime_config(tmp_path, _task())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    cfg = coder._build_config()
     bedrock_entry = cfg["provider"]["amazon-bedrock"]
     assert bedrock_entry["name"] == "Amazon Bedrock"
     model_key = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
@@ -713,50 +583,17 @@ def test_write_runtime_config_bedrock_model_has_bedrock_provider(tmp_path: Path)
     assert "ollama-rtx" in cfg["provider"]
 
 
-def test_write_runtime_config_bedrock_merges_existing_bedrock_entry(tmp_path: Path):
-    existing = {
-        "provider": {
-            "amazon-bedrock": {
-                "name": "Amazon Bedrock",
-                "models": {
-                    "us.anthropic.claude-3-5-sonnet-20241022-v2:0": {
-                        "name": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-                        "tools": True,
-                    }
-                },
-            }
-        }
-    }
-    (tmp_path / "opencode.json").write_text(json.dumps(existing, indent=2))
-    coder = OpencodeCoder(
-        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
-    coder.write_runtime_config(tmp_path, _task())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
-    bedrock_entry = cfg["provider"]["amazon-bedrock"]
-    assert "us.anthropic.claude-3-5-sonnet-20241022-v2:0" in bedrock_entry["models"]
-    assert "us.anthropic.claude-sonnet-4-5-20250929-v1:0" in bedrock_entry["models"]
-    assert (
-        bedrock_entry["models"]["us.anthropic.claude-sonnet-4-5-20250929-v1:0"][
-            "limit"
-        ]["context"]
-        == 200_000
-    )
-
-
-def test_write_runtime_config_bedrock_not_added_for_ollama_model(tmp_path: Path):
+def test_build_config_bedrock_not_added_for_ollama_model():
     coder = OpencodeCoder(model="qwen3.6:latest")
-    coder.write_runtime_config(tmp_path, _task())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    cfg = coder._build_config()
     assert "amazon-bedrock" not in cfg.get("provider", {})
 
 
-def test_write_runtime_config_bedrock_preserves_mcp_and_permission(tmp_path: Path):
+def test_build_config_bedrock_preserves_mcp_and_permission():
     coder = OpencodeCoder(
         model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     )
-    coder.write_runtime_config(tmp_path, _task())
-    cfg = json.loads((tmp_path / "opencode.json").read_text())
+    cfg = coder._build_config()
     assert "ask-human" in cfg["mcp"]
     assert cfg["permission"]["external_directory"] == "allow"
 

@@ -78,6 +78,8 @@ Requires:
 - [beads (`bd`)](https://github.com/gastownhall/beads) on your `PATH`
 - `git` on your `PATH` (beads stores its database inside a git repo)
 - At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, `codex` (OpenAI Codex CLI), `opencode` (opencode CLI with Ollama backend), or `pi` (pi CLI)
+- **Node.js ≥ 18 and `npm`** — only needed to build the web UI (`fleet serve` / `make ui-build`). Not required for the headless supervisor.
+- `claude` (Claude Code) on your `PATH` — only needed to register the bundled `ask_human` MCP server (`fleet ask-human install`).
 
 ---
 
@@ -390,12 +392,22 @@ Starts a local web server backed by FastAPI and serves a React SPA at
 | `status` | Print running/stopped plus pid, start time, and port. Exits non-zero when stopped. |
 | `foreground` | Run uvicorn in the foreground (blocks). This is what `start` execs. |
 
-The UI assets must be built once before first use (and are rebuilt by
-`fleet serve restart`):
+The UI is a Vite + React + TypeScript SPA living in `src/fleet/ui/`. Its
+assets must be built once before first use (and are rebuilt by
+`fleet serve restart`). Building requires **Node.js ≥ 18 and `npm`** (see
+[Installation](#installation)).
 
 ```bash
-make ui-build    # builds React SPA and copies it to $FLEET_HOME/ui_dist/
+make ui-build      # npm install (deps) + npm run build, then copy dist → $FLEET_HOME/ui_dist/
 ```
+
+The Makefile exposes three targets, all rooted at `src/fleet/ui/`:
+
+| Target | What it does |
+|---|---|
+| `make ui-install` | `npm install` — install/refresh the SPA's node dependencies. |
+| `make ui-build` | Depends on `ui-install`, then `npm run build` (`tsc && vite build`) and copies `dist/` to `$FLEET_HOME/ui_dist/`. This is the only target you need for a normal build — it installs deps for you. |
+| `make ui-dev` | `npm run dev` — Vite dev server with hot reload, for working on the UI itself. |
 
 `fleet serve restart` runs `make ui-build` for you. If there is no `Makefile`
 (e.g. a non-source install), the build step is skipped with a warning rather
@@ -456,11 +468,19 @@ See [Telegram channel notifications](#telegram-channel-notifications) for the fu
 ### `fleet ask-human <command>`
 
 ```bash
-fleet ask-human install                     # register the bundled MCP server with Claude Code
+fleet ask-human install                     # register the bundled MCP server with Claude Code (user scope)
+fleet ask-human install --scope project     # register at project/local scope instead
 fleet ask-human serve                       # run the MCP server on stdio (what `install` registers — only one you'll need)
 ```
 
 Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. Answer from the Fleet web UI Chat tab (`fleet serve`) or Telegram.
+
+`fleet ask-human install` requires the `claude` CLI on your `PATH`. It first
+removes any existing `ask_human` registration at the chosen scope, then runs
+`claude mcp add ask_human --scope <scope> -- fleet ask-human serve`. `--scope`
+accepts `user` (default), `project`, or `local` and mirrors Claude Code's MCP
+scopes. On success it prints the resolved binary path and reminds you to verify
+with `claude mcp list`.
 
 ---
 
@@ -747,12 +767,16 @@ The SQLite store is the single source of truth; every frontend is a thin client.
 
 ### Setup
 
-Register the bundled server with Claude Code once:
+Register the bundled server with Claude Code once (requires the `claude` CLI on
+your `PATH`):
 
 ```bash
-fleet ask-human install        # claude mcp add ask_human --scope user -- fleet ask-human serve
+fleet ask-human install        # remove + claude mcp add ask_human --scope user -- fleet ask-human serve
 claude mcp list                # verify
 ```
+
+Use `--scope project` or `--scope local` to register at a different Claude Code
+scope (default is `user`).
 
 Agents spawned by the fleet supervisor pick up the user-scope registration automatically. If you previously registered an `ask_human` server from another location, `install` replaces that registration (the other copy's files are left untouched — both point at the same DB).
 

@@ -105,6 +105,11 @@ class OpencodeCoder(Coder):
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
             "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
+            # Provider + MCP config is injected via env instead of an
+            # opencode.json written into the task cwd, so we no longer
+            # pollute project directories. opencode loads this as a
+            # "local"-scope config and merges it with global/project config.
+            "OPENCODE_CONFIG_CONTENT": json.dumps(self._build_config()),
         }
         if self.is_bedrock:
             if self.bedrock_profile:
@@ -114,26 +119,27 @@ class OpencodeCoder(Coder):
         return e
 
     def write_runtime_config(self, project: Path, task: object) -> None:
-        """Write/refresh the ollama-rtx provider entry in project-root opencode.json."""
-        target = project / "opencode.json"
-        existing: dict = {}
-        if target.exists():
-            try:
-                existing = json.loads(target.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                existing = {}
+        """No-op: provider/MCP config is injected via OPENCODE_CONFIG_CONTENT in
+        env() instead of writing an opencode.json into the project directory.
 
+        Kept for Coder-interface compatibility. Previously this wrote
+        ``project/opencode.json``, which polluted every task cwd.
+        """
+        return None
+
+    def _build_config(self) -> dict:
+        """Build the opencode config dict (provider + MCP + permission).
+
+        Self-contained per task -- no on-disk file to merge with, so concurrent
+        tasks with different models can't clobber each other.
+        """
         full_id, local_key = _resolve_model(self.model, self.default_model)
         provider_prefix = full_id.split("/", 1)[0]
         map_key = local_key if provider_prefix == _PROVIDER_ID else self.default_model
 
         base_url = self.ollama_url
 
-        # Merge models from any existing ollama-rtx entry so concurrent tasks
-        # with different models do not clobber each other's models map.
-        existing_provider: dict = existing.get("provider", {})
-        existing_ollama: dict = existing_provider.get(_PROVIDER_ID, {})
-        merged_models: dict = dict(existing_ollama.get("models", {}))
+        merged_models: dict = {}
         merged_models[map_key] = {
             "name": map_key,
             "tools": True,
@@ -147,14 +153,11 @@ class OpencodeCoder(Coder):
             "models": merged_models,
         }
 
-        provider: dict = dict(existing.get("provider", {}))
+        provider: dict = {}
         provider[_PROVIDER_ID] = ollama_entry
 
         if self.is_bedrock:
-            existing_bedrock: dict = existing.get("provider", {}).get(
-                _BEDROCK_PROVIDER_ID, {}
-            )
-            bedrock_models: dict = dict(existing_bedrock.get("models", {}))
+            bedrock_models: dict = {}
             bedrock_models[local_key] = {
                 "name": local_key,
                 "tools": True,
@@ -179,7 +182,7 @@ class OpencodeCoder(Coder):
             ],
             "enabled": True,
         }
-        mcp: dict = dict(existing.get("mcp", {}))
+        mcp: dict = {}
         mcp["ask-human"] = ask_human_entry
 
         web_fetch_entry = {
@@ -232,24 +235,13 @@ class OpencodeCoder(Coder):
         }
         mcp["claude_code"] = claude_code_entry
 
-        result: dict = {}
-        if "$schema" not in existing:
-            result["$schema"] = "https://opencode.ai/config.json"
-        for k, v in existing.items():
-            if k not in ("provider", "permission", "mcp"):
-                result[k] = v
-
-        # Merge permission block instead of discarding the owner's settings.
-        existing_permission: dict = existing.get("permission", {})
-        result["permission"] = {**existing_permission, "external_directory": "allow"}
-
-        result["provider"] = provider
-        result["mcp"] = mcp
-
-        # Atomic write via tmp-sibling + replace to avoid torn reads.
-        tmp = target.with_name(target.name + ".tmp")
-        tmp.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(target)
+        result: dict = {
+            "$schema": "https://opencode.ai/config.json",
+            "permission": {"external_directory": "allow"},
+            "provider": provider,
+            "mcp": mcp,
+        }
+        return result
 
     def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
         if not raw_line.strip():
