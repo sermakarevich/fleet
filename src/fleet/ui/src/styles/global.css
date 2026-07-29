@@ -61,6 +61,33 @@ button:disabled {
   background: #27272a !important;
 }
 
+/* Analytics KPI grid. There are 12 cards, so the column count must divide 12
+   evenly — auto-fit packs as many as fit and strands the remainder on a
+   near-empty last row. */
+.kpi-grid {
+  display: grid;
+  gap: 0.625rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 960px) {
+  .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1400px) {
+  .kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
 /* Mobile nav link strip — scrolls horizontally, no visible scrollbar */
 .nav-scroll {
   scrollbar-width: none;

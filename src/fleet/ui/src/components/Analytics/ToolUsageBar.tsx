@@ -74,9 +74,7 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
 
 const panel: React.CSSProperties = {
   ...P.panel,
-  minWidth: '360px',
-  flex: '1 1 360px',
-  maxWidth: '520px',
+  flex: '1.3 1 340px',
 };
 
 const rowContainer: React.CSSProperties = {

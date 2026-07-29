@@ -57,16 +57,18 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
 
 const panel: React.CSSProperties = {
   ...P.panel,
-  minWidth: '320px',
-  flex: '1 1 320px',
-  maxWidth: '480px',
+  flex: '1 1 280px',
+  display: 'flex',
+  flexDirection: 'column' as const,
 };
 
+// Grows into whatever height the row's tallest panel sets, never below the floor.
 const flexRow: React.CSSProperties = {
   display: 'flex',
   alignItems: 'stretch',
   gap: '0.75rem',
-  height: `${CHART_HEIGHT_PX}px`,
+  flex: 1,
+  minHeight: `${CHART_HEIGHT_PX}px`,
 };
 
 const bucketWrapper: React.CSSProperties = {

@@ -28,7 +28,7 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
   }, [heatmap]);
 
   return (
-    <div style={{ ...P.panel, width: '100%', overflowX: 'auto' }}>
+    <div style={{ ...P.panel, flex: '1 1 420px', overflowX: 'auto' }}>
       <div style={P.panelTitle}>
         <span>Activity by hour</span>
       </div>
@@ -56,11 +56,8 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
                   <div
                     key={ci}
                     style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: 2,
+                      ...cell,
                       background: bg,
-                      flexShrink: 0,
                     }}
                     title={`${DAYS[ri]} ${String(ci).padStart(2, '0')}:00 — ${fmtCount(count)}`}
                   />
@@ -91,13 +88,26 @@ const tickCorner: React.CSSProperties = {
   flexShrink: 0,
 };
 
+// Cells and hour ticks share one flex sizing rule so the ticks stay above their
+// own column when the grid stretches to fill the panel.
+const cellFlex: React.CSSProperties = {
+  flex: '1 1 12px',
+  minWidth: 12,
+  maxWidth: 22,
+};
+
+const cell: React.CSSProperties = {
+  ...cellFlex,
+  height: 12,
+  borderRadius: 2,
+};
+
 const tickCell: React.CSSProperties = {
-  width: 12,
+  ...cellFlex,
   height: 12,
   fontSize: '0.5625rem',
   color: T.colors.textDim,
   textAlign: 'center' as const,
-  flexShrink: 0,
   overflow: 'visible',
   whiteSpace: 'nowrap' as const,
 };

@@ -66,11 +66,7 @@ export function KpiCards({ kpis }: CardProps) {
   ];
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-      gap: '0.625rem',
-    }}>
+    <div className="kpi-grid">
       {items.map(card => (
         <div key={card.label} style={CARD}>
           <div style={{

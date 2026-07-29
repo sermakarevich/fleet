@@ -119,8 +119,8 @@ export function Analytics() {
       <div style={styles.row}>
         <ToolUsageBar tools={data?.tools ?? { total: 0, rows: [] }} />
         <ContextHistogram buckets={data?.context_histogram?.buckets ?? []} />
+        <ActivityHeatmap heatmap={data?.heatmap ?? []} />
       </div>
-      <ActivityHeatmap heatmap={data?.heatmap ?? []} />
       <div style={styles.row}>
         <NeedsAttention rows={data?.errors_recent ?? []} />
         <RateLimitTimeline events={rateLimitEvents} />
