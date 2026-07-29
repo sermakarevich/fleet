@@ -143,7 +143,7 @@ export interface AnalyticsSummary {
   by_model: AnalyticsByModelProject[];
   by_project: AnalyticsByModelProject[];
   tools: { total: number; rows: AnalyticsToolRow[] };
-  context_histogram: { buckets: number[] };
+  context_histogram: { buckets: number[] | Record<string, number> };
   heatmap: number[][];
   errors_recent: AnalyticsErrorRecent[];
   rate_limits: AnalyticsRateLimit[];
@@ -211,10 +211,8 @@ export interface AnalyticsErrorRecent {
 }
 
 export interface AnalyticsRateLimit {
-  id: string;
+  task_id: string;
   ts: string;
-  provider: string;
-  duration_sec: number | null;
 }
 
 

@@ -126,6 +126,42 @@ class TestRateLimit:
         assert r["noclose"] is True
 
 
+class TestToolUseFallback:
+    """tool_counts falls back to named tool_use events (claude-style streams)."""
+
+    def test_tool_use_counted_when_no_named_tool_result(self, tmp_path: Path) -> None:
+        td = tmp_path / "tasks" / "task-tu"
+        td.mkdir(parents=True)
+        _write_task_json(td)
+        evs = [
+            _event(ts="2025-01-01T10:00:00Z", kind="tool_use", tool_name="Read"),
+            _event(ts="2025-01-01T10:01:00Z", kind="tool_use", tool_name="Read"),
+            _event(ts="2025-01-01T10:02:00Z", kind="tool_use", tool_name="Bash"),
+            # claude tool_result events carry no name — must stay ignored
+            _event(ts="2025-01-01T10:03:00Z", kind="tool_result", tool_name=None),
+        ]
+        _write_events(td, evs)
+
+        r = task_record_cached(td)
+        assert r["tool_counts"] == {"Read": 2, "Bash": 1}
+
+    def test_named_tool_result_wins_over_tool_use(self, tmp_path: Path) -> None:
+        """opencode emits tool_use per state update plus a final tool_result —
+        counting both would double-count, so tool_result takes precedence."""
+        td = tmp_path / "tasks" / "task-tr"
+        td.mkdir(parents=True)
+        _write_task_json(td)
+        evs = [
+            _event(ts="2025-01-01T10:00:00Z", kind="tool_use", tool_name="bash"),
+            _event(ts="2025-01-01T10:00:01Z", kind="tool_use", tool_name="bash"),
+            _event(ts="2025-01-01T10:00:02Z", kind="tool_result", tool_name="bash"),
+        ]
+        _write_events(td, evs)
+
+        r = task_record_cached(td)
+        assert r["tool_counts"] == {"bash": 1}
+
+
 class TestMissingEvents:
     """Test 3: task.json but no events.jsonl."""
 

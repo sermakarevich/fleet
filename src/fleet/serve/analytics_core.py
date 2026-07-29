@@ -92,6 +92,7 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
     segments_set: set[str] = set()
     errors = 0
     tool_counts: dict[str, int] = {}
+    tool_use_counts: dict[str, int] = {}
     output_tokens = 0
     input_tokens = 0
     cache_creation_tokens = 0
@@ -143,11 +144,17 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
                     if kind == "error":
                         errors += 1
 
-                    # tool_counts
+                    # tool_counts: prefer completed tool_result events (opencode,
+                    # pi), but keep tool_use as a fallback — claude emits named
+                    # tool_use events and its tool_result carries no name.
                     if kind == "tool_result":
                         tn = row.get("tool_name")
                         if tn is not None:
                             tool_counts[tn] = tool_counts.get(tn, 0) + 1
+                    elif kind == "tool_use":
+                        tn = row.get("tool_name")
+                        if tn is not None:
+                            tool_use_counts[tn] = tool_use_counts.get(tn, 0) + 1
 
                     # output_tokens (exclude session_ended)
                     if kind != "session_ended":
@@ -198,6 +205,9 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
                         has_context_pressure_event = True
         except OSError:
             pass
+
+    if not tool_counts and tool_use_counts:
+        tool_counts = tool_use_counts
 
     context_pressure = (
         tdir / ".context_pressure"

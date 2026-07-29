@@ -1,19 +1,15 @@
 import * as T from '../../styles/tokens';
+import * as P from './panel';
+import { fmtCount } from './format';
 
 const BUCKET_LABELS = ['0-25', '25-50', '50-75', '75-100', '100+'];
 const LABEL_COLORS: Record<number, string> = {
-  3: '#d97706',
-  4: '#dc2626',
+  3: P.seriesColors.blocked,
+  4: P.seriesColors.failed,
 };
 const MIN_HEIGHT_PX = 2;
 // Total height of the chart row (count label + bar area + bucket label + gaps).
 const CHART_HEIGHT_PX = 140;
-
-function fmtCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
 
 interface ContextHistogramProps {
   buckets: number[] | Record<string, number>;
@@ -28,7 +24,9 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
 
   return (
     <div style={panel}>
-      <div style={title}>Peak context vs limit</div>
+      <div style={P.panelTitle}>
+        <span>Peak context vs limit</span>
+      </div>
       <div style={flexRow}>
         {counts.map((count, i) => {
           const heightPct = (count / maxCount) * 100;
@@ -58,20 +56,10 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
 }
 
 const panel: React.CSSProperties = {
-  ...T.panel,
-  padding: '0.75rem 1rem',
+  ...P.panel,
   minWidth: '320px',
   flex: '1 1 320px',
   maxWidth: '480px',
-};
-
-const title: React.CSSProperties = {
-  fontSize: '0.6875rem',
-  fontWeight: 600,
-  textTransform: 'uppercase' as const,
-  letterSpacing: '0.05em',
-  color: T.colors.textMuted,
-  marginBottom: '0.5rem',
 };
 
 const flexRow: React.CSSProperties = {

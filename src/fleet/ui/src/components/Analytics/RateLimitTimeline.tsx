@@ -1,3 +1,6 @@
+import * as T from '../../styles/tokens';
+import * as P from './panel';
+
 interface Props {
   events: { ts: string; task_id: string }[];
 }
@@ -5,71 +8,45 @@ interface Props {
 const MAX_VISIBLE = 30;
 
 function fmtShort(ts: string): string {
-  try {
-    var d = new Date(ts);
-    var mon = d.toLocaleString('en-US', { month: 'short' });
-    var dd = String(d.getDate()).padStart(2, '0');
-    var hh = String(d.getHours()).padStart(2, '0');
-    var mm = String(d.getMinutes()).padStart(2, '0');
-    return mon + ' ' + dd + ' ' + hh + ':' + mm;
-  } catch {
-    return ts;
-  }
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${mon} ${dd} ${hh}:${mm}`;
 }
 
 export function RateLimitTimeline({ events }: Props) {
-  if (events.length === 0) {
-    return (
-      <div style={styles.container}>
-        <h3 style={styles.title}>Rate-limit rejections</h3>
-        <p style={styles.empty}>No rate-limit rejections in this window.</p>
-      </div>
-    );
-  }
-
-  var truncated = events.length > MAX_VISIBLE;
-  var display = truncated ? events.slice(-MAX_VISIBLE) : events;
+  const truncated = events.length > MAX_VISIBLE;
+  const display = truncated ? events.slice(-MAX_VISIBLE) : events;
 
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>Rate-limit rejections</h3>
-      <div style={styles.strip}>
-        {display.map(function (e, i) {
-          return (
+    <div style={{ ...P.panel, flex: '1 1 30rem', minWidth: 0 }}>
+      <div style={P.panelTitle}>
+        <span>Rate-limit rejections</span>
+        {events.length > 0 && <span style={P.panelTitleAside}>{events.length} total</span>}
+      </div>
+      {events.length === 0 ? (
+        <p style={P.panelEmpty}>No rate-limit rejections in this window.</p>
+      ) : (
+        <div style={styles.strip}>
+          {display.map((e, i) => (
             <div key={i} style={styles.event}>
               <span style={styles.ts}>{fmtShort(e.ts)}</span>
               <span style={styles.monospace}>{e.task_id}</span>
             </div>
-          );
-        })}
-        {truncated && (
-          <div style={styles.more}>+(
-            {events.length - MAX_VISIBLE}{' '}
-            earlier)</div>
-        )}
-      </div>
+          ))}
+          {truncated && (
+            <div style={styles.more}>+{events.length - MAX_VISIBLE} earlier</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
-  container: {
-    flex: '1 1 30rem',
-    minWidth: '14rem',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  } as React.CSSProperties,
-  title: {
-    margin: '0 0 0.75rem',
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: '#e4e4e7',
-  } as React.CSSProperties,
-  empty: {
-    color: '#52525b',
-    fontSize: '0.875rem',
-    margin: 0,
-  } as React.CSSProperties,
   strip: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -80,11 +57,12 @@ const styles = {
     display: 'flex',
     gap: '0.75rem',
     fontSize: '0.8125rem',
-    color: '#d4d4d9',
+    color: T.colors.textSecondary,
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   ts: {
-    color: '#71717a',
+    color: T.colors.textDim,
+    fontFamily: 'ui-monospace, monospace',
   } as React.CSSProperties,
   monospace: {
     fontFamily: 'ui-monospace, monospace',
@@ -92,7 +70,7 @@ const styles = {
   } as React.CSSProperties,
   more: {
     fontSize: '0.75rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontStyle: 'italic' as const,
     marginTop: '0.125rem',
   } as React.CSSProperties,

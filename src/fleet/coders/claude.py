@@ -206,6 +206,19 @@ class ClaudeCoder(Coder):
                         session_id=session_id,
                         usage=usage,
                     )
+            # Tool invocations arrive as content blocks inside assistant messages,
+            # never as top-level stream-json events. raw is the block itself so
+            # readers find the tool input at raw["input"] (files tab, stats).
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    return Event(
+                        kind="tool_use",
+                        raw=block,
+                        ts=ts,
+                        session_id=session_id,
+                        tool_name=block.get("name"),
+                        usage=usage,
+                    )
             return Event(
                 kind="assistant_text",
                 raw=data,

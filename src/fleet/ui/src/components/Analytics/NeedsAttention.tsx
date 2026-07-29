@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import * as T from '../../styles/tokens';
+import * as P from './panel';
 
 interface Props {
   rows: {
@@ -11,102 +13,85 @@ interface Props {
   }[];
 }
 
+// Chip colors per attention label: failed/blocked reuse the status trio;
+// noclose/context_pressure are "degraded" (warm coral); rate_limited is
+// informational (accent blue).
 const outColors: Record<string, string> = {
-  failed: '#dc2626',
-  blocked: '#d97706',
+  failed: P.seriesColors.failed,
+  blocked: P.seriesColors.blocked,
+  noclose: '#ec835a',
+  context_pressure: '#ec835a',
+  rate_limited: '#3b82f6',
 };
 
-function fmtTime(ts: string | null): string {
+function fmtEnded(ts: string | null): string {
   if (!ts) return '';
-  try {
-    return new Date(ts).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-  } catch {
-    return ts;
-  }
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${date} ${time}`;
 }
 
 export function NeedsAttention({ rows }: Props) {
   const navigate = useNavigate();
 
-  if (rows.length === 0) {
-    return (
-      <div style={styles.container}>
-        <h3 style={styles.title}>Needs attention</h3>
-        <p style={styles.empty}>No failures in this window 🎉</p>
-      </div>
-    );
-  }
-
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>Needs attention</h3>
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Status</th>
-              <th style={styles.th}>ID</th>
-              <th style={styles.th}>Title</th>
-              <th style={styles.th}>Ended</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(function (r) {
-              var chipColor = r.outcome ? (outColors[r.outcome.toLowerCase()] || '#60a5fa') : '#60a5fa';
-              return (
-                <tr
-                  key={r.id}
-                  className="row-interactive"
-                  tabIndex={0}
-                  onClick={function () { navigate('/tasks/' + r.id); }}
-                  style={styles.tr}
-                >
-                  <td style={styles.td}>
-                    <span style={Object.assign({}, styles.chip, { background: chipColor + '20', color: chipColor })}>
-                      {r.outcome || '—'}
-                    </span>
-                  </td>
-                  <td style={Object.assign({}, styles.td, styles.monospace, { color: '#60a5fa' })}>
-                    {r.id.slice(0, 8)}
-                  </td>
-                  <td style={Object.assign({}, styles.td, styles.ellipsis)}>
-                    {r.title}
-                  </td>
-                  <td style={Object.assign({}, styles.td, styles.monospace, { color: '#71717a' })}>
-                    {fmtTime(r.ended_at)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div style={{ ...P.panel, flex: '1 1 30rem', minWidth: 0 }}>
+      <div style={P.panelTitle}>
+        <span>Needs attention</span>
       </div>
+      {rows.length === 0 ? (
+        <p style={P.panelEmpty}>Nothing needs attention in this window 🎉</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Status</th>
+                <th style={styles.th}>ID</th>
+                <th style={styles.th}>Title</th>
+                <th style={styles.th}>Ended</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const key = (r.outcome || '').toLowerCase();
+                const chipColor = outColors[key] || '#60a5fa';
+                return (
+                  <tr
+                    key={r.id}
+                    className="row-interactive"
+                    tabIndex={0}
+                    onClick={() => navigate('/tasks/' + r.id)}
+                    style={styles.tr}
+                  >
+                    <td style={styles.td}>
+                      <span style={{ ...styles.chip, background: chipColor + '20', color: chipColor }}>
+                        {(r.outcome || '—').replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td style={{ ...styles.td, ...styles.monospace, color: '#60a5fa' }}>
+                      {r.id.slice(0, 8)}
+                    </td>
+                    <td style={{ ...styles.td, ...styles.ellipsis }}>
+                      {r.title}
+                    </td>
+                    <td style={{ ...styles.td, ...styles.monospace, color: T.colors.textDim, whiteSpace: 'nowrap' }}>
+                      {fmtEnded(r.ended_at)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
-  container: {
-    flex: '1 1 30rem',
-    minWidth: '30rem',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  } as React.CSSProperties,
-  title: {
-    margin: '0 0 0.75rem',
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: '#e4e4e7',
-  } as React.CSSProperties,
-  empty: {
-    color: '#52525b',
-    fontSize: '0.875rem',
-    margin: 0,
-  } as React.CSSProperties,
   tableWrap: {
     overflowX: 'auto',
   } as React.CSSProperties,
@@ -119,15 +104,15 @@ const styles = {
   th: {
     textAlign: 'left' as const,
     padding: '0.4rem 0.75rem',
-    color: '#71717a',
-    borderBottom: '1px solid #27272a',
+    color: T.colors.textDim,
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   td: {
     padding: '0.4rem 0.75rem',
-    color: '#e4e4e7',
-    borderBottom: '1px solid #27272a',
+    color: T.colors.textPrimary,
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
   } as React.CSSProperties,
   tr: {
     cursor: 'pointer',
@@ -140,7 +125,6 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
-    flex: 1,
   } as React.CSSProperties,
   chip: {
     display: 'inline-block',
@@ -148,5 +132,6 @@ const styles = {
     borderRadius: '4px',
     fontSize: '0.75rem',
     fontWeight: 500,
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
 };

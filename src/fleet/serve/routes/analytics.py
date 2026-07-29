@@ -688,21 +688,36 @@ def _compute_summary(home: Path, days: int) -> dict:
                 pass
     sum(sum(row) for row in heatmap)
 
-    # ---- errors_recent: up to 10 completed failed/blocked, newest last_ts first ----
-    errors_candidates = [r for r in completed if r["outcome"] in ("failed", "blocked")]
+    # ---- errors_recent: up to 10 completed tasks needing attention, newest
+    # last_ts first. failed/blocked outcomes come labeled as-is; tasks that
+    # closed but hit a problem flag are included labeled by the flag.
+    def _attention_label(r: dict) -> str | None:
+        if r["outcome"] in ("failed", "blocked"):
+            return r["outcome"]
+        if r.get("noclose"):
+            return "noclose"
+        if r.get("context_pressure"):
+            return "context_pressure"
+        if r.get("rate_limited", 0) > 0:
+            return "rate_limited"
+        return None
+
+    errors_candidates = [
+        (r, label) for r in completed if (label := _attention_label(r)) is not None
+    ]
     errors_candidates.sort(
-        key=lambda r: r.get("last_ts") or "",
+        key=lambda pair: pair[0].get("last_ts") or "",
         reverse=True,
     )
     errors_recent = []
-    for r in errors_candidates[:10]:
+    for r, label in errors_candidates[:10]:
         errors_recent.append(
             {
                 "id": r["id"],
                 "title": r.get("title", ""),
                 "coder": r.get("coder", "unknown"),
                 "model": r.get("model", "unknown"),
-                "outcome": r["outcome"],
+                "outcome": label,
                 "ended_at": r.get("last_ts", ""),
             }
         )

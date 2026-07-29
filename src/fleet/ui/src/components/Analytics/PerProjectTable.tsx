@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { AnalyticsByModelProject } from '../../types';
+import * as T from '../../styles/tokens';
+import * as P from './panel';
 import { fmtDuration, fmtTokens, fmtPct } from './format';
 
 interface Props {
@@ -17,13 +19,13 @@ interface Column {
 const COLUMNS: Column[] = [
   { key: 'cwd', label: 'Project', numeric: false },
   { key: 'total', label: 'Tasks', numeric: true },
-  { key: 'success_rate', label: 'Success', numeric: false },
+  { key: 'success_rate', label: 'Success', numeric: true },
   { key: 'median_run_sec', label: 'Median run', numeric: true },
   { key: 'output_tokens', label: 'Output tok', numeric: true },
 ];
 
 function projectFromCwd(r: AnalyticsByModelProject): string {
-  return (r.cwd || '').split('/').filter(Boolean).pop() ?? (r.cwd || '\u2014');
+  return (r.cwd || '').split('/').filter(Boolean).pop() ?? (r.cwd || '—');
 }
 
 function nullLast(a: number | null, b: number | null): number {
@@ -53,15 +55,13 @@ export function PerProjectTable({ rows }: Props) {
       cmp = projectFromCwd(a).localeCompare(projectFromCwd(b));
     } else if (col.numeric) {
       cmp = nullLast(a[col.key], b[col.key]);
-    } else {
-      cmp = 0;
     }
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
   const sortIndicator = (colKey: ColumnKey) => {
     if (sortKey !== colKey) return null;
-    return sortDir === 'desc' ? '\u25BC' : '\u25B3';
+    return sortDir === 'desc' ? '▼' : '△';
   };
 
   const successBarFor = (rate: number) => {
@@ -69,7 +69,7 @@ export function PerProjectTable({ rows }: Props) {
     return (
       <span style={styles.successCell}>
         <span style={styles.track}>
-          <span style={{ ...styles.fill, width: `${pct}%`, background: pct > 50 ? '#22c55e' : '#71717a' }} />
+          <span style={{ ...styles.fill, width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' }} />
         </span>
         <span style={styles.pctText}>{fmtPct(rate)}</span>
       </span>
@@ -77,56 +77,49 @@ export function PerProjectTable({ rows }: Props) {
   };
 
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>By project</h3>
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              {COLUMNS.map(col => (
-                <th
-                  key={col.key}
-                  onClick={col.numeric || col.key === 'cwd' ? () => handleSort(col.key) : undefined}
-                  style={{
-                    ...styles.th,
-                    cursor: col.numeric || col.key === 'cwd' ? 'pointer' : 'default',
-                  }}
-                >
-                  {col.label} {col.numeric || col.key === 'cwd' ? sortIndicator(col.key) : ''}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r, i) => (
-              <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#1c1c20' }}>
-                <td style={styles.td} title={r.cwd || ''}>
-                  {projectFromCwd(r)}
-                </td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>{r.total}</td>
-                <td style={styles.td}>{successBarFor(r.success_rate)}</td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>{fmtDuration(r.median_run_sec)}</td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(r.output_tokens)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div style={{ ...P.panel, flex: '1 1 380px' }}>
+      <div style={P.panelTitle}>
+        <span>By project</span>
       </div>
+      {rows.length === 0 ? (
+        <p style={P.panelEmpty}>No completed tasks in this window.</p>
+      ) : (
+        <div style={styles.tableWrap}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {COLUMNS.map(col => (
+                  <th
+                    key={col.key}
+                    onClick={() => handleSort(col.key)}
+                    style={{ ...styles.th, cursor: 'pointer' }}
+                  >
+                    {col.label} {sortIndicator(col.key)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : T.colors.bgElevated }}>
+                  <td style={styles.td} title={r.cwd || ''}>
+                    {projectFromCwd(r)}
+                  </td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>{r.total}</td>
+                  <td style={styles.td}>{successBarFor(r.success_rate)}</td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtDuration(r.median_run_sec)}</td>
+                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(r.output_tokens)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
-  container: {
-    marginBottom: '1.5rem',
-    flex: '1 1 500px',
-  } as React.CSSProperties,
-  title: {
-    margin: '0 0 0.75rem',
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: '#e4e4e7',
-  } as React.CSSProperties,
   tableWrap: {
     overflowX: 'auto',
   } as React.CSSProperties,
@@ -139,20 +132,16 @@ const styles = {
   th: {
     textAlign: 'left',
     padding: '0.4rem 0.75rem',
-    color: '#71717a',
-    borderBottom: '1px solid #27272a',
+    color: T.colors.textDim,
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     fontWeight: 500,
     whiteSpace: 'nowrap',
+    userSelect: 'none',
   } as React.CSSProperties,
   td: {
     padding: '0.4rem 0.75rem',
-    color: '#e4e4e7',
-    borderBottom: '1px solid #27272a',
-  } as React.CSSProperties,
-  empty: {
-    color: '#52525b',
-    fontSize: '0.875rem',
-    margin: 0,
+    color: T.colors.textPrimary,
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
   } as React.CSSProperties,
   successCell: {
     display: 'flex',
@@ -163,7 +152,7 @@ const styles = {
   track: {
     width: '48px',
     height: '6px',
-    background: '#27272a',
+    background: T.colors.borderSubtle,
     borderRadius: '3px',
     overflow: 'hidden',
   } as React.CSSProperties,

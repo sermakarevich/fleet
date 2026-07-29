@@ -242,6 +242,38 @@ def test_normalize_tool_use():
     assert evt.tool_name == "Read"
 
 
+def test_normalize_assistant_tool_use_block():
+    """Real stream-json wraps tool_use as a content block of an assistant message."""
+    coder = _coder()
+    line = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_02",
+                        "name": "Edit",
+                        "input": {"file_path": "/bar.py"},
+                    }
+                ],
+                "usage": {"input_tokens": 40, "output_tokens": 7},
+            },
+            "session_id": "sess_abc123",
+        }
+    )
+    evt = coder.normalize_event(line)
+    assert evt is not None
+    assert evt.kind == "tool_use"
+    assert evt.tool_name == "Edit"
+    assert evt.session_id == "sess_abc123"
+    # raw is the block itself so raw["input"]["file_path"] stays reachable
+    assert evt.raw["input"]["file_path"] == "/bar.py"
+    # usage rides along so token accounting keeps parity with assistant_text
+    assert evt.usage == {"input_tokens": 40, "output_tokens": 7}
+
+
 # ---------------------------------------------------------------------------
 # normalize_event — tool_result
 # ---------------------------------------------------------------------------

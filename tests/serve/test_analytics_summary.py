@@ -804,6 +804,50 @@ class TestSummaryExtras:
         assert "model" in errors[0]
         assert "ended_at" in errors[0]
 
+    def test_errors_recent_includes_flagged_closed_tasks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Closed tasks that hit a problem flag surface labeled by the flag."""
+        _patch_no_beads(monkeypatch)
+        _reset_analytics_cache(monkeypatch)
+        monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+        tasks_root = tmp_path / "tasks"
+
+        ts = _make_window_day(1)
+
+        td_ok = make_task_dir(tasks_root, "task-clean", status="closed", cwd="/p")
+        write_events(td_ok, [ev(ts=ts, kind="session_started", session_id="ok")])
+
+        td_nc = make_task_dir(tasks_root, "task-noclose", status="closed", cwd="/p")
+        write_events(td_nc, [ev(ts=ts, kind="session_started", session_id="nc")])
+        (td_nc / ".noclose").touch()
+
+        td_cp = make_task_dir(tasks_root, "task-ctx", status="closed", cwd="/p")
+        write_events(td_cp, [ev(ts=ts, kind="context_pressure", session_id="cp")])
+
+        td_rl = make_task_dir(tasks_root, "task-rl", status="closed", cwd="/p")
+        write_events(
+            td_rl,
+            [ev(ts=ts, kind="rate_limit", rate_info={"status": "rejected"})],
+        )
+
+        app = create_app()
+
+        async def _run() -> dict:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                r = await client.get("/api/analytics/summary")
+                return r.json()
+
+        data = asyncio.run(_run())
+
+        by_id = {e["id"]: e["outcome"] for e in data["errors_recent"]}
+        assert "task-clean" not in by_id
+        assert by_id["task-noclose"] == "noclose"
+        assert by_id["task-ctx"] == "context_pressure"
+        assert by_id["task-rl"] == "rate_limited"
+
     def test_rate_limits_lists_rejected_event_with_task_id_and_ts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

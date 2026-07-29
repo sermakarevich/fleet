@@ -10,7 +10,8 @@ import { ContextHistogram } from '../components/Analytics/ContextHistogram';
 import { ActivityHeatmap } from '../components/Analytics/ActivityHeatmap';
 import { NeedsAttention } from '../components/Analytics/NeedsAttention';
 import { RateLimitTimeline } from '../components/Analytics/RateLimitTimeline';
-import type { AnalyticsKpis, AnalyticsErrorRecent } from '../types';
+import { fillBuckets } from '../components/Analytics/buckets';
+import type { AnalyticsKpis } from '../types';
 import * as T from '../styles/tokens';
 
 const RANGE_OPTIONS = [
@@ -40,135 +41,111 @@ const DEFAULT_KPIS: AnalyticsKpis = {
 function readDefaultRange(): number {
   try {
     const raw = localStorage.getItem('fleet.analytics.range');
-    const n = raw ? Number(raw) : null;
-    if (n != null) {
-      var allowed = RANGE_OPTIONS.map(function (o) { return o.days; });
-      if (allowed.indexOf(n) !== -1) return n;
-    }
-  } catch (_e) { /* ignore */ }
+    const n = raw ? Number(raw) : NaN;
+    if (RANGE_OPTIONS.some(o => o.days === n)) return n;
+  } catch { /* ignore */ }
   return 7;
 }
 
 export function Analytics() {
-  var _s = useState(readDefaultRange);
-  var days = _s[0];
-  var setDays = _s[1];
+  const [days, setDays] = useState(readDefaultRange);
 
-  useEffect(function () {
-    localStorage.setItem('fleet.analytics.range', String(days));
+  useEffect(() => {
+    try {
+      localStorage.setItem('fleet.analytics.range', String(days));
+    } catch { /* ignore */ }
   }, [days]);
 
-  var _q = useAnalyticsSummary(days);
-  var data = _q.data;
-  var isLoading = _q.isLoading;
-  var error = _q.error;
+  const { data, isLoading, error } = useAnalyticsSummary(days);
 
-  var bucketSize = useMemo(function () {
-    if (days <= 1) return 'hour' as const;
-    return 'day' as const;
-  }, [days]);
+  // The server decides bucket granularity (hour for short windows, day
+  // otherwise) — trust it instead of re-deriving from `days`.
+  const bucketSize: 'hour' | 'day' =
+    data?.throughput?.bucket_size === 'hour' ? 'hour' : 'day';
 
-  var throughputBuckets = useMemo(function () {
+  const throughputBuckets = useMemo(() => {
     if (!data) return [];
-    return data.throughput.buckets.map(function (b) {
-      return { bucket: b.bucket, success: b.success, failed: b.failed, blocked: b.blocked };
-    });
-  }, [data]);
+    return fillBuckets(
+      data.throughput.buckets,
+      bucketSize,
+      { success: 0, failed: 0, blocked: 0 },
+      days,
+    );
+  }, [data, bucketSize, days]);
 
-  var tokenBuckets = useMemo(function () {
-    if (!data || !data.token_throughput) return [];
-    return data.token_throughput.buckets;
-  }, [data]);
+  const tokenBuckets = useMemo(() => {
+    if (!data?.token_throughput) return [];
+    return fillBuckets(
+      data.token_throughput.buckets,
+      bucketSize,
+      { output_tokens: 0, input_tokens: 0, cache_tokens: 0 },
+      days,
+    );
+  }, [data, bucketSize, days]);
 
-  var byModelRows = useMemo(function () {
+  const rateLimitEvents = useMemo(() => {
     if (!data) return [];
-    return data.by_model;
-  }, [data]);
-
-  var byProjectRows = useMemo(function () {
-    if (!data) return [];
-    return data.by_project;
-  }, [data]);
-
-  var toolsData = useMemo(function () {
-    if (!data) return null;
-    return data.tools;
-  }, [data]);
-
-  var ctxBuckets = useMemo(function () {
-    if (!data) return [];
-    return data.context_histogram.buckets;
-  }, [data]);
-
-  var heatData = useMemo(function () {
-    if (!data) return null;
-    return data.heatmap;
-  }, [data]);
-
-  var errorsRows = useMemo(function (): AnalyticsErrorRecent[] {
-    if (!data) return [];
-    return data.errors_recent;
-  }, [data]);
-
-  var rateLimitEvents = useMemo(function (): { ts: string; task_id: string }[] {
-    if (!data) return [];
-    return data.rate_limits.map(function (r) { return { ts: r.ts, task_id: r.id }; });
+    return data.rate_limits.map(r => ({ ts: r.ts, task_id: r.task_id }));
   }, [data]);
 
   if (isLoading) return <p style={styles.msg}>Loading analytics…</p>;
   if (error) return <p style={styles.err}>Error: {String(error)}</p>;
 
-  var kpis = data ? data.kpis : DEFAULT_KPIS;
+  const kpis = data?.kpis ?? DEFAULT_KPIS;
 
   return (
     <div style={styles.page}>
-      <h1 style={styles.heading}>Analytics</h1>
-      <div style={styles.filterRow}>
-        {RANGE_OPTIONS.map(function (opt) {
-          return (
+      <div style={styles.headerRow}>
+        <h1 style={styles.heading}>Analytics</h1>
+        <div style={styles.filterRow}>
+          {RANGE_OPTIONS.map(opt => (
             <button
               key={opt.label}
-              style={Object.assign({}, styles.filterBtn, days === opt.days ? styles.filterBtnActive : {})}
-              onClick={function () { setDays(opt.days); }}
+              style={{ ...styles.filterBtn, ...(days === opt.days ? styles.filterBtnActive : {}) }}
+              onClick={() => setDays(opt.days)}
             >
               {opt.label}
             </button>
-          );
-        })}
+          ))}
+        </div>
       </div>
       <KpiCards kpis={kpis} />
       <ThroughputChart bucketSize={bucketSize} buckets={throughputBuckets} />
       <TokenUsageChart bucketSize={bucketSize} buckets={tokenBuckets} />
-      <div style={styles.tableRow}>
-        <LeaderboardTable rows={byModelRows} />
-        <PerProjectTable rows={byProjectRows} />
+      <div style={styles.row}>
+        <LeaderboardTable rows={data?.by_model ?? []} />
+        <PerProjectTable rows={data?.by_project ?? []} />
       </div>
-      {toolsData && (
-        <div style={styles.visualRow}>
-          <ToolUsageBar tools={toolsData} />
-          <ContextHistogram buckets={ctxBuckets} />
-        </div>
-      )}
-      {heatData && (
-        <ActivityHeatmap heatmap={heatData} />
-      )}
-      <div style={styles.visualRow}>
-        <NeedsAttention rows={errorsRows} />
-        {rateLimitEvents.length > 0 && (
-          <RateLimitTimeline events={rateLimitEvents} />
-        )}
+      <div style={styles.row}>
+        <ToolUsageBar tools={data?.tools ?? { total: 0, rows: [] }} />
+        <ContextHistogram buckets={data?.context_histogram?.buckets ?? []} />
+      </div>
+      <ActivityHeatmap heatmap={data?.heatmap ?? []} />
+      <div style={styles.row}>
+        <NeedsAttention rows={data?.errors_recent ?? []} />
+        <RateLimitTimeline events={rateLimitEvents} />
       </div>
     </div>
   );
 }
 
-var styles = {
+const styles = {
   page: {
     padding: '1rem 1.5rem',
     fontFamily: 'system-ui, sans-serif',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.875rem',
+  } as React.CSSProperties,
+  headerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+    flexWrap: 'wrap',
   } as React.CSSProperties,
   heading: {
-    margin: '0 0 1.25rem',
+    margin: 0,
     fontSize: '0.9375rem',
     fontWeight: 600,
     color: T.colors.textPrimary,
@@ -187,7 +164,6 @@ var styles = {
     display: 'flex',
     gap: '0.375rem',
     flexWrap: 'wrap',
-    marginBottom: '1.25rem',
   } as React.CSSProperties,
   filterBtn: {
     ...T.btnGhost,
@@ -201,15 +177,10 @@ var styles = {
     borderColor: T.colors.accent,
     color: '#fff',
   } as React.CSSProperties,
-  tableRow: {
+  row: {
     display: 'flex',
-    gap: '1.5rem',
+    gap: '0.875rem',
     flexWrap: 'wrap',
-  } as React.CSSProperties,
-  visualRow: {
-    display: 'flex',
-    gap: '1.5rem',
-    flexWrap: 'wrap',
-    marginBottom: '1rem',
+    alignItems: 'stretch',
   } as React.CSSProperties,
 };
