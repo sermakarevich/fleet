@@ -26,6 +26,7 @@ from fleet.failures import (
     clear_needs_validation,
 )
 from fleet.queue import Queue
+from fleet import attempts
 from fleet.rate_gauge import RateGauge
 from fleet.runner import TaskRunner
 from fleet.schemas import (
@@ -384,6 +385,9 @@ class Supervisor:
             coder=coder_name,
             model=model,
         )
+        attempts.record_start(
+            self._task_dir_for(task), coder=coder_name, model=model
+        )
         runner = TaskRunner(
             task=task,
             coder=coder,
@@ -541,7 +545,7 @@ class Supervisor:
             },
         }
 
-    def _handle_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
+    def _apply_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
         fleet_ctx = self._fleet_log_context()
         match outcome.outcome:
             case TaskOutcome.SUCCESS:
@@ -723,6 +727,32 @@ class Supervisor:
                         retry_limit=RETRY_LIMIT,
                         **fleet_ctx,
                     )
+
+    def _handle_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
+        self._apply_outcome(task, outcome)
+        task_dir = self._task_dir_for(task)
+        try:
+            raw = (task_dir / "task.json").read_text(encoding="utf-8")
+            status = json.loads(raw).get("status")
+        except (OSError, ValueError):
+            status = None
+        action = {
+            "open": "released",
+            "blocked": "blocked",
+            "closed": "closed",
+        }.get(status if isinstance(status, str) else "", "unknown")
+        try:
+            attempts.record_end(
+                task_dir,
+                outcome=outcome.outcome.value,
+                exit_code=outcome.exit_code,
+                reason=outcome.reason,
+                action=action,
+            )
+        except OSError as exc:
+            self._log.warning(
+                "attempt_record_failed", task_id=task.id, error=str(exc)
+            )
 
     def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):

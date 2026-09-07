@@ -611,3 +611,25 @@ def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
     assert len(queue.released) == 1
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
+
+
+def test_failure_release_writes_attempt_end_line(tmp_path: Path, monkeypatch) -> None:
+    """After a FAILURE outcome that releases, attempts.jsonl has an end line."""
+    import json
+
+    monkeypatch.setattr("fleet.supervisor.RETRY_LIMIT", 3)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
+    )
+    assert len(queue.released) == 1
+    attempts_path = tmp_path / "tasks" / "t-001" / "attempts.jsonl"
+    assert attempts_path.exists()
+    end_lines = [
+        json.loads(line)
+        for line in attempts_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line).get("event") == "end"
+    ]
+    assert end_lines, "expected an end line in attempts.jsonl"
+    assert end_lines[-1]["outcome"] == "failure"

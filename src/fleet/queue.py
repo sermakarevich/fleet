@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fleet.schemas import Task
@@ -236,6 +237,8 @@ class BeadsQueue(Queue):
             self._bd("comment", task_id, reason, json_envelope=False)
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "open"
+        meta.pop("blocked_reason", None)
+        meta.pop("blocked_at", None)
         self._write_meta(task_id, meta)
 
     def set_blocked(self, task_id: str, reason: str) -> None:
@@ -250,12 +253,16 @@ class BeadsQueue(Queue):
         )
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "blocked"
+        meta["blocked_reason"] = reason
+        meta["blocked_at"] = datetime.now(tz=timezone.utc).isoformat()
         self._write_meta(task_id, meta)
 
     def close(self, task_id: str, reason: str = "completed") -> None:
         self._bd("close", task_id, "--reason", reason, json_envelope=False)
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "closed"
+        meta.pop("blocked_reason", None)
+        meta.pop("blocked_at", None)
         self._write_meta(task_id, meta)
 
     def delete(self, task_id: str) -> None:
