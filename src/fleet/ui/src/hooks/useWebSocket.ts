@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getFleetToken } from '../api';
 import type { FleetEvent } from '../types';
 
 interface WsMessage {
@@ -15,7 +16,11 @@ export function useWebSocket(onEvent: EventCallback): { connected: boolean } {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/ws/events`;
+    const baseUrl = `${protocol}//${window.location.host}/ws/events`;
+    const token = getFleetToken();
+    const url = token
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+      : baseUrl;
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;

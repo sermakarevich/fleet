@@ -17,8 +17,38 @@ import type {
   Template,
 } from './types';
 
+export function getFleetToken(): string | null {
+  try {
+    return localStorage.getItem('fleet_token');
+  } catch {
+    return null;
+  }
+}
+
+function withAuth(init: RequestInit | undefined, token: string | null): RequestInit | undefined {
+  if (!token) return init;
+  return {
+    ...init,
+    headers: {
+      ...((init?.headers as Record<string, string> | undefined) ?? {}),
+      Authorization: `Bearer ${token}`,
+    },
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(path, init);
+  let resp = await fetch(path, withAuth(init, getFleetToken()));
+  if (resp.status === 401) {
+    const entered = window.prompt('Fleet API token');
+    if (entered) {
+      try {
+        localStorage.setItem('fleet_token', entered);
+      } catch {
+        // ignore storage errors; still retry with the entered token
+      }
+      resp = await fetch(path, withAuth(init, entered));
+    }
+  }
   if (!resp.ok) {
     throw new Error(`${init?.method ?? 'GET'} ${path} \u2192 ${resp.status}`);
   }
