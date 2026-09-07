@@ -36,7 +36,7 @@ class StubQueue:
         self.blocked: list[tuple[str, str]] = []
         self.comments: list[tuple[str, str]] = []
 
-    def claim_next(self, claimer_id):
+    def claim_next(self, claimer_id, *, can_claim=None):
         return None
 
     def release(self, task_id, reason=""):
@@ -56,6 +56,9 @@ class StubQueue:
 
     def list_ready(self, limit=50):
         return []
+
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        pass
 
 
 def _make_supervisor(
@@ -532,7 +535,7 @@ class _ClaimOnceQueue(StubQueue):
         self._task = task
         self.claims = 0
 
-    def claim_next(self, claimer_id):
+    def claim_next(self, claimer_id, *, can_claim=None):
         self.claims += 1
         return self._task if self.claims == 1 else None
 

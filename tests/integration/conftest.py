@@ -95,9 +95,11 @@ class MemoryQueue(Queue):
         for cb in self._listeners:
             cb(method, task_id)
 
-    def claim_next(self, claimer_id: str) -> Task | None:
+    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
         for tid, t in list(self._tasks.items()):
             if t.status == "open":
+                if can_claim is not None and not can_claim(t.coder):
+                    continue
                 updated = replace(t, status="in_progress")
                 self._tasks[tid] = updated
                 self.claims.append(tid)
@@ -146,6 +148,17 @@ class MemoryQueue(Queue):
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
         if task_id in self._tasks:
             self._tasks[task_id] = replace(self._tasks[task_id], coder=coder, model=model)
+
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        t = self._tasks.get(task_id)
+        if t is None:
+            return
+        self._tasks[task_id] = replace(
+            t,
+            title=body.get("title", t.title),
+            description=body.get("description", t.description),
+            status=body.get("status", t.status),
+        )
 
     def create_task(
         self,
