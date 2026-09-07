@@ -12,6 +12,27 @@ import structlog
 from fleet.schemas import Event
 from fleet.redact import redact
 
+EVENTS_MAX_BYTES: int = 50 * 1024 * 1024
+EVENTS_KEEP_ROTATED: int = 1
+
+
+def _rotate_if_needed(events_path: Path) -> None:
+    try:
+        if events_path.stat().st_size < EVENTS_MAX_BYTES:
+            return
+    except FileNotFoundError:
+        return
+    # Shift .N -> .N+1, drop the oldest beyond EVENTS_KEEP_ROTATED
+    for n in range(EVENTS_KEEP_ROTATED, 0, -1):
+        src = events_path.with_name(f"{events_path.name}.{n}")
+        if not src.exists():
+            continue
+        if n == EVENTS_KEEP_ROTATED:
+            src.unlink()
+        else:
+            src.replace(events_path.with_name(f"{events_path.name}.{n + 1}"))
+    events_path.replace(events_path.with_name(f"{events_path.name}.1"))
+
 _JSON_PROCESSORS: list = [
     structlog.contextvars.merge_contextvars,
     structlog.processors.TimeStamper(fmt="iso"),
@@ -142,6 +163,10 @@ def append_event(task_dir: Path, evt: Event) -> None:
     payload = redact(payload)
     task_dir.mkdir(parents=True, exist_ok=True)
     events_path = task_dir / "events.jsonl"
+    try:
+        _rotate_if_needed(events_path)
+    except OSError:
+        pass
     with events_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload) + "\n")
         f.flush()

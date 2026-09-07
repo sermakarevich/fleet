@@ -133,3 +133,33 @@ def test_append_event_does_not_emit_attempt_field(tmp_path: Path):
     append_event(task_dir, evt)
     record = json.loads((task_dir / "events.jsonl").read_text().strip())
     assert "attempt" not in record
+
+
+def test_append_event_rotates_when_over_limit(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("fleet.logging.EVENTS_MAX_BYTES", 200)
+    task_dir = tmp_path / "task"
+    for i in range(10):
+        evt = Event(kind="result", raw={"i": i, "pad": "x" * 100}, ts=_ts())
+        append_event(task_dir, evt)
+
+    events_path = task_dir / "events.jsonl"
+    rotated_path = task_dir / "events.jsonl.1"
+    assert rotated_path.exists()
+    # Current file is small and every line is valid JSON.
+    current_size = events_path.stat().st_size
+    assert current_size < 1024
+    lines = events_path.read_text().strip().splitlines()
+    assert 1 <= len(lines) < 10
+    for line in lines:
+        assert json.loads(line)["kind"] == "result"
+    # Rotated file also holds valid JSONL.
+    for line in rotated_path.read_text().strip().splitlines():
+        assert json.loads(line)["kind"] == "result"
+
+
+def test_append_event_no_rotation_by_default(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    for _ in range(3):
+        append_event(task_dir, Event(kind="result", raw={}, ts=_ts()))
+    assert (task_dir / "events.jsonl").exists()
+    assert not (task_dir / "events.jsonl.1").exists()
