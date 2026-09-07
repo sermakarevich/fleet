@@ -23,17 +23,10 @@ def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _reset_analytics_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reset the analytics_core module-level cache that persists across tests."""
-    import sys
+    """Reset the state.events mtime+size cache that persists across tests."""
+    import fleet.state.events as events_mod
 
-    # Delete the module so fresh import gets a fresh cache
-    stale = [k for k in sys.modules if k.startswith("fleet.serve.analytics_core")]
-    for key in stale:
-        del sys.modules[key]
-    import fleet.serve.analytics_core as ac
-
-    ac._info_cache.clear()
-    monkeypatch.setattr(ac, "_info_cache", {})
+    monkeypatch.setattr(events_mod, "_cache", {})
 
 
 def make_task_dir(

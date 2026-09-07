@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from fleet import attempts
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
+from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
 from fleet.daemon import _pid_alive
@@ -30,6 +31,7 @@ from fleet.serve.beads_info import (
     get_beads_status_map,
 )
 from fleet.serve.stats import task_runtime_info_cached
+from fleet.state.events import scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
@@ -41,13 +43,6 @@ class LogEntry:
     level: str
     message: str
     extra: dict = field(default_factory=dict)
-
-
-@dataclass
-class FileCounts:
-    read: int = 0
-    edit: int = 0
-    write: int = 0
 
 
 def _parse_log_line(line: str) -> LogEntry | None:
@@ -64,40 +59,6 @@ def _parse_log_line(line: str) -> LogEntry | None:
         if k not in ("timestamp", "ts", "level", "event", "message")
     }
     return LogEntry(ts=str(ts), level=str(level), message=str(message), extra=extra)
-
-
-def _extract_file_ops(events_path: Path) -> dict[str, FileCounts]:
-    counts: dict[str, FileCounts] = {}
-    if not events_path.exists():
-        return counts
-    _tool_map = {"Read": "read", "Edit": "edit", "Write": "write"}
-    try:
-        with events_path.open("r", encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if row.get("kind") != "tool_use":
-                    continue
-                tool = row.get("tool_name") or ""
-                op = _tool_map.get(tool)
-                if not op:
-                    continue
-                raw_data = row.get("raw") or {}
-                inp = raw_data.get("input") or {}
-                path = inp.get("file_path") or inp.get("path")
-                if not path:
-                    continue
-                if path not in counts:
-                    counts[path] = FileCounts()
-                setattr(counts[path], op, getattr(counts[path], op) + 1)
-    except OSError:
-        pass
-    return counts
 
 
 def _read_task_jsons(home: Path) -> list[dict]:
@@ -294,22 +255,7 @@ def create_tasks_router() -> APIRouter:
         for data in task_jsons:
             task_id = data.get("id", "")
             if beads_map is not None and task_id:
-                if task_id in beads_map:
-                    bead_info = beads_map[task_id]
-                    data = {
-                        **data,
-                        "status": bead_info["status"],
-                        "created_at": bead_info.get("created_at"),
-                        "priority": bead_info.get("priority"),
-                    }
-                    # task.json written by `fleet bd create` may predate the
-                    # claim-time snapshot and lack title/description — fill
-                    # from beads so pending tasks aren't shown blank.
-                    for key in ("title", "description"):
-                        if not data.get(key) and bead_info.get(key):
-                            data[key] = bead_info[key]
-                else:
-                    data = {**data, "status": "closed"}
+                data = merge_status(data, beads_map.get(task_id))
             reconciled.append(data)
 
         closed_limit = max(0, min(closed_limit, 2000))
@@ -591,8 +537,7 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/files")
     async def get_task_files(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        events_path = _task_dir(home, task_id) / "events.jsonl"
-        counts = _extract_file_ops(events_path)
+        counts = scan_cached(_task_dir(home, task_id)).files_touched
         files = [
             {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
             for path, fc in sorted(counts.items())

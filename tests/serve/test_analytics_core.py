@@ -189,9 +189,14 @@ class TestMissingEvents:
 
 
 class TestCache:
-    """Test 4: cache returns same object; append changes it."""
+    """Test 4: repeated calls agree; append changes the result.
 
-    def test_cache_returns_same_object(self, tmp_path: Path) -> None:
+    The events.jsonl scan itself is cached in state.events.scan_cached;
+    task_record_cached rebuilds the (cheap) record dict from that plus
+    task.json on every call.
+    """
+
+    def test_cache_returns_equal_record(self, tmp_path: Path) -> None:
         td = tmp_path / "tasks" / "task-cache"
         td.mkdir(parents=True)
         _write_task_json(td)
@@ -202,7 +207,7 @@ class TestCache:
 
         r1 = task_record_cached(td)
         r2 = task_record_cached(td)
-        assert r1 is r2
+        assert r1 == r2
 
     def test_cache_invalidation_on_append(self, tmp_path: Path) -> None:
         td = tmp_path / "tasks" / "task-cache2"

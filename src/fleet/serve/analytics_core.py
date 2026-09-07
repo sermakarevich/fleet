@@ -1,8 +1,7 @@
 """Cached per-task analytics record extractor.
 
-Mirrors the cache strategy in ``stats.task_runtime_info_cached``: module-level
-dict keyed by task-dir string, invalidated when events.jsonl mtime or size
-changes.  Re-uses ``parse_iso`` and ``_safe_int`` from stats.py.
+Builds one dict per task by combining task.json metadata with the shared
+``state.events`` scan of events.jsonl.
 """
 
 from __future__ import annotations
@@ -11,58 +10,14 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .stats import parse_iso
-
-
-# Cache: tdir_str -> (events.jsonl mtime, events.jsonl size, task_record dict)
-# (-1.0, -1) sentinel when events.jsonl is absent.
-_info_cache: dict[str, tuple[float, int, dict]] = {}
-
-
-def _safe_int(v: object) -> int:
-    if isinstance(v, bool):
-        return 0
-    if isinstance(v, int):
-        return v
-    if isinstance(v, str):
-        try:
-            return int(v)
-        except ValueError:
-            return 0
-    return 0
-
-
-def task_record_cached(tdir: Path) -> dict:
-    """Return a dict of analytics records for *tdir* with file-change cache.
-
-    Re-scans only when events.jsonl mtime or size changes from the last call.
-    When events.jsonl is absent the sentinel ``(-1.0, -1)`` is cached.
-    """
-    events_file = tdir / "events.jsonl"
-    cache_key = str(tdir)
-
-    try:
-        st = events_file.stat()
-        file_mtime: float = st.st_mtime
-        file_size: int = st.st_size
-    except OSError:
-        file_mtime, file_size = -1.0, -1
-
-    entry = _info_cache.get(cache_key)
-    if entry is not None and entry[0] == file_mtime and entry[1] == file_size:
-        return entry[2]
-
-    result = _build_record(tdir, events_file)
-    _info_cache[cache_key] = (file_mtime, file_size, result)
-    return result
+from fleet.state.events import scan_cached
 
 
 def _str_to_iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 
-def _build_record(tdir: Path, events_file: Path) -> dict:
-    """Single-pass build of the record (no cache)."""
+def _build_record(tdir: Path) -> dict:
     task_json_file = tdir / "task.json"
     title = ""
     coder = ""
@@ -70,6 +25,7 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
     cwd = ""
     priority = 0
     status_raw = ""
+    created_at = None
     try:
         with task_json_file.open("r", encoding="utf-8") as fh:
             task_data = json.load(fh)
@@ -79,142 +35,17 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
         cwd = task_data.get("cwd", "")
         priority = task_data.get("priority", 0)
         status_raw = task_data.get("status", "")
+        created_at = task_data.get("created_at")
     except (OSError, json.JSONDecodeError):
         pass
 
-    tdir_name = tdir.name
-    id_ = tdir_name if tdir_name else ""
+    id_ = tdir.name or ""
+    stats = scan_cached(tdir)
 
-    first_ts: datetime | None = None
-    last_ts: datetime | None = None
-    events_count = 0
-    steps = 0
-    segments_set: set[str] = set()
-    errors = 0
-    tool_counts: dict[str, int] = {}
-    tool_use_counts: dict[str, int] = {}
-    output_tokens = 0
-    input_tokens = 0
-    cache_creation_tokens = 0
-    cache_read_tokens = 0
-    peak_context_tokens: int | None = None
-    rate_limited = 0
-    rate_limit_events_ts: list[str] = []
-    hour_hist: dict[str, int] = {}
-    has_context_pressure_event = False
-
-    if events_file.exists():
-        try:
-            with events_file.open("r", encoding="utf-8") as fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    events_count += 1
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        events_count -= 1
-                        continue
-
-                    ts_str = row.get("ts")
-                    ts_dt: datetime | None = None
-                    if isinstance(ts_str, str):
-                        ts_dt = parse_iso(ts_str)
-
-                    kind = row.get("kind")
-
-                    # first/last parseable ts
-                    if ts_dt is not None:
-                        if first_ts is None or ts_dt < first_ts:
-                            first_ts = ts_dt
-                        if last_ts is None or ts_dt > last_ts:
-                            last_ts = ts_dt
-
-                    # steps
-                    if kind == "session_started":
-                        steps += 1
-
-                    # segments (distinct non-null session_id)
-                    sid = row.get("session_id")
-                    if sid is not None:
-                        segments_set.add(sid)
-
-                    # errors
-                    if kind == "error":
-                        errors += 1
-
-                    # tool_counts: prefer completed tool_result events (opencode,
-                    # pi), but keep tool_use as a fallback — claude emits named
-                    # tool_use events and its tool_result carries no name.
-                    if kind == "tool_result":
-                        tn = row.get("tool_name")
-                        if tn is not None:
-                            tool_counts[tn] = tool_counts.get(tn, 0) + 1
-                    elif kind == "tool_use":
-                        tn = row.get("tool_name")
-                        if tn is not None:
-                            tool_use_counts[tn] = tool_use_counts.get(tn, 0) + 1
-
-                    # output_tokens (exclude session_ended)
-                    if kind != "session_ended":
-                        usage = row.get("usage")
-                        if isinstance(usage, dict):
-                            output_tokens += _safe_int(usage.get("output_tokens"))
-                            input_tokens += _safe_int(usage.get("input_tokens"))
-                            cache_creation_tokens += _safe_int(
-                                usage.get("cache_creation_input_tokens")
-                            )
-                            cache_read_tokens += _safe_int(
-                                usage.get("cache_read_input_tokens")
-                            )
-
-                    # peak_context_tokens (exclude session_ended)
-                    if kind != "session_ended":
-                        usage = row.get("usage")
-                        if isinstance(usage, dict):
-                            ctx = (
-                                _safe_int(usage.get("input_tokens"))
-                                + _safe_int(usage.get("cache_creation_input_tokens"))
-                                + _safe_int(usage.get("cache_read_input_tokens"))
-                            )
-                            if ctx > 0:
-                                peak_context_tokens = (
-                                    ctx
-                                    if peak_context_tokens is None
-                                    else max(peak_context_tokens, ctx)
-                                )
-
-                    # rate_limit_info events
-                    rate_info = row.get("rate_info")
-                    if kind in ("rate_limit", "rate_limit_info") and isinstance(
-                        rate_info, dict
-                    ):
-                        if rate_info.get("status") == "rejected":
-                            rate_limited += 1
-                            if ts_str is not None:
-                                rate_limit_events_ts.append(ts_str)
-
-                    # hour_hist
-                    if ts_dt is not None:
-                        key = f"{ts_dt.weekday()}-{ts_dt.hour}"
-                        hour_hist[key] = hour_hist.get(key, 0) + 1
-
-                    # context_pressure event kind
-                    if kind == "context_pressure":
-                        has_context_pressure_event = True
-        except OSError:
-            pass
-
-    if not tool_counts and tool_use_counts:
-        tool_counts = tool_use_counts
-
-    context_pressure = (
-        tdir / ".context_pressure"
-    ).exists() or has_context_pressure_event
+    context_pressure = (tdir / ".context_pressure").exists() or stats.context_pressure
     noclose = (tdir / ".noclose").exists()
 
-    record = {
+    return {
         "id": id_,
         "title": title,
         "coder": coder,
@@ -222,26 +53,35 @@ def _build_record(tdir: Path, events_file: Path) -> dict:
         "cwd": cwd,
         "priority": priority,
         "status_raw": status_raw,
-        "first_ts": _str_to_iso(first_ts),
-        "last_ts": _str_to_iso(last_ts),
-        "events": events_count,
-        "steps": steps,
-        "segments": len(segments_set),
-        "errors": errors,
-        "tool_counts": tool_counts,
-        "output_tokens": output_tokens,
-        "input_tokens": input_tokens,
-        "cache_creation_tokens": cache_creation_tokens,
-        "cache_read_tokens": cache_read_tokens,
-        "peak_context_tokens": peak_context_tokens,
-        "rate_limited": rate_limited,
-        "rate_limit_events": rate_limit_events_ts,
+        "created_at": created_at,
+        "first_ts": _str_to_iso(stats.first_ts),
+        "last_ts": _str_to_iso(stats.last_ts),
+        "events": stats.event_count,
+        "steps": stats.steps,
+        "segments": stats.segments,
+        "errors": stats.errors,
+        "tool_counts": stats.tool_counts,
+        "output_tokens": stats.output_tokens,
+        "input_tokens": stats.input_tokens,
+        "cache_creation_tokens": stats.cache_creation_tokens,
+        "cache_read_tokens": stats.cache_read_tokens,
+        "peak_context_tokens": stats.peak_context_tokens,
+        "rate_limited": stats.rate_limited,
+        "rate_limit_events": [e["ts"] for e in stats.rate_limit_events],
         "context_pressure": context_pressure,
         "noclose": noclose,
-        "hour_hist": hour_hist,
+        "hour_hist": stats.hour_hist,
     }
 
-    return record
+
+def task_record_cached(tdir: Path) -> dict:
+    """Return the analytics record for *tdir*.
+
+    Relies on state.events.scan_cached for the events.jsonl mtime+size
+    cache; the record itself (task.json fields + marker files) is cheap
+    enough to rebuild every call.
+    """
+    return _build_record(tdir)
 
 
 def collect_records(home: Path) -> list[dict]:

@@ -552,19 +552,19 @@ def test_tasks_list_cache_hit_skips_rescan(
     event = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
     (task_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
 
-    from fleet.serve import stats as stats_mod
+    from fleet.state import events as events_mod
 
-    monkeypatch.setattr(stats_mod, "_info_cache", {})
+    monkeypatch.setattr(events_mod, "_cache", {})
 
     scan_count = 0
-    _orig = stats_mod._runtime_info_from_dir
+    _orig = events_mod.scan
 
     def _counting(tdir: Path):
         nonlocal scan_count
         scan_count += 1
         return _orig(tdir)
 
-    monkeypatch.setattr(stats_mod, "_runtime_info_from_dir", _counting)
+    monkeypatch.setattr(events_mod, "scan", _counting)
 
     app = create_app()
 
@@ -591,9 +591,9 @@ def test_tasks_list_cache_invalidated_on_events_change(
     ev1 = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
     (task_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
 
-    from fleet.serve import stats as stats_mod
+    from fleet.state import events as events_mod
 
-    monkeypatch.setattr(stats_mod, "_info_cache", {})
+    monkeypatch.setattr(events_mod, "_cache", {})
 
     app = create_app()
 
