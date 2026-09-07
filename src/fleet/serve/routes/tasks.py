@@ -12,8 +12,18 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from fleet import attempts
 from fleet.coders import get_coder, list_coders as _list_coders
 from fleet.daemon import _pid_alive
+from fleet.failures import (
+    clear_needs_validation,
+    failure_count,
+    noclose_count,
+    reset_failure,
+    reset_noclose,
+    reset_stall,
+    stall_count,
+)
 from fleet.queue import BeadsError
 from fleet.serve.beads_info import (
     get_beads_status_map,
@@ -116,7 +126,8 @@ def _coder_context_limit(coder_name: str | None, model: str | None = None) -> in
 
 def _build_task_summary(data: dict, home: Path) -> dict:
     task_id = data.get("id", "")
-    info = task_runtime_info_cached(home / "tasks" / task_id)
+    task_dir = home / "tasks" / task_id
+    info = task_runtime_info_cached(task_dir)
 
     now = datetime.now(tz=timezone.utc)
     started_at = info.started_at
@@ -139,6 +150,13 @@ def _build_task_summary(data: dict, home: Path) -> dict:
         else None
     )
 
+    blocked_reason = data.get("blocked_reason")
+    if blocked_reason is None and status == "blocked":
+        beads_status = get_beads_status_map(home) or {}
+        blocked_reason = beads_status.get(task_id, {}).get("notes")
+
+    last_attempt = attempts.last_attempt(task_dir)
+
     return {
         "id": task_id,
         "title": data.get("title"),
@@ -159,6 +177,15 @@ def _build_task_summary(data: dict, home: Path) -> dict:
         "context_pct": context_pct,
         "last_event_kind": info.last_event_kind,
         "last_event_detail": info.last_event_detail,
+        "blocked_reason": blocked_reason,
+        "blocked_at": data.get("blocked_at"),
+        "failures": failure_count(task_dir),
+        "noclose": noclose_count(task_dir),
+        "stalls": stall_count(task_dir),
+        "restarts": attempts.restart_count(task_dir),
+        "last_outcome": last_attempt.get("outcome") if last_attempt else None,
+        "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
+        "last_action": last_attempt.get("action") if last_attempt else None,
     }
 
 
@@ -289,6 +316,12 @@ def create_tasks_router() -> APIRouter:
                         "created_at": bead_info.get("created_at"),
                         "priority": bead_info.get("priority"),
                     }
+                    # task.json written by `fleet bd create` may predate the
+                    # claim-time snapshot and lack title/description — fill
+                    # from beads so pending tasks aren't shown blank.
+                    for key in ("title", "description"):
+                        if not data.get(key) and bead_info.get(key):
+                            data[key] = bead_info[key]
                 else:
                     data = {**data, "status": "closed"}
             reconciled.append(data)
@@ -335,7 +368,9 @@ def create_tasks_router() -> APIRouter:
                 "priority": beads_info["priority"],
                 "depends_on": beads_info["depends_on"],
             }
-        return JSONResponse(_build_task_summary(data, home))
+        summary = _build_task_summary(data, home)
+        summary["attempts"] = attempts.load_attempts(home / "tasks" / task_id)
+        return JSONResponse(summary)
 
     @router.post("/tasks/{task_id}/kill")
     async def kill_task(task_id: str, request: Request) -> JSONResponse:
@@ -370,6 +405,33 @@ def create_tasks_router() -> APIRouter:
             await asyncio.to_thread(queue.release, task_id)
         except BeadsError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"ok": True})
+
+    @router.post("/tasks/{task_id}/unblock")
+    async def unblock_task(task_id: str, request: Request) -> JSONResponse:
+        home = get_fleet_home()
+        task_dir = home / "tasks" / task_id
+        if not (task_dir / "task.json").exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        note: str | None = None
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                note = body.get("note")
+        except (json.JSONDecodeError, ValueError):
+            pass
+        reason = "[fleet] unblocked from UI"
+        if note:
+            reason += f": {note}"
+        queue = request.app.state.queue
+        try:
+            await asyncio.to_thread(queue.release, task_id, reason)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        reset_failure(task_dir)
+        reset_noclose(task_dir)
+        reset_stall(task_dir)
+        clear_needs_validation(task_dir)
         return JSONResponse({"ok": True})
 
     @router.post("/tasks/{task_id}/close")

@@ -18,7 +18,7 @@ _beads_list_call_count: int = 0  # incremented on each real subprocess call; obs
 
 
 def get_beads_status_map(home: Path) -> dict[str, dict] | None:
-    """Return {task_id: {status, created_at, priority, title, description}} for all tasks in the beads DB at `home`.
+    """Return {task_id: {status, created_at, priority, title, description, notes}} for all tasks in the beads DB at `home`.
 
     Returns None if beads is unavailable so the caller can skip reconciliation.
     Results are cached for _BEADS_CACHE_TTL seconds to avoid a subprocess on every poll.
@@ -52,6 +52,7 @@ def get_beads_status_map(home: Path) -> dict[str, dict] | None:
                         "priority": item.get("priority"),
                         "title": item.get("title"),
                         "description": item.get("description"),
+                        "notes": item.get("notes"),
                     }
                     for item in items
                     if item.get("id")

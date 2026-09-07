@@ -743,3 +743,131 @@ def test_list_tasks_fills_missing_title_from_beads(
     assert tasks["task-notitle"]["title"] == "From beads"
     assert tasks["task-notitle"]["description"] == "Beads body"
     assert tasks["task-notitle"]["status"] == "open"
+
+
+def test_list_tasks_includes_block_and_retry_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks includes blocked_reason, restarts, failures for a task."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    task_dir = _make_task_dir(
+        tasks_root, "task-blocked", "blocked", blocked_reason="x"
+    )
+    (task_dir / ".failures").write_text("2")
+
+    monkeypatch.setattr(
+        "fleet.serve.routes.tasks.get_beads_status_map", MagicMock(return_value=None)
+    )
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    t = {t["id"]: t for t in resp.json()["tasks"]}["task-blocked"]
+    assert t["blocked_reason"] == "x"
+    assert t["restarts"] == 0
+    assert t["failures"] == 2
+
+
+def test_task_detail_includes_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks/{id} includes an attempts list built from attempts.jsonl."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    task_dir = _make_task_dir(tasks_root, "task-attempts", "closed")
+    lines = [
+        json.dumps(
+            {"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00", "coder": "claude", "model": "sonnet"}
+        ),
+        json.dumps(
+            {
+                "event": "end",
+                "n": 1,
+                "ts": "2026-01-01T00:01:00+00:00",
+                "outcome": "success",
+                "exit_code": 0,
+                "reason": "done",
+                "action": "close",
+            }
+        ),
+    ]
+    (task_dir / "attempts.jsonl").write_text("\n".join(lines) + "\n")
+
+    monkeypatch.setattr(
+        "fleet.serve.routes.tasks._get_beads_task_info", lambda *a, **k: None
+    )
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-attempts")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["attempts"]) == 1
+    assert data["attempts"][0]["outcome"] == "success"
+    assert data["attempts"][0]["n"] == 1
+
+
+def test_unblock_task_releases_and_resets_counters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /api/tasks/{id}/unblock releases the task and clears failure counters."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    task_dir = _make_task_dir(tasks_root, "task-unblock", "blocked")
+    (task_dir / ".failures").write_text("3")
+    (task_dir / ".noclose").write_text("1")
+    (task_dir / ".stalls").write_text("1")
+    (task_dir / ".needs_validation").write_text("1")
+
+    mock_queue = MagicMock()
+    app = create_app(queue=mock_queue)
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post(
+                "/api/tasks/task-unblock/unblock", json={"note": "looks fine"}
+            )
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert mock_queue.release.call_count == 1
+    args = mock_queue.release.call_args.args
+    assert args[0] == "task-unblock"
+    assert "unblocked" in args[1]
+    assert "looks fine" in args[1]
+    assert not (task_dir / ".failures").exists()
+    assert not (task_dir / ".noclose").exists()
+    assert not (task_dir / ".stalls").exists()
+    assert not (task_dir / ".needs_validation").exists()
+
+
+def test_unblock_task_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /api/tasks/{id}/unblock returns 404 for unknown task."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post("/api/tasks/nonexistent/unblock")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 404
