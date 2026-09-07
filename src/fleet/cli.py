@@ -20,6 +20,9 @@ from rich.text import Text
 from typer.core import TyperCommand
 
 import fleet
+from fleet import tailview
+from fleet.beads import client as beads_client
+from fleet.beads.client import BeadsError
 from fleet.coders import get_coder
 from fleet.config import load as load_config
 from fleet.config import write_atomic
@@ -27,16 +30,24 @@ from fleet.daemon import Daemon, DaemonSpec, StartResult, python_module_argv
 from fleet.gc import gc_tasks
 from fleet.logging import setup_supervisor_logger
 from fleet.ollama_tunnel import ensure_tunnel
-from fleet.queue import BeadsError, BeadsQueue
+from fleet.queue import BeadsQueue
 from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC, Task
 from fleet.serve.stats import (
     TaskRuntimeStats as _TaskRuntimeStats,
-    fleet_home as _fleet_home_impl,
-    task_dir as _task_dir_impl,
+)
+from fleet.serve.stats import (
     task_runtime_stats,
 )
+from fleet.state.paths import (
+    fleet_home as _fleet_home_impl,
+)
+from fleet.state.paths import (
+    task_dir as _task_dir_impl,
+)
+from fleet.state.paths import (
+    tasks_root as _tasks_root_impl,
+)
 from fleet.supervisor import Supervisor
-from fleet import tailview
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -55,7 +66,7 @@ app.add_typer(config_app, name="config", help="Manage runtime configuration.")
 
 
 def _fleet_home() -> Path:
-    """Return the centralized fleet home directory (delegates to serve.stats.fleet_home)."""
+    """Return the centralized fleet home directory (delegates to state.paths.fleet_home)."""
     return _fleet_home_impl()
 
 
@@ -84,18 +95,15 @@ def init(
 
     beads_dir = home / ".beads"
     if force or not beads_dir.exists():
-        result = subprocess.run(
-            ["bd", "init"],
-            cwd=home,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0 and "already" not in result.stderr.lower():
-            typer.echo(f"bd init failed: {result.stderr.strip()}", err=True)
-            raise typer.Exit(1)
+        try:
+            beads_client.run(["init"], cwd=home)
+        except BeadsError as exc:
+            if "already" not in str(exc).lower():
+                typer.echo(f"bd init failed: {exc}", err=True)
+                raise typer.Exit(1)
 
     load_config(_runtime_toml_path())  # writes defaults if missing
-    (home / "tasks").mkdir(exist_ok=True)
+    _tasks_root_impl(home).mkdir(exist_ok=True)
     typer.echo(f"Fleet home initialized at {home}")
 
 
@@ -136,12 +144,7 @@ def show(
     """Show one task."""
     root = _fleet_home()
     if json_output:
-        result = subprocess.run(
-            ["bd", "show", task_id, "--json"],
-            capture_output=True,
-            text=True,
-            cwd=root,
-        )
+        result = beads_client.run(["show", task_id, "--json"], cwd=root, check=False)
         if result.returncode != 0:
             typer.echo(result.stderr.strip(), err=True)
             raise typer.Exit(result.returncode)
@@ -251,6 +254,8 @@ def bd_passthrough(ctx: typer.Context) -> None:
     is_create = sub in ("create", "new")
 
     if not is_create:
+        # Simple passthrough: stream stdout/stderr straight to the terminal
+        # (no capture) so colors/interactivity behave like a direct `bd` call.
         result = subprocess.run(["bd", *bd_args], cwd=home)
         raise typer.Exit(result.returncode)
 
@@ -297,12 +302,7 @@ def bd_passthrough(ctx: typer.Context) -> None:
     if not user_wants_json:
         bd_args.append("--json")
 
-    result = subprocess.run(
-        ["bd", *bd_args],
-        cwd=home,
-        capture_output=True,
-        text=True,
-    )
+    result = beads_client.run(bd_args, cwd=home, check=False)
     if result.stderr:
         typer.echo(result.stderr, err=True, nl=False)
 
@@ -745,7 +745,7 @@ class TaskAction(str, Enum):
 
 
 def _task_dir(task_id: str) -> Path:
-    return _task_dir_impl(task_id)
+    return _task_dir_impl(_fleet_home(), task_id)
 
 
 def _print_file_or_exit(path: Path, missing_msg: str) -> None:
@@ -878,7 +878,7 @@ def kill_cmd(
 ) -> None:
     """Interrupt a running task (supervisor terminates it and marks it manually interrupted)."""
     home = _fleet_home()
-    task_dir = home / "tasks" / task_id
+    task_dir = _task_dir_impl(home, task_id)
     if not (task_dir / "task.json").exists():
         typer.echo(f"Task {task_id} not found.", err=True)
         raise typer.Exit(1)
@@ -1090,8 +1090,8 @@ def tail_cmd(
 
 def _tail_follow(events_path: Path, buffer_n: int) -> None:
     """Follow events.jsonl incrementally, rendering new lines as they arrive."""
-    import time
     import sys
+    import time
 
     # Start from end of file
     try:

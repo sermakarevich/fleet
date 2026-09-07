@@ -11,7 +11,6 @@ from fleet.logging import setup_supervisor_logger
 from fleet.schemas import Event, RuntimeConfig, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.supervisor import Supervisor
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -124,7 +123,7 @@ def test_fleet_log_context_includes_usage_pct(tmp_path: Path) -> None:
     )
     ctx = s._fleet_log_context()
     assert ctx["usage_pct"] == 42.5
-    assert ctx["threshold_pct"] == 90
+    assert "threshold_pct" not in ctx  # usage is telemetry only; it gates nothing
 
 
 def test_fleet_log_context_paused_until_null_when_unpaused(tmp_path: Path) -> None:
@@ -167,7 +166,7 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
     assert evt["in_flight"] == 0
     assert evt["cap"] == 3
     assert evt["usage_pct"] == 17.0
-    assert evt["threshold_pct"] == 90
+    assert "threshold_pct" not in evt
     assert evt["task_ids"] == []
     assert evt["paused_until"] is None
     structlog.reset_defaults()

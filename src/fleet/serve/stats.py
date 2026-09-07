@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from fleet.state.paths import fleet_home
+from fleet.state.paths import task_dir as _task_dir
 
 
 @dataclass
@@ -30,18 +32,6 @@ class TaskRuntimeInfo:
 # cache: tdir_str -> (events.jsonl mtime, events.jsonl size, TaskRuntimeInfo)
 # (-1.0, -1) sentinel when events.jsonl is absent; safe because real mtime is large+positive.
 _info_cache: dict[str, tuple[float, int, "TaskRuntimeInfo"]] = {}
-
-
-def fleet_home() -> Path:
-    """Resolve $FLEET_HOME env var or default to ~/.fleet."""
-    env = os.environ.get("FLEET_HOME")
-    if env:
-        return Path(env).expanduser().resolve()
-    return Path.home() / ".fleet"
-
-
-def task_dir(task_id: str) -> Path:
-    return fleet_home() / "tasks" / task_id
 
 
 def parse_iso(ts: str) -> datetime | None:
@@ -129,7 +119,7 @@ def _stats_from_dir(tdir: Path) -> TaskRuntimeStats:
 
 def task_runtime_stats(task_id: str) -> TaskRuntimeStats:
     """Best-effort scan of a task's directory for runtime signals."""
-    return _stats_from_dir(task_dir(task_id))
+    return _stats_from_dir(_task_dir(fleet_home(), task_id))
 
 
 def task_runtime_stats_from_dir(tdir: Path) -> TaskRuntimeStats:

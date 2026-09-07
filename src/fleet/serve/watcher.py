@@ -11,6 +11,7 @@ from fastapi import WebSocket
 
 from fleet.redact import redact
 from fleet.serve.stats import task_files_touched_from_dir, task_runtime_stats_from_dir
+from fleet.state.paths import tasks_root
 
 
 @dataclass
@@ -77,7 +78,7 @@ class FileWatcher:
         """Tail events.jsonl for all task dirs until cancelled."""
         self._mgr = mgr
         while True:
-            tasks_dir = fleet_home / "tasks"
+            tasks_dir = tasks_root(fleet_home)
             if tasks_dir.exists():
                 for task_dir in tasks_dir.iterdir():
                     if task_dir.is_dir():

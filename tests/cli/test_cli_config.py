@@ -28,7 +28,6 @@ def test_config_show_prints_expected_keys(tmp_path: Path) -> None:
         "max_concurrent",
         "coder",
         "model",
-        "context_pressure_threshold_pct",
     ):
         assert key in result.output, f"Expected '{key}' in config show output"
 
@@ -81,13 +80,13 @@ def test_config_set_echoes_resulting_config(tmp_path: Path) -> None:
 
 
 def test_config_set_atomicity_bad_value_leaves_file_unchanged(tmp_path: Path) -> None:
-    """max_concurrent=2 context_pressure_threshold_pct=garbage must leave the file at max_concurrent=4."""
+    """max_concurrent=2 stall_warning_minutes=garbage must leave the file at max_concurrent=4."""
     config_path = tmp_path / "runtime.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text("max_concurrent = 4\n", encoding="utf-8")
 
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=2", "context_pressure_threshold_pct=garbage"])
+        result = runner.invoke(app, ["config", "set", "max_concurrent=2", "stall_warning_minutes=garbage"])
 
     assert result.exit_code != 0
     content = config_path.read_text(encoding="utf-8")
@@ -110,9 +109,9 @@ def test_config_set_unknown_key_message_contains_unknown(tmp_path: Path) -> None
 
 def test_config_set_multiple_keys(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=4", "context_pressure_threshold_pct=85"])
+        result = runner.invoke(app, ["config", "set", "max_concurrent=4", "stall_warning_minutes=85"])
     assert result.exit_code == 0
     toml_path = tmp_path / "runtime.toml"
     content = toml_path.read_text(encoding="utf-8")
     assert "max_concurrent = 4" in content
-    assert "context_pressure_threshold_pct = 85" in content
+    assert "stall_warning_minutes = 85" in content

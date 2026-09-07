@@ -1,8 +1,14 @@
 """Archive closed task directories older than a retention window."""
 from __future__ import annotations
-import json, shutil, time
+
+import json
+import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from fleet.state.paths import tasks_root
+
 
 @dataclass
 class GcResult:
@@ -14,7 +20,7 @@ def _dir_size(p: Path) -> int:
     return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
 
 def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
-    tasks_dir = home / "tasks"
+    tasks_dir = tasks_root(home)
     archive_dir = home / "archive" / "tasks"
     cutoff = time.time() - days * 86400
     result = GcResult(archived=[], skipped=0, bytes_moved=0)

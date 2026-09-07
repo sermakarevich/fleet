@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fleet.config import load as load_config
 from fleet.daemon import Daemon, DaemonSpec, _pid_alive, code_fingerprint, python_module_argv
 from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC
-from fleet.serve.stats import fleet_home as get_fleet_home
+from fleet.state.paths import fleet_home as get_fleet_home
 
 
 def _read_pid_info(home: Path) -> tuple[int | None, str | None, str | None]:

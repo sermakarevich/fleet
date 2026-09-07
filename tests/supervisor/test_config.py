@@ -66,7 +66,7 @@ def test_write_atomic_concurrent_writes_produce_valid_toml(tmp_path):
     def writer_b():
         try:
             for _ in range(10):
-                write_atomic(cfg_path, {"context_pressure_threshold_pct": "85"})
+                write_atomic(cfg_path, {"stall_warning_minutes": "85"})
                 time.sleep(0.001)
         except Exception as exc:
             errors.append(exc)

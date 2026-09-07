@@ -28,8 +28,9 @@ from fleet.serve.routes.config_routes import create_config_router
 from fleet.serve.routes.search import create_search_router
 from fleet.serve.routes.supervisor import create_supervisor_router
 from fleet.serve.routes.tasks import create_tasks_router
-from fleet.serve.stats import fleet_home
 from fleet.serve.watcher import ConnectionManager, FileWatcher
+from fleet.state.paths import fleet_home
+from fleet.state.paths import task_dir as _task_dir
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     app = FastAPI(lifespan=_lifespan)
     import os
+
     from fastapi import Request
     from fastapi.responses import JSONResponse
 
@@ -210,7 +212,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         if token and ws.query_params.get("token", "") != token:
             await ws.close(code=4401)
             return
-        task_dir = fleet_home() / "tasks" / id
+        task_dir = _task_dir(fleet_home(), id)
         if not task_dir.is_dir():
             await ws.accept()
             await ws.close(code=4004)

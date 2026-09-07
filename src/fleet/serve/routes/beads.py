@@ -8,40 +8,17 @@ it (change status, unblock, remove assignee). All mutations shell out to ``bd``.
 from __future__ import annotations
 
 import asyncio
-import json
-import subprocess
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from fleet.beads import client as beads_client
+from fleet.beads.client import BeadsError
 from fleet.serve.routes.tasks import _sync_remove_assignee
-from fleet.serve.stats import fleet_home as get_fleet_home
+from fleet.state.paths import fleet_home as get_fleet_home
 
 # Statuses beads accepts via `bd update --status`. Used to reject arbitrary input.
 VALID_STATUSES = {"open", "in_progress", "blocked", "deferred", "closed", "pinned", "hooked"}
-
-
-def _run_bd(args: list[str], home: Path) -> tuple[int, str, str]:
-    """Run a `bd` subcommand with cwd=home. Returns (returncode, stdout, stderr)."""
-    try:
-        result = subprocess.run(
-            ["bd", *args],
-            capture_output=True,
-            text=True,
-            cwd=home,
-        )
-    except FileNotFoundError:
-        return 127, "", "bd executable not found"
-    return result.returncode, result.stdout, result.stderr
-
-
-def _parse_bd_json(stdout: str):
-    """Parse `bd --json` output, unwrapping the optional {data: ...} envelope."""
-    data = json.loads(stdout)
-    if isinstance(data, dict) and "data" in data:
-        return data["data"]
-    return data
 
 
 def _summary(item: dict) -> dict:
@@ -105,40 +82,29 @@ def create_beads_router() -> APIRouter:
 
     async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
         home = get_fleet_home()
-        rc, _out, err = await asyncio.to_thread(_run_bd, ["update", bead_id, *extra], home)
-        if rc != 0:
-            return JSONResponse({"error": err.strip() or "bd update failed"}, status_code=502)
+        try:
+            await asyncio.to_thread(beads_client.run, ["update", bead_id, *extra], cwd=home)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc) or "bd update failed"}, status_code=502)
         return JSONResponse({"ok": True})
 
     @router.get("/beads")
     async def list_beads() -> JSONResponse:
         home = get_fleet_home()
-        rc, out, err = await asyncio.to_thread(
-            _run_bd, ["list", "--all", "--json", "--limit", "0"], home
-        )
-        if rc != 0:
-            return JSONResponse({"error": err.strip() or "bd list failed"}, status_code=502)
         try:
-            items = _parse_bd_json(out) if out.strip() else []
-        except json.JSONDecodeError as exc:
-            return JSONResponse({"error": f"could not parse bd output: {exc}"}, status_code=502)
-        if not isinstance(items, list):
-            items = []
+            items = await asyncio.to_thread(beads_client.list_all, home)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc) or "bd list failed"}, status_code=502)
         beads = [_summary(it) for it in items if isinstance(it, dict)]
         return JSONResponse({"beads": beads})
 
     @router.get("/beads/{bead_id}")
     async def get_bead(bead_id: str) -> JSONResponse:
         home = get_fleet_home()
-        rc, out, err = await asyncio.to_thread(_run_bd, ["show", bead_id, "--json"], home)
-        if rc != 0:
-            return JSONResponse({"error": err.strip() or "bd show failed"}, status_code=502)
         try:
-            body = _parse_bd_json(out) if out.strip() else None
-        except json.JSONDecodeError as exc:
-            return JSONResponse({"error": f"could not parse bd output: {exc}"}, status_code=502)
-        if isinstance(body, list):
-            body = body[0] if body else None
+            body = await asyncio.to_thread(beads_client.show, bead_id, home)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc) or "bd show failed"}, status_code=502)
         if not isinstance(body, dict):
             return JSONResponse({"error": "not found"}, status_code=404)
         return JSONResponse(_detail(body))
@@ -153,11 +119,14 @@ def create_beads_router() -> APIRouter:
         # via `bd close` (mirroring queue.close), not `bd update --status closed`.
         if status == "closed":
             home = get_fleet_home()
-            rc, _out, err = await asyncio.to_thread(
-                _run_bd, ["close", bead_id, "--reason", "closed via BD portal"], home
-            )
-            if rc != 0:
-                return JSONResponse({"error": err.strip() or "bd close failed"}, status_code=502)
+            try:
+                await asyncio.to_thread(
+                    beads_client.run,
+                    ["close", bead_id, "--reason", "closed via BD portal"],
+                    cwd=home,
+                )
+            except BeadsError as exc:
+                return JSONResponse({"error": str(exc) or "bd close failed"}, status_code=502)
             return JSONResponse({"ok": True})
         return await _update(bead_id, ["--status", status])
 

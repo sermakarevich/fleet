@@ -9,7 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from fleet.serve.stats import fleet_home as get_fleet_home
+from fleet.state.paths import fleet_home as get_fleet_home
+from fleet.state.paths import tasks_root
 
 
 @dataclass
@@ -31,7 +32,7 @@ def _snippet(text: str, query: str) -> str:
 def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
     """Scan task directories for query matches; return up to 20 results."""
     results: list[SearchResult] = []
-    tasks_dir = fleet_home / "tasks"
+    tasks_dir = tasks_root(fleet_home)
     if not tasks_dir.is_dir() or not query.strip():
         return results
     q = query.lower()

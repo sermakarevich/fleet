@@ -15,14 +15,15 @@ from fleet.coders import get_coder
 from fleet.serve import analytics_core as _ac
 from fleet.serve import beads_info as _bi
 from fleet.serve.stats import (
-    fleet_home as get_fleet_home,
     parse_iso,
     task_runtime_stats,
 )
+from fleet.state.paths import fleet_home as get_fleet_home
+from fleet.state.paths import tasks_root
 
 
 def _iter_task_dirs(home: Path):
-    tasks_dir = home / "tasks"
+    tasks_dir = tasks_root(home)
     if not tasks_dir.is_dir():
         return
     for task_dir in tasks_dir.iterdir():

@@ -1,17 +1,14 @@
 import json
-import os
 import shlex
 import shutil
-import subprocess
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fleet.beads import client as beads_client
+from fleet.beads.client import BeadsError
 from fleet.schemas import Task
-
-
-class BeadsError(RuntimeError):
-    pass
+from fleet.state.paths import task_dir as _task_dir
 
 
 class Queue(ABC):
@@ -67,7 +64,7 @@ class BeadsQueue(Queue):
         self.repo_root = repo_root
 
     def _meta_path(self, task_id: str) -> Path:
-        return self.repo_root / "tasks" / task_id / "task.json"
+        return _task_dir(self.repo_root, task_id) / "task.json"
 
     def _load_meta(self, task_id: str) -> dict:
         path = self._meta_path(task_id)
@@ -174,20 +171,10 @@ class BeadsQueue(Queue):
     def _bd(
         self, *args: str, json_envelope: bool = True, actor: str | None = None
     ) -> dict | None:
-        env = {**os.environ}
-        if json_envelope:
-            env["BD_JSON_ENVELOPE"] = "1"
+        env = {"BD_JSON_ENVELOPE": "1"} if json_envelope else None
         if actor is not None:
-            env["BEADS_ACTOR"] = actor
-        result = subprocess.run(
-            ["bd", *args],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=self.repo_root,
-        )
-        if result.returncode != 0:
-            raise BeadsError(result.stderr.strip())
+            env = {**(env or {}), "BEADS_ACTOR": actor}
+        result = beads_client.run(list(args), cwd=self.repo_root, env=env)
         if json_envelope and result.stdout.strip():
             return json.loads(result.stdout)
         return None
@@ -291,7 +278,7 @@ class BeadsQueue(Queue):
 
     def delete(self, task_id: str) -> None:
         self._bd("delete", task_id, "--force", json_envelope=False)
-        task_dir = self.repo_root / "tasks" / task_id
+        task_dir = _task_dir(self.repo_root, task_id)
         if task_dir.exists():
             shutil.rmtree(task_dir)
 

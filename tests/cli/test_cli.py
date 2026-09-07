@@ -9,9 +9,9 @@ import typer
 from typer.testing import CliRunner
 
 import fleet.cli as climod
+from fleet.beads.client import BeadsError
 from fleet.cli import app
 from fleet.daemon import DaemonStatus, StartResult
-from fleet.queue import BeadsError
 from fleet.schemas import Task
 
 runner = CliRunner()
@@ -312,7 +312,7 @@ def test_ready_no_tasks_prints_message() -> None:
 def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
         result = runner.invoke(app, ["bd", "ready", "--limit", "5", "--json"])
     assert result.exit_code == 0
     mock_run.assert_called_once()
@@ -324,7 +324,7 @@ def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch)
 def test_bd_passthrough_propagates_nonzero_exit_code(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=2)
-    with patch("fleet.cli.subprocess.run", return_value=completed):
+    with patch("fleet.beads.client.subprocess.run", return_value=completed):
         result = runner.invoke(app, ["bd", "show", "missing-id"])
     assert result.exit_code == 2
 
@@ -333,7 +333,7 @@ def test_bd_passthrough_does_not_intercept_help_flag(tmp_path, monkeypatch) -> N
     """A `--help` after `bd` should be passed to bd, not handled by typer."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
         runner.invoke(app, ["bd", "--help"])
     mock_run.assert_called_once()
     args, _ = mock_run.call_args
@@ -365,7 +365,7 @@ def test_bd_create_captures_invocation_cwd_into_task_json(tmp_path, monkeypatch)
     invocation_dir.mkdir()
     monkeypatch.chdir(invocation_dir)
 
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-abc", "My task")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-abc", "My task")):
         result = runner.invoke(app, ["bd", "create", "My task"])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -379,7 +379,7 @@ def test_bd_create_captures_invocation_cwd_into_task_json(tmp_path, monkeypatch)
 
 def test_bd_create_injects_json_flag_when_user_did_not_pass_it(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-xyz")) as mock_run:
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-xyz")) as mock_run:
         runner.invoke(app, ["bd", "create", "title"])
     args, _ = mock_run.call_args
     assert "--json" in args[0]
@@ -387,7 +387,7 @@ def test_bd_create_injects_json_flag_when_user_did_not_pass_it(tmp_path, monkeyp
 
 def test_bd_create_preserves_user_json_output(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-xyz", "Hi")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-xyz", "Hi")):
         result = runner.invoke(app, ["bd", "create", "--json", "Hi"])
     assert result.exit_code == 0
     # When user passed --json, fleet should NOT replace bd's JSON with a human line.
@@ -399,7 +399,7 @@ def test_bd_create_emits_human_summary_when_no_json_requested(tmp_path, monkeypa
     invocation_dir = tmp_path / "project-a"
     invocation_dir.mkdir()
     monkeypatch.chdir(invocation_dir)
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-q1", "Do thing")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-q1", "Do thing")):
         result = runner.invoke(app, ["bd", "create", "Do thing"])
     assert result.exit_code == 0
     assert "fleet-q1" in result.output
@@ -409,7 +409,7 @@ def test_bd_create_emits_human_summary_when_no_json_requested(tmp_path, monkeypa
 
 def test_bd_create_dry_run_does_not_write_task_json(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-dry")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-dry")):
         runner.invoke(app, ["bd", "create", "--dry-run", "title"])
     meta_path = tmp_path / "tasks" / "fleet-dry" / "task.json"
     assert not meta_path.exists()
@@ -418,7 +418,7 @@ def test_bd_create_dry_run_does_not_write_task_json(tmp_path, monkeypatch) -> No
 def test_bd_create_nonzero_exit_does_not_write_task_json(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=1, stdout="", stderr="some bd error\n")
-    with patch("fleet.cli.subprocess.run", return_value=completed):
+    with patch("fleet.beads.client.subprocess.run", return_value=completed):
         result = runner.invoke(app, ["bd", "create", "boom"])
     assert result.exit_code == 1
     assert not (tmp_path / "tasks").exists() or not list((tmp_path / "tasks").iterdir())
@@ -428,7 +428,7 @@ def test_bd_non_create_subcommand_uses_simple_passthrough(tmp_path, monkeypatch)
     """`bd show ...` must NOT be intercepted — keeps stdout flowing to the terminal."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
         runner.invoke(app, ["bd", "show", "fleet-1"])
     # Simple passthrough: no capture_output kwarg.
     _, kwargs = mock_run.call_args
@@ -443,7 +443,7 @@ def test_bd_non_create_subcommand_uses_simple_passthrough(tmp_path, monkeypatch)
 def test_bd_create_strips_coder_and_model_from_bd_args(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     with patch(
-        "fleet.cli.subprocess.run",
+        "fleet.beads.client.subprocess.run",
         return_value=_fake_create_result("fleet-c1", "T"),
     ) as mock_run:
         result = runner.invoke(
@@ -461,7 +461,7 @@ def test_bd_create_strips_coder_and_model_from_bd_args(tmp_path, monkeypatch) ->
 
 def test_bd_create_persists_coder_and_model_overrides(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c2", "T")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-c2", "T")):
         result = runner.invoke(
             app,
             ["bd", "create", "--coder", "agy", "--model", "opus", "T"],
@@ -476,7 +476,7 @@ def test_bd_create_persists_coder_and_model_overrides(tmp_path, monkeypatch) -> 
 def test_bd_create_accepts_equals_form_for_coder(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     with patch(
-        "fleet.cli.subprocess.run",
+        "fleet.beads.client.subprocess.run",
         return_value=_fake_create_result("fleet-c3", "T"),
     ) as mock_run:
         result = runner.invoke(app, ["bd", "create", "--coder=agy", "T"])
@@ -490,7 +490,7 @@ def test_bd_create_accepts_equals_form_for_coder(tmp_path, monkeypatch) -> None:
 
 def test_bd_create_rejects_unknown_coder(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run") as mock_run:
+    with patch("fleet.beads.client.subprocess.run") as mock_run:
         result = runner.invoke(
             app,
             ["bd", "create", "--coder", "does-not-exist", "T"],
@@ -503,7 +503,7 @@ def test_bd_create_rejects_unknown_coder(tmp_path, monkeypatch) -> None:
 
 def test_bd_create_without_overrides_does_not_write_them(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c4", "T")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-c4", "T")):
         runner.invoke(app, ["bd", "create", "T"])
     import json as _json
     meta = _json.loads((tmp_path / "tasks" / "fleet-c4" / "task.json").read_text())
@@ -513,7 +513,7 @@ def test_bd_create_without_overrides_does_not_write_them(tmp_path, monkeypatch) 
 
 def test_bd_create_human_summary_includes_overrides(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.subprocess.run", return_value=_fake_create_result("fleet-c5", "Do")):
+    with patch("fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-c5", "Do")):
         result = runner.invoke(
             app,
             ["bd", "create", "--coder", "agy", "--model", "opus", "Do"],

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +12,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from fleet import attempts
-from fleet.coders import get_coder, list_coders as _list_coders
+from fleet.beads import client as beads_client
+from fleet.beads.client import BeadsError
+from fleet.coders import get_coder
+from fleet.coders import list_coders as _list_coders
 from fleet.daemon import _pid_alive
 from fleet.failures import (
     clear_needs_validation,
@@ -24,11 +26,13 @@ from fleet.failures import (
     reset_stall,
     stall_count,
 )
-from fleet.queue import BeadsError
 from fleet.serve.beads_info import (
     get_beads_status_map,
 )
-from fleet.serve.stats import fleet_home as get_fleet_home, task_runtime_info_cached
+from fleet.serve.stats import task_runtime_info_cached
+from fleet.state.paths import fleet_home as get_fleet_home
+from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import tasks_root
 
 
 @dataclass
@@ -97,7 +101,7 @@ def _extract_file_ops(events_path: Path) -> dict[str, FileCounts]:
 
 
 def _read_task_jsons(home: Path) -> list[dict]:
-    tasks_dir = home / "tasks"
+    tasks_dir = tasks_root(home)
     if not tasks_dir.is_dir():
         return []
     results = []
@@ -126,7 +130,7 @@ def _coder_context_limit(coder_name: str | None, model: str | None = None) -> in
 
 def _build_task_summary(data: dict, home: Path) -> dict:
     task_id = data.get("id", "")
-    task_dir = home / "tasks" / task_id
+    task_dir = _task_dir(home, task_id)
     info = task_runtime_info_cached(task_dir)
 
     now = datetime.now(tz=timezone.utc)
@@ -196,17 +200,10 @@ def _build_all_summaries(tasks: list[dict], home: Path) -> list[dict]:
 def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
     """Clear assignee in both beads DB and task.json (if present)."""
     try:
-        result = subprocess.run(
-            ["bd", "update", task_id, "--assignee", ""],
-            capture_output=True,
-            text=True,
-            cwd=home,
-        )
-        if result.returncode != 0:
-            return False, result.stderr.strip() or "bd update failed"
-    except FileNotFoundError:
-        return False, "bd executable not found"
-    task_file = home / "tasks" / task_id / "task.json"
+        beads_client.update(task_id, home, assignee="")
+    except BeadsError as exc:
+        return False, str(exc) or "bd update failed"
+    task_file = _task_dir(home, task_id) / "task.json"
     if task_file.exists():
         try:
             data = json.loads(task_file.read_text(encoding="utf-8"))
@@ -226,18 +223,7 @@ def _get_beads_task_status(task_id: str, home: Path) -> str | None:
 def _get_beads_task_info(task_id: str, home: Path) -> dict | None:
     """Return {status, priority, depends_on} from bd show, or None if unavailable."""
     try:
-        result = subprocess.run(
-            ["bd", "show", task_id, "--json"],
-            capture_output=True,
-            text=True,
-            cwd=home,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        data = json.loads(result.stdout)
-        body = data.get("data", data) if isinstance(data, dict) else data
-        if isinstance(body, list):
-            body = body[0] if body else None
+        body = beads_client.show(task_id, home)
         if not isinstance(body, dict):
             return None
         depends_on = [
@@ -353,7 +339,7 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}")
     async def get_task(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        task_file = home / "tasks" / task_id / "task.json"
+        task_file = _task_dir(home, task_id) / "task.json"
         if not task_file.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
@@ -369,13 +355,13 @@ def create_tasks_router() -> APIRouter:
                 "depends_on": beads_info["depends_on"],
             }
         summary = _build_task_summary(data, home)
-        summary["attempts"] = attempts.load_attempts(home / "tasks" / task_id)
+        summary["attempts"] = attempts.load_attempts(_task_dir(home, task_id))
         return JSONResponse(summary)
 
     @router.post("/tasks/{task_id}/kill")
     async def kill_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()
-        task_dir = home / "tasks" / task_id
+        task_dir = _task_dir(home, task_id)
         if not (task_dir / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
@@ -410,7 +396,7 @@ def create_tasks_router() -> APIRouter:
     @router.post("/tasks/{task_id}/unblock")
     async def unblock_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()
-        task_dir = home / "tasks" / task_id
+        task_dir = _task_dir(home, task_id)
         if not (task_dir / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         note: str | None = None
@@ -437,7 +423,7 @@ def create_tasks_router() -> APIRouter:
     @router.post("/tasks/{task_id}/close")
     async def close_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()
-        if not (home / "tasks" / task_id / "task.json").exists():
+        if not (_task_dir(home, task_id) / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         queue = request.app.state.queue
         try:
@@ -449,7 +435,7 @@ def create_tasks_router() -> APIRouter:
     @router.delete("/tasks/{task_id}")
     async def delete_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()
-        if not (home / "tasks" / task_id / "task.json").exists():
+        if not (_task_dir(home, task_id) / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         queue = request.app.state.queue
         try:
@@ -461,7 +447,7 @@ def create_tasks_router() -> APIRouter:
     @router.post("/tasks/{task_id}/remove-assignee")
     async def remove_assignee(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        if not (home / "tasks" / task_id / "task.json").exists():
+        if not (_task_dir(home, task_id) / "task.json").exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         ok, err = await asyncio.to_thread(_sync_remove_assignee, task_id, home)
         if not ok:
@@ -502,7 +488,7 @@ def create_tasks_router() -> APIRouter:
     # ------------------------------------------------------------------
 
     def _artifact_path(task_id: str, filename: str, home: Path) -> Path:
-        return home / "tasks" / task_id / "artifacts" / filename
+        return _task_dir(home, task_id) / "artifacts" / filename
 
     @router.get("/tasks/{task_id}/artifacts/plan")
     async def get_artifact_plan(task_id: str) -> JSONResponse:
@@ -545,7 +531,7 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/logs")
     async def get_task_logs(task_id: str, level: str | None = None) -> JSONResponse:
         home = get_fleet_home()
-        log_file = home / "tasks" / task_id / "log.jsonl"
+        log_file = _task_dir(home, task_id) / "log.jsonl"
         entries: list[dict] = []
         if log_file.exists():
             try:
@@ -570,14 +556,14 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/stderr")
     async def get_task_stderr(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        f = home / "tasks" / task_id / "log.stderr"
+        f = _task_dir(home, task_id) / "log.stderr"
         content = f.read_text(encoding="utf-8") if f.exists() else ""
         return JSONResponse({"content": content})
 
     @router.get("/tasks/{task_id}/diff")
     async def get_task_diff(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        task_file = home / "tasks" / task_id / "task.json"
+        task_file = _task_dir(home, task_id) / "task.json"
         if not task_file.exists():
             return JSONResponse({"diff": ""})
         try:
@@ -605,7 +591,7 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/files")
     async def get_task_files(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        events_path = home / "tasks" / task_id / "events.jsonl"
+        events_path = _task_dir(home, task_id) / "events.jsonl"
         counts = _extract_file_ops(events_path)
         files = [
             {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
@@ -719,7 +705,7 @@ def create_tasks_router() -> APIRouter:
         kind: str | None = None,
     ) -> JSONResponse:
         home = get_fleet_home()
-        task_dir = home / "tasks" / task_id
+        task_dir = _task_dir(home, task_id)
         if not task_dir.is_dir():
             return JSONResponse({"error": "not found"}, status_code=404)
         events_file = task_dir / "events.jsonl"

@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import signal
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
 
-from fleet.coders.base import Coder
+from fleet import attempts, worktree
 from fleet.coders import get_coder
-from fleet.config import load, reload_if_changed
+from fleet.coders.base import Coder
 from fleet.concurrency import cap_for_coder, running_by_coder
+from fleet.config import load, reload_if_changed
 from fleet.failures import (
+    clear_needs_validation,
     increment_failure,
     increment_noclose,
     increment_stall,
@@ -23,29 +25,28 @@ from fleet.failures import (
     reset_noclose,
     reset_stall,
     set_needs_validation,
-    clear_needs_validation,
 )
 from fleet.queue import Queue
-from fleet import attempts
 from fleet.rate_gauge import RateGauge
 from fleet.runner import TaskRunner
 from fleet.schemas import (
     CLAIM_POLL_INTERVAL_SEC,
     CONFIG_POLL_INTERVAL_SEC,
+    LOG_ROOT,
+    NOCLOSE_LIMIT,
     RATE_LIMIT_DEFAULT_SLEEP_SEC,
     RETRY_LIMIT,
-    NOCLOSE_LIMIT,
     SHUTDOWN_GRACE_SEC,
     STATUS_LOG_INTERVAL_SEC,
-    LOG_ROOT,
     RuntimeConfig,
     Task,
     TaskOutcome,
     TaskOutcomeRecord,
 )
-from fleet.supervisor_spawn import SpawnController, SpawnDecision
 from fleet.serve.stats import task_runtime_stats
-from fleet import worktree
+from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import tasks_root as _tasks_root
+from fleet.supervisor_spawn import SpawnController, SpawnDecision
 from fleet.worktree import remove_worktree, worktree_path
 
 
@@ -124,7 +125,7 @@ class Supervisor:
             if task_id in self.in_flight:
                 continue
 
-            task_dir = fleet_home / "tasks" / task_id
+            task_dir = _task_dir(fleet_home, task_id)
             if needs_validation(task_dir):
                 continue
 
@@ -234,7 +235,7 @@ class Supervisor:
             await self._run_pending_validations()
 
     async def _run_pending_validations(self) -> None:
-        tasks_root = self._project_root / "tasks"
+        tasks_root = _tasks_root(self._project_root)
         if not tasks_root.exists():
             return
         for task_dir in sorted(tasks_root.iterdir()):
@@ -331,7 +332,7 @@ class Supervisor:
         # Purge any stale .kill sentinel from a previous run before registering
         # the runner — the kill_poll_loop only checks self._runners, so clearing
         # the file here (before the runner is added) is race-free.
-        (self._project_root / "tasks" / task.id / ".kill").unlink(missing_ok=True)
+        (_task_dir(self._project_root, task.id) / ".kill").unlink(missing_ok=True)
 
         base_cwd = Path(task.cwd) if task.cwd else self._project_root
         use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(
@@ -478,7 +479,7 @@ class Supervisor:
             if self._shutting_down:
                 break
             for task_id, runner in list(self._runners.items()):
-                kill_file = self._project_root / "tasks" / task_id / ".kill"
+                kill_file = _task_dir(self._project_root, task_id) / ".kill"
                 if kill_file.exists():
                     kill_file.unlink(missing_ok=True)
                     self._log.info("task_kill_requested", task_id=task_id)
@@ -490,7 +491,7 @@ class Supervisor:
             return
         now = datetime.now(tz=timezone.utc).timestamp()
         for task_id in list(self.in_flight):
-            events_path = self._project_root / "tasks" / task_id / "events.jsonl"
+            events_path = _task_dir(self._project_root, task_id) / "events.jsonl"
             try:
                 mtime = events_path.stat().st_mtime
             except FileNotFoundError:
@@ -812,7 +813,7 @@ class Supervisor:
         return log_root
 
     def _task_dir_for(self, task: Task) -> Path:
-        return self._project_root / "tasks" / task.id
+        return _task_dir(self._project_root, task.id)
 
     def _is_fleet_repo(self, path: Path) -> bool:
         return path.resolve() == self._project_root.resolve()

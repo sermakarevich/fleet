@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from fleet.queue import BeadsError, BeadsQueue
+from fleet.beads.client import BeadsError
+from fleet.queue import BeadsQueue
 
 
 def test_order_ready_priority_then_oldest():
@@ -249,7 +250,7 @@ def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
         stdout="",
         stderr="issue not found",
     )
-    with patch("fleet.queue.subprocess.run", return_value=failed):
+    with patch("fleet.beads.client.subprocess.run", return_value=failed):
         with pytest.raises(BeadsError, match="issue not found"):
             q._bd("show", "nonexistent")
 

@@ -23,6 +23,7 @@ from fleet.schemas import (
     TaskOutcome,
     TaskOutcomeRecord,
 )
+from fleet.state.paths import task_dir as _task_dir
 
 _STDERR_TAIL_BYTES = 2048
 
@@ -101,7 +102,7 @@ class TaskRunner:
     async def run(self) -> TaskOutcomeRecord:
         task = self._task
 
-        task_dir = self._fleet_home / "tasks" / task.id
+        task_dir = _task_dir(self._fleet_home, task.id)
         artifacts_dir = task_dir / "artifacts"
         task_dir.mkdir(parents=True, exist_ok=True)
         _ensure_artifact_stubs(artifacts_dir, task.id)

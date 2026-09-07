@@ -15,7 +15,7 @@ from fleet.serve.app import create_app
 def _fake_bd(returncode: int = 0, stdout: str = "", stderr: str = ""):
     """Build a fake subprocess.run that records its invocations."""
 
-    def _run(args, capture_output=True, text=True, cwd=None):  # noqa: ANN001
+    def _run(args, capture_output=True, text=True, cwd=None, env=None):  # noqa: ANN001
         _run.calls.append(list(args))
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
@@ -59,7 +59,7 @@ def test_beads_list_returns_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         ]
     )
     fake = _fake_bd(0, payload)
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", fake)
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", fake)
     app = create_app()
 
     resp = _get(app, "/api/beads")
@@ -76,7 +76,7 @@ def test_beads_list_handles_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyP
     """GET /api/beads unwraps the {data: [...]} envelope form."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     payload = json.dumps({"data": [{"id": "fleet-2", "title": "Two", "status": "closed"}]})
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", _fake_bd(0, payload))
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", _fake_bd(0, payload))
     app = create_app()
 
     resp = _get(app, "/api/beads")
@@ -87,7 +87,7 @@ def test_beads_list_handles_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_beads_list_502_on_bd_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/beads returns 502 when bd exits non-zero (surfaces to drawer)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", _fake_bd(1, "", "boom"))
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", _fake_bd(1, "", "boom"))
     app = create_app()
 
     resp = _get(app, "/api/beads")
@@ -113,7 +113,7 @@ def test_bead_detail_returns_deps_and_comments(tmp_path: Path, monkeypatch: pyte
             }
         ]
     )
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", _fake_bd(0, payload))
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", _fake_bd(0, payload))
     app = create_app()
 
     resp = _get(app, "/api/beads/fleet-3")
@@ -130,7 +130,7 @@ def test_bead_set_status_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     """POST /api/beads/{id}/status with a valid status runs `bd update --status`."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     fake = _fake_bd(0, "")
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", fake)
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", fake)
     app = create_app()
 
     resp = _post(app, "/api/beads/fleet-4/status", json={"status": "blocked"})
@@ -143,7 +143,7 @@ def test_bead_set_status_invalid_rejected(tmp_path: Path, monkeypatch: pytest.Mo
     """POST /api/beads/{id}/status rejects an unknown status without calling bd."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     fake = _fake_bd(0, "")
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", fake)
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", fake)
     app = create_app()
 
     resp = _post(app, "/api/beads/fleet-4/status", json={"status": "bogus"})
@@ -155,7 +155,7 @@ def test_bead_unblock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/beads/{id}/unblock runs `bd update --status open`."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     fake = _fake_bd(0, "")
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", fake)
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", fake)
     app = create_app()
 
     resp = _post(app, "/api/beads/fleet-5/unblock")
@@ -167,7 +167,7 @@ def test_bead_remove_assignee(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     """POST /api/beads/{id}/remove-assignee runs `bd update --assignee ''`."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     fake = _fake_bd(0, "")
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", fake)
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", fake)
     app = create_app()
 
     resp = _post(app, "/api/beads/fleet-6/remove-assignee")
@@ -178,7 +178,7 @@ def test_bead_remove_assignee(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_bead_update_502_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A failing `bd update` surfaces as 502."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    monkeypatch.setattr("fleet.serve.routes.beads.subprocess.run", _fake_bd(1, "", "nope"))
+    monkeypatch.setattr("fleet.beads.client.subprocess.run", _fake_bd(1, "", "nope"))
     app = create_app()
 
     resp = _post(app, "/api/beads/fleet-7/unblock")
