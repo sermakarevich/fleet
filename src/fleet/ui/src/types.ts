@@ -268,12 +268,6 @@ export interface StreamEvent {
   raw: Record<string, unknown>;
 }
 
-export interface StreamEventsResponse {
-  total: number;
-  offset: number;
-  events: StreamEvent[];
-}
-
 export interface ChatQuestion {
   id: string;
   agent_id: string | null;

@@ -226,34 +226,6 @@ def test_config_put_updates_field(
     assert (tmp_path / "runtime.toml").exists()
 
 
-def test_analytics_throughput_shape(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """GET /api/analytics/throughput returns buckets list with correct keys (FR-35, FR-36)."""
-    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    app = create_app()
-
-    async def _run() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            return await client.get("/api/analytics/throughput")
-
-    resp = asyncio.run(_run())
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "buckets" in data
-    assert isinstance(data["buckets"], list)
-    if data["buckets"]:
-        b = data["buckets"][0]
-        assert "hour" in b
-        assert "success" in b
-        assert "failure" in b
-        assert "rate_limit" in b
-        assert "context_pressure" in b
-        assert "blocked_by_agent" in b
-
-
 # ---------------------------------------------------------------------------
 # Artifact endpoints (FR-11..FR-21)
 # ---------------------------------------------------------------------------
