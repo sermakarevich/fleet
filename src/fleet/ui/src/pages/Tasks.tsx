@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useKillTask, useTasks } from '../hooks/useApi';
+import { useKillTask, useTasks, useUnblockTask } from '../hooks/useApi';
 import { useTasksState } from '../hooks/useTasksState';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -83,6 +83,8 @@ function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, 
   const isConfirming = confirmingId === task.id;
   const killEligible = KILL_ELIGIBLE.has(task.status);
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
+  const isBlocked = task.status === 'blocked';
+  const unblockTask = useUnblockTask();
 
   return (
     <div style={styles.row} className="row-interactive" tabIndex={0} onClick={() => onRowClick(task.id)}>
@@ -95,6 +97,11 @@ function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, 
         {task.description && (
           <span style={styles.descText} title={task.description}>{task.description}</span>
         )}
+        {isBlocked && (
+          <span style={styles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
+            {task.blocked_reason ?? 'No recorded reason'}
+          </span>
+        )}
       </span>
       <span style={styles.coderCell}>
         {coderModelStr
@@ -106,6 +113,11 @@ function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, 
       <span style={styles.tsCell}>{formatTs(task.ended_at)}</span>
       <span style={styles.cwdCell} title={task.cwd ?? undefined}>{cwdShort}</span>
       <span style={styles.actionCell} onClick={e => e.stopPropagation()}>
+        {isBlocked && (
+          <button style={styles.unblockBtn} onClick={() => unblockTask.mutate({ id: task.id })}>
+            Unblock
+          </button>
+        )}
         {killEligible && !isConfirming && !isStopping && (
           <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>
             Kill
@@ -133,6 +145,8 @@ function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm,
   const isConfirming = confirmingId === task.id;
   const killEligible = KILL_ELIGIBLE.has(task.status);
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
+  const isBlocked = task.status === 'blocked';
+  const unblockTask = useUnblockTask();
 
   return (
     <div
@@ -147,6 +161,9 @@ function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm,
         </span>
         <span style={cardStyles.cardId}>{task.id}</span>
         <span style={cardStyles.cardActions} onClick={e => e.stopPropagation()}>
+          {isBlocked && (
+            <button style={styles.unblockBtn} onClick={() => unblockTask.mutate({ id: task.id })}>Unblock</button>
+          )}
           {killEligible && !isConfirming && !isStopping && (
             <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>Kill</button>
           )}
@@ -161,6 +178,11 @@ function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm,
       </div>
       <div style={cardStyles.cardTitle}>{task.title}</div>
       {task.description && <div style={cardStyles.cardDesc}>{task.description}</div>}
+      {isBlocked && (
+        <div style={styles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
+          {task.blocked_reason ?? 'No recorded reason'}
+        </div>
+      )}
       <div style={cardStyles.cardMeta}>
         <span style={cardStyles.cardMetaText}>{coderModelStr || '(default)'}</span>
         <span style={cardStyles.cardMetaText}>{formatTs(task.started_at)}</span>
@@ -481,6 +503,13 @@ const styles = {
     fontSize: '0.75rem',
     color: T.colors.textMuted,
   } as React.CSSProperties,
+  blockedReason: {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    fontSize: '0.75rem',
+    color: '#f59e0b',
+  } as React.CSSProperties,
   coderCell: {
     width: '9rem',
     flexShrink: 0,
@@ -522,6 +551,17 @@ const styles = {
     ...T.btnDanger,
     padding: '0.2rem 0.625rem',
     fontSize: '0.8125rem',
+  } as React.CSSProperties,
+  unblockBtn: {
+    padding: '0.2rem 0.625rem',
+    background: 'transparent',
+    border: '1px solid #f59e0b',
+    borderRadius: 4,
+    color: '#f59e0b',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: 600,
   } as React.CSSProperties,
   stoppingLabel: {
     fontSize: '0.8125rem',

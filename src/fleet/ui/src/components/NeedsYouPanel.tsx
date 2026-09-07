@@ -19,9 +19,9 @@ export function NeedsYouPanel({ tasks }: Props) {
     <section style={styles.section}>
       <h2 style={styles.title}>Needs you ({tasks.length})</h2>
       {tasks.map(task => {
-        const preview = task.last_event_detail ?? task.title;
+        const preview = task.blocked_reason ?? task.last_event_detail ?? task.title;
         return (
-          <Link key={task.id} to="/chat" style={styles.row}>
+          <Link key={task.id} to={`/tasks/${task.id}`} style={styles.row}>
             <span style={styles.id}>{task.id}</span>
             <span style={styles.question}>{preview.slice(0, 120)}</span>
           </Link>

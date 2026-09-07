@@ -135,6 +135,24 @@ export function useRequeueTask() {
   });
 }
 
+export function useUnblockTask() {
+  const qc = useQueryClient();
+  const { addToast } = useToast();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) => api.unblockTask(id, note),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      if (qc.getQueryData(['task', vars.id]) !== undefined) {
+        void qc.invalidateQueries({ queryKey: ['task', vars.id] });
+      }
+      addToast('Task unblocked.');
+    },
+    onError: (err: unknown) => {
+      addToast(`Unblock failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
+}
+
 export function useCloseTask() {
   const qc = useQueryClient();
   return useMutation({

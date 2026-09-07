@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { RuntimeConfig, TaskDetail } from '../../types';
 import * as T from '../../styles/tokens';
+import { useUnblockTask } from '../../hooks/useApi';
 
 interface Props {
   task: TaskDetail;
@@ -52,6 +53,14 @@ export function Header({ task, config }: Props) {
   const desc = task.description;
   const descLong = typeof desc === 'string' && desc.length > 400;
   const descVisible = descExpanded || !descLong;
+  const unblockTask = useUnblockTask();
+  const isBlocked = task.status === 'blocked';
+
+  const counters: string[] = [];
+  if (task.failures) counters.push(`${task.failures} failures`);
+  if (task.noclose) counters.push(`${task.noclose} no-close`);
+  if (task.stalls) counters.push(`${task.stalls} stalls`);
+  if (task.restarts) counters.push(`${task.restarts} restarts`);
 
   return (
     <div style={styles.header}>
@@ -67,6 +76,26 @@ export function Header({ task, config }: Props) {
         </span>
         <span style={styles.title}>{task.title}</span>
       </div>
+      {isBlocked && (
+        <div style={styles.blockedBanner}>
+          <span style={styles.blockedLabel}>Blocked</span>
+          <span style={styles.blockedText}>{task.blocked_reason ?? 'No recorded reason'}</span>
+          <span style={styles.metaSep}>·</span>
+          <span style={styles.metaItem}>{fmtTs(task.blocked_at)}</span>
+          {counters.length > 0 && (
+            <>
+              <span style={styles.metaSep}>·</span>
+              <span style={styles.metaItem}>{counters.join(' · ')}</span>
+            </>
+          )}
+          <button
+            style={styles.unblockBtn}
+            onClick={() => unblockTask.mutate({ id: task.id })}
+          >
+            Unblock
+          </button>
+        </div>
+      )}
       {desc && (
         <div style={styles.descContainer}>
           <span
@@ -206,5 +235,41 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.15rem 0',
     fontFamily: 'inherit',
     marginTop: '0.1rem',
+  },
+  blockedBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    padding: '0.35rem 0.5rem',
+    marginBottom: '0.35rem',
+    background: 'rgba(245, 158, 11, 0.1)',
+    border: '1px solid #f59e0b',
+    borderRadius: 4,
+    fontSize: '0.8rem',
+  },
+  blockedLabel: {
+    fontWeight: 700,
+    color: '#f59e0b',
+    flexShrink: 0,
+  },
+  blockedText: {
+    color: T.colors.textPrimary,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+    minWidth: 0,
+  },
+  unblockBtn: {
+    padding: '0.15rem 0.5rem',
+    background: 'transparent',
+    border: '1px solid #f59e0b',
+    borderRadius: 4,
+    color: '#f59e0b',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: 600,
+    flexShrink: 0,
   },
 };

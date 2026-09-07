@@ -81,6 +81,10 @@ export const api = {
     return request(`/api/tasks/${id}/requeue`, { method: 'POST' });
   },
 
+  unblockTask(id: string, note?: string): Promise<void> {
+    return request(`/api/tasks/${id}/unblock`, json('POST', { note: note ?? '' }));
+  },
+
   closeTask(id: string): Promise<void> {
     return request(`/api/tasks/${id}/close`, { method: 'POST' });
   },

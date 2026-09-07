@@ -18,11 +18,32 @@ export interface TaskSummary {
   context_pct: number | null;
   last_event_kind: string | null;
   last_event_detail: string | null;
+  blocked_reason: string | null;
+  blocked_at: string | null;
+  failures: number;
+  noclose: number;
+  stalls: number;
+  restarts: number;
+  last_outcome: string | null;
+  last_outcome_reason: string | null;
+  last_action: string | null;
+}
+
+export interface TaskAttempt {
+  n: number;
+  started_at: string | null;
+  ended_at: string | null;
+  coder: string | null;
+  model: string | null;
+  outcome: string | null;
+  exit_code: number | null;
+  reason: string | null;
+  action: string | null;
+  duration_sec: number | null;
 }
 
 export interface TaskDetail extends TaskSummary {
-  retry_count: number;
-  outcome: string | null;
+  attempts: TaskAttempt[];
 }
 
 // A row from the beads DB, as surfaced by the BD (beads) portal.
@@ -108,7 +129,6 @@ export interface RuntimeConfig {
   max_concurrent_overrides: string;
   model: string;
   coder: string;
-  context_pressure_threshold_pct: number;
 }
 
 export interface CreateTaskInput {
