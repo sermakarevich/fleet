@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -128,6 +130,24 @@ class TaskRunner:
                 start_new_session=True,
             )
             self._proc = proc
+            run_file = task_dir / "run.json"
+            run_data: dict = {}
+            try:
+                try:
+                    pgid = os.getpgid(proc.pid)
+                except OSError:
+                    pgid = proc.pid
+                run_data = {
+                    "pid": proc.pid,
+                    "pgid": pgid,
+                    "started_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "coder": self._coder.__class__.__name__,
+                }
+                tmp = run_file.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(run_data), encoding="utf-8")
+                tmp.replace(run_file)
+            except OSError as exc:
+                self._log.warning("run_file_write_failed", error=str(exc))
 
             # cancel() may have run while we were awaiting create_subprocess_exec
             # — at that moment `self._proc` was still None, so cancel() returned
@@ -230,6 +250,14 @@ class TaskRunner:
                     break
 
             exit_code = await proc.wait()
+            try:
+                run_data["exit_code"] = exit_code
+                run_data["ended_at"] = datetime.now(tz=timezone.utc).isoformat()
+                tmp = run_file.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(run_data), encoding="utf-8")
+                tmp.replace(run_file)
+            except OSError as exc:
+                self._log.warning("run_file_write_failed", error=str(exc))
 
             if outcome is None:
                 cp_flag = task_dir / ".context_pressure"
