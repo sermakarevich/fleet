@@ -1,9 +1,12 @@
 import json
-from datetime import datetime, timezone
+import os
+import re
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders.base import Coder
-from fleet.schemas import Event, Task
+from fleet.schemas import RATE_LIMIT_DEFAULT_SLEEP_SEC, Event, Task, TaskOutcome, TaskOutcomeRecord
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
@@ -13,6 +16,71 @@ _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 _DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
 _BEDROCK_PROVIDER_ID = "amazon-bedrock"
+
+_DEFAULT_OPENCODE_LOG_FILE = str(
+    Path.home() / ".local" / "share" / "opencode" / "log" / "opencode.log"
+)
+_LOG_TAIL_BYTES = 256 * 1024
+
+_TIMESTAMP_RE = re.compile(r"timestamp=(\S+)")
+_LEVEL_RE = re.compile(r"level=(\S+)")
+_MODEL_ID_RE = re.compile(r"modelID=(\S+)")
+
+_RATE_LIMIT_MARKERS = ("rate_limit_exceeded", "Rate limit exceeded")
+_CONNECT_ERROR_MARKERS = ("Cannot connect to API", "socket connection was closed")
+
+
+def _strip_provider_prefix(model: str) -> str:
+    """Return the bare model id, stripping a single leading `<provider>/` prefix."""
+    if "/" in model:
+        return model.split("/", 1)[1]
+    return model
+
+
+def classify_opencode_log_lines(
+    lines: list[str], *, since: datetime, model: str
+) -> TaskOutcomeRecord | None:
+    """Classify tailed opencode.log lines for provider rate-limit/connect errors.
+
+    The log file is shared by every opencode session running on the machine,
+    so the time window (`since`) plus model filter (`model`) is only a
+    heuristic to attribute a line to this task's run. A false positive only
+    causes the runner to release-and-retry the task; it never blocks it.
+    """
+    target_model = _strip_provider_prefix(model)
+    for line in lines:
+        level_match = _LEVEL_RE.search(line)
+        if not level_match or level_match.group(1) != "ERROR":
+            continue
+
+        ts_match = _TIMESTAMP_RE.search(line)
+        if not ts_match:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_match.group(1).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if ts < since:
+            continue
+
+        model_match = _MODEL_ID_RE.search(line)
+        if not model_match or model_match.group(1) != target_model:
+            continue
+
+        if any(marker in line for marker in _RATE_LIMIT_MARKERS):
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.RATE_LIMIT,
+                reason="opencode provider rate limit",
+                resets_at=int(time.time()) + RATE_LIMIT_DEFAULT_SLEEP_SEC,
+            )
+        if any(marker in line for marker in _CONNECT_ERROR_MARKERS):
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.FAILURE,
+                exit_code=None,
+                reason=f"opencode provider unreachable: {line[:120]}",
+            )
+    return None
+
 
 # Fleet's global RuntimeConfig.model defaults to "sonnet" and leaks into every
 # coder via supervisor._resolve_coder; these are Claude aliases, never valid
@@ -255,7 +323,7 @@ class OpencodeCoder(Coder):
         if not isinstance(data, dict):
             return None
 
-        ts = datetime.now(tz=timezone.utc)
+        ts = datetime.now(tz=UTC)
         t = data.get("type", "")
         part = data.get("part", {})
         session_id = data.get("sessionID")
@@ -319,3 +387,27 @@ class OpencodeCoder(Coder):
             return Event(kind="error", raw=data, ts=ts)
 
         return None
+
+    def probe_health(
+        self, task: Task, task_dir: Path, started_at: datetime
+    ) -> TaskOutcomeRecord | None:
+        """Detect provider rate-limit/connect errors opencode swallows silently.
+
+        `opencode run --format json` never emits a provider error into its
+        JSON stream: on a rate limit or connection failure it logs to
+        opencode.log and the process hangs forever with no stdout/stderr.
+        Read the tail of that log and classify lines since this run started.
+        """
+        log_path = Path(os.environ.get("OPENCODE_LOG_FILE", _DEFAULT_OPENCODE_LOG_FILE))
+        if not log_path.exists():
+            return None
+
+        with log_path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - _LOG_TAIL_BYTES))
+            tail = f.read().decode("utf-8", errors="replace")
+
+        lines = tail.splitlines()
+        model = task.model or self.model
+        return classify_opencode_log_lines(lines, since=started_at, model=model)

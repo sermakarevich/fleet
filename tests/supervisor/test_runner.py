@@ -398,111 +398,6 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: Context pressure from usage (works for any coder emitting usage data)
-# ---------------------------------------------------------------------------
-
-
-def _usage_script(input_tokens: int) -> str:
-    """Script that emits one assistant event with the given input_tokens then sleeps."""
-    event = json.dumps(
-        {
-            "type": "assistant",
-            "message": {"content": [], "usage": {"input_tokens": input_tokens}},
-            "session_id": "s-ctx",
-        }
-    )
-    return (
-        "import sys\n"
-        f"sys.stdout.write({event!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "import time; time.sleep(60)\n"
-    )
-
-
-def test_context_pressure_from_usage_returns_context_pressure(tmp_path: Path) -> None:
-    """Runner signals CONTEXT_PRESSURE when usage exceeds context_limit * threshold."""
-    runner, _, _ = _make_runner(
-        tmp_path,
-        argv=[sys.executable, "-c", _usage_script(950)],
-        config=RuntimeConfig(context_pressure_threshold_pct=90),
-        context_limit=1_000,  # threshold = 900; 950 >= 900 → context pressure
-    )
-
-    result = asyncio.run(runner.run())
-
-    assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
-
-
-def test_context_pressure_from_usage_flag_removed(tmp_path: Path) -> None:
-    """Runner removes the .context_pressure flag after detecting it from usage."""
-    runner, _, _ = _make_runner(
-        tmp_path,
-        argv=[sys.executable, "-c", _usage_script(950)],
-        config=RuntimeConfig(context_pressure_threshold_pct=90),
-        context_limit=1_000,
-    )
-
-    asyncio.run(runner.run())
-
-    cp_flag = tmp_path / "tasks" / "t-001" / ".context_pressure"
-    assert not cp_flag.exists()
-
-
-def test_context_pressure_from_usage_not_triggered_below_threshold(
-    tmp_path: Path,
-) -> None:
-    """Usage below threshold does not trigger context pressure; process exits normally."""
-    runner, _, _ = _make_runner(
-        tmp_path,
-        argv=[sys.executable, "-c", _usage_script(800)],
-        config=RuntimeConfig(context_pressure_threshold_pct=90),
-        context_limit=1_000,  # threshold = 900; 800 < 900 → no context pressure
-    )
-
-    # The script would sleep indefinitely if not terminated, but for this test we
-    # use a script that exits cleanly after emitting low-usage events.
-    clean_script = (
-        "import sys, json\n"
-        "event = json.dumps({'type': 'assistant', 'message': {'content': [], 'usage': {'input_tokens': 800}}, 'session_id': 's1'})\n"
-        "sys.stdout.write(event + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "sys.exit(0)\n"
-    )
-    runner, _, _ = _make_runner(
-        tmp_path,
-        argv=[sys.executable, "-c", clean_script],
-        config=RuntimeConfig(context_pressure_threshold_pct=90),
-        context_limit=1_000,
-    )
-
-    result = asyncio.run(runner.run())
-
-    assert result.outcome == TaskOutcome.SUCCESS
-
-
-def test_context_pressure_from_usage_uses_coder_context_limit(tmp_path: Path) -> None:
-    """Threshold scales with coder.context_limit; same token count triggers at 1k but not 200k."""
-    # 950 tokens: triggers at limit=1_000 (threshold=900) but not at limit=200_000
-    clean_script = (
-        "import sys, json\n"
-        "event = json.dumps({'type': 'assistant', 'message': {'content': [], 'usage': {'input_tokens': 950}}, 'session_id': 's1'})\n"
-        "sys.stdout.write(event + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "sys.exit(0)\n"
-    )
-    runner, _, _ = _make_runner(
-        tmp_path,
-        argv=[sys.executable, "-c", clean_script],
-        config=RuntimeConfig(context_pressure_threshold_pct=90),
-        context_limit=200_000,  # threshold = 180_000; 950 is nowhere near → SUCCESS
-    )
-
-    result = asyncio.run(runner.run())
-
-    assert result.outcome == TaskOutcome.SUCCESS
-
-
-# ---------------------------------------------------------------------------
 # Test: BEADS_DIR injection
 # ---------------------------------------------------------------------------
 
@@ -754,3 +649,127 @@ def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
     context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
     # Both are in 10-19% range (bucket=1), so only one log line.
     assert len(context_usage_events) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test: spawn uses start_new_session (own process group)
+# ---------------------------------------------------------------------------
+
+
+def test_spawn_uses_new_session(tmp_path: Path, monkeypatch) -> None:
+    """TaskRunner.run must spawn the coder with start_new_session=True."""
+    captured: dict = {}
+
+    class _FakeStdout:
+        _limit = 0
+
+        async def readline(self) -> bytes:
+            return b""
+
+    class _FakeProc:
+        pid = 123456
+        returncode: int | None = None
+        stdout = _FakeStdout()
+
+        def send_signal(self, sig) -> None:
+            pass
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+    async def _fake_create(*args, **kwargs):
+        captured.update(kwargs)
+        captured["args"] = args
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
+
+    runner, _, _ = _make_runner(
+        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+    )
+
+    result = asyncio.run(runner.run())
+
+    assert captured["start_new_session"] is True
+    assert result.outcome == TaskOutcome.SUCCESS
+
+
+# ---------------------------------------------------------------------------
+# Test: probe_health detects a hung provider and kills the silent worker
+# ---------------------------------------------------------------------------
+
+
+def test_probe_health_kills_silent_worker_and_returns_its_outcome(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A silent subprocess (no stdout) is probed periodically; once probe_health
+    reports a provider error, the runner kills the process group and returns
+    that outcome instead of waiting for the process to exit on its own."""
+    import fleet.runner as runner_mod
+
+    monkeypatch.setattr(runner_mod, "PROBE_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(runner_mod, "PROBE_SILENCE_SEC", -1)
+
+    class _FakeStdout:
+        _limit = 0
+
+        async def readline(self) -> bytes:
+            await asyncio.sleep(3600)
+            return b""
+
+    class _FakeProc:
+        pid = 987654
+        returncode: int | None = None
+        stdout = _FakeStdout()
+
+        def send_signal(self, sig) -> None:
+            self.returncode = -sig
+
+        async def wait(self) -> int:
+            return self.returncode if self.returncode is not None else 0
+
+    async def _fake_create(*args, **kwargs):
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
+
+    from fleet.schemas import TaskOutcomeRecord
+
+    class FakeProbeCoder(StubCoder):
+        def __init__(self, argv: list[str]) -> None:
+            super().__init__(argv=argv)
+            self.probe_calls = 0
+
+        def probe_health(self, task, task_dir, started_at):
+            self.probe_calls += 1
+            if self.probe_calls < 2:
+                return None
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.RATE_LIMIT,
+                reason="opencode provider rate limit",
+                resets_at=1234567890,
+            )
+
+    task = Task(
+        id="t-probe", title="Test task", description="Do the thing.", status="in_progress"
+    )
+    queue = StubQueue()
+    gauge = StubRateGauge()
+    coder = FakeProbeCoder(argv=[sys.executable, "-c", "pass"])
+    runner = TaskRunner(
+        task=task,
+        coder=coder,
+        queue=queue,
+        config=RuntimeConfig(),
+        rate_gauge=gauge,
+        project_root=tmp_path,
+        fleet_home=tmp_path,
+        log=structlog.get_logger(),
+    )
+
+    result = asyncio.run(asyncio.wait_for(runner.run(), timeout=10.0))
+
+    assert coder.probe_calls >= 2
+    assert result.outcome == TaskOutcome.RATE_LIMIT
+    assert result.reason == "opencode provider rate limit"

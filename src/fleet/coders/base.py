@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 
-from fleet.schemas import Event, Task
+from fleet.schemas import Event, Task, TaskOutcomeRecord
 
 
 class Coder(ABC):
@@ -40,3 +41,14 @@ class Coder(ABC):
         Default is a no-op; coders that need to write config should override this.
         Called by TaskRunner.run before the subprocess is spawned.
         """
+
+    def probe_health(
+        self, task: Task, task_dir: Path, started_at: datetime
+    ) -> TaskOutcomeRecord | None:
+        """Called periodically by TaskRunner while the subprocess is silent.
+
+        Return a TaskOutcomeRecord to make the runner kill the process and
+        report that outcome; None means healthy (or unsupported by this coder).
+        Default is a no-op.
+        """
+        return None

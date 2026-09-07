@@ -5,7 +5,6 @@ from typing import Literal
 
 LOG_ROOT = "logging"
 
-RATE_LIMIT_THRESHOLD_PCT: int = 90
 RETRY_LIMIT: int = 2
 NOCLOSE_LIMIT: int = 12
 CONFIG_POLL_INTERVAL_SEC: int = 5
@@ -13,6 +12,8 @@ CLAIM_POLL_INTERVAL_SEC: int = 5
 SHUTDOWN_GRACE_SEC: int = 30
 RATE_LIMIT_DEFAULT_SLEEP_SEC: int = 300
 STATUS_LOG_INTERVAL_SEC: int = 30
+PROBE_INTERVAL_SEC: int = 30
+PROBE_SILENCE_SEC: int = 60
 
 
 @dataclass
@@ -78,7 +79,6 @@ class RuntimeConfig:
     max_concurrent: int = 3
     model: str = "sonnet"
     coder: str = "claude"
-    context_pressure_threshold_pct: int = 90
     telegram_chat_id: str = ""
     telegram_allowed_ids: str = ""
     telegram_default_cwd: str = ""

@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -14,12 +14,14 @@ from fleet.coders.base import Coder
 from fleet.logging import append_event, open_task_log
 from fleet.queue import Queue
 from fleet.schemas import (
+    PROBE_INTERVAL_SEC,
+    PROBE_SILENCE_SEC,
+    SHUTDOWN_GRACE_SEC,
     Event,
     RuntimeConfig,
     Task,
     TaskOutcome,
     TaskOutcomeRecord,
-    SHUTDOWN_GRACE_SEC,
 )
 
 _STDERR_TAIL_BYTES = 2048
@@ -130,6 +132,7 @@ class TaskRunner:
                 start_new_session=True,
             )
             self._proc = proc
+            started_at = datetime.now(tz=UTC)
             run_file = task_dir / "run.json"
             run_data: dict = {}
             try:
@@ -140,7 +143,7 @@ class TaskRunner:
                 run_data = {
                     "pid": proc.pid,
                     "pgid": pgid,
-                    "started_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "started_at": started_at.isoformat(),
                     "coder": self._coder.__class__.__name__,
                 }
                 tmp = run_file.with_suffix(".json.tmp")
@@ -168,9 +171,38 @@ class TaskRunner:
             # crashing the whole runner.  In Python 3.12 the buffer IS consumed
             # before LimitOverrunError is raised, so `continue` is safe.
             proc.stdout._limit = 100 * 1024 * 1024
+            last_event_at = started_at
+            last_probe_at = started_at
             while True:
                 try:
-                    raw_bytes = await proc.stdout.readline()
+                    raw_bytes = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=PROBE_INTERVAL_SEC
+                    )
+                except TimeoutError:
+                    now = datetime.now(tz=UTC)
+                    silent_for = (now - last_event_at).total_seconds()
+                    since_last_probe = (now - last_probe_at).total_seconds()
+                    if silent_for <= PROBE_SILENCE_SEC or since_last_probe < PROBE_INTERVAL_SEC:
+                        continue
+                    last_probe_at = now
+                    probe_outcome = await asyncio.to_thread(
+                        self._coder.probe_health, task, task_dir, started_at
+                    )
+                    if probe_outcome is None:
+                        continue
+                    task_log.log.warning(
+                        "provider_error_detected",
+                        task_id=task.id,
+                        reason=probe_outcome.reason,
+                    )
+                    _signal_group(proc, signal.SIGTERM)
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except TimeoutError:
+                        _signal_group(proc, signal.SIGKILL)
+                        await proc.wait()
+                    outcome = probe_outcome
+                    break
                 except asyncio.LimitOverrunError as exc:
                     self._log.warning(
                         "stdout_line_overrun",
@@ -180,6 +212,7 @@ class TaskRunner:
                     continue
                 if not raw_bytes:
                     break
+                last_event_at = datetime.now(tz=UTC)
                 raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
                 evt = self._coder.normalize_event(raw_line)
                 if evt is None:
@@ -238,7 +271,7 @@ class TaskRunner:
                     _signal_group(proc, signal.SIGTERM)
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=5.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         _signal_group(proc, signal.SIGKILL)
                         await proc.wait()
                     outcome = TaskOutcomeRecord(
@@ -252,7 +285,7 @@ class TaskRunner:
             exit_code = await proc.wait()
             try:
                 run_data["exit_code"] = exit_code
-                run_data["ended_at"] = datetime.now(tz=timezone.utc).isoformat()
+                run_data["ended_at"] = datetime.now(tz=UTC).isoformat()
                 tmp = run_file.with_suffix(".json.tmp")
                 tmp.write_text(json.dumps(run_data), encoding="utf-8")
                 tmp.replace(run_file)
@@ -333,7 +366,7 @@ class TaskRunner:
                 proc.wait(),
                 timeout=float(SHUTDOWN_GRACE_SEC),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _signal_group(proc, signal.SIGKILL)
             await proc.wait()
 
