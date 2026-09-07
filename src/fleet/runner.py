@@ -188,37 +188,6 @@ class TaskRunner:
                                 pct=round(pct, 1),
                             )
                             last_logged_bucket = bucket
-                        threshold = (
-                            self._coder.context_limit
-                            * self._config.context_pressure_threshold_pct
-                            / 100
-                        )
-                        if peak_context_tokens >= threshold:
-                            task_log.log.warning(
-                                "context_pressure_threshold_exceeded",
-                                task_id=task.id,
-                                peak_context_tokens=peak_context_tokens,
-                                context_limit=self._coder.context_limit,
-                                threshold_pct=self._config.context_pressure_threshold_pct,
-                            )
-                            cp_flag = task_dir / ".context_pressure"
-                            cp_flag.touch()
-                            try:
-                                proc.send_signal(signal.SIGTERM)
-                            except (ProcessLookupError, OSError):
-                                pass
-                            try:
-                                await asyncio.wait_for(
-                                    proc.wait(),
-                                    timeout=float(SHUTDOWN_GRACE_SEC),
-                                )
-                            except asyncio.TimeoutError:
-                                try:
-                                    proc.send_signal(signal.SIGKILL)
-                                except (ProcessLookupError, OSError):
-                                    pass
-                                await proc.wait()
-                            break
 
                 if (
                     evt.kind == "rate_limit"
@@ -236,7 +205,7 @@ class TaskRunner:
                         task_id=task.id,
                         resets_at=resets_at,
                     )
-                    self._queue.release(task.id, reason=reason)
+                    await asyncio.to_thread(self._queue.release, task.id, reason=reason)
                     try:
                         proc.send_signal(signal.SIGTERM)
                     except (ProcessLookupError, OSError):
@@ -283,7 +252,7 @@ class TaskRunner:
                 elif exit_code == 0:
                     blocked = False
                     try:
-                        current = self._queue.get(task.id)
+                        current = await asyncio.to_thread(self._queue.get, task.id)
                         blocked = current.status == "blocked"
                     except Exception:
                         pass

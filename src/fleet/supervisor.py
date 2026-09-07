@@ -159,8 +159,10 @@ class Supervisor:
                     )
                     return running.get(effective, 0) < cap
 
-                task = self._queue.claim_next(
-                    claimer_id="supervisor", can_claim=_can_claim
+                # bd is a subprocess; run it in a worker thread
+                # so the event loop keeps tailing runner output.
+                task = await asyncio.to_thread(
+                    self._queue.claim_next, "supervisor", can_claim=_can_claim
                 )
                 if task is not None:
                     if task.id in self.in_flight:
@@ -200,8 +202,10 @@ class Supervisor:
                 self._project_root, task_id, base_ref="main"
             )
             if result.ok:
-                self._queue.close(
-                    task_id, reason=f"validated: merged fleet/{task_id} into main"
+                await asyncio.to_thread(
+                    self._queue.close,
+                    task_id,
+                    reason=f"validated: merged fleet/{task_id} into main",
                 )
                 self._log.info("task.validated", task_id=task_id)
 
@@ -241,7 +245,7 @@ class Supervisor:
                     if result.conflict
                     else f"validation merge failed: {result.message}"
                 )
-                self._queue.set_blocked(task_id, reason)
+                await asyncio.to_thread(self._queue.set_blocked, task_id, reason)
                 self._log.warning(
                     "task.validation_failed",
                     task_id=task_id,
