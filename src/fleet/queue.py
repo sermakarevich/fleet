@@ -40,6 +40,9 @@ class Queue(ABC):
     def list_in_progress(self, limit: int = 50) -> list[Task]: ...
 
     @abstractmethod
+    def set_bd_fields(self, task_id: str, body: dict) -> None: ...
+
+    @abstractmethod
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None: ...
 
     @abstractmethod
@@ -110,6 +113,19 @@ class BeadsQueue(Queue):
             meta["coder"] = coder
         if model is not None:
             meta["model"] = model
+        self._write_meta(task_id, meta)
+
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        """Persist title/description/status/priority from a bd body into task.json.
+
+        Used right after `bd create` so pending tasks show a title in the UI
+        before the supervisor's claim-time snapshot. Existing keys are preserved.
+        """
+        meta = self._load_meta(task_id) or {"id": task_id}
+        for key in ("title", "description", "status", "priority"):
+            val = body.get(key)
+            if val is not None:
+                meta[key] = val
         self._write_meta(task_id, meta)
 
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
@@ -189,14 +205,20 @@ class BeadsQueue(Queue):
         self, body: dict, *, status_override: str | None = None
     ) -> Task:
         meta = self._load_meta(body["id"])
+        # bd's own `metadata` field is populated atomically at `bd create` time
+        # (see cli.py's bd_passthrough), so it's available even before the
+        # separate task.json write lands. task.json wins once it exists (e.g.
+        # after a later `set_overrides`/`freeze_coder_model` call); bd metadata
+        # is the fallback that closes the race window for brand-new beads.
+        bd_meta = body.get("metadata") or {}
         return Task(
             id=body["id"],
             title=body["title"],
             description=body.get("description"),
             status=status_override or body.get("status", "open"),
-            cwd=meta.get("cwd"),
-            coder=meta.get("coder"),
-            model=meta.get("model"),
+            cwd=meta.get("cwd") or bd_meta.get("fleet_cwd"),
+            coder=meta.get("coder") or bd_meta.get("fleet_coder"),
+            model=meta.get("model") or bd_meta.get("fleet_model"),
         )
 
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
@@ -210,7 +232,9 @@ class BeadsQueue(Queue):
             items = []
         for cand in self._order_ready(items):
             if can_claim is not None:
-                cand_coder = self._load_meta(cand["id"]).get("coder")
+                cand_coder = self._load_meta(cand["id"]).get("coder") or (
+                    cand.get("metadata") or {}
+                ).get("fleet_coder")
                 if not can_claim(cand_coder):
                     continue
             try:

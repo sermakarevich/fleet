@@ -285,3 +285,25 @@ def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
     assert meta["cwd"] == "/abs/project"
     assert meta["coder"] == "opencode"
     assert meta["model"] == "qwen3.6:latest"
+
+
+def test_set_bd_fields_writes_title_and_preserves_fleet_fields(tmp_path: Path) -> None:
+    """set_bd_fields snapshots title/description from a bd body, keeping cwd/coder/model."""
+    import json
+
+    q = BeadsQueue(repo_root=tmp_path)
+    q.set_cwd("t-bdf-1", "/repo")
+    q.set_overrides("t-bdf-1", coder="claude", model="sonnet")
+
+    q.set_bd_fields(
+        "t-bdf-1",
+        {"id": "t-bdf-1", "title": "Do X", "description": "Body", "status": "open"},
+    )
+
+    meta = json.loads((tmp_path / "tasks" / "t-bdf-1" / "task.json").read_text())
+    assert meta["title"] == "Do X"
+    assert meta["description"] == "Body"
+    assert meta["status"] == "open"
+    assert meta["cwd"] == "/repo"
+    assert meta["coder"] == "claude"
+    assert meta["model"] == "sonnet"
