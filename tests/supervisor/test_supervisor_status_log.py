@@ -276,3 +276,85 @@ def test_fleet_log_context_includes_context_tokens_key(tmp_path: Path) -> None:
     assert "t-001" in ctx["context_tokens"]
     # When no events.jsonl exists the value should be 0.
     assert ctx["context_tokens"]["t-001"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Stall kill-and-retry ladder: warn vs kill actions
+# ---------------------------------------------------------------------------
+
+
+def _create_stale_events_file(tmp_path: Path, task_id: str, age_sec: float = 3600) -> None:
+    import os
+    import time
+
+    task_dir = tmp_path / "tasks" / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    events_file = task_dir / "events.jsonl"
+    events_file.touch()
+    old_time = time.time() - age_sec
+    os.utime(events_file, (old_time, old_time))
+
+
+def test_stall_warn_action_never_kills(tmp_path: Path) -> None:
+    """Default stall_action="warn" only warns; _stall_killed stays empty."""
+    s = _make_supervisor(
+        tmp_path,
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="warn"),
+    )
+    _create_stale_events_file(tmp_path, "t-warn")
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.kill_calls = 0
+
+        async def kill(self) -> None:
+            self.kill_calls += 1
+
+    fake = FakeRunner()
+    s.in_flight["t-warn"] = object()  # type: ignore[assignment]
+    s._runners["t-warn"] = fake  # type: ignore[assignment]
+
+    s._log_status_snapshot()
+
+    assert "t-warn" in s._stall_warned
+    assert "t-warn" not in s._stall_killed
+    assert len(s._stall_killed) == 0
+    assert fake.kill_calls == 0
+    structlog.reset_defaults()
+
+
+def test_stall_kill_action_schedules_runner_kill(tmp_path: Path) -> None:
+    """stall_action="kill" records the task and schedules runner.kill()."""
+    s_holder: dict = {}
+
+    async def _run() -> None:
+        import structlog as _structlog
+
+        s = _make_supervisor(
+            tmp_path,
+            config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
+        )
+        _create_stale_events_file(tmp_path, "t-kill")
+
+        class FakeRunner:
+            def __init__(self) -> None:
+                self.kill_calls = 0
+
+            async def kill(self) -> None:
+                self.kill_calls += 1
+
+        fake = FakeRunner()
+        s.in_flight["t-kill"] = object()  # type: ignore[assignment]
+        s._runners["t-kill"] = fake  # type: ignore[assignment]
+
+        s._log_status_snapshot()
+        # Let the scheduled kill() coroutine execute.
+        await asyncio.sleep(0.2)
+        s_holder["s"] = s
+        s_holder["fake"] = fake
+        _structlog.reset_defaults()
+
+    asyncio.run(_run())
+
+    assert "t-kill" in s_holder["s"]._stall_killed
+    assert s_holder["fake"].kill_calls == 1

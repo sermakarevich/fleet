@@ -55,6 +55,37 @@ def reset_noclose(task_dir: Path) -> None:
     _noclose_path(task_dir).unlink(missing_ok=True)
 
 
+# ---- .stalls counter helpers ----
+
+
+def _stall_path(task_dir: Path) -> Path:
+    return task_dir / ".stalls"
+
+
+def stall_count(task_dir: Path) -> int:
+    """Return the number of stall kills recorded for this task."""
+    path = _stall_path(task_dir)
+    if not path.exists():
+        return 0
+    try:
+        return int(path.read_text().strip())
+    except (ValueError, OSError):
+        return 0
+
+
+def increment_stall(task_dir: Path) -> int:
+    """Increment the stall counter for this task and return the new count."""
+    task_dir.mkdir(parents=True, exist_ok=True)
+    new_count = stall_count(task_dir) + 1
+    _stall_path(task_dir).write_text(str(new_count))
+    return new_count
+
+
+def reset_stall(task_dir: Path) -> None:
+    """Remove the stall counter file so a later reopen starts fresh."""
+    _stall_path(task_dir).unlink(missing_ok=True)
+
+
 def reset_failure(task_dir: Path) -> None:
     """Remove the failure counter file so a later reopen starts fresh."""
     _counter_path(task_dir).unlink(missing_ok=True)

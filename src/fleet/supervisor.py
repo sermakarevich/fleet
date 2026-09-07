@@ -17,9 +17,11 @@ from fleet.concurrency import cap_for_coder, running_by_coder
 from fleet.failures import (
     increment_failure,
     increment_noclose,
+    increment_stall,
     needs_validation,
     reset_failure,
     reset_noclose,
+    reset_stall,
     set_needs_validation,
     clear_needs_validation,
 )
@@ -78,6 +80,7 @@ class Supervisor:
         self._shutting_down: bool = False
         self._done: asyncio.Event | None = None
         self._stall_warned: set[str] = set()
+        self._stall_killed: set[str] = set()
 
     async def run(self) -> int:
         self._done = asyncio.Event()
@@ -498,6 +501,17 @@ class Supervisor:
                         stall_warning_minutes=self.config.stall_warning_minutes,
                     )
                     self._stall_warned.add(task_id)
+                    if self.config.stall_action == "kill" and task_id not in self._stall_killed:
+                        runner = self._runners.get(task_id)
+                        if runner is not None:
+                            self._stall_killed.add(task_id)
+                            self._log.warning("task_stall_kill", task_id=task_id, idle_seconds=int(idle))
+                            try:
+                                loop = asyncio.get_running_loop()
+                            except RuntimeError:
+                                loop = None
+                            if loop is not None:
+                                loop.create_task(runner.kill())
             else:
                 self._stall_warned.discard(task_id)
 
@@ -582,6 +596,7 @@ class Supervisor:
                     return
                 else:
                     reset_noclose(self._task_dir_for(task))
+                    reset_stall(self._task_dir_for(task))
                     self._log.info(
                         "task_completed_success", task_id=task.id, **fleet_ctx
                     )
@@ -626,6 +641,16 @@ class Supervisor:
                 self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
 
             case TaskOutcome.KILLED:
+                if task.id in self._stall_killed:
+                    self._stall_killed.discard(task.id)
+                    task_dir = self._task_dir_for(task)
+                    count = increment_stall(task_dir)
+                    if count >= self.config.stall_block_after:
+                        self._queue.set_blocked(task.id, f"stalled {count} times (no output for {self.config.stall_warning_minutes} min each); needs human review")
+                    else:
+                        self._queue.release(task.id, reason=f"stalled (no output for {self.config.stall_warning_minutes} min); killed and re-queued #{count}/{self.config.stall_block_after}")
+                    self._log.warning("task_stall_handled", task_id=task.id, count=count)
+                    return
                 if not self._bead_in_progress(task.id):
                     reset_failure(self._task_dir_for(task))
                     self._log.info(

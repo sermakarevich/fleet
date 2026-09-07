@@ -90,3 +90,5 @@ class RuntimeConfig:
     opencode_bedrock_profile: str = ""
     opencode_bedrock_context_limit: int = 200000
     stall_warning_minutes: int = 15
+    stall_action: str = "warn"
+    stall_block_after: int = 2

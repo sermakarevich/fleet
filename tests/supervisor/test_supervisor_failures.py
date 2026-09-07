@@ -579,3 +579,35 @@ def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> No
     _run_claim_loop_briefly(s, pre_in_flight=None)
 
     assert spawned == ["t-new"]
+
+
+# ---------------------------------------------------------------------------
+# Stall kill-and-retry ladder: KILLED after a stall-kill releases, then blocks
+# ---------------------------------------------------------------------------
+
+
+def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(
+        tmp_path,
+        queue,
+        config=RuntimeConfig(
+            stall_warning_minutes=1, stall_action="kill", stall_block_after=2
+        ),
+    )
+    task = _task("t-stall")
+
+    # First stall-kill cycle: count 1 < 2 -> release for retry.
+    s._stall_killed.add(task.id)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED))
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 0
+    assert f"#1/{2}" in queue.released[0][1]
+    assert task.id not in s._stall_killed
+
+    # Second stall-kill cycle: count 2 >= 2 -> block for a human.
+    s._stall_killed.add(task.id)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED))
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 1
+    assert "needs human review" in queue.blocked[0][1]
