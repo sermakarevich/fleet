@@ -22,9 +22,9 @@ import fleet
 from fleet.coders import get_coder
 from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
+from fleet.integrations.ollama_tunnel import ensure_tunnel
 from fleet.logging import setup_supervisor_logger
 from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervisor_spec
-from fleet.ollama_tunnel import ensure_tunnel
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.queue import BeadsQueue
 from fleet.state.paths import fleet_home

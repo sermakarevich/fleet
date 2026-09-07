@@ -33,6 +33,7 @@ def _create_questions_db(path: Path) -> None:
             default_answer TEXT,
             status TEXT DEFAULT 'pending',
             answer TEXT,
+            note TEXT,
             answered_by TEXT,
             answered_at REAL
         )
@@ -1302,13 +1303,13 @@ def _make_fetch_dispatcher(updates: list) -> object:
     CancelledError on 2nd; calls fn(*args) for all other functions."""
     fetch_n = [0]
 
-    async def _fake(fn, *args):  # type: ignore[misc]
+    async def _fake(fn, *args, **kwargs):  # type: ignore[misc]
         if fn is tg._fetch_updates:
             fetch_n[0] += 1
             if fetch_n[0] == 1:
                 return updates
             raise asyncio.CancelledError()
-        return fn(*args)
+        return fn(*args, **kwargs)
 
     return _fake
 
@@ -1317,7 +1318,7 @@ def test_inbound_listener_answer_via_reply_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Replying to a question message resolves it and replies 'Answered [agent_id]'."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1405,7 +1406,7 @@ def test_inbound_listener_reply_to_already_answered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reply-to an already-answered question replies 'Question already answered'."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1449,7 +1450,7 @@ def test_inbound_listener_single_pending_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with exactly one pending question answers it via fallback."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1495,7 +1496,7 @@ def test_inbound_listener_multiple_pending_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with multiple pending questions sends a count hint."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1537,7 +1538,7 @@ def test_inbound_listener_zero_pending_silently_dropped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with no pending questions is silently dropped."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1575,7 +1576,7 @@ def test_inbound_listener_numeric_option_shortcut(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare integer text picks the matching option string from the question's options list."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1632,7 +1633,7 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Integer text out of options range is stored as the raw string, not an option."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1799,7 +1800,7 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """/start replies with help text and does not trigger the answer fallback."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)

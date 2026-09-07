@@ -427,7 +427,7 @@ def test_build_config_permission_block():
 def test_build_config_mcp_ask_human():
     entry = _coder()._build_config()["mcp"]["ask-human"]
     assert entry["type"] == "local"
-    assert any("fleet.ask_human.server" in part for part in entry["command"])
+    assert any("fleet.integrations.ask_human.server" in part for part in entry["command"])
 
 
 def test_build_config_mcp_claude_code_available():
@@ -451,7 +451,7 @@ def test_build_config_mcp_web_fetch_available():
     entry = cfg["mcp"]["web_fetch"]
     assert entry["enabled"] is True
     assert entry["type"] == "local"
-    assert entry["command"][-1] == "fleet.web_fetch.server"
+    assert entry["command"][-1] == "fleet.integrations.web_fetch.server"
     assert entry["environment"]["FLEET_WEBFETCH_MODEL"]
     assert entry["environment"]["FLEET_WEBFETCH_OLLAMA_URL"]
     assert "ask-human" in cfg["mcp"]

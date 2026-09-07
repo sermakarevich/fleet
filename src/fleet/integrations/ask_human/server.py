@@ -15,7 +15,7 @@ arbitrarily long waits, the tool never blocks the event loop (it ``await``s
 between store polls) and emits a periodic progress notification as a keepalive,
 so the client won't time the request out and drop it.
 
-Run standalone:  fleet ask-human serve   (or python -m fleet.ask_human.server;
+Run standalone:  fleet ask-human serve   (or python -m fleet.integrations.ask_human.server;
 stdio transport). Vendored from ~/git/claude/mcp/ask_human — keep
 behavior-identical so the two stay easy to diff.
 """
@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
@@ -69,7 +69,7 @@ def _result(q: dict) -> dict[str, Any]:
     }
 
 
-def _default_agent_id() -> Optional[str]:
+def _default_agent_id() -> str | None:
     """Derive a task-id agent_id from the FLEET_TASK_DIR env var when none is passed."""
     task_dir = os.environ.get("FLEET_TASK_DIR")
     if task_dir:
@@ -85,7 +85,7 @@ def _default_agent_id() -> Optional[str]:
 async def _await_answer(
     store: QuestionStore,
     qid: str,
-    ctx: Optional[Context] = None,
+    ctx: Context | None = None,
     poll_interval: float = _POLL_INTERVAL_S,
     keepalive_s: float = _KEEPALIVE_S,
 ) -> dict:
@@ -128,12 +128,12 @@ async def _await_answer(
 @mcp.tool()
 async def ask_human_question(
     prompt: str,
-    options: Optional[list[str]] = None,
+    options: list[str] | None = None,
     multi_select: bool = False,
-    agent_id: Optional[str] = None,
-    session_id: Optional[str] = None,
+    agent_id: str | None = None,
+    session_id: str | None = None,
     priority: int = 0,
-    ctx: Optional[Context] = None,
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Ask the human operator a question and BLOCK until they answer.
 

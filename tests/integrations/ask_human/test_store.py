@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from fleet.ask_human.store import QuestionStore
+from fleet.integrations.ask_human.store import QuestionStore
 
 
 def _store(tmp_path: Path) -> QuestionStore:
@@ -137,22 +137,39 @@ def test_resolve_id_prefix_and_cancel(tmp_path: Path):
     assert s.answer(qid, "late") is False       # can't answer a cancelled one
 
 
-def test_shared_db_with_fleet_ask_human_db_helpers(tmp_path: Path):
-    # The vendored store and fleet.ask_human_db are two clients of the same
-    # SQLite file; an answer written through either side must be visible to the
-    # other (this is exactly the serve-process / MCP-server split in production).
-    import fleet.ask_human_db as ahdb
+def test_shared_db_with_module_level_helpers(tmp_path: Path):
+    # QuestionStore and the module-level fetch_pending/answer functions are two
+    # clients of the same SQLite file; an answer written through either side
+    # must be visible to the other (this is exactly the serve-process /
+    # MCP-server split in production).
+    from fleet.integrations.ask_human import store as store_mod
 
     path = tmp_path / "q.db"
     s = QuestionStore(path)
     qid = s.create("Cross-module?", options=["a", "b"], agent_id="x")
 
-    pending = ahdb.fetch_pending_questions(db_path=path)
+    pending = store_mod.fetch_pending(db_path=path)
     assert [p["id"] for p in pending] == [qid]
 
-    result = ahdb.answer_question(qid, "a", "web", db_path=path)
+    result = store_mod.answer(qid, "a", answered_by="web", db_path=path)
     assert result["ok"] is True
     q = s.get(qid)
     assert q["status"] == "answered"
     assert q["answer"] == "a"
+    assert q["note"] is None
+
+
+def test_module_level_answer_writes_note(tmp_path: Path):
+    from fleet.integrations.ask_human import store as store_mod
+
+    path = tmp_path / "q.db"
+    s = QuestionStore(path)
+    qid = s.create("Deploy to prod?", options=["yes", "no"])
+
+    result = store_mod.answer(qid, "yes", answered_by="web", note="wait for migration", db_path=path)
+    assert result["ok"] is True
+
+    q = store_mod.get(qid, db_path=path)
+    assert q["note"] == "wait for migration"
+    assert q["answer"] == "yes"  # decoded, not a raw JSON string
     assert q["answered_by"] == "web"

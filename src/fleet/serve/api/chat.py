@@ -7,24 +7,16 @@ import time
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-import fleet.ask_human_db as _ahdb
-from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
-
-
-def _get_conn():
-    return _ahdb.get_conn(db_path=ASK_HUMAN_DB)
-
-
-def _row_to_dict(row):
-    return _ahdb.row_to_dict(row)
+import fleet.integrations.ask_human.store as _store
+from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 
 
 def _fetch_pending_questions() -> list[dict]:
-    return _ahdb.fetch_pending_questions(db_path=ASK_HUMAN_DB)
+    return _store.fetch_pending(db_path=ASK_HUMAN_DB)
 
 
 def _do_answer_question(qid: str, raw_answer: object) -> dict:
-    return _ahdb.answer_question(qid, raw_answer, "web", db_path=ASK_HUMAN_DB)
+    return _store.answer(qid, raw_answer, answered_by="web", db_path=ASK_HUMAN_DB)
 
 
 def create_chat_router() -> APIRouter:

@@ -16,10 +16,10 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-import fleet.ask_human_db as _ahdb
+import fleet.integrations.ask_human.store as _ahdb
 import fleet.integrations.telegram.bot as tg
-from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.core.config import load as load_config
+from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.observability.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.api.analytics import create_analytics_router
@@ -41,7 +41,7 @@ def _db_max_created_at() -> float:
 
 
 def _db_fetch_new_questions(since: float) -> list[dict]:
-    return _ahdb.fetch_new_questions(since, db_path=ASK_HUMAN_DB)
+    return _ahdb.fetch_new(since, db_path=ASK_HUMAN_DB)
 
 
 async def _question_poller(app: FastAPI) -> None:

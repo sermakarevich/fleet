@@ -1,11 +1,13 @@
 """SQLite-backed question store for the ask_human MCP server.
 
 Vendored from the standalone agent-chat project (~/git/claude/mcp/ask_human);
-keep behavior-identical so the two stay easy to diff. ``fleet.ask_human_db``
-is the serve process's lightweight reader/answerer over the same DB file.
+keep behavior-identical so the two stay easy to diff. The module-level
+``fetch_pending`` / ``count_pending`` / ``get`` / ``answer`` functions below are
+the serve process's (and Telegram's) lightweight reader/answerer over the same
+DB file — no ``QuestionStore`` instance required.
 
 This is the single source of truth shared by the MCP server (writers: agents
-asking questions) and the operator frontends (CLI / web, which read
+asking questions) and the operator frontends (CLI / web / Telegram, which read
 pending questions and write answers). It is concurrency-safe:
 
 * WAL journal mode + a generous ``busy_timeout`` let many agent writers and
@@ -24,14 +26,20 @@ import os
 import sqlite3
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 DEFAULT_DB_PATH = Path(
     os.environ.get("ASK_HUMAN_DB")
     or (Path.home() / ".claude" / "ask_human" / "questions.db")
 )
+
+# Monkeypatchable by tests / callers that point at a different DB file; the
+# module-level reader/answerer functions below re-read this attribute on every
+# call rather than closing over a default parameter.
+ASK_HUMAN_DB = DEFAULT_DB_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS questions (
@@ -59,7 +67,7 @@ CREATE INDEX IF NOT EXISTS idx_questions_open
 _RESOLVED = ("answered", "expired", "cancelled")
 
 
-def _dumps(value: Any) -> Optional[str]:
+def _dumps(value: Any) -> str | None:
     return None if value is None else json.dumps(value)
 
 
@@ -72,7 +80,7 @@ def _loads(value: Any) -> Any:
         return value
 
 
-def _row_to_dict(row: Optional[sqlite3.Row]) -> Optional[dict]:
+def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
     if row is None:
         return None
     d = dict(row)
@@ -132,11 +140,11 @@ class QuestionStore:
     def create(
         self,
         prompt: str,
-        options: Optional[list[str]] = None,
+        options: list[str] | None = None,
         multi_select: bool = False,
-        agent_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        timeout_s: Optional[float] = None,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+        timeout_s: float | None = None,
         default_answer: Any = None,
         priority: int = 0,
     ) -> str:
@@ -167,7 +175,7 @@ class QuestionStore:
         self,
         qid: str,
         answer: Any,
-        note: Optional[str] = None,
+        note: str | None = None,
         answered_by: str = "operator",
     ) -> bool:
         """Answer a pending question. Returns False if it was already resolved.
@@ -207,7 +215,7 @@ class QuestionStore:
 
     # -- reads ----------------------------------------------------------------
 
-    def get(self, qid: str) -> Optional[dict]:
+    def get(self, qid: str) -> dict | None:
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT * FROM questions WHERE id=?", (qid,)
@@ -223,7 +231,7 @@ class QuestionStore:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    def resolve_id(self, prefix: str) -> Optional[str]:
+    def resolve_id(self, prefix: str) -> str | None:
         """Resolve a (possibly shortened) id prefix to a full id.
 
         Returns None if nothing matches; raises ValueError if ambiguous.
@@ -259,3 +267,125 @@ class QuestionStore:
             time.sleep(poll_interval)
             q = self.get(qid)
         return q
+
+
+# -- module-level reader/answerer functions --------------------------------
+#
+# The MCP server (above) uses ``QuestionStore`` directly. The serve process
+# (web chat tab) and the Telegram bot are lighter-weight callers that just
+# need to read pending questions and write answers over the same DB file
+# without owning a ``QuestionStore`` instance (and without paying its
+# create-parent-dir / migrate cost on every call) — these functions are that
+# client. They assume the DB already exists (created by the MCP server on
+# first run) and are no-ops against a missing file.
+
+
+def _connect(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path), timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
+
+def fetch_pending(limit: int = 200, *, db_path: Path | None = None) -> list[dict]:
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return []
+    conn = _connect(path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM questions WHERE status='pending' "
+            "ORDER BY priority DESC, created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def fetch_new(since: float, *, db_path: Path | None = None) -> list[dict]:
+    """Pending questions created after ``since`` (used to poll for new arrivals)."""
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return []
+    conn = _connect(path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM questions WHERE status='pending' AND created_at > ? "
+            "ORDER BY created_at ASC LIMIT 100",
+            (since,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def max_created_at(*, db_path: Path | None = None) -> float:
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return 0.0
+    conn = _connect(path)
+    try:
+        row = conn.execute("SELECT MAX(created_at) FROM questions").fetchone()
+        return float(row[0]) if row[0] is not None else 0.0
+    finally:
+        conn.close()
+
+
+def count_pending(*, db_path: Path | None = None) -> int:
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return 0
+    conn = _connect(path)
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM questions WHERE status='pending'").fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        conn.close()
+
+
+def get(qid: str, *, db_path: Path | None = None) -> dict | None:
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return None
+    conn = _connect(path)
+    try:
+        row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def answer(
+    qid: str,
+    answer: Any,
+    *,
+    answered_by: str,
+    note: str | None = None,
+    db_path: Path | None = None,
+) -> dict:
+    """Answer a pending question, writing ``note`` alongside the answer.
+
+    Returns ``{"ok": bool, "status": "answered" | "conflict" | "missing"}``.
+    """
+    path = db_path if db_path is not None else ASK_HUMAN_DB
+    if not path.exists():
+        return {"ok": False, "status": "missing"}
+    conn = _connect(path)
+    try:
+        row = conn.execute("SELECT status FROM questions WHERE id=?", (qid,)).fetchone()
+        if not row:
+            return {"ok": False, "status": "missing"}
+        if row["status"] != "pending":
+            return {"ok": False, "status": row["status"]}
+        cur = conn.execute(
+            "UPDATE questions SET status='answered', answer=?, note=?, answered_by=?, "
+            "answered_at=? WHERE id=? AND status='pending'",
+            (_dumps(answer), note, answered_by, time.time(), qid),
+        )
+        conn.commit()
+        ok = cur.rowcount > 0
+    finally:
+        conn.close()
+    return {"ok": ok, "status": "answered" if ok else "conflict"}

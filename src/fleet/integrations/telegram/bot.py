@@ -11,7 +11,10 @@ from typing import Any
 
 import structlog
 
-from fleet.ask_human_db import answer_question, count_pending, fetch_pending_questions, get_question
+from fleet.integrations.ask_human.store import answer as answer_question
+from fleet.integrations.ask_human.store import count_pending
+from fleet.integrations.ask_human.store import fetch_pending as fetch_pending_questions
+from fleet.integrations.ask_human.store import get as get_question
 
 _MAX_TEXT = 4096
 _GETUPDATE_TIMEOUT = 30  # seconds for Telegram long-poll
@@ -278,7 +281,7 @@ async def _handle_answer(token: str, chat_id: str, qid: str, raw_text: str) -> N
     except ValueError:
         pass
 
-    result = await asyncio.to_thread(answer_question, qid, answer, "telegram")
+    result = await asyncio.to_thread(answer_question, qid, answer, answered_by="telegram")
     if result["ok"]:
         if q is None:
             q = await asyncio.to_thread(get_question, qid)

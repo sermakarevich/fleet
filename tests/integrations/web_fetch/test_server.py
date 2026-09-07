@@ -1,5 +1,5 @@
 def test_text_extractor_strips_script_and_style():
-    from fleet.web_fetch.server import _TextExtractor
+    from fleet.integrations.web_fetch.server import _TextExtractor
 
     p = _TextExtractor()
     p.feed(
@@ -14,7 +14,7 @@ def test_text_extractor_strips_script_and_style():
 
 
 def test_web_fetch_rejects_non_http_scheme():
-    from fleet.web_fetch.server import web_fetch
+    from fleet.integrations.web_fetch.server import web_fetch
 
     out = web_fetch("file:///etc/passwd", "anything")
     assert out["url"] == "file:///etc/passwd"

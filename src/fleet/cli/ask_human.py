@@ -18,7 +18,7 @@ def register(app: typer.Typer) -> None:
     @ask_human_app.command("serve")
     def ask_human_serve() -> None:
         """Run the ask_human MCP server on stdio (the target for `claude mcp add`)."""
-        from fleet.ask_human.server import main as _serve_main
+        from fleet.integrations.ask_human.server import main as _serve_main
 
         _serve_main()
 

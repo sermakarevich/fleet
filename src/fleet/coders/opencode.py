@@ -247,7 +247,7 @@ class OpencodeCoder(Coder):
                 "run",
                 "python",
                 "-m",
-                "fleet.ask_human.server",
+                "fleet.integrations.ask_human.server",
             ],
             "enabled": True,
         }
@@ -263,7 +263,7 @@ class OpencodeCoder(Coder):
                 "run",
                 "python",
                 "-m",
-                "fleet.web_fetch.server",
+                "fleet.integrations.web_fetch.server",
             ],
             "environment": {
                 "FLEET_WEBFETCH_MODEL": local_key,

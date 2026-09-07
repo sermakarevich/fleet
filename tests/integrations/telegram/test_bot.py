@@ -34,6 +34,7 @@ def _create_questions_db(path: Path) -> None:
             default_answer TEXT,
             status TEXT DEFAULT 'pending',
             answer TEXT,
+            note TEXT,
             answered_by TEXT,
             answered_at REAL
         )
@@ -84,13 +85,13 @@ def _make_fetch_dispatcher(updates: list) -> object:
     CancelledError on 2nd; executes fn(*args) for all other functions."""
     fetch_n = [0]
 
-    async def _fake(fn, *args):  # type: ignore[misc]
+    async def _fake(fn, *args, **kwargs):  # type: ignore[misc]
         if fn is tg._fetch_updates:
             fetch_n[0] += 1
             if fetch_n[0] == 1:
                 return updates
             raise asyncio.CancelledError()
-        return fn(*args)
+        return fn(*args, **kwargs)
 
     return _fake
 
@@ -179,7 +180,7 @@ def test_reply_to_mapped_message_answers_question(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reply-to a mapped message: status=answered, answer JSON-encoded, answered_by=telegram."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -230,7 +231,7 @@ def test_plain_text_one_pending_answers_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with exactly one pending question answers that question."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -274,7 +275,7 @@ def test_plain_text_two_pending_sends_hint_no_db_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with two pending questions sends the hint message; neither is answered."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -319,7 +320,7 @@ def test_numeric_reply_with_options_stores_option_string(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare integer '2' via reply-to resolves to option[1] ('beta') and stores that string."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -373,7 +374,7 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An update from a sender not in the allowlist is rejected; the question is not touched."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -420,7 +421,7 @@ def test_already_answered_conflict_reply_no_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Replying to an already-answered question yields 'Question already answered'; answer unchanged."""
-    import fleet.ask_human_db as db_mod
+    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)

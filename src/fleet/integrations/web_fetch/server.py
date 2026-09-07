@@ -7,7 +7,7 @@ same OpenAI-compatible endpoint opencode uses) to answer a prompt about it,
 returning ONLY the distilled answer — not the raw page — so large pages never
 flood the calling agent's context.
 
-Run standalone: python -m fleet.web_fetch.server   (stdio transport).
+Run standalone: python -m fleet.integrations.web_fetch.server   (stdio transport).
 Config via env: FLEET_WEBFETCH_MODEL (model name; if unset, the first model the
 endpoint reports is used) and FLEET_WEBFETCH_OLLAMA_URL (default below).
 """

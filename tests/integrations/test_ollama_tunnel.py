@@ -1,10 +1,10 @@
-"""Unit tests for fleet.ollama_tunnel (no network: probe and ssh are patched)."""
+"""Unit tests for fleet.integrations.ollama_tunnel (no network: probe and ssh are patched)."""
 
 from __future__ import annotations
 
 import subprocess
 
-from fleet import ollama_tunnel as ot
+from fleet.integrations import ollama_tunnel as ot
 
 
 def test_local_port_parses_loopback_and_rejects_remote():
