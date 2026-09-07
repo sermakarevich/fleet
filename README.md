@@ -131,7 +131,10 @@ override with `$FLEET_HOME` if you like.
     ├── log.jsonl                 # per-task supervisor log
     ├── log.stderr                # raw subprocess stderr
     ├── events.jsonl              # per-task structured events (agent reads on resume)
+    ├── attempts.jsonl            # one start + one end line per worker run (outcome, reason, fleet action)
     ├── .failures                 # failure counter (drives retries)
+    ├── .noclose                  # no-close counter (agent exited without closing the bead)
+    ├── .stalls                   # stall counter (agent went silent past the warning threshold)
     └── artifacts/
         ├── PLAN_AND_STATUS.md    # agent-owned plan + progress
         └── KNOWLEDGE.md          # agent-owned persistent notes
@@ -150,6 +153,29 @@ exists for a task, the supervisor falls back to running the agent in
 
 Create tasks with the `fleet bd` passthrough and write `task.json` next to
 the new task ID (see "Create your first task" below).
+
+### Blocked tasks and restarts
+
+When a task gets blocked (e.g. after repeated failures, a stall, or an
+agent that keeps exiting without closing its bead), fleet records why in
+`task.json` as `blocked_reason` / `blocked_at`, and appends a line to
+`attempts.jsonl` for every worker run with its outcome, the reason, and
+the action fleet took (released, blocked, closed, ...). You can see this
+in the web UI: the **Tasks** tab shows the block reason inline, the task
+detail header shows a banner with the same reason, and the **Runs** tab
+lists the full attempt history for that task.
+
+`POST /api/tasks/{id}/unblock` (also reachable from the Unblock button in
+the UI) reopens the bead **and** resets the failure, no-close, and stall
+counters back to zero, so the task gets a clean slate on its next run.
+This is different from the Unblock action in the BD portal, which only
+flips the bead status and leaves fleet's counters as they were — a task
+unblocked that way can immediately re-block if the old counters were
+already near their limits.
+
+Attempt history and block reasons only start accumulating from the first
+worker spawn after you upgrade to a fleet version with this feature —
+older tasks won't have retroactive history.
 
 ---
 
