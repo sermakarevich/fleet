@@ -24,7 +24,9 @@ from fleet.coders import get_coder
 from fleet.config import load as load_config
 from fleet.config import write_atomic
 from fleet.daemon import Daemon, DaemonSpec, StartResult, python_module_argv
+from fleet.gc import gc_tasks
 from fleet.logging import setup_supervisor_logger
+from fleet.ollama_tunnel import ensure_tunnel
 from fleet.queue import BeadsError, BeadsQueue
 from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC, Task
 from fleet.serve.stats import (
@@ -262,6 +264,28 @@ def bd_passthrough(ctx: typer.Context) -> None:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1)
 
+    # Embed coder/model/cwd into bd's own --metadata so they land atomically
+    # with `bd create`, before the bead can ever be claimed by the supervisor.
+    # Previously these were written into task.json in a *separate* step after
+    # `bd create` returned; a bead with no unresolved dependency is runnable
+    # the instant it's created, so the supervisor could claim and dispatch it
+    # in that gap using fleet's default coder/model instead of the requested
+    # override. Stashing them in bd's metadata at creation time removes the
+    # gap entirely — see queue.py's `_task_from_dict` for the read side.
+    if coder_override is not None or model_override is not None or cwd_override is not None:
+        bd_args, existing_metadata_raw = _extract_flag(bd_args, "--metadata")
+        try:
+            metadata = json.loads(existing_metadata_raw) if existing_metadata_raw else {}
+        except (json.JSONDecodeError, ValueError):
+            metadata = {}
+        if coder_override is not None:
+            metadata["fleet_coder"] = coder_override
+        if model_override is not None:
+            metadata["fleet_model"] = model_override
+        if cwd_override is not None:
+            metadata["fleet_cwd"] = cwd_override
+        bd_args += ["--metadata", json.dumps(metadata)]
+
     user_wants_json = "--json" in bd_args
     user_wants_dry_run = "--dry-run" in bd_args
 
@@ -305,6 +329,9 @@ def bd_passthrough(ctx: typer.Context) -> None:
         queue = BeadsQueue(home)
         queue.set_cwd(task_id, invocation_cwd)
         queue.set_overrides(task_id, coder=coder_override, model=model_override)
+        # Also snapshot title/description so the UI can show them before the
+        # supervisor claims the task (claim is when the full snapshot lands).
+        queue.set_bd_fields(task_id, body)
 
     if user_wants_json:
         typer.echo(result.stdout, nl=False)
@@ -333,6 +360,7 @@ def bd_passthrough(ctx: typer.Context) -> None:
 # are NOT auto-restarted on crash; use `restart` to pick up code changes.
 
 DEFAULT_SERVE_PORT = 7890
+DEFAULT_SERVE_HOST = "0.0.0.0"  # all interfaces (LAN, Tailscale); use 127.0.0.1 for local only
 
 _console = Console()
 
@@ -361,17 +389,19 @@ def _supervisor_spec() -> DaemonSpec:
     )
 
 
-def _serve_spec(port: int) -> DaemonSpec:
-    """Daemon spec for `fleet serve`. Stores the port so `restart` can reuse it."""
+def _serve_spec(port: int, host: str = DEFAULT_SERVE_HOST) -> DaemonSpec:
+    """Daemon spec for `fleet serve`. Stores host/port so `restart` can reuse them."""
     home = _fleet_home()
     return DaemonSpec(
         name="serve",
         pidfile=home / ".serve.pid",
         logfile=_resolve_log_dir() / "serve.daemon.log",
-        argv=python_module_argv("serve", "foreground", "--port", str(port)),
+        argv=python_module_argv(
+            "serve", "foreground", "--host", host, "--port", str(port)
+        ),
         cwd=home,
         stop_timeout=10.0,
-        extra={"port": port},
+        extra={"port": port, "host": host},
     )
 
 
@@ -384,6 +414,13 @@ def _serve_stored_port() -> int | None:
         return int(data["port"])
     except (TypeError, ValueError):
         return None
+
+
+def _serve_stored_host() -> str | None:
+    """Host recorded in the serve PID file, if any (used to preserve it on restart)."""
+    data = Daemon(_serve_spec(DEFAULT_SERVE_PORT)).read_pidfile()
+    host = data.get("host") if data else None
+    return str(host) if host else None
 
 
 def _tail_logfile(path: Path, n: int = 20) -> None:
@@ -421,6 +458,8 @@ def _report_status(daemon: Daemon, label: str) -> None:
     parts = [f"pid {st.pid}"]
     if st.started_at:
         parts.append(f"since {st.started_at}")
+    if st.extra.get("host"):
+        parts.append(f"host {st.extra['host']}")
     if st.extra.get("port") is not None:
         parts.append(f"port {st.extra['port']}")
     if st.version_fingerprint:
@@ -490,6 +529,15 @@ def run_foreground() -> None:
     if not log_root.is_absolute():
         log_root = home / log_root
     log = setup_supervisor_logger(log_root)
+
+    # Bring up the SSH tunnel to the rtx Ollama box so opencode/pi tasks can
+    # run. Non-fatal: claude/agy/codex tasks do not need it.
+    tunnel = ensure_tunnel(cfg.opencode_ollama_url)
+    if tunnel.status == "failed":
+        log.warning("ollama_tunnel_failed", detail=tunnel.detail, url=cfg.opencode_ollama_url)
+        typer.echo(f"warning: ollama tunnel not available ({tunnel.detail})", err=True)
+    else:
+        log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
     supervisor = Supervisor(
         queue=q,
         runtime_toml_path=runtime_toml,
@@ -532,6 +580,17 @@ def run_status() -> None:
     _report_status(Daemon(_supervisor_spec()), "supervisor")
 
 
+@app.command("tunnel")
+def tunnel_cmd() -> None:
+    """Ensure the SSH tunnel to the rtx Ollama box is up (starts it if needed)."""
+    cfg = load_config(_runtime_toml_path())
+    result = ensure_tunnel(cfg.opencode_ollama_url)
+    if result.status == "failed":
+        _console.print(f"[red]tunnel failed:[/red] {result.detail}")
+        raise typer.Exit(1)
+    _console.print(f"tunnel {result.status}: {result.detail}")
+
+
 # -- fleet serve ------------------------------------------------------------
 
 serve_app = typer.Typer(
@@ -541,18 +600,22 @@ serve_app = typer.Typer(
 app.add_typer(serve_app, name="serve")
 
 
+_HOST_HELP = "Interface to bind (0.0.0.0 = all interfaces incl. LAN/Tailscale; 127.0.0.1 = local only)."
+
+
 @serve_app.command("foreground")
 def serve_foreground(
     port: Annotated[
         int, typer.Option("--port", help="Port to listen on.")
     ] = DEFAULT_SERVE_PORT,
+    host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
 ) -> None:
     """Run the UI server in the foreground (blocks). This is what `start` execs."""
     import uvicorn
 
     uvicorn.run(
         "fleet.serve.app:create_app",
-        host="127.0.0.1",
+        host=host,
         port=port,
         factory=True,
     )
@@ -563,9 +626,10 @@ def serve_start(
     port: Annotated[
         int, typer.Option("--port", help="Port to listen on.")
     ] = DEFAULT_SERVE_PORT,
+    host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
 ) -> None:
-    """Start the UI server as a background daemon on 127.0.0.1 (FR-48, FR-49)."""
-    daemon = Daemon(_serve_spec(port))
+    """Start the UI server as a background daemon (FR-48, FR-49)."""
+    daemon = Daemon(_serve_spec(port, host))
     _report_start(daemon, daemon.start(), "serve")
 
 
@@ -585,6 +649,10 @@ def serve_restart(
             "--port", help="Port to listen on (default: reuse the running port)."
         ),
     ] = None,
+    host: Annotated[
+        Optional[str],
+        typer.Option("--host", help=_HOST_HELP + " Default: reuse the running host."),
+    ] = None,
     no_build: Annotated[
         bool, typer.Option("--no-build", help="Skip `make ui-build` before restarting.")
     ] = False,
@@ -596,8 +664,11 @@ def serve_restart(
     """
     if port is None:
         port = _serve_stored_port()
+    if host is None:
+        host = _serve_stored_host()
     resolved_port = port if port is not None else DEFAULT_SERVE_PORT
-    daemon = Daemon(_serve_spec(resolved_port))
+    resolved_host = host or DEFAULT_SERVE_HOST
+    daemon = Daemon(_serve_spec(resolved_port, resolved_host))
     before = None if no_build else _build_ui
     _report_start(daemon, daemon.restart(before_start=before), "serve")
 
@@ -836,6 +907,27 @@ def tasks_cmd(
     now = datetime.now(tz=timezone.utc)
     table = _render_tasks_table(tasks, now)
     Console(soft_wrap=False).print(table)
+
+
+@app.command("gc")
+def gc_cmd(
+    days: Annotated[
+        int, typer.Option("--days", help="Archive closed tasks older than N days.")
+    ] = 30,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="List what would be archived without moving.")
+    ] = False,
+) -> None:
+    """Archive closed task directories older than N days to archive/tasks."""
+    home = _fleet_home()
+    result = gc_tasks(home, days, dry_run)
+    mb = result.bytes_moved / (1024 * 1024)
+    archive_dir = home / "archive" / "tasks"
+    prefix = "dry-run: " if dry_run else ""
+    typer.echo(
+        f"{prefix}archived {len(result.archived)} task dirs "
+        f"({mb:.1f} MB) -> {archive_dir}; skipped {result.skipped}"
+    )
 
 
 def _running_tasks_help_text() -> str:

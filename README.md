@@ -296,6 +296,21 @@ fleet log 200                    # tail the last 200 lines
 Prints the most recently modified `fleet-<date>.jsonl` from
 `$FLEET_HOME/logging/`. `N` must be a positive integer when supplied.
 
+### `fleet gc`
+
+```bash
+fleet gc                         # archive closed tasks older than 30 days
+fleet gc --days 7                # shorter retention window
+fleet gc --dry-run               # report without moving anything
+```
+
+Moves closed task directories under `$FLEET_HOME/tasks` whose modification
+time is older than `--days` (default 30) to `$FLEET_HOME/archive/tasks`,
+printing how many directories were archived, how much space moved, and how
+many were skipped. Open tasks, recent tasks, and directories without a
+readable `task.json` are always skipped. Pass `--dry-run` to preview what
+would be archived without moving anything.
+
 ### `fleet bd <args...>`
 
 Forwards arguments verbatim to the `bd` CLI, executed inside `$FLEET_HOME`.
