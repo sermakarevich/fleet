@@ -1014,3 +1014,11 @@ fleet bd create --coder mycoder --model my-model --title "Task for my coder"
 
 That's it — the supervisor discovers the coder through `_REGISTRY`, so no
 further configuration is needed.
+
+---
+
+## Development
+
+CI runs ruff + pytest + UI build (tsc + vite build) on every push and pull request.
+Run checks locally with `uv run ruff check src tests` and `uv run pytest tests -q`.
+Enable the pre-commit hooks with `uv run pre-commit install`.
