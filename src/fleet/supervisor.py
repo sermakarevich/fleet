@@ -28,7 +28,6 @@ from fleet.schemas import (
     CLAIM_POLL_INTERVAL_SEC,
     CONFIG_POLL_INTERVAL_SEC,
     RATE_LIMIT_DEFAULT_SLEEP_SEC,
-    RATE_LIMIT_THRESHOLD_PCT,
     RETRY_LIMIT,
     NOCLOSE_LIMIT,
     SHUTDOWN_GRACE_SEC,
@@ -143,9 +142,6 @@ class Supervisor:
             decision = self.spawn_controller.decide(
                 in_flight=len(self.in_flight),
                 max_concurrent=self.config.max_concurrent,
-                threshold_pct=float(RATE_LIMIT_THRESHOLD_PCT),
-                gauge=self.rate_gauge,
-                skip_rate_check=(self.config.coder != "claude"),
                 enforce_full_cap=False,
             )
 
@@ -473,7 +469,6 @@ class Supervisor:
             "in_flight": len(self.in_flight),
             "cap": self.config.max_concurrent,
             "usage_pct": usage_pct,
-            "threshold_pct": RATE_LIMIT_THRESHOLD_PCT,
             "paused_until": (
                 self._paused_until.isoformat()
                 if self._paused_until is not None
@@ -511,13 +506,27 @@ class Supervisor:
                             return
                     # Non-isolated: fall through to existing no-close logic
                     count = increment_noclose(task_dir)
-                    reason = f"re-queueing (success without close; #{count})"
+                    if count >= NOCLOSE_LIMIT:
+                        reason = (
+                            f"no-close limit exhausted ({count}/{NOCLOSE_LIMIT}); "
+                            "needs human review"
+                        )
+                        self._queue.set_blocked(task.id, reason)
+                        self._queue.comment(
+                            task.id,
+                            f"[fleet] no-close limit exhausted: {count} successful exits "
+                            f"without `fleet bd close`. Blocked for human review.",
+                        )
+                        self._log.warning(
+                            "task_noclose_exhausted", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
+                        )
+                        return
+                    reason = f"re-queueing (success without close; #{count}/{NOCLOSE_LIMIT})"
                     self._queue.release(task.id, reason=reason)
                     self._queue.comment(
                         task.id,
-                        f"[fleet] success #{count}: rc=0 with the bead still open. "
-                        f"This is a no-close count. At {NOCLOSE_LIMIT} "
-                        f"the task will be blocked for human review.",
+                        f"[fleet] success #{count}/{NOCLOSE_LIMIT}: rc=0 with the bead still open. "
+                        f"At {NOCLOSE_LIMIT} the task will be blocked for human review.",
                     )
                     self._log.warning(
                         "task_success_noclose",
