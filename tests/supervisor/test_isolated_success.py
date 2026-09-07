@@ -234,7 +234,7 @@ def test_non_isolated_success_still_releases(tmp_path: Path) -> None:
 
 
 def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
-    """Non-isolated: always calls release, never set_blocked (existing behavior)."""
+    """Non-isolated: releases below NOCLOSE_LIMIT, blocks at NOCLOSE_LIMIT."""
     monkeypatch.setattr("fleet.supervisor.NOCLOSE_LIMIT", 2)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
@@ -242,11 +242,16 @@ def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
     # No .worktree marker
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    # First SUCCESS (count 1 < 2) -> one release
+    assert len(queue.released) == 1
+    assert "re-queueing" in queue.released[0][1]
+    assert "#1/2" in queue.released[0][1]
 
-    # Always releases, never sets blocked
-    assert len(queue.released) == 2
-    assert queue.blocked == []
+    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    # Second SUCCESS (count 2 >= 2) -> blocked, no further release
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 1
+    assert "needs human review" in queue.blocked[0][1]
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".needs_validation").exists()
 
@@ -254,17 +259,23 @@ def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
 def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Non-isolated: just releases every time, no .needs_validation."""
+    """Non-isolated: releases below NOCLOSE_LIMIT, blocks at NOCLOSE_LIMIT."""
     monkeypatch.setattr("fleet.supervisor.NOCLOSE_LIMIT", 2)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    # First SUCCESS (count 1 < 2) -> one release
+    assert len(queue.released) == 1
+    assert "re-queueing" in queue.released[0][1]
+    assert "#1/2" in queue.released[0][1]
+
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
-    # Always releases, never blocked, never needs_validation
-    assert len(queue.released) == 2
-    assert queue.blocked == []
+    # Second SUCCESS (count 2 >= 2) -> blocked, no further release
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 1
+    assert "needs human review" in queue.blocked[0][1]
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".needs_validation").exists()
