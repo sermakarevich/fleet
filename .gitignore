@@ -21,6 +21,10 @@ node_modules/
 # OS
 .DS_Store
 
+# Secrets / local env
+.env
+.env.*
+
 # Local tool state (user/environment specific)
 .antigravitycli/
 .claude/
@@ -29,3 +33,6 @@ node_modules/
 
 # Scratch / experiments
 scratch/
+
+# Playwright MCP debug output
+.playwright-mcp/

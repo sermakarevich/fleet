@@ -19,9 +19,6 @@ dependencies = [
 [project.scripts]
 fleet = "fleet.cli:app"
 
-[project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27"]
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["fleet*"]
@@ -35,7 +32,26 @@ pythonpath = ["src"]
 
 [dependency-groups]
 dev = [
+    "pytest>=8",
     "httpx>=0.28.1",
     "pandas>=2.0",
     "numpy>=1.26",
+    "ruff>=0.6",
+    "mypy>=1.10",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = true
+exclude = ["tests/", "src/fleet/ui/"]
