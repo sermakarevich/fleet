@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
-from fleet.serve.routes.tasks import _sync_remove_assignee
+from fleet.serve.api.tasks import _sync_remove_assignee
 from fleet.state.paths import fleet_home as get_fleet_home
 
 # Statuses beads accepts via `bd update --status`. Used to reject arbitrary input.

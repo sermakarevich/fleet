@@ -53,7 +53,7 @@ def _get(app, path: str, **kwargs) -> httpx.Response:
 def _mock_beads_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkey-patch get_beads_status_map to return None (skip beads in tests)."""
     monkeypatch.setattr(
-        "fleet.serve.routes.tasks.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None)
     )
 
 

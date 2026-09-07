@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from fleet.cli import app
+from fleet.cli.main import app
 
 runner = CliRunner()
 
 
 def _patch_root(tmp_path: Path):
-    return patch("fleet.cli._fleet_home", return_value=tmp_path)
+    return patch("fleet.cli.config.fleet_home", return_value=tmp_path)
 
 
 # ---------------------------------------------------------------------------

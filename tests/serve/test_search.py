@@ -8,8 +8,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from fleet.serve.api.search import search_tasks
 from fleet.serve.app import create_app
-from fleet.serve.routes.search import search_tasks
 
 
 def _make_task(

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import WebSocket
@@ -12,6 +12,7 @@ from fastapi import WebSocket
 from fleet.redact import redact
 from fleet.serve.stats import task_files_touched_from_dir, task_runtime_stats_from_dir
 from fleet.state.paths import tasks_root
+from fleet.state.tail import read_new_bytes
 
 
 @dataclass
@@ -130,19 +131,11 @@ class FileWatcher:
             self._tail_state[task_id] = _TailState(offset=stat.st_size, mtime=stat.st_mtime)
             return
 
-        if stat.st_size <= state.offset:
+        new_data, new_offset = read_new_bytes(path, state.offset)
+        if not new_data:
             return
 
-        try:
-            with path.open("rb") as fh:
-                fh.seek(state.offset)
-                new_data = fh.read()
-        except OSError:
-            return
-
-        self._tail_state[task_id] = _TailState(
-            offset=state.offset + len(new_data), mtime=stat.st_mtime
-        )
+        self._tail_state[task_id] = _TailState(offset=new_offset, mtime=stat.st_mtime)
         for line_bytes in new_data.splitlines():
             stripped = line_bytes.strip()
             if not stripped:
@@ -176,7 +169,7 @@ class FileWatcher:
         stats = task_runtime_stats_from_dir(task_dir)
         duration_sec: float | None = None
         if stats.started_at is not None:
-            duration_sec = (datetime.now(tz=timezone.utc) - stats.started_at).total_seconds()
+            duration_sec = (datetime.now(tz=UTC) - stats.started_at).total_seconds()
 
         files_touched = task_files_touched_from_dir(task_dir)
 

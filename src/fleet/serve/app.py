@@ -5,10 +5,11 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
@@ -16,18 +17,18 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import fleet.ask_human_db as _ahdb
-import fleet.telegram as tg
+import fleet.integrations.telegram.bot as tg
 from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.core.config import load as load_config
-from fleet.daemon import code_fingerprint
+from fleet.observability.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
-from fleet.serve.routes.analytics import create_analytics_router
-from fleet.serve.routes.beads import create_beads_router
-from fleet.serve.routes.chat import create_chat_router
-from fleet.serve.routes.config_routes import create_config_router
-from fleet.serve.routes.search import create_search_router
-from fleet.serve.routes.supervisor import create_supervisor_router
-from fleet.serve.routes.tasks import create_tasks_router
+from fleet.serve.api.analytics import create_analytics_router
+from fleet.serve.api.beads import create_beads_router
+from fleet.serve.api.chat import create_chat_router
+from fleet.serve.api.config import create_config_router
+from fleet.serve.api.search import create_search_router
+from fleet.serve.api.supervisor import create_supervisor_router
+from fleet.serve.api.tasks import create_tasks_router
 from fleet.serve.watcher import ConnectionManager, FileWatcher
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir

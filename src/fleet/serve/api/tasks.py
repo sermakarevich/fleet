@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -17,24 +16,20 @@ from fleet.beads.client import BeadsError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
-from fleet.daemon import _pid_alive
 from fleet.failures import (
     clear_needs_validation,
-    failure_count,
-    noclose_count,
     reset_failure,
     reset_noclose,
     reset_stall,
-    stall_count,
 )
-from fleet.serve.beads_info import (
-    get_beads_status_map,
-)
-from fleet.serve.stats import task_runtime_info_cached
+from fleet.observability.daemon import _pid_alive
+from fleet.observability.tailview import event_summary as _event_summary
+from fleet.serve.beads_info import get_beads_status_map
 from fleet.state.events import scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
+from fleet.state.task_summary import build_task_summary
 
 
 @dataclass
@@ -80,82 +75,8 @@ def _read_task_jsons(home: Path) -> list[dict]:
     return results
 
 
-def _coder_context_limit(coder_name: str | None, model: str | None = None) -> int:
-    if not coder_name:
-        return 200_000
-    try:
-        return get_coder(coder_name).context_limit_for(model)
-    except ValueError:
-        return 200_000
-
-
-def _build_task_summary(data: dict, home: Path) -> dict:
-    task_id = data.get("id", "")
-    task_dir = _task_dir(home, task_id)
-    info = task_runtime_info_cached(task_dir)
-
-    now = datetime.now(tz=timezone.utc)
-    started_at = info.started_at
-    elapsed_sec: float | None = (
-        (now - started_at).total_seconds() if started_at else None
-    )
-    idle_sec: float | None = (
-        (now - info.last_event_at).total_seconds() if info.last_event_at else None
-    )
-    context_tokens = info.context_tokens
-    context_pct: float | None = None
-    if context_tokens is not None:
-        limit = _coder_context_limit(data.get("coder"), data.get("model"))
-        context_pct = context_tokens / limit * 100
-
-    status = data.get("status", "")
-    ended_at = (
-        info.last_event_at.isoformat()
-        if status in ("closed", "failed") and info.last_event_at
-        else None
-    )
-
-    blocked_reason = data.get("blocked_reason")
-    if blocked_reason is None and status == "blocked":
-        beads_status = get_beads_status_map(home) or {}
-        blocked_reason = beads_status.get(task_id, {}).get("notes")
-
-    last_attempt = attempts.last_attempt(task_dir)
-
-    return {
-        "id": task_id,
-        "title": data.get("title"),
-        "description": data.get("description"),
-        "status": status,
-        "cwd": data.get("cwd"),
-        "coder": data.get("coder"),
-        "model": data.get("model"),
-        "priority": data.get("priority"),
-        "depends_on": data.get("depends_on") or [],
-        "created_at": data.get("created_at"),
-        "started_at": started_at.isoformat() if started_at else None,
-        "ended_at": ended_at,
-        "elapsed_sec": elapsed_sec,
-        "idle_sec": idle_sec,
-        "events": info.events,
-        "context_tokens": context_tokens,
-        "context_pct": context_pct,
-        "last_event_kind": info.last_event_kind,
-        "last_event_detail": info.last_event_detail,
-        "blocked_reason": blocked_reason,
-        "blocked_at": data.get("blocked_at"),
-        "failures": failure_count(task_dir),
-        "noclose": noclose_count(task_dir),
-        "stalls": stall_count(task_dir),
-        "restarts": attempts.restart_count(task_dir),
-        "last_outcome": last_attempt.get("outcome") if last_attempt else None,
-        "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
-        "last_action": last_attempt.get("action") if last_attempt else None,
-    }
-
-
 def _build_all_summaries(tasks: list[dict], home: Path) -> list[dict]:
-    return [_build_task_summary(d, home) for d in tasks]
+    return [build_task_summary(_task_dir(home, d.get("id", "")), d, home) for d in tasks]
 
 
 def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
@@ -300,7 +221,7 @@ def create_tasks_router() -> APIRouter:
                 "priority": beads_info["priority"],
                 "depends_on": beads_info["depends_on"],
             }
-        summary = _build_task_summary(data, home)
+        summary = build_task_summary(_task_dir(home, task_id), data, home)
         summary["attempts"] = attempts.load_attempts(_task_dir(home, task_id))
         return JSONResponse(summary)
 
@@ -530,7 +451,7 @@ def create_tasks_router() -> APIRouter:
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
             diff_text = stdout.decode("utf-8", errors="replace") if stdout else ""
-        except (OSError, asyncio.TimeoutError):
+        except (TimeoutError, OSError):
             diff_text = ""
         return JSONResponse({"diff": diff_text})
 
@@ -543,104 +464,6 @@ def create_tasks_router() -> APIRouter:
             for path, fc in sorted(counts.items())
         ]
         return JSONResponse({"files": files})
-
-    def _event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
-        """Derive a ~200-char one-line summary from a raw event dict."""
-        if kind == "assistant_text":
-            text = None
-            part = raw.get("part")
-            if isinstance(part, dict):
-                t = part.get("text")
-                if t is not None:
-                    text = str(t)
-            if text is None and isinstance(raw, dict):
-                t = raw.get("text")
-                if t is not None:
-                    text = str(t)
-            if text:
-                return " ".join(text.split())[:200]
-            usage = raw.get("usage", {})
-            if isinstance(usage, dict):
-                in_t = usage.get("input_tokens")
-                out_t = usage.get("output_tokens")
-                parts = []
-                if in_t is not None:
-                    parts.append(f"in={in_t}")
-                if out_t is not None:
-                    parts.append(f"out={out_t}")
-                if parts:
-                    return "Tokens: " + ", ".join(parts)
-            return ""
-        if kind == "tool_use":
-            tool = tool_name or raw.get("tool", "") or ""
-            inp = None
-            state = raw.get("state")
-            if isinstance(state, dict):
-                inp = state.get("input")
-            if inp is None:
-                part = raw.get("part")
-                if isinstance(part, dict):
-                    ps = part.get("state", {})
-                    if isinstance(ps, dict):
-                        inp = ps.get("input")
-            if isinstance(inp, dict) or isinstance(inp, list):
-                return json.dumps(
-                    {"tool": tool, "input": inp},
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )[:200]
-            if inp is not None:
-                return tool + " " + str(inp)[:200]
-            return tool
-        if kind == "tool_result":
-            tool = tool_name or raw.get("tool", "") or ""
-            state = raw.get("state", {})
-            out_str = ""
-            if isinstance(state, dict):
-                out = state.get("output")
-                if out is not None:
-                    if isinstance(out, str):
-                        out_str = out[:200]
-                    else:
-                        out_str = str(out)[:200]
-            if out_str:
-                return tool + " " + out_str
-            return tool
-        if kind == "error":
-            err = None
-            part = raw.get("part")
-            if isinstance(part, dict):
-                st = part.get("state", {})
-                if isinstance(st, dict):
-                    err = st.get("error")
-            if err is None and isinstance(raw, dict):
-                err = raw.get("error") or raw.get("message")
-            display_tool = tool_name or raw.get("tool", "") or ""
-            if display_tool:
-                if err is not None:
-                    return display_tool + ": " + str(err)[:200]
-                return display_tool + ": " + json.dumps(raw, ensure_ascii=False)[:200]
-            if err is not None:
-                return "Error: " + str(err)[:200]
-            return "Error: " + json.dumps(raw, ensure_ascii=False)[:200]
-        if kind == "session_started":
-            sid = raw.get("sessionID", "") or raw.get("session_id", "") or ""
-            last8 = str(sid)[-8:] if sid else "?"
-            return "Step start (session " + last8 + ")"
-        if kind == "session_ended":
-            tokens = raw.get("tokens", {})
-            if isinstance(tokens, dict):
-                in_t = tokens.get("input")
-                out_t = tokens.get("output")
-                parts = []
-                if in_t is not None:
-                    parts.append(f"in={in_t}")
-                if out_t is not None:
-                    parts.append(f"out={out_t}")
-                if parts:
-                    return "Session end (" + ", ".join(parts) + ")"
-            return "Session end"
-        return ""
 
     @router.get("/tasks/{task_id}/events")
     async def get_task_events(

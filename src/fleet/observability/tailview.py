@@ -177,3 +177,105 @@ def render_lines(lines: list[str]) -> list[str]:
         if rendered is not None:
             results.append(_ts_prefix(evt) + " " + rendered)
     return results
+
+
+def event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
+    """Derive a ~200-char one-line summary from a raw event dict.
+
+    Used by GET /api/tasks/{id}/events to render a compact preview per row.
+    """
+    if kind == "assistant_text":
+        text = None
+        part = raw.get("part")
+        if isinstance(part, dict):
+            t = part.get("text")
+            if t is not None:
+                text = str(t)
+        if text is None and isinstance(raw, dict):
+            t = raw.get("text")
+            if t is not None:
+                text = str(t)
+        if text:
+            return " ".join(text.split())[:200]
+        usage = raw.get("usage", {})
+        if isinstance(usage, dict):
+            in_t = usage.get("input_tokens")
+            out_t = usage.get("output_tokens")
+            parts = []
+            if in_t is not None:
+                parts.append(f"in={in_t}")
+            if out_t is not None:
+                parts.append(f"out={out_t}")
+            if parts:
+                return "Tokens: " + ", ".join(parts)
+        return ""
+    if kind == "tool_use":
+        tool = tool_name or raw.get("tool", "") or ""
+        inp = None
+        state = raw.get("state")
+        if isinstance(state, dict):
+            inp = state.get("input")
+        if inp is None:
+            part = raw.get("part")
+            if isinstance(part, dict):
+                ps = part.get("state", {})
+                if isinstance(ps, dict):
+                    inp = ps.get("input")
+        if isinstance(inp, dict) or isinstance(inp, list):
+            return json.dumps(
+                {"tool": tool, "input": inp},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )[:200]
+        if inp is not None:
+            return tool + " " + str(inp)[:200]
+        return tool
+    if kind == "tool_result":
+        tool = tool_name or raw.get("tool", "") or ""
+        state = raw.get("state", {})
+        out_str = ""
+        if isinstance(state, dict):
+            out = state.get("output")
+            if out is not None:
+                if isinstance(out, str):
+                    out_str = out[:200]
+                else:
+                    out_str = str(out)[:200]
+        if out_str:
+            return tool + " " + out_str
+        return tool
+    if kind == "error":
+        err = None
+        part = raw.get("part")
+        if isinstance(part, dict):
+            st = part.get("state", {})
+            if isinstance(st, dict):
+                err = st.get("error")
+        if err is None and isinstance(raw, dict):
+            err = raw.get("error") or raw.get("message")
+        display_tool = tool_name or raw.get("tool", "") or ""
+        if display_tool:
+            if err is not None:
+                return display_tool + ": " + str(err)[:200]
+            return display_tool + ": " + json.dumps(raw, ensure_ascii=False)[:200]
+        if err is not None:
+            return "Error: " + str(err)[:200]
+        return "Error: " + json.dumps(raw, ensure_ascii=False)[:200]
+    if kind == "session_started":
+        sid = raw.get("sessionID", "") or raw.get("session_id", "") or ""
+        last8 = str(sid)[-8:] if sid else "?"
+        return "Step start (session " + last8 + ")"
+    if kind == "session_ended":
+        tokens = raw.get("tokens", {})
+        if isinstance(tokens, dict):
+            in_t = tokens.get("input")
+            out_t = tokens.get("output")
+            parts = []
+            if in_t is not None:
+                parts.append(f"in={in_t}")
+            if out_t is not None:
+                parts.append(f"out={out_t}")
+            if parts:
+                return "Session end (" + ", ".join(parts) + ")"
+        return "Session end"
+    return ""

@@ -1,4 +1,4 @@
-from fleet.cli import app
+from fleet.cli.main import app
 
 if __name__ == "__main__":
     app()

@@ -1,23 +1,18 @@
-"""On-the-fly analytics from events.jsonl (FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41)."""
+"""The /api/analytics/summary aggregator: on-the-fly stats from events.jsonl."""
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
-from fleet.serve import analytics_core as _ac
-from fleet.serve import beads_info as _bi
+from fleet.serve import beads_info
+from fleet.serve.analytics import records as records_module
 from fleet.state.events import parse_iso
-from fleet.state.paths import fleet_home as get_fleet_home
 
 
-def _compute_summary(home: Path, days: int) -> dict:
+def compute_summary(home: Path, days: int) -> dict:
     """Compute the /summary analytics endpoint data."""
     # Clamp days
     if days <= 0:
@@ -26,8 +21,8 @@ def _compute_summary(home: Path, days: int) -> dict:
         clamped = min(days, 365)
 
     # 1. Get records and beads map
-    records = _ac.collect_records(home)
-    beads = _bi.get_beads_status_map(home)
+    records = records_module.collect_records(home)
+    beads = beads_info.get_beads_status_map(home)
 
     # 2. Reconcile each record
     reconciled = []
@@ -56,7 +51,7 @@ def _compute_summary(home: Path, days: int) -> dict:
 
         reconciled.append(r)
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
 
     # 4. Window: completed = outcome in {success, failed, blocked} AND last_ts >= cutoff
     # Active records are never window-filtered
@@ -481,14 +476,3 @@ def _compute_summary(home: Path, days: int) -> dict:
         "rate_limits": rate_limits,
     }
 
-
-def create_analytics_router() -> APIRouter:
-    router = APIRouter(prefix="/api/analytics")
-
-    @router.get("/summary")
-    async def get_summary(days: int = 7) -> JSONResponse:
-        return JSONResponse(
-            await asyncio.to_thread(_compute_summary, get_fleet_home(), days)
-        )
-
-    return router

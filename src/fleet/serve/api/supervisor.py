@@ -9,8 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.core.config import load as load_config
-from fleet.daemon import Daemon, DaemonSpec, _pid_alive, code_fingerprint, python_module_argv
-from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
+from fleet.observability.daemon import Daemon, _pid_alive, code_fingerprint, supervisor_spec
 from fleet.state.paths import fleet_home as get_fleet_home
 
 
@@ -96,19 +95,7 @@ def create_supervisor_router() -> APIRouter:
     @router.post("/restart")
     async def restart_supervisor() -> JSONResponse:
         home = get_fleet_home()
-        log_root = Path(LOG_ROOT)
-        if not log_root.is_absolute():
-            log_root = home / log_root
-        spec = DaemonSpec(
-            name="supervisor",
-            pidfile=home / ".supervisor.pid",
-            logfile=log_root / "supervisor.daemon.log",
-            argv=python_module_argv("run", "foreground"),
-            cwd=home,
-            stop_timeout=float(SHUTDOWN_GRACE_SEC + 5),
-            extra={},
-        )
-        daemon = Daemon(spec)
+        daemon = Daemon(supervisor_spec(home))
         result = await asyncio.to_thread(daemon.restart)
         pid_data = daemon.read_pidfile() or {}
         return JSONResponse({

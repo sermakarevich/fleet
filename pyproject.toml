@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-fleet = "fleet.cli:app"
+fleet = "fleet.cli.main:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

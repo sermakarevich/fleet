@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from fleet.cli import app
+from fleet.cli.main import app
 from fleet.core.config import load as load_config
 from fleet.core.config import write_atomic
 
@@ -14,7 +14,7 @@ runner = CliRunner()
 
 
 def _patch_root(tmp_path: Path):
-    return patch("fleet.cli._fleet_home", return_value=tmp_path)
+    return patch("fleet.cli.telegram.fleet_home", return_value=tmp_path)
 
 
 def _init_config(tmp_path: Path, **kwargs) -> Path:
@@ -60,7 +60,7 @@ def test_telegram_status_full_token_never_in_stdout(tmp_path: Path) -> None:
     """The full token secret portion must never appear in stdout output."""
     token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
             result = runner.invoke(
                 app, ["telegram", "status"], env={"TELEGRAM_BOT_TOKEN": token}
             )
@@ -72,7 +72,7 @@ def test_telegram_status_full_token_never_in_stdout(tmp_path: Path) -> None:
 def test_telegram_status_invalid_token_exits_nonzero(tmp_path: Path) -> None:
     """Exit 1 when getMe raises (invalid token or network error)."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", side_effect=RuntimeError("Unauthorized")):
+        with patch("fleet.integrations.telegram.setup.get_me", side_effect=RuntimeError("Unauthorized")):
             result = runner.invoke(
                 app, ["telegram", "status"], env={"TELEGRAM_BOT_TOKEN": "bad:token"}
             )
@@ -83,7 +83,7 @@ def test_telegram_status_fully_configured_exits_zero(tmp_path: Path) -> None:
     """Exit 0 when token valid, chat_id and allowed_ids are both set."""
     _init_config(tmp_path, telegram_chat_id="-100123456", telegram_allowed_ids="111,222")
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
             result = runner.invoke(
                 app, ["telegram", "status"], env={"TELEGRAM_BOT_TOKEN": "123:tok"}
             )
@@ -95,7 +95,7 @@ def test_telegram_status_missing_chat_id_exits_nonzero(tmp_path: Path) -> None:
     """Exit 1 when telegram_chat_id is absent (outbound not configured)."""
     _init_config(tmp_path, telegram_allowed_ids="111")
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
             result = runner.invoke(
                 app, ["telegram", "status"], env={"TELEGRAM_BOT_TOKEN": "123:tok"}
             )
@@ -106,7 +106,7 @@ def test_telegram_status_missing_allowed_ids_exits_nonzero(tmp_path: Path) -> No
     """Exit 1 when telegram_allowed_ids is absent (inbound not configured)."""
     _init_config(tmp_path, telegram_chat_id="-100123456")
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
             result = runner.invoke(
                 app, ["telegram", "status"], env={"TELEGRAM_BOT_TOKEN": "123:tok"}
             )
@@ -122,7 +122,7 @@ def test_telegram_test_success_path(tmp_path: Path) -> None:
     """Exit 0 when token set, chat_id in config, and send succeeds."""
     _init_config(tmp_path, telegram_chat_id="-100abc")
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.send_message_raise") as mock_send:
+        with patch("fleet.integrations.telegram.setup.send_message_raise") as mock_send:
             result = runner.invoke(
                 app, ["telegram", "test"], env={"TELEGRAM_BOT_TOKEN": "123:tok"}
             )
@@ -154,7 +154,7 @@ def test_telegram_test_api_error_friendly_message(tmp_path: Path) -> None:
     _init_config(tmp_path, telegram_chat_id="-100abc")
     with _patch_root(tmp_path):
         with patch(
-            "fleet.telegram.send_message_raise",
+            "fleet.integrations.telegram.setup.send_message_raise",
             side_effect=RuntimeError("chat not found"),
         ):
             result = runner.invoke(
@@ -174,8 +174,8 @@ def test_telegram_test_api_error_friendly_message(tmp_path: Path) -> None:
 def test_telegram_setup_writes_chat_id(tmp_path: Path) -> None:
     """--chat-id persists telegram_chat_id to runtime.toml."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.send_message_raise"):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.send_message_raise"):
                 result = runner.invoke(
                     app,
                     ["telegram", "setup", "--chat-id", "-100xyz", "--yes"],
@@ -189,8 +189,8 @@ def test_telegram_setup_writes_chat_id(tmp_path: Path) -> None:
 def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> None:
     """--allowed-ids and --default-cwd persist their values to runtime.toml."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.send_message_raise"):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.send_message_raise"):
                 result = runner.invoke(
                     app,
                     [
@@ -211,8 +211,8 @@ def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> No
 def test_telegram_setup_no_test_skips_send(tmp_path: Path) -> None:
     """--no-test means send_message_raise is never called."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.send_message_raise") as mock_send:
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.send_message_raise") as mock_send:
                 result = runner.invoke(
                     app,
                     ["telegram", "setup", "--chat-id", "-100xyz", "--no-test", "--yes"],
@@ -238,8 +238,8 @@ def test_telegram_setup_token_not_written_to_runtime_toml(tmp_path: Path) -> Non
     """Token must never appear in runtime.toml, even on the full non-interactive path."""
     token = "987654321:SomeSecretTokenThatMustNotAppearInFile"
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.send_message_raise"):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.send_message_raise"):
                 runner.invoke(
                     app,
                     [
@@ -262,7 +262,7 @@ def test_telegram_setup_token_validated_via_get_me(tmp_path: Path) -> None:
     """getMe is called to validate the token; exit 1 on failure."""
     with _patch_root(tmp_path):
         with patch(
-            "fleet.telegram.get_me", side_effect=RuntimeError("401 Unauthorized")
+            "fleet.integrations.telegram.setup.get_me", side_effect=RuntimeError("401 Unauthorized")
         ):
             result = runner.invoke(
                 app,
@@ -281,9 +281,9 @@ def test_telegram_setup_chat_discovery_persists_selection(tmp_path: Path) -> Non
     """Chat discovered via getUpdates is written to runtime.toml when --yes auto-selects."""
     updates = [_make_update(10, "-100555", "channel", "My Channel")]
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.get_updates", return_value=updates):
-                with patch("fleet.telegram.send_message_raise"):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.get_updates", return_value=updates):
+                with patch("fleet.integrations.telegram.setup.send_message_raise"):
                     result = runner.invoke(
                         app,
                         ["telegram", "setup", "--yes", "--no-test"],
@@ -302,9 +302,9 @@ def test_telegram_setup_chat_discovery_deduplicates_chats(tmp_path: Path) -> Non
         _make_update(12, "-100222", "group", "Group B"),
     ]
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.get_updates", return_value=updates):
-                with patch("fleet.telegram.send_message_raise"):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.get_updates", return_value=updates):
+                with patch("fleet.integrations.telegram.setup.send_message_raise"):
                     result = runner.invoke(
                         app,
                         ["telegram", "setup", "--yes", "--no-test"],
@@ -322,8 +322,8 @@ def test_telegram_setup_chat_discovery_deduplicates_chats(tmp_path: Path) -> Non
 def test_telegram_setup_chat_discovery_no_messages_exits_nonzero(tmp_path: Path) -> None:
     """Exit 1 when polling returns no updates (no chat found)."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
-            with patch("fleet.telegram.get_updates", return_value=[]):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
+            with patch("fleet.integrations.telegram.setup.get_updates", return_value=[]):
                 result = runner.invoke(
                     app,
                     ["telegram", "setup", "--yes"],
@@ -336,9 +336,9 @@ def test_telegram_setup_chat_discovery_no_messages_exits_nonzero(tmp_path: Path)
 def test_telegram_setup_chat_discovery_network_error_exits_nonzero(tmp_path: Path) -> None:
     """Exit 1 with a friendly message when getUpdates raises a network error."""
     with _patch_root(tmp_path):
-        with patch("fleet.telegram.get_me", return_value={"username": "mybot"}):
+        with patch("fleet.integrations.telegram.setup.get_me", return_value={"username": "mybot"}):
             with patch(
-                "fleet.telegram.get_updates",
+                "fleet.integrations.telegram.setup.get_updates",
                 side_effect=RuntimeError("connection timeout"),
             ):
                 result = runner.invoke(

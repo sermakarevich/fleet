@@ -9,9 +9,8 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-import fleet.cli as climod
-from fleet.cli import app
-from fleet.tailview import render_lines
+from fleet.cli.main import app
+from fleet.observability.tailview import render_lines
 
 runner = CliRunner()
 
@@ -282,7 +281,7 @@ def test_tail_cli_prints_header_and_lines(
         started_at=None,
     )
 
-    with patch.object(climod, "task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -305,7 +304,7 @@ def test_tail_cli_n_limit(tmp_path: Path, monkeypatch: pytest.FixtureManager) ->
         events=5, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch.object(climod, "task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id, "-n", "2"])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -388,7 +387,7 @@ def test_tail_unparseable_lines_and_unknown_kinds(
         events=0, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch.object(climod, "task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -417,7 +416,7 @@ def test_tail_events_file_gone_exits_nonzero(
         events=0, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch.object(climod, "task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0  # prints header and message

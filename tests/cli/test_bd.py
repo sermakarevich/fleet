@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from fleet.cli import app
-
+from fleet.cli.main import app
 
 BD_CREATE_JSON_RESPONSE = json.dumps(
     {"data": [{"id": "task-abc", "title": "Test Task"}]}
@@ -22,8 +21,8 @@ def _make_completed_process(stdout: str = BD_CREATE_JSON_RESPONSE, returncode: i
     return proc
 
 
-@patch("fleet.cli.BeadsQueue")
-@patch("fleet.cli.subprocess.run")
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
 def test_cwd_flag_overrides_getcwd(mock_run: MagicMock, mock_queue_cls: MagicMock) -> None:
     """--cwd /custom/path uses the supplied path, not os.getcwd()."""
     mock_run.return_value = _make_completed_process()
@@ -37,9 +36,9 @@ def test_cwd_flag_overrides_getcwd(mock_run: MagicMock, mock_queue_cls: MagicMoc
     mock_queue.set_cwd.assert_called_once_with("task-abc", "/custom/path")
 
 
-@patch("fleet.cli.BeadsQueue")
-@patch("fleet.cli.subprocess.run")
-@patch("fleet.cli.os.getcwd", return_value="/current/dir")
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
+@patch("fleet.cli.beads.os.getcwd", return_value="/current/dir")
 def test_no_cwd_flag_falls_back_to_getcwd(
     mock_getcwd: MagicMock,
     mock_run: MagicMock,
@@ -57,8 +56,8 @@ def test_no_cwd_flag_falls_back_to_getcwd(
     mock_queue.set_cwd.assert_called_once_with("task-abc", "/current/dir")
 
 
-@patch("fleet.cli.BeadsQueue")
-@patch("fleet.cli.subprocess.run")
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
 def test_cwd_flag_not_forwarded_to_bd(mock_run: MagicMock, mock_queue_cls: MagicMock) -> None:
     """--cwd must be stripped from args forwarded to bd."""
     mock_run.return_value = _make_completed_process()
@@ -73,8 +72,8 @@ def test_cwd_flag_not_forwarded_to_bd(mock_run: MagicMock, mock_queue_cls: Magic
     assert "/custom/path" not in bd_argv
 
 
-@patch("fleet.cli.BeadsQueue")
-@patch("fleet.cli.subprocess.run")
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
 def test_cwd_flag_equals_form(mock_run: MagicMock, mock_queue_cls: MagicMock) -> None:
     """--cwd=/some/path (equals form) is also accepted."""
     mock_run.return_value = _make_completed_process()

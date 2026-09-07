@@ -24,10 +24,10 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 # Seconds to wait after spawning before probing liveness, so `start` can report
 # an immediately-crashing daemon (bad config, import error) instead of a false
@@ -164,7 +164,7 @@ class Daemon:
         self.spec.pidfile.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "pid": pid,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             "version_fingerprint": code_fingerprint(),
             **self.spec.extra,
         }
@@ -298,3 +298,45 @@ class Daemon:
 def python_module_argv(*args: str) -> list[str]:
     """Build an argv that re-execs this interpreter as ``python -m fleet ...``."""
     return [sys.executable, "-m", "fleet", *args]
+
+
+def _log_dir(home: Path) -> Path:
+    from fleet.core.limits import LOG_ROOT
+
+    log_root = Path(LOG_ROOT)
+    return log_root if log_root.is_absolute() else home / log_root
+
+
+def supervisor_spec(home: Path) -> DaemonSpec:
+    """Daemon spec for `fleet run`, shared by the CLI and the /api/supervisor route.
+
+    PID file is `$FLEET_HOME/.supervisor.pid` so the UI's /api/supervisor route
+    lights up. stop_timeout exceeds SHUTDOWN_GRACE_SEC so the supervisor's
+    graceful shutdown (releasing in-flight tasks) completes before any SIGKILL.
+    """
+    from fleet.core.limits import SHUTDOWN_GRACE_SEC
+
+    return DaemonSpec(
+        name="supervisor",
+        pidfile=home / ".supervisor.pid",
+        logfile=_log_dir(home) / "supervisor.daemon.log",
+        argv=python_module_argv("run", "foreground"),
+        cwd=home,
+        stop_timeout=float(SHUTDOWN_GRACE_SEC + 5),
+        extra={},
+    )
+
+
+def serve_spec(home: Path, host: str, port: int) -> DaemonSpec:
+    """Daemon spec for `fleet serve`. Stores host/port so `restart` can reuse them."""
+    return DaemonSpec(
+        name="serve",
+        pidfile=home / ".serve.pid",
+        logfile=_log_dir(home) / "serve.daemon.log",
+        argv=python_module_argv(
+            "serve", "foreground", "--host", host, "--port", str(port)
+        ),
+        cwd=home,
+        stop_timeout=10.0,
+        extra={"port": port, "host": host},
+    )

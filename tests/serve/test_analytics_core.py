@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
-from fleet.serve.analytics_core import collect_records, task_record_cached
+from fleet.serve.analytics.records import collect_records, task_record_cached
 
 
 def _write_task_json(d: Path, **fields) -> dict:

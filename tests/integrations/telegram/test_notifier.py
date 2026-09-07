@@ -9,10 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import fleet.telegram as tg
-from fleet.core.config import load, write_atomic
-from fleet.core.config import RuntimeConfig
-
+import fleet.integrations.telegram.bot as tg
+from fleet.core.config import RuntimeConfig, load, write_atomic
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -72,7 +70,7 @@ class _FakeResp:
     def read(self) -> bytes:
         return b""
 
-    def __enter__(self) -> "_FakeResp":
+    def __enter__(self) -> _FakeResp:
         return self
 
     def __exit__(self, *a: object) -> None:
@@ -144,8 +142,8 @@ def test_poller_skips_send_when_token_missing(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
 
+    import fleet.serve.api.chat as chat_mod
     import fleet.serve.app as app_mod
-    import fleet.serve.routes.chat as chat_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -187,8 +185,8 @@ def test_poller_does_not_send_preexisting_rows(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="old question", created_at=1000.0)
 
+    import fleet.serve.api.chat as chat_mod
     import fleet.serve.app as app_mod
-    import fleet.serve.routes.chat as chat_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -224,8 +222,8 @@ def test_poller_sends_new_question_exactly_once(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
 
+    import fleet.serve.api.chat as chat_mod
     import fleet.serve.app as app_mod
-    import fleet.serve.routes.chat as chat_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -265,8 +263,8 @@ def test_poller_continues_after_send_error(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)  # empty → watermark = 0.0
 
+    import fleet.serve.api.chat as chat_mod
     import fleet.serve.app as app_mod
-    import fleet.serve.routes.chat as chat_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -1140,7 +1138,7 @@ class _JsonResp:
     def read(self) -> bytes:
         return self._data
 
-    def __enter__(self) -> "_JsonResp":
+    def __enter__(self) -> _JsonResp:
         return self
 
     def __exit__(self, *a: object) -> None:
@@ -1253,8 +1251,8 @@ def test_poller_records_message_id_mapping(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
 
+    import fleet.serve.api.chat as chat_mod
     import fleet.serve.app as app_mod
-    import fleet.serve.routes.chat as chat_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)

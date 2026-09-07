@@ -9,9 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import fleet.telegram as tg
+import fleet.integrations.telegram.bot as tg
 from fleet.core.config import RuntimeConfig
-
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -105,7 +104,7 @@ class _JsonResp:
     def read(self) -> bytes:
         return self._data
 
-    def __enter__(self) -> "_JsonResp":
+    def __enter__(self) -> _JsonResp:
         return self
 
     def __exit__(self, *a: object) -> None:

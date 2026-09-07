@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from fleet.cli import app
+from fleet.cli.main import app
 from fleet.gc import gc_tasks
 
 runner = CliRunner()
@@ -63,7 +63,7 @@ def test_gc_dry_run_moves_nothing(tmp_path: Path) -> None:
 
 def test_gc_cli_reports_archived(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-cli", "closed", old=True)
-    with patch("fleet.cli._fleet_home", return_value=tmp_path):
+    with patch("fleet.cli.tasks.fleet_home", return_value=tmp_path):
         result = runner.invoke(app, ["gc", "--days", "30"])
     assert result.exit_code == 0, result.output
     assert "archived" in result.output
