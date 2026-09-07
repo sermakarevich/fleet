@@ -68,7 +68,8 @@ class TestEnsureWorktree:
         """ensure_worktree returns the expected path."""
         monkeypatch.setenv("FLEET_WORKTREE_ISOLATION", "1")
         path = ensure_worktree(git_repo, "test-ens-2")
-        expected = Path.home() / ".fleet" / "worktrees" / "test-ens-2"
+        from fleet.worktree import worktree_path
+        expected = worktree_path("test-ens-2")
         assert path == expected
 
     def test_ignores_fleet_home_override(

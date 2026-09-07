@@ -14,7 +14,19 @@ from fleet.worktree import (
     is_committed_clean,
     remove_worktree,
     worktree_isolation_enabled,
+    worktree_path,
 )
+
+__all__ = [
+    "create_worktree",
+    "is_committed_clean",
+    "remove_worktree",
+    "worktree_isolation_enabled",
+    "worktree_path",
+    "ensure_worktree",
+    "cleanup_worktree",
+    "is_task_advanced",
+]
 
 
 def ensure_worktree(
