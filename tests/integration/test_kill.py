@@ -6,7 +6,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 from tests.integration.conftest import (
     FakeClaudeCoder,

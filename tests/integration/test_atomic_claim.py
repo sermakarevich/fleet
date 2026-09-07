@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 from tests.integration.conftest import (
     MemoryQueue,

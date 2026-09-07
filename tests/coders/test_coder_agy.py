@@ -4,7 +4,7 @@ from pathlib import Path
 from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.coders.agy import AgyCoder
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 
 def _coder() -> AgyCoder:

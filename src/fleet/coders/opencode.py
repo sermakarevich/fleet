@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders.base import Coder
-from fleet.schemas import RATE_LIMIT_DEFAULT_SLEEP_SEC, Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
+from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 
-from fleet.schemas import Event, Task, TaskOutcomeRecord
+from fleet.core.task import Event, Task, TaskOutcomeRecord
 
 
 class Coder(ABC):

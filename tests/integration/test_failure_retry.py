@@ -5,7 +5,7 @@ import asyncio
 from pathlib import Path
 
 from fleet.failures import failure_count
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 from tests.integration.conftest import (
     FakeClaudeCoder,

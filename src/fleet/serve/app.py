@@ -18,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import fleet.ask_human_db as _ahdb
 import fleet.telegram as tg
 from fleet.ask_human_db import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
-from fleet.config import load as load_config
+from fleet.core.config import load as load_config
 from fleet.daemon import code_fingerprint
 from fleet.queue import BeadsQueue, Queue
 from fleet.serve.routes.analytics import create_analytics_router

@@ -9,7 +9,7 @@ from typing import IO
 
 import structlog
 
-from fleet.schemas import Event
+from fleet.core.task import Event
 from fleet.redact import redact
 
 EVENTS_MAX_BYTES: int = 50 * 1024 * 1024

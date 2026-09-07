@@ -6,7 +6,7 @@ import pytest
 from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.coders.claude import ClaudeCoder
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -475,9 +475,9 @@ def test_normalize_thinking_event():
 def test_no_anthropic_import_in_coder_module():
     import fleet.coders.base as coder_mod
     import fleet.coders.claude as cli_mod
-    import fleet.schemas as schemas_mod
+    import fleet.core.task as task_mod
 
-    for mod in (coder_mod, cli_mod, schemas_mod):
+    for mod in (coder_mod, cli_mod, task_mod):
         src = Path(mod.__file__).read_text()
         assert "anthropic" not in src, f"anthropic import found in {mod.__file__}"
         assert "claude-agent-sdk" not in src, (

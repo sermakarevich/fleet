@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import fleet.telegram as tg
-from fleet.schemas import RuntimeConfig
+from fleet.core.config import RuntimeConfig
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ def test_task_command_creates_task_regression(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """/new_task command still creates a task even when answer interface is wired up (regression)."""
-    from fleet.schemas import Task
+    from fleet.core.task import Task
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()

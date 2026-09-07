@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fleet.coders.opencode import classify_opencode_log_lines
-from fleet.schemas import TaskOutcome
+from fleet.core.task import TaskOutcome
 
 _SINCE = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
 _MODEL = "opencode/muse-spark-1.3-contributor-free"

@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fleet.config import write_atomic
-from fleet.schemas import Task
+from fleet.core.config import write_atomic
+from fleet.core.task import Task
 
 from tests.integration.conftest import (
     FakeClaudeCoder,

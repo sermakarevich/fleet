@@ -24,14 +24,15 @@ from fleet import tailview
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
 from fleet.coders import get_coder
-from fleet.config import load as load_config
-from fleet.config import write_atomic
+from fleet.core.config import load as load_config
+from fleet.core.config import write_atomic
 from fleet.daemon import Daemon, DaemonSpec, StartResult, python_module_argv
 from fleet.gc import gc_tasks
 from fleet.logging import setup_supervisor_logger
 from fleet.ollama_tunnel import ensure_tunnel
 from fleet.queue import BeadsQueue
-from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC, Task
+from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
+from fleet.core.task import Task
 from fleet.serve.stats import (
     TaskRuntimeStats as _TaskRuntimeStats,
 )
@@ -47,7 +48,7 @@ from fleet.state.paths import (
 from fleet.state.paths import (
     tasks_root as _tasks_root_impl,
 )
-from fleet.supervisor import Supervisor
+from fleet.orchestrator.supervisor import Supervisor
 
 app = typer.Typer(
     no_args_is_help=True,

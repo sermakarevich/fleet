@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fleet.schemas import Event
+from fleet.core.task import Event
 
 
 def _ts() -> datetime:

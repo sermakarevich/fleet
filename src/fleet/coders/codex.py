@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fleet.coders.base import Coder
-from fleet.schemas import Event, Task
+from fleet.core.task import Event, Task
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -113,7 +113,7 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
 def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Without resetsAt, supervisor falls back to rate_limit_default_sleep_sec. (FR-21)"""
     sleep_sec = 45
-    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", sleep_sec)
+    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", sleep_sec)
 
     queue = MemoryQueue()
     queue.add_task(_task())

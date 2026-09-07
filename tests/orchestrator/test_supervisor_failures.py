@@ -1,0 +1,639 @@
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
+
+import structlog
+
+from fleet.core.config import RuntimeConfig
+from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.failures import failure_count
+from fleet.orchestrator.supervisor import Supervisor
+
+
+# ---------------------------------------------------------------------------
+# Test doubles
+# ---------------------------------------------------------------------------
+
+
+class StubCoder:
+    name = "stub"
+
+    def build_argv(self, task, task_dir):
+        return ["echo"]
+
+    def env(self, task, task_dir):
+        return {}
+
+    def normalize_event(self, raw_line):
+        return None
+
+
+class StubQueue:
+    def __init__(self, status: str = "open") -> None:
+        self._status = status
+        self.released: list[tuple[str, str]] = []
+        self.blocked: list[tuple[str, str]] = []
+        self.comments: list[tuple[str, str]] = []
+
+    def claim_next(self, claimer_id, *, can_claim=None):
+        return None
+
+    def release(self, task_id, reason=""):
+        self.released.append((task_id, reason))
+
+    def set_blocked(self, task_id, reason):
+        self.blocked.append((task_id, reason))
+
+    def close(self, task_id, reason="completed"):
+        pass
+
+    def comment(self, task_id, body):
+        self.comments.append((task_id, body))
+
+    def get(self, task_id):
+        return Task(id=task_id, title="T", description=None, status=self._status)
+
+    def list_ready(self, limit=50):
+        return []
+
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        pass
+
+
+def _make_supervisor(
+    tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
+) -> Supervisor:
+    s = Supervisor(
+        coder=StubCoder(),
+        queue=queue,
+        runtime_toml_path=tmp_path / "runtime.toml",
+        project_root=tmp_path,
+        log=structlog.get_logger(),
+    )
+    if config is not None:
+        s.config = config
+    return s
+
+
+def _task(task_id: str = "t-001", status: str = "in_progress") -> Task:
+    return Task(id=task_id, title="Test", description=None, status=status)
+
+
+def _outcome(
+    outcome: TaskOutcome,
+    exit_code: int = 0,
+    reason: str = "",
+    resets_at: int | None = None,
+    stderr_tail: str | None = None,
+) -> TaskOutcomeRecord:
+    return TaskOutcomeRecord(
+        outcome=outcome,
+        exit_code=exit_code,
+        reason=reason,
+        resets_at=resets_at,
+        stderr_tail=stderr_tail,
+    )
+
+
+# ---------------------------------------------------------------------------
+# FAILURE under retry_limit → release + comment, no set_blocked
+# ---------------------------------------------------------------------------
+
+
+def test_failure_under_limit_calls_release(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 3)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
+    )
+    assert len(queue.released) == 1
+    assert "rc=1" in queue.released[0][1]
+
+
+def test_failure_under_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 3)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.comments) == 1
+
+
+def test_failure_under_limit_no_set_blocked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 3)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.blocked) == 0
+
+
+# ---------------------------------------------------------------------------
+# FAILURE at retry_limit → set_blocked + comment, no release
+# ---------------------------------------------------------------------------
+
+
+def test_failure_at_limit_calls_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    # RETRY_LIMIT=2 by default; trigger two failures to exhaust
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.blocked) == 1
+
+
+def test_failure_at_limit_no_release(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 1)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.released) == 0
+
+
+def test_failure_at_limit_calls_comment(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 1)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.comments) == 1
+
+
+def test_failure_exhausted_reason_in_blocked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 1)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash")
+    )
+    assert "retry limit" in queue.blocked[0][1]
+
+
+# ---------------------------------------------------------------------------
+# RATE_LIMIT outcome → _paused_until set, failure counter not incremented
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    before = datetime.now(tz=timezone.utc)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=None))
+    assert s._paused_until is not None
+    assert s._paused_until > before
+
+
+def test_rate_limit_paused_until_uses_resets_at_when_later(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 5)
+    queue = StubQueue()
+    far_future = int(datetime.now(tz=timezone.utc).timestamp()) + 9999
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=far_future))
+    assert s._paused_until is not None
+    # paused_until should be >= far_future (resets_at wins)
+    assert s._paused_until.timestamp() >= far_future
+
+
+def test_rate_limit_does_not_increment_failure_count(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
+    assert failure_count(s._task_dir_for(_task())) == 0
+
+
+def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -> None:
+    """After a RATE_LIMIT outcome, _paused_until is set and claim loop skips spawning."""
+    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
+    # Confirm paused_until is in the future
+    assert s._paused_until > datetime.now(tz=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# CONTEXT_PRESSURE outcome → release, failure counter not incremented
+# ---------------------------------------------------------------------------
+
+
+def test_context_pressure_calls_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert len(queue.released) == 1
+    assert "context_pressure" in queue.released[0][1]
+
+
+def test_context_pressure_does_not_increment_failure_count(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# CONTEXT_PRESSURE when bead already closed → skip release, reset counters
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_context_pressure_closed_bead_no_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert len(queue.released) == 0
+
+
+def test_context_pressure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert len(queue.blocked) == 0
+
+
+def test_context_pressure_closed_bead_resets_failure_counter(tmp_path: Path) -> None:
+    task = _task()
+    task_dir = Path(tmp_path) / "tasks" / task.id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".failures").write_text("3")
+    assert failure_count(task_dir) == 3
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(task, _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    assert failure_count(task_dir) == 0
+    assert not (task_dir / ".failures").exists()
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# FAILURE when bead already closed → no retry counter, no set_blocked
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_failure_closed_bead_no_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.released) == 0
+
+
+def test_failure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    assert len(queue.blocked) == 0
+
+
+def test_failure_closed_bead_no_retry_counter_file(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    task = _task()
+    task_dir = s._task_dir_for(task)
+    assert not (task_dir / ".failures").exists()
+
+
+# ------ -------------------------- -------------------- ------ ----------- ----
+# KILLED when bead already closed → no set_blocked, no comment
+# ------ -------------------------- -------------------- ------ ----------- ----
+
+
+def test_killed_closed_bead_no_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    assert len(queue.blocked) == 0
+
+
+def test_killed_closed_bead_no_comment(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    assert len(queue.comments) == 0
+
+
+def test_killed_closed_bead_resets_failure_counter(tmp_path: Path) -> None:
+    task = _task()
+    task_dir = Path(tmp_path) / "tasks" / task.id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / ".failures").write_text("5")
+    assert failure_count(task_dir) == 5
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED))
+    assert failure_count(task_dir) == 0
+    assert not (task_dir / ".failures").exists()
+
+
+# ---------------------------------------------------------------------------
+# SUCCESS with task still in_progress → release, no failure increment
+# ---------------------------------------------------------------------------
+
+
+def test_success_task_still_in_progress_calls_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.released) == 1
+    assert "re-queueing" in queue.released[0][1]
+    assert "#1/" in queue.released[0][1]
+
+
+def test_success_task_already_closed_no_release(tmp_path: Path) -> None:
+    queue = StubQueue(status="closed")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.released) == 0
+
+
+def test_success_does_not_increment_failure_count(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ------ -------------------------- ---- ------ ------ ------ ------ ----------- ----
+# NOCLOSE counter: SUCCESS with still_in_progress caps at NOCLOSE_LIMIT
+# ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------
+
+
+def test_eleven_noclose_successes_released_each_time(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 12)
+    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(11):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.released) == 11
+    for i in range(11):
+        assert f"#{i + 1}/" in queue.released[i][1]
+    assert len(queue.blocked) == 0
+
+
+def test_noclose_twelfth_exhausts_limit(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(11):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-001"
+    assert "needs human review" in queue.blocked[0][1]
+
+
+def test_noclose_exhausted_posts_comment(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    for i in range(12):
+        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    assert len(queue.comments) >= 1
+    assert any("exhausted" in c[1] for c in queue.comments)
+
+
+def test_noclose_counter_file_created(tmp_path: Path, monkeypatch) -> None:
+    from fleet.failures import noclose_count
+
+    monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 12)
+    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    task_dir = s._task_dir_for(_task())
+    assert (task_dir / ".noclose").exists()
+    assert noclose_count(task_dir) == 1
+
+
+def test_success_with_bead_closed_resets_noclose_counter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from fleet.failures import noclose_count
+
+    monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 12)
+    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)
+    queue_in_progress = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue_in_progress)
+    task = _task()
+    for _ in range(11):
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    task_dir = s._task_dir_for(task)
+    assert noclose_count(task_dir) == 11
+    queue_closed = StubQueue(status="closed")
+    s2 = _make_supervisor(tmp_path, queue_closed)
+    s2._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    assert noclose_count(task_dir) == 0
+    assert not (task_dir / ".noclose").exists()
+
+
+# ---------------------------------------------------------------------------
+# BLOCKED_BY_AGENT outcome → no bd writes, no failure increment
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_by_agent_no_queue_writes(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
+    assert len(queue.released) == 0
+    assert len(queue.blocked) == 0
+    assert len(queue.comments) == 0
+
+
+def test_blocked_by_agent_no_failure_increment(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
+    assert failure_count(s._task_dir_for(_task())) == 0
+
+
+# ---------------------------------------------------------------------------
+# Invalid coder at spawn time → set_blocked + comment, no runner created
+# ---------------------------------------------------------------------------
+
+
+def _unpinned_supervisor(
+    tmp_path: Path, queue: StubQueue, config: RuntimeConfig
+) -> Supervisor:
+    """Build a supervisor without a pinned coder so _resolve_coder runs the registry lookup."""
+    s = Supervisor(
+        queue=queue,
+        runtime_toml_path=tmp_path / "runtime.toml",
+        project_root=tmp_path,
+        log=structlog.get_logger(),
+    )
+    s.config = config
+    return s
+
+
+def test_invalid_default_coder_blocks_task(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-001"))
+
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-001"
+    assert "invalid coder" in queue.blocked[0][1]
+    assert "bogus_typo" in queue.blocked[0][1]
+    assert "t-001" not in s.in_flight
+
+
+def test_invalid_task_override_blocks_task(tmp_path: Path) -> None:
+    """A per-task coder override that's invalid blocks even when the default is valid."""
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="claude"))
+    task = Task(
+        id="t-002",
+        title="X",
+        description=None,
+        status="in_progress",
+        coder="nope",
+    )
+
+    s._spawn_runner(task)
+
+    assert len(queue.blocked) == 1
+    assert queue.blocked[0][0] == "t-002"
+    assert "nope" in queue.blocked[0][1]
+    assert "t-002" not in s.in_flight
+
+
+def test_invalid_coder_writes_operator_comment(tmp_path: Path) -> None:
+    queue = StubQueue()
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-003"))
+
+    assert len(queue.comments) == 1
+    assert queue.comments[0][0] == "t-003"
+    assert "bogus_typo" in queue.comments[0][1]
+    assert "runtime.toml" in queue.comments[0][1]
+
+
+def test_invalid_coder_does_not_freeze_task_meta(tmp_path: Path) -> None:
+    """freeze_coder_model must NOT be called when resolution failed."""
+    queue = StubQueue()
+    frozen: list[tuple[str, str, str]] = []
+    queue.freeze_coder_model = lambda tid, c, m: frozen.append((tid, c, m))  # type: ignore[attr-defined]
+    s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
+
+    s._spawn_runner(_task("t-004"))
+
+    assert frozen == []
+
+
+# ---------------------------------------------------------------------------
+# Duplicate-claim guard: claim loop must not spawn a task already in flight
+# (e.g. a UI unblock / `bd update` flipped a running task back to claimable)
+# ---------------------------------------------------------------------------
+
+
+class _ClaimOnceQueue(StubQueue):
+    """claim_next returns the given task on the first call, then None."""
+
+    def __init__(self, task: Task) -> None:
+        super().__init__()
+        self._task = task
+        self.claims = 0
+
+    def claim_next(self, claimer_id, *, can_claim=None):
+        self.claims += 1
+        return self._task if self.claims == 1 else None
+
+
+def _run_claim_loop_briefly(s: Supervisor, pre_in_flight: str | None) -> None:
+    async def _run() -> None:
+        fake_runner: asyncio.Task | None = None
+        if pre_in_flight is not None:
+            fake_runner = asyncio.create_task(asyncio.sleep(9999))
+            s.in_flight[pre_in_flight] = fake_runner
+        loop_task = asyncio.create_task(s._claim_and_spawn_loop())
+        await asyncio.sleep(0.1)
+        s._shutting_down = True
+        await asyncio.wait_for(loop_task, timeout=2)
+        if fake_runner is not None:
+            fake_runner.cancel()
+
+    asyncio.run(_run())
+
+
+def test_claim_loop_skips_task_already_in_flight(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
+    queue = _ClaimOnceQueue(_task("t-dup"))
+    s = _make_supervisor(tmp_path, queue)
+    spawned: list[str] = []
+    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+
+    _run_claim_loop_briefly(s, pre_in_flight="t-dup")
+
+    assert queue.claims >= 1
+    assert spawned == []
+
+
+def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
+    queue = _ClaimOnceQueue(_task("t-new"))
+    s = _make_supervisor(tmp_path, queue)
+    spawned: list[str] = []
+    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+
+    _run_claim_loop_briefly(s, pre_in_flight=None)
+
+    assert spawned == ["t-new"]
+
+
+# ---------------------------------------------------------------------------
+# Stall kill-and-retry ladder: KILLED after a stall-kill releases, then blocks
+# ---------------------------------------------------------------------------
+
+
+def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(
+        tmp_path,
+        queue,
+        config=RuntimeConfig(
+            stall_warning_minutes=1, stall_action="kill", stall_block_after=2
+        ),
+    )
+    task = _task("t-stall")
+
+    # First stall-kill cycle: count 1 < 2 -> release for retry.
+    s._stall_killed.add(task.id)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="stalled"))
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 0
+    assert f"#1/{2}" in queue.released[0][1]
+    assert task.id not in s._stall_killed
+
+    # Second stall-kill cycle: count 2 >= 2 -> block for a human.
+    s._stall_killed.add(task.id)
+    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="stalled"))
+    assert len(queue.released) == 1
+    assert len(queue.blocked) == 1
+    assert "needs human review" in queue.blocked[0][1]
+
+
+def test_failure_release_writes_attempt_end_line(tmp_path: Path, monkeypatch) -> None:
+    """After a FAILURE outcome that releases, attempts.jsonl has an end line."""
+    import json
+
+    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 3)
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(
+        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
+    )
+    assert len(queue.released) == 1
+    attempts_path = tmp_path / "tasks" / "t-001" / "attempts.jsonl"
+    assert attempts_path.exists()
+    end_lines = [
+        json.loads(line)
+        for line in attempts_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line).get("event") == "end"
+    ]
+    assert end_lines, "expected an end line in attempts.jsonl"
+    assert end_lines[-1]["outcome"] == "failure"

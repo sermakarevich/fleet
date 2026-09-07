@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fleet.coders.base import Coder
-from fleet.schemas import Event, Task
+from fleet.core.task import Event, Task
 
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -67,6 +67,11 @@ class ClaudeCoder(Coder):
             self.model,
             "--output-format",
             "stream-json",
+            # Headless workers have no human to answer a permission prompt. Without this,
+            # settings' default permission mode decides each write per request and can refuse
+            # ("Claude requested permissions to write to <file>, but you haven't granted it
+            # yet"), which strands the task. agy takes the same flag for the same reason.
+            "--dangerously-skip-permissions",
             prompt,
         ]
 

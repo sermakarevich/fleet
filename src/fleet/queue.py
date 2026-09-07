@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
-from fleet.schemas import Task
+from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir
 
 

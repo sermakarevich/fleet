@@ -12,10 +12,10 @@ import pytest
 import structlog
 
 from fleet.coders.claude import ClaudeCoder
-from fleet.config import write_atomic
+from fleet.core.config import RuntimeConfig, write_atomic
+from fleet.core.task import Task
+from fleet.orchestrator.supervisor import Supervisor
 from fleet.queue import Queue
-from fleet.schemas import RuntimeConfig, Task
-from fleet.supervisor import Supervisor
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -135,7 +135,7 @@ class MemoryQueue(Queue):
 
     def get(self, task_id: str) -> Task:
         if task_id not in self._tasks:
-            from fleet.queue import BeadsError
+            from fleet.beads.client import BeadsError
             raise BeadsError(f"Task {task_id} not found")
         return self._tasks[task_id]
 
@@ -282,11 +282,11 @@ async def run_until(
 @pytest.fixture(autouse=True)
 def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch supervisor/runner constants to fast values for all integration tests."""
-    monkeypatch.setattr("fleet.supervisor.CLAIM_POLL_INTERVAL_SEC", 1)
-    monkeypatch.setattr("fleet.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
-    monkeypatch.setattr("fleet.supervisor.SHUTDOWN_GRACE_SEC", 3)
-    monkeypatch.setattr("fleet.supervisor.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
-    monkeypatch.setattr("fleet.runner.SHUTDOWN_GRACE_SEC", 3)
+    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 1)
+    monkeypatch.setattr("fleet.orchestrator.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
+    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 3)
+    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
+    monkeypatch.setattr("fleet.orchestrator.runner.SHUTDOWN_GRACE_SEC", 3)
 
 
 def fast_config(**overrides: object) -> RuntimeConfig:

@@ -5,7 +5,7 @@ from pathlib import Path
 from fleet.coders.base import Coder
 from fleet.coders import get_coder, list_coders
 from fleet.coders.opencode import OpencodeCoder
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 # Real event lines captured from the live end-to-end probe (events.jsonl)
 _STEP_START = '{"type":"step_start","timestamp":1781181263432,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad2e41001rLoEveqAPkh9KB","messageID":"msg_eb6ad0f32001Bv5NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-start"}}'

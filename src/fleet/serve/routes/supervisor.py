@@ -8,9 +8,9 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from fleet.config import load as load_config
+from fleet.core.config import load as load_config
 from fleet.daemon import Daemon, DaemonSpec, _pid_alive, code_fingerprint, python_module_argv
-from fleet.schemas import LOG_ROOT, SHUTDOWN_GRACE_SEC
+from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
 from fleet.state.paths import fleet_home as get_fleet_home
 
 

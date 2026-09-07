@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 import pytest
 
 import fleet.telegram as tg
-from fleet.config import load, write_atomic
-from fleet.schemas import RuntimeConfig
+from fleet.core.config import load, write_atomic
+from fleet.core.config import RuntimeConfig
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +575,7 @@ def test_inbound_listener_creates_task_and_replies(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.schemas import Task
+    from fleet.core.task import Task
     fake_task = Task(id="fleet-abc1", title="Fix the bug", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
@@ -711,7 +711,7 @@ def test_inbound_listener_new_task_botname_creates_task(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.schemas import Task
+    from fleet.core.task import Task
     fake_task = Task(id="fleet-bot1", title="Bot task", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
@@ -757,7 +757,7 @@ def test_inbound_listener_tasks_command_lists_tasks(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.schemas import Task
+    from fleet.core.task import Task
     app.state.queue.list_in_progress.return_value = [
         Task(id="fleet-aaa1", title="Task A", description=None, status="in_progress")
     ]
@@ -965,7 +965,7 @@ def test_inbound_listener_task_id_shows_details(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.schemas import Task
+    from fleet.core.task import Task
     fake_task = Task(id="fleet-xyz1", title="Fix the widget", description=None, status="in_progress")
     app.state.queue.get.return_value = fake_task
 
@@ -1074,7 +1074,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
         }
     ]
 
-    from fleet.schemas import Task
+    from fleet.core.task import Task
 
     fake_task = Task(id="fleet-xyz1", title="Title", description=None, status="open")
     offset_path = tmp_path / "offset"

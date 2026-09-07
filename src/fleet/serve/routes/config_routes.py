@@ -6,8 +6,8 @@ from dataclasses import asdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from fleet.config import load as load_config
-from fleet.config import write_atomic
+from fleet.core.config import load as load_config
+from fleet.core.config import write_atomic
 from fleet.state.paths import fleet_home as get_fleet_home
 
 

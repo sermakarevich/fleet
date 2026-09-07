@@ -11,7 +11,7 @@ from fleet.coders.pi import (
     _pi_agent_dir,
     _resolve_model,
 )
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 
 def _coder(**kwargs) -> PiCoder:

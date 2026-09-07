@@ -12,7 +12,7 @@ import fleet.cli as climod
 from fleet.beads.client import BeadsError
 from fleet.cli import app
 from fleet.daemon import DaemonStatus, StartResult
-from fleet.schemas import Task
+from fleet.core.task import Task
 
 runner = CliRunner()
 wide_runner = CliRunner(env={"COLUMNS": "160"})
