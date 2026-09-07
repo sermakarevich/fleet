@@ -25,6 +25,17 @@ _STDERR_TAIL_BYTES = 2048
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
+def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
+    """Signal the child's whole process group; fall back to the child alone."""
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.send_signal(sig)
+        except (ProcessLookupError, OSError):
+            pass
+
+
 def _input_tokens(usage: dict) -> int:
     """Sum prompt-side tokens for context tracking; missing or non-int fields → 0."""
 
@@ -114,6 +125,7 @@ class TaskRunner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=task_log.stderr_file,
                 stdin=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
             )
             self._proc = proc
 
@@ -121,10 +133,7 @@ class TaskRunner:
             # — at that moment `self._proc` was still None, so cancel() returned
             # without signalling. Close the race by sending SIGTERM here.
             if self._cancelled:
-                try:
-                    proc.send_signal(signal.SIGTERM)
-                except (ProcessLookupError, OSError):
-                    pass
+                _signal_group(proc, signal.SIGTERM)
 
             outcome: TaskOutcomeRecord | None = None
             peak_context_tokens: int = 0
@@ -206,17 +215,11 @@ class TaskRunner:
                         resets_at=resets_at,
                     )
                     await asyncio.to_thread(self._queue.release, task.id, reason=reason)
-                    try:
-                        proc.send_signal(signal.SIGTERM)
-                    except (ProcessLookupError, OSError):
-                        pass
+                    _signal_group(proc, signal.SIGTERM)
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=5.0)
                     except asyncio.TimeoutError:
-                        try:
-                            proc.send_signal(signal.SIGKILL)
-                        except (ProcessLookupError, OSError):
-                            pass
+                        _signal_group(proc, signal.SIGKILL)
                         await proc.wait()
                     outcome = TaskOutcomeRecord(
                         outcome=TaskOutcome.RATE_LIMIT,
@@ -296,20 +299,14 @@ class TaskRunner:
         proc = self._proc
         if proc is None or proc.returncode is not None:
             return
-        try:
-            proc.send_signal(signal.SIGTERM)
-        except (ProcessLookupError, OSError):
-            return
+        _signal_group(proc, signal.SIGTERM)
         try:
             await asyncio.wait_for(
                 proc.wait(),
                 timeout=float(SHUTDOWN_GRACE_SEC),
             )
         except asyncio.TimeoutError:
-            try:
-                proc.send_signal(signal.SIGKILL)
-            except (ProcessLookupError, OSError):
-                pass
+            _signal_group(proc, signal.SIGKILL)
             await proc.wait()
 
 
