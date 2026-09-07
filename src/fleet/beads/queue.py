@@ -2,7 +2,7 @@ import json
 import shlex
 import shutil
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.beads import client as beads_client
@@ -265,7 +265,7 @@ class BeadsQueue(Queue):
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "blocked"
         meta["blocked_reason"] = reason
-        meta["blocked_at"] = datetime.now(tz=timezone.utc).isoformat()
+        meta["blocked_at"] = datetime.now(tz=UTC).isoformat()
         self._write_meta(task_id, meta)
 
     def close(self, task_id: str, reason: str = "completed") -> None:

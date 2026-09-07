@@ -10,7 +10,7 @@ import typer
 
 from fleet.beads import client as beads_client
 from fleet.beads.create_args import rewrite_create_argv
-from fleet.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue
 from fleet.state.paths import fleet_home
 
 
@@ -73,7 +73,7 @@ def register(app: typer.Typer) -> None:
             bd_args, overrides = rewrite_create_argv(bd_args, os.getcwd())
         except ValueError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         coder_override = overrides["coder"]
         model_override = overrides["model"]
         invocation_cwd = overrides["cwd"]

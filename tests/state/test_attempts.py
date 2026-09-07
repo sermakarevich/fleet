@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from fleet import attempts
+from fleet.state import attempts
 
 
 def test_start_end_round_trip(tmp_path: Path) -> None:

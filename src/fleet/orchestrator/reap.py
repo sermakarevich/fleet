@@ -5,12 +5,12 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fleet import attempts
 from fleet.core import outcome_policy
 from fleet.core.limits import NOCLOSE_LIMIT, RETRY_LIMIT
 from fleet.core.outcome_policy import Action, Counters, Decision
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
-from fleet.failures import (
+from fleet.state import attempts
+from fleet.state.counters import (
     failure_count,
     increment_failure,
     increment_noclose,

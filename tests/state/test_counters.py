@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from fleet.failures import (
+from fleet.state.counters import (
+    clear_needs_validation,
     failure_count,
     increment_failure,
     needs_validation,
     set_needs_validation,
-    clear_needs_validation,
 )
 
 

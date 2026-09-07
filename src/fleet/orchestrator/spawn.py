@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fleet import attempts
 from fleet.coders import get_coder
 from fleet.core.task import Task
+from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
 
 from . import worktree

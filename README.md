@@ -1069,6 +1069,11 @@ further configuration is needed.
 
 ## Development
 
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the code map — how
+`src/fleet/` is organized into `core`, `state`, `beads`, `orchestrator`,
+`coders`, `integrations`, `observability`, `serve`, and `cli`, and where
+each concept lives.
+
 CI runs ruff + pytest + UI build (tsc + vite build) on every push and pull request.
 Run checks locally with `uv run ruff check src tests` and `uv run pytest tests -q`.
 Enable the pre-commit hooks with `uv run pre-commit install`.

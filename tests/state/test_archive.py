@@ -10,7 +10,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from fleet.cli.main import app
-from fleet.gc import gc_tasks
+from fleet.state.archive import gc_tasks
 
 runner = CliRunner()
 

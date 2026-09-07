@@ -10,21 +10,21 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from fleet import attempts
 from fleet.beads import client as beads_client
+from fleet.beads.cache import get_beads_status_map
 from fleet.beads.client import BeadsError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
-from fleet.failures import (
+from fleet.observability.daemon import _pid_alive
+from fleet.observability.tailview import event_summary as _event_summary
+from fleet.state import attempts
+from fleet.state.counters import (
     clear_needs_validation,
     reset_failure,
     reset_noclose,
     reset_stall,
 )
-from fleet.observability.daemon import _pid_alive
-from fleet.observability.tailview import event_summary as _event_summary
-from fleet.serve.beads_info import get_beads_status_map
 from fleet.state.events import scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -13,18 +13,18 @@ from rich.console import Console
 from typer.core import TyperCommand
 
 from fleet.beads.client import BeadsError
+from fleet.beads.queue import BeadsQueue
 from fleet.cli.format import render_tasks_table
 from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
-from fleet.gc import gc_tasks
 from fleet.observability import tailview
-from fleet.queue import BeadsQueue
+from fleet.state.archive import gc_tasks
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.tail import read_new_bytes
 
 
-class TaskAction(str, Enum):
+class TaskAction(StrEnum):
     log = "log"
     plan = "plan"
     knowledge = "knowledge"
@@ -137,7 +137,7 @@ def register(app: typer.Typer) -> None:
             except BeadsError as exc:
                 if "already" not in str(exc).lower():
                     typer.echo(f"bd init failed: {exc}", err=True)
-                    raise typer.Exit(1)
+                    raise typer.Exit(1) from exc
 
         load_config(home / "runtime.toml")  # writes defaults if missing
         (home / "tasks").mkdir(exist_ok=True)
@@ -155,7 +155,7 @@ def register(app: typer.Typer) -> None:
             tasks = q.list_ready(limit=limit)
         except BeadsError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         if not tasks:
             typer.echo("No ready tasks.")
             return
@@ -187,7 +187,7 @@ def register(app: typer.Typer) -> None:
             task = q.get(task_id)
         except BeadsError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         cfg = load_config(root / "runtime.toml")
         effective_coder = task.coder or cfg.coder
         effective_model = task.model or cfg.model
@@ -229,7 +229,7 @@ def register(app: typer.Typer) -> None:
             tasks = q.list_in_progress(limit=limit)
         except BeadsError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         if not tasks:
             typer.echo("No running tasks.")
             return
@@ -338,9 +338,9 @@ def register(app: typer.Typer) -> None:
 
         try:
             raw_lines = events_path.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except OSError as exc:
             typer.echo(f"Error: cannot read {events_path}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
         rendered = tailview.render_lines(raw_lines)
 

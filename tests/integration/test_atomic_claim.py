@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from fleet.core.task import Task
-
 from tests.integration.conftest import (
     MemoryQueue,
     beads_functional,
@@ -26,7 +25,7 @@ _BEADS_OK = beads_functional()
 def test_atomic_claim_real_beads(tmp_path: Path) -> None:
     """With real beads, exactly one concurrent claim wins. (FR-04)"""
     q1 = init_beads_queue(tmp_path)
-    from fleet.queue import BeadsQueue
+    from fleet.beads.queue import BeadsQueue
 
     q2 = BeadsQueue(tmp_path)
 

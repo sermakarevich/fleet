@@ -18,10 +18,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import fleet.integrations.ask_human.store as _ahdb
 import fleet.integrations.telegram.bot as tg
+from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.config import load as load_config
 from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.observability.daemon import code_fingerprint
-from fleet.queue import BeadsQueue, Queue
 from fleet.serve.api.analytics import create_analytics_router
 from fleet.serve.api.beads import create_beads_router
 from fleet.serve.api.chat import create_chat_router

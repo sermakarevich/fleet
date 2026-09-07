@@ -4,18 +4,18 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Callable
 
 import pytest
 import structlog
 
+from fleet.beads.queue import Queue
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig, write_atomic
 from fleet.core.task import Task
 from fleet.orchestrator.supervisor import Supervisor
-from fleet.queue import Queue
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -195,7 +195,7 @@ def _git_init(path: Path) -> None:
 
 def init_beads_queue(tmp_path: Path):  # type: ignore[return]
     """Initialize a git repo + beads workspace in tmp_path and return a BeadsQueue."""
-    from fleet.queue import BeadsQueue
+    from fleet.beads.queue import BeadsQueue
 
     _git_init(tmp_path)
     result = subprocess.run(["bd", "init"], cwd=tmp_path, capture_output=True)
@@ -265,13 +265,13 @@ async def run_until(
     sup_task = asyncio.create_task(supervisor.run())
     try:
         await asyncio.wait_for(done.wait(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     finally:
         await supervisor._shutdown()
         try:
             await asyncio.wait_for(sup_task, timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sup_task.cancel()
             try:
                 await sup_task

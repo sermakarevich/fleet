@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
-from fleet.failures import clear_needs_validation, needs_validation
+from fleet.state.counters import clear_needs_validation, needs_validation
 from fleet.state.paths import tasks_root as _tasks_root
 
 from . import worktree
@@ -57,7 +57,7 @@ class ClaimMixin:
             if self._shutting_down:
                 break
 
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
             if self._paused_until is not None:
                 if now < self._paused_until:
                     continue

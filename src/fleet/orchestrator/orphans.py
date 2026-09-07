@@ -4,7 +4,7 @@ import json
 import os
 import signal
 
-from fleet.failures import needs_validation
+from fleet.state.counters import needs_validation
 from fleet.state.paths import task_dir as _task_dir
 
 from . import worktree

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from fleet.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue
 
 
 def test_set_blocked_writes_reason_and_clears_on_release(tmp_path: Path) -> None:

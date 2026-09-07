@@ -1,12 +1,10 @@
-"""Git worktree create/merge/validate — merges the former worktree.py and
-supervisor_worktree.py into one module. Env-gated off by default.
-"""
+"""Git worktree create/merge/validate for isolated task runs. Env-gated off by default."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 

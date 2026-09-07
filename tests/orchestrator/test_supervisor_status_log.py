@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
-from fleet.logging import setup_supervisor_logger
 from fleet.orchestrator.supervisor import Supervisor
+from fleet.state.journal import setup_supervisor_logger
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -118,7 +118,7 @@ def test_fleet_log_context_includes_usage_pct(tmp_path: Path) -> None:
         Event(
             kind="rate_limit_info",
             raw={},
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             rate_info={"usage_pct": 42.5},
         )
     )
@@ -153,7 +153,7 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
         Event(
             kind="rate_limit_info",
             raw={},
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             rate_info={"usage_pct": 17.0},
         )
     )
@@ -207,7 +207,7 @@ def test_status_log_loop_exits_on_shutdown(tmp_path: Path, monkeypatch) -> None:
         try:
             await asyncio.wait_for(s._status_log_loop(), timeout=2.0)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
     assert asyncio.run(_run()), "status loop did not exit when shutting_down was set"
@@ -226,7 +226,7 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
         Event(
             kind="rate_limit_info",
             raw={},
-            ts=datetime.now(tz=timezone.utc),
+            ts=datetime.now(tz=UTC),
             rate_info={"usage_pct": 55.0},
         )
     )

@@ -19,14 +19,14 @@ import typer
 from rich.console import Console
 
 import fleet
+from fleet.beads.queue import BeadsQueue
 from fleet.coders import get_coder
 from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ollama_tunnel import ensure_tunnel
-from fleet.logging import setup_supervisor_logger
 from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervisor_spec
 from fleet.orchestrator.supervisor import Supervisor
-from fleet.queue import BeadsQueue
+from fleet.state.journal import setup_supervisor_logger
 from fleet.state.paths import fleet_home
 
 DEFAULT_SERVE_PORT = 7890
@@ -160,7 +160,7 @@ def register(app: typer.Typer) -> None:
             get_coder(cfg.coder)
         except ValueError as exc:
             typer.echo(str(exc), err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
         q = BeadsQueue(home)
         log_root = Path(LOG_ROOT)
@@ -186,7 +186,7 @@ def register(app: typer.Typer) -> None:
             rc = asyncio.run(supervisor.run())
         except NotImplementedError as exc:
             typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         raise typer.Exit(rc)
 
     @run_app.command("start")

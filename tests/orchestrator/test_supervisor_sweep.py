@@ -8,8 +8,8 @@ from unittest.mock import patch
 import pytest
 import structlog
 
-from fleet.failures import set_needs_validation
 from fleet.orchestrator.supervisor import Supervisor
+from fleet.state.counters import set_needs_validation
 
 
 class StubQueue:

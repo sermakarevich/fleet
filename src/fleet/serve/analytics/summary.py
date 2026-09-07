@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from fleet.beads import cache as beads_info
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
-from fleet.serve import beads_info
 from fleet.serve.analytics import records as records_module
 from fleet.state.events import parse_iso
 
@@ -157,8 +157,8 @@ def compute_summary(home: Path, days: int) -> dict:
     segments_list = [r.get("segments", 0) for r in completed_in_window]
     avg_segments = sum(segments_list) / len(segments_list) if segments_list else 0.0
 
-    # error_events: count of error event kinds across all completed
-    # We use the stored r["errors"] field from analytics_core
+    # error_events: count of error event kinds across all completed,
+    # using the per-task "errors" field from analytics.records
     error_events = sum(r.get("errors", 0) for r in completed_in_window)
 
     noclose_count = sum(1 for r in completed_in_window if r.get("noclose", False))

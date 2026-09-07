@@ -1,6 +1,6 @@
-"""Reconcile task.json statuses against the beads DB (authoritative source of truth).
+"""TTL-cached map of beads status by task id, built from beads.client.list_all.
 
-TTL-cached to avoid a subprocess on every poll.
+Avoids a `bd list` subprocess on every poll from the API/CLI layers.
 """
 
 from __future__ import annotations

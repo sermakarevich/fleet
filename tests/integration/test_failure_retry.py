@@ -4,9 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fleet.failures import failure_count
 from fleet.core.task import Task
-
+from fleet.state.counters import failure_count
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,

@@ -7,11 +7,11 @@ from pathlib import Path
 
 import structlog
 
+from fleet.beads.queue import Queue
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig, load, reload_if_changed
 from fleet.core.limits import CONFIG_POLL_INTERVAL_SEC, SHUTDOWN_GRACE_SEC
 from fleet.core.task import Task
-from fleet.queue import Queue
 from fleet.serve.stats import task_runtime_stats
 from fleet.state.paths import task_dir as _task_dir
 

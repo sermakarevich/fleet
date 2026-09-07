@@ -5,9 +5,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from fleet.failures import failure_count
 from fleet.core.task import Task
-
+from fleet.state.counters import failure_count
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,

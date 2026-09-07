@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import WebSocket
 
-from fleet.redact import redact
+from fleet.observability.redact import redact
 from fleet.serve.stats import task_files_touched_from_dir, task_runtime_stats_from_dir
 from fleet.state.paths import tasks_root
 from fleet.state.tail import read_new_bytes

@@ -15,7 +15,6 @@ from tests.integration.conftest import (
     make_supervisor,
 )
 
-
 pytestmark = pytest.mark.skipif(not beads_functional(), reason="bd not functional in fresh git repo")
 
 
@@ -59,7 +58,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
                 try:
                     await sup_task
@@ -108,7 +107,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
                 try:
                     await sup_task
@@ -135,7 +134,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
             await sup2._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
                 try:
                     await sup_task
@@ -158,7 +157,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
 
 def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
     """BLOCKED_BY_AGENT does not increment failure_count. (FR-16)"""
-    from fleet.failures import failure_count
+    from fleet.state.counters import failure_count
 
     queue = init_beads_queue(tmp_path)
     task = queue.create_task(title="qa-no-failure-task")
@@ -190,7 +189,7 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
                 try:
                     await sup_task

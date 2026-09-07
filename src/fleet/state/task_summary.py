@@ -1,7 +1,7 @@
 """Build the one task-summary dict shared by `fleet tasks` and GET /api/tasks.
 
 Combines task.json fields with the events.jsonl scan (fleet.state.events) and
-the counter files (fleet.failures), so the CLI table and the API report the
+the counter files (fleet.state.counters), so the CLI table and the API report the
 same numbers for the same task.
 """
 
@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet import attempts
+from fleet.beads.cache import get_beads_status_map
 from fleet.coders import get_coder
-from fleet.failures import failure_count, noclose_count, stall_count
-from fleet.serve.beads_info import get_beads_status_map
 from fleet.serve.stats import task_runtime_info_cached
+from fleet.state import attempts
+from fleet.state.counters import failure_count, noclose_count, stall_count
 
 
 def coder_context_limit(coder_name: str | None, model: str | None = None) -> int:

@@ -9,7 +9,6 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.supervisor import Supervisor
 
-
 # ------ Test doubles (Mirror test_supervisor_failures.py) ------
 
 
@@ -168,7 +167,7 @@ def test_isolated_dirty_no_needs_validation(tmp_path: Path) -> None:
 
 def test_isolated_dirty_increments_noclose(tmp_path: Path) -> None:
     """ISOLATED + dirty: .noclose counter is incremented (not .needs_validation)."""
-    from fleet.failures import noclose_count
+    from fleet.state.counters import noclose_count
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)

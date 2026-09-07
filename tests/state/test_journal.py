@@ -1,12 +1,12 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import structlog
 
-from fleet.logging import TaskLog, append_event, open_task_log, setup_supervisor_logger
 from fleet.core.task import Event
+from fleet.state.journal import TaskLog, append_event, open_task_log, setup_supervisor_logger
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +16,7 @@ def reset_structlog():
 
 
 def _ts() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def test_setup_supervisor_logger_writes_jsonl(tmp_path: Path):
@@ -136,7 +136,7 @@ def test_append_event_does_not_emit_attempt_field(tmp_path: Path):
 
 
 def test_append_event_rotates_when_over_limit(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("fleet.logging.EVENTS_MAX_BYTES", 200)
+    monkeypatch.setattr("fleet.state.journal.EVENTS_MAX_BYTES", 200)
     task_dir = tmp_path / "task"
     for i in range(10):
         evt = Event(kind="result", raw={"i": i, "pad": "x" * 100}, ts=_ts())

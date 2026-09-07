@@ -7,8 +7,7 @@ from pathlib import Path
 import structlog
 
 from fleet.core.config import RuntimeConfig
-from fleet.logging import setup_supervisor_logger
-
+from fleet.state.journal import setup_supervisor_logger
 from tests.orchestrator.test_supervisor_status_log import _make_supervisor
 
 

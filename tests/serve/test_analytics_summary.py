@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from unittest.mock import MagicMock
 
 from fleet.serve.app import create_app
 
@@ -17,7 +17,7 @@ from fleet.serve.app import create_app
 def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkey-patch get_beads_status_map to return None (skip beads in tests, per spec: 'bd unavailable → raw statuses used')."""
     monkeypatch.setattr(
-        "fleet.serve.beads_info.get_beads_status_map",
+        "fleet.beads.cache.get_beads_status_map",
         MagicMock(return_value=None),
     )
 
@@ -79,17 +79,17 @@ def ev(
 
 def _make_future_days(n_days: int) -> str:
     """Return an ISO timestamp n days ago now."""
-    return (datetime.now(tz=timezone.utc) - timedelta(days=n_days)).isoformat()
+    return (datetime.now(tz=UTC) - timedelta(days=n_days)).isoformat()
 
 
 def _make_now() -> str:
     """Return current ISO timestamp with tz."""
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 
 
 def _make_window_day(hours_ago: int = 6) -> str:
     """Return a timestamp hours_ago ago — comfortably within any 1–7 day window."""
-    return (datetime.now(tz=timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+    return (datetime.now(tz=UTC) - timedelta(hours=hours_ago)).isoformat()
 
 
 class TestSummaryDefaultDays:

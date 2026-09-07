@@ -14,7 +14,7 @@ from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import PROBE_INTERVAL_SEC, PROBE_SILENCE_SEC, SHUTDOWN_GRACE_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
-from fleet.logging import append_event, open_task_log
+from fleet.state.journal import append_event, open_task_log
 from fleet.state.paths import task_dir as _task_dir
 
 _STDERR_TAIL_BYTES = 2048

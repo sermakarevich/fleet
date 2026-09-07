@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue
 
 
 @pytest.fixture

@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
-from fleet.failures import failure_count
 from fleet.orchestrator.supervisor import Supervisor
-
+from fleet.state.counters import failure_count
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -178,7 +177,7 @@ def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
-    before = datetime.now(tz=timezone.utc)
+    before = datetime.now(tz=UTC)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=None))
     assert s._paused_until is not None
     assert s._paused_until > before
@@ -189,7 +188,7 @@ def test_rate_limit_paused_until_uses_resets_at_when_later(
 ) -> None:
     monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 5)
     queue = StubQueue()
-    far_future = int(datetime.now(tz=timezone.utc).timestamp()) + 9999
+    far_future = int(datetime.now(tz=UTC).timestamp()) + 9999
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=far_future))
     assert s._paused_until is not None
@@ -211,7 +210,7 @@ def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
     # Confirm paused_until is in the future
-    assert s._paused_until > datetime.now(tz=timezone.utc)
+    assert s._paused_until > datetime.now(tz=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +365,7 @@ def test_eleven_noclose_successes_released_each_time(
     monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    for i in range(11):
+    for _i in range(11):
         s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 11
     for i in range(11):
@@ -377,7 +376,7 @@ def test_eleven_noclose_successes_released_each_time(
 def test_noclose_twelfth_exhausts_limit(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    for i in range(11):
+    for _i in range(11):
         s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.blocked) == 1
@@ -388,14 +387,14 @@ def test_noclose_twelfth_exhausts_limit(tmp_path: Path) -> None:
 def test_noclose_exhausted_posts_comment(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    for i in range(12):
+    for _i in range(12):
         s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.comments) >= 1
     assert any("exhausted" in c[1] for c in queue.comments)
 
 
 def test_noclose_counter_file_created(tmp_path: Path, monkeypatch) -> None:
-    from fleet.failures import noclose_count
+    from fleet.state.counters import noclose_count
 
     monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 12)
     monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)
@@ -410,7 +409,7 @@ def test_noclose_counter_file_created(tmp_path: Path, monkeypatch) -> None:
 def test_success_with_bead_closed_resets_noclose_counter(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from fleet.failures import noclose_count
+    from fleet.state.counters import noclose_count
 
     monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 12)
     monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 12)

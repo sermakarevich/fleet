@@ -601,11 +601,11 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
 
-    from fleet.serve import beads_info
+    from fleet.beads import cache as beads_info
 
     # Reset module-level cache and counter so this test is isolated.
-    monkeypatch.setattr("fleet.serve.beads_info._beads_map_cache", {})
-    monkeypatch.setattr("fleet.serve.beads_info._beads_list_call_count", 0)
+    monkeypatch.setattr("fleet.beads.cache._beads_map_cache", {})
+    monkeypatch.setattr("fleet.beads.cache._beads_list_call_count", 0)
 
     app = create_app()
 

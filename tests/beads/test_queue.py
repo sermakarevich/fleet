@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from fleet.beads.client import BeadsError
-from fleet.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue
 
 
 def test_order_ready_priority_then_oldest():
