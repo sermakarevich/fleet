@@ -366,7 +366,8 @@ The web UI server also runs as a background daemon, tracked through
 `$FLEET_HOME/.serve.pid`.
 
 ```bash
-fleet serve start                 # start on 127.0.0.1:7890 (default)
+fleet serve start                 # start on 0.0.0.0:7890 (default, all interfaces)
+fleet serve start --host 127.0.0.1 # local-only bind
 fleet serve start --port 8080     # custom port
 fleet serve status                # running? (pid, start time, port)
 fleet serve restart               # rebuild the UI (make ui-build) and restart
@@ -375,9 +376,10 @@ fleet serve stop                  # stop the server
 fleet serve foreground --port 8080  # run in the current terminal (blocks)
 ```
 
-Starts a local web server backed by FastAPI and serves a React SPA at
-`http://127.0.0.1:7890`. The UI provides:
+Set `FLEET_API_TOKEN` in the environment of `fleet serve` to require `Authorization: Bearer <token>` on the API and `?token=` on WebSockets; unset means open (local use only).
 
+Starts a local web server backed by FastAPI and serves a React SPA at
+`http://127.0.0.1:7890` (or `http://<tailscale-ip>:7890` from another device on your tailnet). The UI provides:
 - **Dashboard** — live task table with status, elapsed time, and context usage
 - **Task detail** — logs, plan, knowledge, and chat per task
 - **Chat** — review and answer blocked tasks in one place
@@ -386,7 +388,7 @@ Starts a local web server backed by FastAPI and serves a React SPA at
 
 | Sub-command | Description |
 |---|---|
-| `start` | Spawn the UI server detached on `127.0.0.1:<port>` (default 7890). Idempotent. |
+| `start` | Spawn the UI server detached on `<host>:<port>` (default `0.0.0.0:7890`; `--host 127.0.0.1` for local only). Idempotent. |
 | `stop` | Stop the server daemon. |
 | `restart` | Run `make ui-build` (rebuild the SPA) **first**, then `stop` + `start`. The build runs before the old server is stopped, so a failed build leaves the current server running. The port defaults to the one recorded in the PID file. Pass `--no-build` to skip the rebuild, or `--port` to change it. |
 | `status` | Print running/stopped plus pid, start time, and port. Exits non-zero when stopped. |
@@ -495,7 +497,6 @@ directly in the file.
 | `max_concurrent_overrides` | `""` | Per-coder concurrency limits as comma-separated `coder:limit` pairs, e.g. `claude:2,opencode:4`. A coder not listed here uses `max_concurrent` as its limit. Total parallelism is the sum of all per-coder limits. |
 | `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`, `opencode`, `pi`. |
 | `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`; `opencode` maps it to an Ollama model, defaulting to `gpt-oss:20b`). |
-| `context_pressure_threshold_pct` | `90` | Terminate an agent session when prompt-side context usage exceeds this percentage of the coder's context limit. Supported by all built-in coders (limits: `claude` 200K tokens, `agy` 128K, `codex` 128K, `opencode` 128K, `pi` 128K). |
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
 | `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
 | `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
@@ -809,7 +810,15 @@ The `opencode` coder runs the [opencode](https://opencode.ai) CLI locally and ro
 
 ### One-time setup
 
-Establish the tunnel once per session (or use VS Code's port-forward panel for port 11435):
+The supervisor brings the tunnel up automatically on start (`fleet run start` / `fleet run foreground`): it probes `127.0.0.1:11435` and, if nothing answers, runs `ssh -f -N -L 127.0.0.1:11435:127.0.0.1:11434 rtx` in the background. A failure is logged as a warning and does not stop the supervisor (claude/agy/codex tasks do not need Ollama). You can also do it by hand:
+
+```bash
+fleet tunnel          # ensure the tunnel is up; exit 1 if it cannot be started
+```
+
+Set `FLEET_OLLAMA_SSH_HOST` to use a different SSH host alias than `rtx`. The local port is taken from `opencode_ollama_url`; a non-loopback URL disables the tunnel step.
+
+Alternatively, establish it once per session with `just` (or use VS Code's port-forward panel for port 11435):
 
 ```bash
 just ollama-tunnel   # no-op if the tunnel is already up
@@ -925,7 +934,7 @@ _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
 
 class MyCoder(Coder):
     name = "mycoder"          # unique name used in fleet bd create --coder
-    context_limit = 128_000   # used to compute context-pressure threshold
+    context_limit = 128_000   # drives context-usage % logging
 
     def __init__(self, model: str = "my-default-model") -> None:
         self.model = model

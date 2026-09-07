@@ -140,6 +140,24 @@ def create_app(queue: Queue | None = None) -> FastAPI:
                 pass
 
     app = FastAPI(lifespan=_lifespan)
+    import os
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    def _expected_token() -> str:
+        return os.environ.get("FLEET_API_TOKEN", "").strip()
+
+    @app.middleware("http")
+    async def _bearer_auth(request: Request, call_next):
+        token = _expected_token()
+        path = request.url.path
+        if token and path.startswith("/api/"):
+            auth = request.headers.get("authorization", "")
+            supplied = auth[7:] if auth.lower().startswith("bearer ") else request.query_params.get("token", "")
+            if supplied != token:
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
     app.state.connection_manager = mgr
     app.state.queue = resolved_queue
     app.include_router(create_tasks_router())
@@ -173,6 +191,10 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:
+        token = _expected_token()
+        if token and ws.query_params.get("token", "") != token:
+            await ws.close(code=4401)
+            return
         await mgr.connect(ws)
         try:
             while True:
@@ -184,6 +206,10 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     @app.websocket("/ws/tasks/{id}/events")
     async def ws_task_events(ws: WebSocket, id: str) -> None:
+        token = _expected_token()
+        if token and ws.query_params.get("token", "") != token:
+            await ws.close(code=4401)
+            return
         task_dir = fleet_home() / "tasks" / id
         if not task_dir.is_dir():
             await ws.accept()
