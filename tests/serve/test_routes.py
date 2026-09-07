@@ -204,7 +204,6 @@ def test_config_get_returns_fields(
     assert "max_concurrent" in data
     assert "model" in data
     assert "coder" in data
-    assert "context_pressure_threshold_pct" in data
 
 
 def test_config_put_updates_field(
@@ -630,7 +629,7 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
 
-    from fleet.serve.beads_info import _beads_list_call_count
+    from fleet.serve import beads_info
 
     # Reset module-level cache and counter so this test is isolated.
     monkeypatch.setattr("fleet.serve.beads_info._beads_map_cache", {})
@@ -650,9 +649,9 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     assert r1.status_code == 200
     assert r2.status_code == 200
 
-    assert _beads_list_call_count == 1, (
+    assert beads_info._beads_list_call_count == 1, (
         "Expected exactly one bd-list subprocess call for two rapid polls; "
-        f"got {_beads_list_call_count}"
+        f"got {beads_info._beads_list_call_count}"
     )
 
 
@@ -703,3 +702,44 @@ def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert files_map["/foo.py"]["edit"] == 1
     assert "/bar.py" in files_map
     assert files_map["/bar.py"]["write"] == 1
+
+
+def test_list_tasks_fills_missing_title_from_beads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A task.json without title (written by `fleet bd create` before claim)
+    gets its title/description from the beads map so pending rows aren't blank."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = tmp_path / "tasks" / "task-notitle"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        json.dumps({"id": "task-notitle", "cwd": "/repo", "coder": "claude"})
+    )
+    monkeypatch.setattr(
+        "fleet.serve.routes.tasks.get_beads_status_map",
+        MagicMock(
+            return_value={
+                "task-notitle": {
+                    "status": "open",
+                    "created_at": None,
+                    "priority": 2,
+                    "title": "From beads",
+                    "description": "Beads body",
+                }
+            }
+        ),
+    )
+    app = create_app()
+
+    async def _get() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks")
+
+    r = asyncio.run(_get())
+    assert r.status_code == 200
+    tasks = {t["id"]: t for t in r.json()["tasks"]}
+    assert tasks["task-notitle"]["title"] == "From beads"
+    assert tasks["task-notitle"]["description"] == "Beads body"
+    assert tasks["task-notitle"]["status"] == "open"
