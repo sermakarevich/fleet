@@ -74,7 +74,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     assert "Fleet Task Protocol" in prompt
     assert "On every fresh start" in prompt
     assert "ask_human" in prompt
-    assert "bd update" in prompt
+    assert "fleet bd close" in prompt
 
 
 def test_build_argv_includes_cd_flag_when_task_has_cwd(tmp_path: Path):

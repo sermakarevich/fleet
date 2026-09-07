@@ -75,7 +75,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     assert "Fleet Task Protocol" in prompt
     assert "On every fresh start" in prompt
     assert "ask_human" in prompt
-    assert "bd update" in prompt
+    assert "fleet bd close" in prompt
 
 
 def test_env_includes_required_vars(tmp_path: Path):

@@ -171,7 +171,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     prompt = _coder().build_argv(_task(), tmp_path)[-1]
     assert "Fleet Task Protocol" in prompt
     assert "ask_human" in prompt
-    assert "bd update" in prompt
+    assert "fleet bd close" in prompt
 
 
 def test_build_argv_includes_invocation_line_when_cwd_set(tmp_path: Path):
@@ -251,14 +251,14 @@ def test_build_argv_with_worktree_marker_includes_isolation_protocol(tmp_path: P
     (tmp_path / ".worktree").touch()
     argv = _coder().build_argv(_task("wt-001"), tmp_path)
     prompt = argv[-1]
-    assert "Do NOT run `bd close`" in prompt
+    assert "Do NOT run `fleet bd close`" in prompt
 
 
 def test_build_argv_without_worktree_marker_excludes_isolation_protocol(tmp_path: Path):
     """Without a .worktree marker, the prompt must NOT contain the isolation block."""
     argv = _coder().build_argv(_task(), tmp_path)
     prompt = argv[-1]
-    assert "Do NOT run `bd close`" not in prompt
+    assert "Do NOT run `fleet bd close`" not in prompt
 
 
 # ---------------------------------------------------------------------------

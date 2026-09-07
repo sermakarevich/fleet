@@ -87,34 +87,21 @@ def test_resume_flag_only_as_negation_in_instruction_md():
 # ---------------------------------------------------------------------------
 
 
-def test_instruction_md_mentions_bd_update():
-    assert "bd update" in INSTRUCTION_MD.read_text(), (
-        "INSTRUCTION.md must mention 'bd update'"
+def test_instruction_md_mentions_fleet_bd_close():
+    assert "fleet bd close" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention 'fleet bd close'"
     )
 
 
-def test_instruction_md_mentions_status_blocked():
-    assert "--status blocked" in INSTRUCTION_MD.read_text(), (
-        "INSTRUCTION.md must mention '--status blocked'"
-    )
-
-
-def test_instruction_md_mentions_status_open():
-    assert "--status open" in INSTRUCTION_MD.read_text(), (
-        "INSTRUCTION.md must mention '--status open'"
+def test_instruction_md_mentions_ask_human_tool():
+    assert "mcp__ask_human__ask_human_question" in INSTRUCTION_MD.read_text(), (
+        "INSTRUCTION.md must mention 'mcp__ask_human__ask_human_question'"
     )
 
 
 def test_instruction_md_mentions_ask_human():
     assert "ask_human" in INSTRUCTION_MD.read_text(), (
         "INSTRUCTION.md must mention 'ask_human'"
-    )
-
-
-def test_instruction_md_mentions_agent_id():
-    """INSTRUCTION.md must document agent_id for ask_human questions."""
-    assert "agent_id" in INSTRUCTION_MD.read_text(), (
-        "INSTRUCTION.md must mention 'agent_id'"
     )
 
 
