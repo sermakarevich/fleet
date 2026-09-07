@@ -59,6 +59,9 @@ function RunningCard({
             : <StatusDot task={task} thresholdPct={thresholdPct} />}
         </span>
         <span style={cardStyles.cardId}>{task.id}</span>
+        {task.restarts > 0 && (
+          <span style={cardStyles.restartBadge} title={task.last_outcome_reason ?? undefined}>↻ {task.restarts}</span>
+        )}
         <span style={cardStyles.cardElapsed}>{formatElapsed(task.elapsed_sec)}</span>
         <span style={cardStyles.cardBtns} onClick={e => e.stopPropagation()}>
           {!isStopping && (
@@ -215,6 +218,9 @@ export function RunningTable({ tasks, thresholdPct = 90 }: Props) {
                     >
                       {task.id}
                     </span>
+                    {task.restarts > 0 && (
+                      <span style={styles.restartBadge} title={task.last_outcome_reason ?? undefined}>↻ {task.restarts}</span>
+                    )}
                   </td>
                   <td style={styles.td}>{formatRelative(task.started_at)}</td>
                   <td style={styles.td}>{formatElapsed(task.elapsed_sec)}</td>
@@ -355,6 +361,15 @@ const styles = {
     color: '#60a5fa',
     cursor: 'pointer',
   } as React.CSSProperties,
+  restartBadge: {
+    marginLeft: '0.4rem',
+    padding: '0.05rem 0.35rem',
+    borderRadius: 4,
+    background: '#3f3f46',
+    color: '#e4e4e7',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+  } as React.CSSProperties,
   ctxCell: {
     display: 'flex',
     alignItems: 'center',
@@ -450,6 +465,15 @@ const cardStyles = {
     fontSize: '0.75rem',
     color: '#71717a',
     whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
+  } as React.CSSProperties,
+  restartBadge: {
+    padding: '0.05rem 0.35rem',
+    borderRadius: 4,
+    background: '#3f3f46',
+    color: '#e4e4e7',
+    fontSize: '0.7rem',
+    fontWeight: 600,
     flexShrink: 0,
   } as React.CSSProperties,
   cardBtns: {

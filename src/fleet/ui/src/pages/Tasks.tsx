@@ -66,6 +66,10 @@ function formatContext(tokens: number | null, pct: number | null): string {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
 }
 
+function runsTitle(task: TaskSummary): string {
+  return `Last: ${task.last_outcome ?? '—'} → ${task.last_action ?? '—'}: ${task.last_outcome_reason ?? '—'}`;
+}
+
 interface RowProps {
   task: TaskSummary;
   confirmingId: string | null;
@@ -109,6 +113,13 @@ function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, 
           : <span style={styles.dim}>(default)</span>}
       </span>
       <span style={styles.contextCell}>{formatContext(task.context_tokens, task.context_pct)}</span>
+      <span style={styles.runsCell}>
+        {task.restarts > 0 ? (
+          <span style={styles.runsChip} title={runsTitle(task)}>{task.restarts + 1}</span>
+        ) : (
+          task.restarts + 1
+        )}
+      </span>
       <span style={styles.tsCell}>{formatTs(task.started_at)}</span>
       <span style={styles.tsCell}>{formatTs(task.ended_at)}</span>
       <span style={styles.cwdCell} title={task.cwd ?? undefined}>{cwdShort}</span>
@@ -188,6 +199,11 @@ function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm,
         <span style={cardStyles.cardMetaText}>{formatTs(task.started_at)}</span>
         <span style={cardStyles.cardMetaText} title={task.cwd ?? undefined}>{cwdShort}</span>
       </div>
+      {task.restarts > 0 && (
+        <div style={cardStyles.cardMetaText} title={runsTitle(task)}>
+          Runs: {task.restarts + 1} · last: {task.last_outcome ?? '—'} → {task.last_action ?? '—'}: {task.last_outcome_reason ?? '—'}
+        </div>
+      )}
     </div>
   );
 }
@@ -302,6 +318,7 @@ export function Tasks() {
             <span style={styles.colTitle}>Title</span>
             <span style={styles.colCoder}>Coder / Model</span>
             <span style={styles.colContext}>Context</span>
+            <span style={styles.colRuns}>Runs</span>
             <span style={styles.colTs}>Started</span>
             <span style={styles.colTs}>Completed</span>
             <span style={styles.colCwd}>Cwd</span>
@@ -453,6 +470,7 @@ const styles = {
   colTitle:   { flex: 1, minWidth: 0 } as React.CSSProperties,
   colCoder:   { width: '9rem', flexShrink: 0 } as React.CSSProperties,
   colContext: { width: '5rem', flexShrink: 0 } as React.CSSProperties,
+  colRuns:    { width: '4rem', flexShrink: 0 } as React.CSSProperties,
   colTs:      { width: '8.5rem', flexShrink: 0 } as React.CSSProperties,
   colCwd:     { width: '7rem', flexShrink: 0 } as React.CSSProperties,
   colAction:  { width: '10rem', flexShrink: 0 } as React.CSSProperties,
@@ -523,6 +541,23 @@ const styles = {
     flexShrink: 0,
     color: T.colors.textSecondary,
     fontSize: '0.8125rem',
+  } as React.CSSProperties,
+  runsCell: {
+    width: '4rem',
+    flexShrink: 0,
+    color: T.colors.textSecondary,
+    fontSize: '0.8125rem',
+  } as React.CSSProperties,
+  runsChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 4,
+    background: '#3f3f46',
+    color: T.colors.textPrimary,
+    fontSize: '0.75rem',
+    fontWeight: 600,
   } as React.CSSProperties,
   tsCell: {
     width: '8.5rem',

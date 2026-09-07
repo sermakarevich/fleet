@@ -5,6 +5,7 @@ import { useTaskWebSocket } from '../hooks/useTaskWebSocket';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { Header } from '../components/TaskDetail/Header';
 import { LiveTab } from '../components/TaskDetail/LiveTab';
+import { RunsTab } from '../components/TaskDetail/RunsTab';
 import { PlanTab } from '../components/TaskDetail/PlanTab';
 import { KnowledgeTab } from '../components/TaskDetail/KnowledgeTab';
 import { LogTab } from '../components/TaskDetail/LogTab';
@@ -15,10 +16,11 @@ import { EventsTab } from '../components/TaskDetail/EventsTab';
 import { ActivityGutter } from '../components/TaskDetail/ActivityGutter';
 import type { FleetEvent } from '../types';
 
-type TabId = 'live' | 'plan' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'runs' | 'plan' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
+  { id: 'runs', label: 'Runs' },
   { id: 'plan', label: 'Plan' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'log', label: 'Log' },
@@ -67,6 +69,7 @@ export function TaskDetail() {
   function renderTab() {
     switch (activeTab) {
       case 'live': return <LiveTab events={events} />;
+      case 'runs': return <RunsTab attempts={task?.attempts ?? []} />;
       case 'plan': return <PlanTab taskId={task!.id} />;
       case 'knowledge': return <KnowledgeTab taskId={task!.id} />;
       case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
