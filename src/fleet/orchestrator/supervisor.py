@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import signal
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -23,33 +25,33 @@ from fleet.state.paths import task_dir as _task_dir
 from fleet.workers.base import WorkerRun
 
 from . import worktree as worktree_mod
+from .checks import DEFAULT_CHECKS, StartupCheck, run_startup_checks
 from .claim import ClaimMixin
 from .leases import LeasesMixin
 from .rate_gauge import RateGauge
 from .reap import ReapMixin
+from .service import LegacyLoop, Service, ServiceOrder, emit
 from .spawn import SpawnMixin
 from .stall import StallMixin
+from .state import SupervisorState
 from .triage import TriageMixin
 
 
-def check_ask_human_server(log) -> bool:
-    """Warn at startup when the bundled ask_human MCP server is unimportable.
+class StartupSweeps(Service):
+    """Run the startup state sweeps once in on_start (owns no loop)."""
 
-    Every worker prompt names the ``ask_human`` MCP tool, and each coder is
-    handed the server explicitly — but if the module itself cannot be
-    imported the spawned server would crash on launch. Returns True when the
-    server module resolves, False (after logging a warning) otherwise.
-    """
-    import importlib.util
+    order = ServiceOrder.Leases
+    name = "startup_sweeps"
 
-    if importlib.util.find_spec("fleet.integrations.ask_human.server") is None:
-        log.warning(
-            "ask_human_unavailable",
-            reason="fleet.integrations.ask_human.server cannot be imported; "
-            "workers told to call the ask_human MCP tool will fail",
-        )
-        return False
-    return True
+    def __init__(self, supervisor: Supervisor) -> None:
+        self._supervisor = supervisor
+
+    async def on_start(self, st: SupervisorState) -> None:
+        """Sweep orphan worktrees, reconcile leases, run the first gc pass."""
+        sup = self._supervisor
+        sup._sweep_orphan_worktrees()
+        sup.reconcile_leases()
+        sup._run_retention_gc()
 
 
 class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, TriageMixin):
@@ -60,17 +62,25 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         project_root: Path,
         log: structlog.BoundLogger,
         coder: Coder | None = None,
+        *,
+        services: list[Service] | None = None,
+        checks: list[StartupCheck] | None = None,
     ) -> None:
         # Tests inject a single Coder instance via `coder=`; production callers
         # leave it None so the supervisor resolves (coder, model) per task
         # from task.coder / task.model, falling back to config defaults.
-        self._coder_pin = coder
-        self._queue = queue
-        self._runtime_toml_path = Path(runtime_toml_path)
-        self._project_root = Path(project_root)
-        self._log = log
+        self.state = SupervisorState(
+            config=load(runtime_toml_path),
+            project_root=Path(project_root),
+            runtime_toml_path=Path(runtime_toml_path),
+            queue=queue,
+            log=log,
+            rate_gauge=RateGauge(log=log),
+            coder_pin=coder,
+        )
+        self._services: list[Service] = services if services is not None else self.default_services()
+        self._checks: Sequence[StartupCheck] = checks if checks is not None else list(DEFAULT_CHECKS)
 
-        self.config: RuntimeConfig = load(runtime_toml_path)
         self._config_mtime: float | None = None
 
         self.in_flight: dict[str, asyncio.Task] = {}
@@ -82,10 +92,6 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         # misattribute the outer attempt's end line and artifact snapshot.
         self._attempt_n: dict[str, int] = {}
 
-        self.rate_gauge = RateGauge(log=log)
-
-        self._paused_until: datetime | None = None
-        self._shutting_down: bool = False
         self._done: asyncio.Event | None = None
         self._stall_warned: set[str] = set()
         self._stall_killed: set[str] = set()
@@ -94,32 +100,120 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         self._lease_logged: set[str] = set()
         self._last_lease_reconcile: float | None = None
 
+    @property
+    def config(self) -> RuntimeConfig:
+        """Live runtime config (delegates to state)."""
+        return self.state.config
+
+    @config.setter
+    def config(self, value: RuntimeConfig) -> None:
+        self.state.config = value
+
+    @property
+    def rate_gauge(self) -> RateGauge:
+        """Rate-limit gauge (delegates to state)."""
+        return self.state.rate_gauge
+
+    @rate_gauge.setter
+    def rate_gauge(self, value: RateGauge) -> None:
+        self.state.rate_gauge = value
+
+    @property
+    def _queue(self) -> Queue:
+        return self.state.queue
+
+    @_queue.setter
+    def _queue(self, value: Queue) -> None:
+        self.state.queue = value
+
+    @property
+    def _log(self):  # type: ignore[no-untyped-def]
+        return self.state.log
+
+    @_log.setter
+    def _log(self, value) -> None:  # type: ignore[no-untyped-def]
+        self.state.log = value
+
+    @property
+    def _project_root(self) -> Path:
+        return self.state.project_root
+
+    @_project_root.setter
+    def _project_root(self, value: Path) -> None:
+        self.state.project_root = Path(value)
+
+    @property
+    def _runtime_toml_path(self) -> Path:
+        return self.state.runtime_toml_path
+
+    @_runtime_toml_path.setter
+    def _runtime_toml_path(self, value: Path) -> None:
+        self.state.runtime_toml_path = Path(value)
+
+    @property
+    def _coder_pin(self) -> Coder | None:
+        return self.state.coder_pin
+
+    @_coder_pin.setter
+    def _coder_pin(self, value: Coder | None) -> None:
+        self.state.coder_pin = value
+
+    @property
+    def _paused_until(self) -> datetime | None:
+        return self.state.paused_until
+
+    @_paused_until.setter
+    def _paused_until(self, value: datetime | None) -> None:
+        self.state.paused_until = value
+
+    @property
+    def _shutting_down(self) -> bool:
+        return self.state.shutting_down
+
+    @_shutting_down.setter
+    def _shutting_down(self, value: bool) -> None:
+        self.state.shutting_down = value
+
+    def default_services(self) -> list[Service]:
+        """Build the production service list (legacy loops behind adapters)."""
+        return [
+            LegacyLoop("config_poll", ServiceOrder.Config, lambda: self._config_poll_loop()),
+            StartupSweeps(self),
+            LegacyLoop("claim_and_spawn", ServiceOrder.Claim, lambda: self._claim_and_spawn_loop()),
+            LegacyLoop("reap", ServiceOrder.Reap, lambda: self._reap_loop()),
+            LegacyLoop("status_log", ServiceOrder.Stall, lambda: self._status_log_loop()),
+            LegacyLoop("kill_poll", ServiceOrder.Stall, lambda: self._kill_poll_loop()),
+            LegacyLoop("retention_gc", ServiceOrder.Gc, lambda: self._gc_loop()),
+        ]
+
     async def run(self) -> int:
+        async with self._signals_to_shutdown():
+            run_startup_checks(self.state, self._checks)
+            await emit(self._services, "on_start", self.state)
+            await self._serve_until_shutdown()
+            await emit(self._services, "on_stop", self.state)
+        return 0
+
+    @contextlib.asynccontextmanager
+    async def _signals_to_shutdown(self) -> AsyncIterator[None]:
+        """Create the done event, wire SIGINT/SIGTERM to shutdown, then clean up."""
         self._done = asyncio.Event()
         loop = asyncio.get_running_loop()
         self._install_signal_handlers(loop)
+        try:
+            yield
+        finally:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
 
-        check_ask_human_server(self._log)
-        self._sweep_orphan_worktrees()
-        self.reconcile_leases()
-        self._run_retention_gc()
-
-        bg = [
-            asyncio.create_task(self._claim_and_spawn_loop(), name="claim_and_spawn"),
-            asyncio.create_task(self._reap_loop(), name="reap"),
-            asyncio.create_task(self._config_poll_loop(), name="config_poll"),
-            asyncio.create_task(self._status_log_loop(), name="status_log"),
-            asyncio.create_task(self._kill_poll_loop(), name="kill_poll"),
-            asyncio.create_task(self._gc_loop(), name="retention_gc"),
-        ]
-
+    async def _serve_until_shutdown(self) -> None:
+        """Serve every service until _shutdown fires, then cancel them."""
+        assert self._done is not None
+        bg = [asyncio.create_task(svc.serve(self.state), name=svc.name) for svc in self._services]
         await self._done.wait()
-
         for t in bg:
             t.cancel()
         await asyncio.gather(*bg, return_exceptions=True)
-
-        return 0
 
     async def _gc_loop(self) -> None:
         """Run the retention pass on a daily cadence (startup ran it once)."""
@@ -246,9 +340,9 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
             )
 
     async def _shutdown(self) -> None:
-        if self._shutting_down:
+        if self.state.shutting_down:
             return
-        self._shutting_down = True
+        self.state.shutting_down = True
         self._log.info("supervisor_shutdown_initiated")
 
         grace = float(SHUTDOWN_GRACE_SEC)
