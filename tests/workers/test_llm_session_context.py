@@ -1,4 +1,5 @@
 """Tests for LlmSession context checkpoint (75%) and kill (90%) behaviour."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +14,11 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome
 from fleet.state.paths import task_dir as _task_dir_path
 from fleet.workers.base import StepContext
-from fleet.workers.llm_session import LlmSession, is_context_error_text
+from fleet.workers.llm_session import (
+    LlmSession,
+    error_text_of,
+    is_context_error_text,
+)
 
 
 class StubCoder:
@@ -139,9 +144,7 @@ def test_stderr_context_error_reports_context_pressure(tmp_path: Path) -> None:
 
 
 def test_event_context_error_reports_context_pressure(tmp_path: Path) -> None:
-    line = json.dumps(
-        {"type": "system", "subtype": "error", "message": "Prompt is too long"}
-    )
+    line = json.dumps({"type": "system", "subtype": "error", "message": "Prompt is too long"})
     script = (
         "import sys, time\n"
         f"sys.stdout.write({line!r} + '\\n')\n"
@@ -154,6 +157,95 @@ def test_event_context_error_reports_context_pressure(tmp_path: Path) -> None:
     result = _run(LlmSession(), ctx)
 
     assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
+
+
+def _emit_then_exit_ok(line: str) -> str:
+    """Script that prints *line*, then a clean result event, then exits 0."""
+    done = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok"})
+    return (
+        "import sys\n"
+        f"sys.stdout.write({line!r} + '\\n')\n"
+        f"sys.stdout.write({done!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+    )
+
+
+def test_assistant_prose_about_context_window_is_not_an_overflow(tmp_path: Path) -> None:
+    """Regression: bead 5b was killed three times because the model *said*
+    "Doing per-model context windows" and the scanner treated it as an error."""
+    line = json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Doing per-model context windows - the token limit map next.",
+                    }
+                ]
+            },
+        }
+    )
+    ctx = _ctx(tmp_path)
+    ctx.coder = StubCoder(argv=[sys.executable, "-c", _emit_then_exit_ok(line)])
+
+    result = _run(LlmSession(), ctx)
+
+    assert result.outcome != TaskOutcome.CONTEXT_PRESSURE
+
+
+def test_successful_result_mentioning_context_window_is_not_an_overflow(tmp_path: Path) -> None:
+    done = json.dumps(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Added a context window map per model.",
+        }
+    )
+    script = f"import sys\nsys.stdout.write({done!r} + '\\n')\nsys.stdout.flush()\n"
+    ctx = _ctx(tmp_path)
+    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+
+    result = _run(LlmSession(), ctx)
+
+    assert result.outcome != TaskOutcome.CONTEXT_PRESSURE
+
+
+def test_failed_result_with_context_error_reports_context_pressure(tmp_path: Path) -> None:
+    done = json.dumps(
+        {
+            "type": "result",
+            "subtype": "error",
+            "is_error": True,
+            "result": "Prompt is too long: 1050000 tokens > 1048576 maximum",
+        }
+    )
+    script = (
+        "import sys, time\n"
+        f"sys.stdout.write({done!r} + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(30)\n"
+    )
+    ctx = _ctx(tmp_path)
+    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+
+    result = _run(LlmSession(), ctx)
+
+    assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
+
+
+def test_error_text_of_ignores_prose_and_keeps_errors() -> None:
+    class E:
+        def __init__(self, kind, raw):
+            self.kind, self.raw = kind, raw
+
+    assert error_text_of(E("assistant_text", {"message": "context window"})) == ""
+    assert error_text_of(E("session_ended", {"is_error": False, "result": "context window"})) == ""
+    assert "context window" in error_text_of(
+        E("session_ended", {"is_error": True, "result": "context window exceeded"})
+    )
+    assert "too long" in error_text_of(E("error", {"message": "prompt is too long"}))
 
 
 def test_is_context_error_text() -> None:

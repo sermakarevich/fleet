@@ -72,6 +72,32 @@ def is_context_error_text(text: str) -> bool:
     return any(pat in lowered for pat in _CONTEXT_ERROR_PATTERNS)
 
 
+def error_text_of(evt) -> str:
+    """The error payload of *evt*, or "" when the event carries no error.
+
+    Only ``error`` events and the error fields of a ``session_ended`` event
+    count. The model's own prose (``assistant_text``) is never scanned: a
+    worker that *talks about* "context windows" is not overflowing one.
+    """
+    import json as _json
+
+    raw = evt.raw if isinstance(evt.raw, dict) else {}
+    if evt.kind == "error":
+        candidate = raw
+    elif evt.kind == "session_ended":
+        candidate = {k: raw[k] for k in ("error", "errors", "message") if raw.get(k)}
+        if raw.get("is_error") and raw.get("result"):
+            candidate["result"] = raw["result"]
+    else:
+        return ""
+    if not candidate:
+        return ""
+    try:
+        return _json.dumps(candidate)[:8000]
+    except (TypeError, ValueError):
+        return ""
+
+
 def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
     """Signal the child's whole process group; fall back to the child alone."""
     try:
@@ -381,13 +407,8 @@ class LlmSession:
                             )
                             break
 
-                if evt.kind in ("error", "assistant_text", "session_ended"):
-                    try:
-                        import json as _json
-
-                        searchable = _json.dumps(evt.raw)[:8000]
-                    except (TypeError, ValueError):
-                        searchable = ""
+                if evt.kind in ("error", "session_ended"):
+                    searchable = error_text_of(evt)
                     if searchable and is_context_error_text(searchable):
                         task_log.log.warning(
                             "context_overflow_reported",
