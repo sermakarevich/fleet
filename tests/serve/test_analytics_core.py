@@ -73,24 +73,24 @@ class TestTaskRecordFull:
 
         r = task_record_cached(td)
 
-        assert r["id"] == "task-full"
-        assert r["title"] == "Full test"
-        assert r["status_raw"] == "done"
-        assert r["first_ts"] == "2025-01-01T10:00:00+00:00"
-        assert r["last_ts"] is not None
+        assert r.id == "task-full"
+        assert r.title == "Full test"
+        assert r.status_raw == "done"
+        assert r.first_ts == "2025-01-01T10:00:00+00:00"
+        assert r.last_ts is not None
         # malformed line is excluded from events count
-        assert r["events"] == 6  # 6 valid lines (including malformed-ts one)
-        assert r["steps"] == 2
-        assert r["segments"] == 2  # s1, s2
-        assert r["errors"] == 2
-        assert r["tool_counts"] == {"Read": 1, "Edit": 1}
-        assert r["output_tokens"] == 500  # 200 + 300
-        assert r["input_tokens"] == 250  # 100 + 150
-        assert r["cache_creation_tokens"] == 80  # 50 + 30
-        assert r["cache_read_tokens"] == 30  # 10 + 20
-        assert r["peak_context_tokens"] == 200
-        assert r["rate_limited"] == 0
-        assert r["noclose"] is False
+        assert r.events == 6  # 6 valid lines (including malformed-ts one)
+        assert r.steps == 2
+        assert r.segments == 2  # s1, s2
+        assert r.errors == 2
+        assert r.tool_counts == {"Read": 1, "Edit": 1}
+        assert r.output_tokens == 500  # 200 + 300
+        assert r.input_tokens == 250  # 100 + 150
+        assert r.cache_creation_tokens == 80  # 50 + 30
+        assert r.cache_read_tokens == 30  # 10 + 20
+        assert r.peak_context_tokens == 200
+        assert r.rate_limited == 0
+        assert r.noclose is False
 
 
 class TestRateLimit:
@@ -139,11 +139,11 @@ class TestRateLimit:
         _write_events(td, evs)
 
         r = task_record_cached(td)
-        assert r["rate_limited"] == 2
-        assert len(r["rate_limit_events"]) == 2
-        assert "2025-03-05T08:01:00Z" in r["rate_limit_events"]
-        assert "2025-03-05T08:02:00Z" in r["rate_limit_events"]
-        assert r["noclose"] is True
+        assert r.rate_limited == 2
+        assert len(r.rate_limit_events) == 2
+        assert "2025-03-05T08:01:00Z" in r.rate_limit_events
+        assert "2025-03-05T08:02:00Z" in r.rate_limit_events
+        assert r.noclose is True
 
 
 class TestToolUseFallback:
@@ -163,7 +163,7 @@ class TestToolUseFallback:
         _write_events(td, evs)
 
         r = task_record_cached(td)
-        assert r["tool_counts"] == {"Read": 2, "Bash": 1}
+        assert r.tool_counts == {"Read": 2, "Bash": 1}
 
     def test_named_tool_result_wins_over_tool_use(self, tmp_path: Path) -> None:
         """opencode emits tool_use per state update plus a final tool_result —
@@ -179,7 +179,7 @@ class TestToolUseFallback:
         _write_events(td, evs)
 
         r = task_record_cached(td)
-        assert r["tool_counts"] == {"bash": 1}
+        assert r.tool_counts == {"bash": 1}
 
 
 class TestMissingEvents:
@@ -191,21 +191,21 @@ class TestMissingEvents:
         _write_task_json(td)
 
         r = task_record_cached(td)
-        assert r["id"] == "task-empty"
-        assert r["first_ts"] is None
-        assert r["last_ts"] is None
-        assert r["events"] == 0
-        assert r["steps"] == 0
-        assert r["segments"] == 0
-        assert r["errors"] == 0
-        assert r["tool_counts"] == {}
-        assert r["output_tokens"] == 0
-        assert r["input_tokens"] == 0
-        assert r["cache_creation_tokens"] == 0
-        assert r["cache_read_tokens"] == 0
-        assert r["peak_context_tokens"] is None
-        assert r["rate_limited"] == 0
-        assert r["hour_hist"] == {}
+        assert r.id == "task-empty"
+        assert r.first_ts is None
+        assert r.last_ts is None
+        assert r.events == 0
+        assert r.steps == 0
+        assert r.segments == 0
+        assert r.errors == 0
+        assert r.tool_counts == {}
+        assert r.output_tokens == 0
+        assert r.input_tokens == 0
+        assert r.cache_creation_tokens == 0
+        assert r.cache_read_tokens == 0
+        assert r.peak_context_tokens is None
+        assert r.rate_limited == 0
+        assert r.hour_hist == {}
 
 
 class TestCache:
@@ -239,7 +239,7 @@ class TestCache:
         )
 
         r1 = task_record_cached(td)
-        assert r1["events"] == 1
+        assert r1.events == 1
 
         # Append a line (changes file size)
         evs = "\n".join(
@@ -253,7 +253,7 @@ class TestCache:
         r2 = task_record_cached(td)
         # Must be a different object (cache invalidated)
         assert r1 is not r2
-        assert r2["events"] == 2
+        assert r2.events == 2
 
 
 class TestCollectRecords:
@@ -278,7 +278,7 @@ class TestCollectRecords:
         not_dir.touch()
 
         records = collect_records(home)
-        ids = [r["id"] for r in records]
+        ids = [r.id for r in records]
         assert "task-a" in ids
         assert "task-b" not in ids
         assert len(records) == 1

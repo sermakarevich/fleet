@@ -1,0 +1,395 @@
+{
+  "by_model": [
+    {
+      "avg_segments": 1.0,
+      "coder": "claude",
+      "errors": 1,
+      "mean_peak_context_tokens": 92.5,
+      "median_run_sec": 3600.0,
+      "model": "sonnet",
+      "output_tokens": 250,
+      "rate_limited": 0,
+      "success_rate": 1.0,
+      "total": 3
+    },
+    {
+      "avg_segments": 1.0,
+      "coder": "claude",
+      "errors": 0,
+      "mean_peak_context_tokens": 150.0,
+      "median_run_sec": 10800.0,
+      "model": "opus",
+      "output_tokens": 300,
+      "rate_limited": 1,
+      "success_rate": 0.0,
+      "total": 1
+    },
+    {
+      "avg_segments": 1.0,
+      "coder": "unknown",
+      "errors": 0,
+      "mean_peak_context_tokens": 0.0,
+      "median_run_sec": 0.0,
+      "model": "unknown",
+      "output_tokens": 0,
+      "rate_limited": 0,
+      "success_rate": 0.0,
+      "total": 1
+    }
+  ],
+  "by_project": [
+    {
+      "cwd": "/proj-a",
+      "median_run_sec": 3600.0,
+      "output_tokens": 250,
+      "success_rate": 0.6666666666666666,
+      "total": 3
+    },
+    {
+      "cwd": "/proj-b",
+      "median_run_sec": 5400.0,
+      "output_tokens": 300,
+      "success_rate": 0.5,
+      "total": 2
+    }
+  ],
+  "context_histogram": {
+    "buckets": {
+      "0-25": 3,
+      "100+": 0,
+      "25-50": 0,
+      "50-75": 0,
+      "75-100": 0
+    }
+  },
+  "errors_recent": [
+    {
+      "coder": "claude",
+      "ended_at": "2025-06-05T10:00:00+00:00",
+      "id": "task-zeta",
+      "model": "sonnet",
+      "outcome": "context_pressure",
+      "title": "Task task-zeta"
+    },
+    {
+      "coder": "claude",
+      "ended_at": "2025-06-04T11:00:00+00:00",
+      "id": "task-eps",
+      "model": "sonnet",
+      "outcome": "noclose",
+      "title": "Task task-eps"
+    },
+    {
+      "coder": "",
+      "ended_at": "2025-06-03T10:00:00+00:00",
+      "id": "task-gamma",
+      "model": "",
+      "outcome": "blocked",
+      "title": "Task task-gamma"
+    },
+    {
+      "coder": "claude",
+      "ended_at": "2025-06-02T13:00:00+00:00",
+      "id": "task-beta",
+      "model": "opus",
+      "outcome": "failed",
+      "title": "Task task-beta"
+    }
+  ],
+  "heatmap": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "kpis": {
+    "active_now": 1,
+    "avg_segments": 1.0,
+    "completed": 5,
+    "error_events": 1,
+    "median_queue_wait_sec": 0.0,
+    "median_run_sec": 3600.0,
+    "noclose_count": 1,
+    "p90_run_sec": 9360.0,
+    "queued": 0,
+    "rate_limited_tasks": 1,
+    "success_rate": 0.6,
+    "total_cache_creation_tokens": 50,
+    "total_cache_read_tokens": 10,
+    "total_input_tokens": 275,
+    "total_output_tokens": 550,
+    "total_steps": 5
+  },
+  "rate_limits": [
+    {
+      "task_id": "task-beta",
+      "ts": "2025-06-02T12:00:00Z"
+    }
+  ],
+  "throughput": {
+    "bucket_size": "day",
+    "buckets": [
+      {
+        "blocked": 0,
+        "bucket": "2025-06-01",
+        "failed": 0,
+        "success": 1
+      },
+      {
+        "blocked": 0,
+        "bucket": "2025-06-02",
+        "failed": 1,
+        "success": 0
+      },
+      {
+        "blocked": 1,
+        "bucket": "2025-06-03",
+        "failed": 0,
+        "success": 0
+      },
+      {
+        "blocked": 0,
+        "bucket": "2025-06-04",
+        "failed": 0,
+        "success": 1
+      },
+      {
+        "blocked": 0,
+        "bucket": "2025-06-05",
+        "failed": 0,
+        "success": 1
+      }
+    ]
+  },
+  "token_throughput": {
+    "bucket_size": "day",
+    "buckets": [
+      {
+        "bucket": "2025-06-01",
+        "cache_tokens": 60,
+        "input_tokens": 100,
+        "output_tokens": 200
+      },
+      {
+        "bucket": "2025-06-02",
+        "cache_tokens": 0,
+        "input_tokens": 150,
+        "output_tokens": 300
+      },
+      {
+        "bucket": "2025-06-03",
+        "cache_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0
+      },
+      {
+        "bucket": "2025-06-04",
+        "cache_tokens": 0,
+        "input_tokens": 25,
+        "output_tokens": 50
+      },
+      {
+        "bucket": "2025-06-05",
+        "cache_tokens": 0,
+        "input_tokens": 0,
+        "output_tokens": 0
+      }
+    ]
+  },
+  "tools": {
+    "rows": [
+      {
+        "count": 1,
+        "name": "Read"
+      },
+      {
+        "count": 1,
+        "name": "Edit"
+      },
+      {
+        "count": 1,
+        "name": "Write"
+      }
+    ],
+    "total": 3
+  },
+  "window_days": 0
+}
