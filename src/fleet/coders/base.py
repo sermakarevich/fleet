@@ -108,10 +108,13 @@ class Coder(ABC):
         """
 
     def probe_health(
-        self, task: Task, task_dir: Path, started_at: datetime
+        self, task: Task, task_dir: Path, since: datetime
     ) -> TaskOutcomeRecord | None:
         """Called periodically by LlmSession while the subprocess is silent.
 
+        `since` is the time of the last stdout event: only provider errors
+        logged after it count, because an error the CLI already recovered
+        from (it kept streaming) must not kill a healthy session.
         Return a TaskOutcomeRecord to make the runner kill the process and
         report that outcome; None means healthy (or unsupported by this coder).
         Default is a no-op.

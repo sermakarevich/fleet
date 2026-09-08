@@ -167,7 +167,7 @@ class LlmSession:
                         continue
                     last_probe_at = now
                     probe_outcome = await asyncio.to_thread(
-                        coder.probe_health, task, task_dir, started_at
+                        coder.probe_health, task, task_dir, last_event_at
                     )
                     if probe_outcome is None:
                         continue

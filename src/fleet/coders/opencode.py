@@ -370,14 +370,16 @@ class OpencodeCoder(Coder):
         return None
 
     def probe_health(
-        self, task: Task, task_dir: Path, started_at: datetime
+        self, task: Task, task_dir: Path, since: datetime
     ) -> TaskOutcomeRecord | None:
         """Detect provider rate-limit/connect errors opencode swallows silently.
 
         `opencode run --format json` never emits a provider error into its
         JSON stream: on a rate limit or connection failure it logs to
         opencode.log and the process hangs forever with no stdout/stderr.
-        Read the tail of that log and classify lines since this run started.
+        Read the tail of that log and classify lines logged after `since`
+        (the last stdout event). Transient rate limits that opencode retried
+        and recovered from are older than the last event and are ignored.
         """
         log_path = Path(os.environ.get("OPENCODE_LOG_FILE", _DEFAULT_OPENCODE_LOG_FILE))
         if not log_path.exists():
@@ -391,4 +393,4 @@ class OpencodeCoder(Coder):
 
         lines = tail.splitlines()
         model = task.model or self.model
-        return classify_opencode_log_lines(lines, since=started_at, model=model)
+        return classify_opencode_log_lines(lines, since=since, model=model)
