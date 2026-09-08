@@ -652,3 +652,45 @@ def test_context_limit_for_ollama_model():
 
 def test_context_limit_for_none_model():
     assert OpencodeCoder.context_limit_for(None) == 128_000
+
+
+def _isolated_task_dir(tmp_path: Path, task_id: str, worktree: Path) -> Path:
+    import json
+
+    task_dir = tmp_path / "tasks" / task_id
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        json.dumps({"id": task_id, "cwd": "/repo/main", "worktree_path": str(worktree)})
+    )
+    return task_dir
+
+
+def test_build_argv_dir_flag_follows_the_isolated_worktree(tmp_path: Path) -> None:
+    """Regression (fleet-o5xr2): `--dir` pointed at the original repo while the
+    process ran in the worktree, so resumed attempts edited the shared tree."""
+    from fleet.coders.opencode import OpencodeCoder
+
+    worktree = tmp_path / "worktrees" / "repo-t-iso"
+    task = Task(id="t-iso", title="t", description="d", status="open", cwd="/repo/main")
+    task_dir = _isolated_task_dir(tmp_path, task.id, worktree)
+
+    argv = OpencodeCoder().build_argv(task, task_dir)
+
+    assert argv[argv.index("--dir") + 1] == str(worktree)
+    prompt = argv[-1]
+    assert f"Invocation directory: {worktree}" in prompt
+    assert f"checked out at\n> `{worktree}`" in prompt
+    assert "{worktree_path}" not in prompt
+
+
+def test_build_argv_dir_flag_uses_cwd_when_not_isolated(tmp_path: Path) -> None:
+    from fleet.coders.opencode import OpencodeCoder
+
+    task = Task(id="t-plain", title="t", description="d", status="open", cwd="/repo/main")
+    task_dir = tmp_path / "tasks" / task.id
+    task_dir.mkdir(parents=True)
+
+    argv = OpencodeCoder().build_argv(task, task_dir)
+
+    assert argv[argv.index("--dir") + 1] == "/repo/main"
+    assert "Isolation mode" not in argv[-1]

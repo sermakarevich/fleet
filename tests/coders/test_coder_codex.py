@@ -384,3 +384,19 @@ def test_write_codex_config_lists_fleet_servers(tmp_path: Path):
     assert "[mcp_servers.web_fetch]" in text
     assert "fleet.integrations.ask_human.server" in text
     assert str(home / "ask_human" / "questions.db") in text
+
+
+def test_build_argv_cd_flag_follows_the_isolated_worktree(tmp_path: Path) -> None:
+    import json
+
+    worktree = tmp_path / "worktrees" / "repo-t-iso"
+    task = Task(id="t-iso", title="t", description="d", status="open", cwd="/repo/main")
+    task_dir = tmp_path / "tasks" / task.id
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.json").write_text(
+        json.dumps({"id": task.id, "cwd": task.cwd, "worktree_path": str(worktree)})
+    )
+
+    argv = CodexCoder().build_argv(task, task_dir)
+
+    assert argv[argv.index("--cd") + 1] == str(worktree)

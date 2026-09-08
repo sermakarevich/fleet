@@ -13,17 +13,41 @@ _INSTRUCTION_COMMON_PATH = _TEMPLATES_DIR / "INSTRUCTION_COMMON.md"
 _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 
-def _is_isolated(task_dir: Path) -> bool:
-    """True when task.json carries worktree isolation info (legacy marker fallback)."""
+def isolation_workdir(task_dir: Path) -> str | None:
+    """The worktree an isolated task runs in, from task.json (legacy `.worktree` fallback)."""
     try:
         import json
 
         meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         if isinstance(meta, dict) and meta.get("worktree_path"):
-            return True
+            return str(meta["worktree_path"])
     except (OSError, ValueError):
         pass
-    return (task_dir / ".worktree").exists()
+    try:
+        marker = task_dir / ".worktree"
+        if marker.exists():
+            return marker.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        pass
+    return None
+
+
+def _is_isolated(task_dir: Path) -> bool:
+    """True when the task runs isolated: task.json names a worktree, or the
+    legacy `.worktree` marker exists (even empty)."""
+    return isolation_workdir(task_dir) is not None or (task_dir / ".worktree").exists()
+
+
+def workdir_for(task: Task, task_dir: Path) -> str | None:
+    """Directory the coder must work in: the isolated worktree when there is
+    one, else the task's cwd, else None (fleet home, no directory flag).
+
+    Every coder that passes a directory flag to its CLI (`opencode --dir`,
+    `codex --cd`) must use this, never `task.cwd` directly: under isolation
+    the subprocess is started inside the worktree, and a flag pointing at
+    the original repo makes the model edit the shared tree instead.
+    """
+    return isolation_workdir(task_dir) or task.cwd
 
 
 def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
@@ -35,7 +59,9 @@ def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
     treated the same as a fresh, empty-pack plan.
     """
     artifacts_dir = task_dir / "artifacts"
-    invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
+    worktree = isolation_workdir(task_dir)
+    workdir = worktree or task.cwd
+    invocation_line = f"Invocation directory: {workdir}" if workdir else ""
     header = (
         _HEADER_PATH.read_text(encoding="utf-8")
         .format(
@@ -64,7 +90,8 @@ def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
     parts.append(mode_instructions)
     parts.append(common_instructions)
     if _is_isolated(task_dir):
-        parts.append(_ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip())
+        protocol = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
+        parts.append(protocol.replace("{worktree_path}", worktree or "your working directory"))
 
     return "\n\n---\n\n".join(parts)
 

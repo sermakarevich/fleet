@@ -5,7 +5,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt
+from fleet.coders.base import Coder, render_prompt, workdir_for
 from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
@@ -157,8 +157,9 @@ class OpencodeCoder(Coder):
         prompt = render_prompt(task, task_dir, plan)
         full_id, _ = _resolve_model(self.model, self.default_model)
         argv = ["opencode", "run", "--format", "json", "--model", full_id]
-        if task.cwd:
-            argv += ["--dir", task.cwd]
+        workdir = workdir_for(task, task_dir)
+        if workdir:
+            argv += ["--dir", workdir]
         argv.append(prompt)
         return argv
 

@@ -17,7 +17,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt
+from fleet.coders.base import Coder, render_prompt, workdir_for
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 
@@ -102,8 +102,9 @@ class CodexCoder(Coder):
             "--dangerously-bypass-approvals-and-sandbox",
             "--model", self.model,
         ]
-        if task.cwd:
-            argv += ["--cd", task.cwd]
+        workdir = workdir_for(task, task_dir)
+        if workdir:
+            argv += ["--cd", workdir]
         argv.append(prompt)
         return argv
 

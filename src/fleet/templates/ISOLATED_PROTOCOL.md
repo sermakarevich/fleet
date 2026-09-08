@@ -1,6 +1,8 @@
 > ## Isolation mode
-> This task runs in an isolated git worktree on branch `fleet/<task_id>`, checked out at your
-> working directory. When your work is complete:
+> This task runs in an isolated git worktree on branch `fleet/<task_id>`, checked out at
+> `{worktree_path}`. That is your working directory: read, edit and run tests THERE, using
+> paths under it. Never write into the original repo the task description mentions; it is only
+> the merge target. When your work is complete:
 > 1. If you changed files in this repo, commit ALL of them to this branch:
 >    `git add -A && git commit -m "<clear message>"`. If the task changed nothing in this
 >    repo (research, notes elsewhere), skip this step: no commit is required.
