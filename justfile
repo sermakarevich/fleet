@@ -44,6 +44,10 @@ config:
 set +PAIRS:
     uv run fleet config set {{PAIRS}}
 
+# shrink the beads dolt DB: export a JSONL safety copy, squash all history, GC
+beads-gc:
+    cd "${FLEET_HOME:-$HOME/.fleet}" && bd export -o "beads_export_$(date +%Y-%m-%d).jsonl" && bd flatten --force && bd gc --skip-decay --force
+
 # remove build artefacts and caches
 clean:
     rm -rf .pytest_cache .venv *.egg-info src/fleet/__pycache__ src/fleet/*/__pycache__ tests/__pycache__ tests/*/__pycache__
