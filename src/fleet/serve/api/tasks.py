@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
 from fleet.beads.cache import get_beads_status_map
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import context_limit_for, get_coder
 from fleet.coders import list_coders as _list_coders
@@ -108,7 +108,7 @@ def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
     """Clear assignee in both beads DB and task.json (if present)."""
     try:
         beads_client.update(task_id, home, assignee="")
-    except BeadsError as exc:
+    except BdError as exc:
         return False, str(exc) or "bd update failed"
     task_dir = _task_dir(home, task_id)
     if (task_dir / "task.json").exists() and TaskMeta.load(task_dir) is not None:
@@ -278,7 +278,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
             return JSONResponse({"error": "not found"}, status_code=404)
         try:
             deps = await asyncio.to_thread(beads_client.children_of, task_id, home)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         children: list[dict] = []
         for dep in deps:
@@ -375,7 +375,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
             queue = request.app.state.queue
             try:
                 await asyncio.to_thread(queue.close, task_id, "killed")
-            except BeadsError as exc:
+            except BdError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
             return JSONResponse({"ok": True, "result": "closed"})
         return JSONResponse({"ok": True, "result": "no-op"})
@@ -385,7 +385,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         queue = request.app.state.queue
         try:
             await asyncio.to_thread(queue.release, task_id)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"ok": True})
 
@@ -408,7 +408,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         queue = request.app.state.queue
         try:
             await asyncio.to_thread(queue.release, task_id, reason)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         if TaskMeta.load(task_dir) is not None:
             with contextlib.suppress(OSError):
@@ -426,7 +426,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         queue = request.app.state.queue
         try:
             await asyncio.to_thread(queue.clear_ignore, task_id)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"ok": True})
 
@@ -438,7 +438,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         queue = request.app.state.queue
         try:
             await asyncio.to_thread(queue.close, task_id)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"ok": True})
 
@@ -450,7 +450,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         queue = request.app.state.queue
         try:
             await asyncio.to_thread(queue.delete, task_id)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"ok": True})
 
@@ -489,7 +489,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
                 body.get("model"),
                 body.get("args"),
             )
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse({"id": task.id}, status_code=201)
 

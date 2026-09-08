@@ -13,7 +13,7 @@ import typer
 from typer.testing import CliRunner
 
 import fleet.cli.daemons as climod
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.cli.main import app
 from fleet.core.task import Task
 from fleet.observability.daemon import DaemonStatus, StartResult
@@ -81,7 +81,7 @@ def test_show_missing_task_exits_nonzero() -> None:
     with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
-        mock_q.get.side_effect = BeadsError("task not found: missing-task")
+        mock_q.get.side_effect = BdError("task not found: missing-task")
         result = runner.invoke(app, ["show", "missing-task"])
     assert result.exit_code != 0
 
@@ -90,7 +90,7 @@ def test_show_missing_task_prints_error_message() -> None:
     with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
-        mock_q.get.side_effect = BeadsError("task not found: missing-task")
+        mock_q.get.side_effect = BdError("task not found: missing-task")
         result = runner.invoke(app, ["show", "missing-task"])
     assert "missing-task" in result.output or "not found" in result.output
 
@@ -745,7 +745,7 @@ def test_tasks_beads_error_exits_nonzero() -> None:
     with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
-        mock_q.list_in_progress.side_effect = BeadsError("bd boom")
+        mock_q.list_in_progress.side_effect = BdError("bd boom")
         result = runner.invoke(app, ["tasks"])
     assert result.exit_code != 0
     assert "bd boom" in result.output
@@ -863,7 +863,7 @@ def test_task_help_tolerates_beads_error() -> None:
     with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
-        mock_q.list_in_progress.side_effect = BeadsError("bd unavailable")
+        mock_q.list_in_progress.side_effect = BdError("bd unavailable")
         result = runner.invoke(app, ["task", "--help"])
     assert result.exit_code == 0, result.output + (result.stderr or "")
     assert "Currently running tasks" in result.output

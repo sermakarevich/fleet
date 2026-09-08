@@ -718,8 +718,9 @@ class TestSummaryExtras:
         )
 
         # Add an active task too (still counted for heatmap)
-        # Use a different hour to avoid collision
-        tuesday_dt = window_dt.replace(hour=14)
+        # Use a different hour to avoid collision (the window hour moves with the clock).
+        other_hour = (window_dt.hour + 5) % 24
+        tuesday_dt = window_dt.replace(hour=other_hour)
         tuesday_ts = tuesday_dt.isoformat()
         td2_wd = tuesday_dt.weekday()
         td2 = make_task_dir(tasks_root, "task-hm2", status="in_progress", cwd="/p")
@@ -754,7 +755,7 @@ class TestSummaryExtras:
 
         # Check the specific indices
         assert heatmap[wd][window_dt.hour] == 3
-        assert heatmap[td2_wd][14] == 1
+        assert heatmap[td2_wd][other_hour] == 1
 
     def test_errors_recent_contains_failed_and_blocked_newest_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

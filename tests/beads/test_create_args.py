@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from fleet.beads.create_args import rewrite_create_argv
+from fleet.beads.create_args import _FLAGS, rewrite_create_argv
 
 
 def test_no_overrides_passthrough_unchanged() -> None:
@@ -101,3 +101,40 @@ def test_extracts_job_gate_opt_out_into_metadata() -> None:
 def test_unknown_job_gate_raises_value_error() -> None:
     with pytest.raises(ValueError, match="job-gate"):
         rewrite_create_argv(["create", "Title", "--job-gate", "maybe"], "/cwd")
+
+
+@pytest.mark.parametrize(
+    "flag,value,meta_key",
+    [
+        ("--coder", "claude", "fleet_coder"),
+        ("--model", "sonnet", "fleet_model"),
+        ("--worker", "task.fresh", "fleet_worker"),
+        ("--cwd", "/custom", "fleet_cwd"),
+        ("--isolation", "worktree", "fleet_isolation"),
+        ("--job-gate", "off", "fleet_job_gate"),
+    ],
+)
+def test_each_owned_flag_lands_in_metadata(flag: str, value: str, meta_key: str) -> None:
+    """Every fleet-owned flag in _FLAGS is stripped from argv and stored in metadata."""
+    argv, _meta = rewrite_create_argv(["create", "Title", flag, value], "/cwd")
+    assert flag not in argv
+    metadata = json.loads(argv[argv.index("--metadata") + 1])
+    assert metadata[meta_key] == value
+
+
+@pytest.mark.parametrize("flag", ["--body-file", "--deps"])
+def test_forwarded_flags_stay_in_argv(flag: str) -> None:
+    """Flags marked forward_to_bd in _FLAGS are left for bd and add no metadata."""
+    argv, _meta = rewrite_create_argv(["create", "Title", flag, "x"], "/cwd")
+    assert flag in argv
+    assert "--metadata" not in argv
+
+
+def test_flags_table_covers_all_rewritten_flags() -> None:
+    """Adding a flag means adding one _FLAGS row: every spec has a known shape."""
+    for key, spec in _FLAGS.items():
+        assert spec.flag.startswith("--"), key
+        if spec.forward_to_bd:
+            assert spec.persist_as is None, key
+        else:
+            assert spec.persist_as is not None, key

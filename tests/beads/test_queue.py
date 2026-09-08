@@ -6,8 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.beads.queue import BeadsQueue
+from fleet.beads.task_store import order_ready
+
+
+def _show_body(task_id: str, **fields: object) -> dict:
+    """Minimal `bd show` body for a task id."""
+    return {"id": task_id, "title": f"Task {task_id}", "description": None, **fields}
 
 
 def test_order_ready_priority_then_oldest():
@@ -17,14 +23,18 @@ def test_order_ready_priority_then_oldest():
         {"id": "old-p2", "priority": 2, "created_at": "2026-06-11T04:00:00Z"},
         {"id": "newest-p0", "priority": 0, "created_at": "2026-06-13T17:00:00Z"},
     ]
-    ordered = [c["id"] for c in BeadsQueue._order_ready(items)]
+    ordered = [c["id"] for c in order_ready(items)]
     # P0 wins despite being newest; within P2 the older one comes first.
     assert ordered == ["newest-p0", "old-p2", "new-p2"]
 
 
+def _ok_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=["bd"], returncode=0, stdout="", stderr="")
+
+
 def test_claim_next_empty_ready_list_returns_none(queue: BeadsQueue) -> None:
     """claim_next returns None when no ready tasks exist."""
-    with patch.object(queue, "_bd", return_value={"data": []}):
+    with patch.object(queue._client, "run_json", return_value=[]):
         result = queue.claim_next("worker-1")
     assert result is None
 
@@ -35,18 +45,20 @@ def test_claim_next_contention_at_most_one_winner(tmp_path: Path) -> None:
     claim_counter = {"n": 0}
     counter_lock = threading.Lock()
 
-    def shared_mock_bd(
-        *args: str, json_envelope: bool = True, actor: str | None = None
-    ) -> dict | None:
-        if args and args[0] == "ready":
-            return {"data": task_data}
-        if "--claim" in args:
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        if argv and argv[0] == "ready":
+            return task_data
+        if argv and argv[0] == "show":
+            return _show_body("t-001")
+        return []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if "--claim" in argv:
             with counter_lock:
                 claim_counter["n"] += 1
                 if claim_counter["n"] > 1:
-                    raise BeadsError("contention: already claimed by another worker")
-            return None
-        return None
+                    raise BdError("contention: already claimed by another worker")
+        return _ok_run()
 
     q1 = BeadsQueue(repo_root=tmp_path)
     q2 = BeadsQueue(repo_root=tmp_path)
@@ -58,8 +70,10 @@ def test_claim_next_contention_at_most_one_winner(tmp_path: Path) -> None:
         results[idx] = q.claim_next(f"worker-{idx}")
 
     with (
-        patch.object(q1, "_bd", side_effect=shared_mock_bd),
-        patch.object(q2, "_bd", side_effect=shared_mock_bd),
+        patch.object(q1._client, "run_json", side_effect=fake_run_json),
+        patch.object(q1._client, "run", side_effect=fake_run),
+        patch.object(q2._client, "run_json", side_effect=fake_run_json),
+        patch.object(q2._client, "run", side_effect=fake_run),
     ):
         t1 = threading.Thread(target=run, args=(q1, 0))
         t2 = threading.Thread(target=run, args=(q2, 1))
@@ -81,12 +95,17 @@ def test_claim_next_reads_cwd_from_meta_file(tmp_path: Path) -> None:
 
     task_data = [{"id": "t-001", "title": "Task 1", "description": None}]
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
-        if args and args[0] == "ready":
-            return {"data": task_data}
-        return None
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        if argv and argv[0] == "ready":
+            return task_data
+        if argv and argv[0] == "show":
+            return _show_body("t-001")
+        return []
 
-    with patch.object(q, "_bd", side_effect=mock_bd):
+    with (
+        patch.object(q._client, "run_json", side_effect=fake_run_json),
+        patch.object(q._client, "run", side_effect=_ok_run),
+    ):
         task = q.claim_next("worker-1")
 
     assert task is not None
@@ -98,12 +117,17 @@ def test_claim_next_no_meta_file_yields_none_cwd(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     task_data = [{"id": "t-002", "title": "Task 2", "description": None}]
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
-        if args and args[0] == "ready":
-            return {"data": task_data}
-        return None
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        if argv and argv[0] == "ready":
+            return task_data
+        if argv and argv[0] == "show":
+            return _show_body("t-002")
+        return []
 
-    with patch.object(q, "_bd", side_effect=mock_bd):
+    with (
+        patch.object(q._client, "run_json", side_effect=fake_run_json),
+        patch.object(q._client, "run", side_effect=_ok_run),
+    ):
         task = q.claim_next("worker-1")
 
     assert task is not None
@@ -114,21 +138,19 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
     """create_task with cwd= writes <repo_root>/tasks/<id>/task.json with the cwd."""
     q = BeadsQueue(repo_root=tmp_path)
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
-        if "create" in args:
-            return {"data": {"id": "t-100"}}
-        if "show" in args:
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        if "create" in argv:
+            return {"id": "t-100"}
+        if "show" in argv:
             return {
-                "data": {
-                    "id": "t-100",
-                    "title": "x",
-                    "description": None,
-                    "status": "open",
-                }
+                "id": "t-100",
+                "title": "x",
+                "description": None,
+                "status": "open",
             }
-        return None
+        return []
 
-    with patch.object(q, "_bd", side_effect=mock_bd):
+    with patch.object(q._client, "run_json", side_effect=fake_run_json):
         task = q.create_task("Title", cwd="/some/project")
 
     meta_path = tmp_path / "tasks" / "t-100" / "task.json"
@@ -224,7 +246,7 @@ def test_set_overrides_creates_meta_if_missing(tmp_path: Path) -> None:
 
 
 def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
-    """BeadsError is raised when the bd subprocess exits with non-zero status."""
+    """BdError is raised when the bd subprocess exits with non-zero status."""
     q = BeadsQueue(repo_root=tmp_path)
     failed = subprocess.CompletedProcess(
         args=["bd", "show", "nonexistent"],
@@ -234,9 +256,9 @@ def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
     )
     with (
         patch("fleet.beads.client.subprocess.run", return_value=failed),
-        pytest.raises(BeadsError, match="issue not found"),
+        pytest.raises(BdError, match="issue not found"),
     ):
-        q._bd("show", "nonexistent")
+        q.get("nonexistent")
 
 
 def test_write_meta_atomic_leaves_no_tmp_file(tmp_path: Path) -> None:

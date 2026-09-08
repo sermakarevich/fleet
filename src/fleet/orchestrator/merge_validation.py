@@ -29,7 +29,7 @@ def finish_validation(st: SupervisorState, task_dir: Path, task_id: str) -> None
     clear_needs_validation(task_dir)
     (task_dir / ".worktree").unlink(missing_ok=True)
     try:
-        st.queue.clear_isolation_info(task_id)  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
+        st.queue.clear_isolation_info(task_id)
     except AttributeError:
         pass
     except Exception:

@@ -30,3 +30,6 @@ PARTIAL_MAX_ROUNDS: int = 5
 NOCLOSE_MAX_ROUNDS: int = 3
 
 RATE_LIMIT_PROBE_SILENCE_SEC: int = 300
+# Subprocess ceiling for every `bd` CLI call (see beads/client.py::BdClient).
+# A hung `bd` must fail fast as BdError, never hang the supervisor.
+BD_TIMEOUT_SEC: int = 60

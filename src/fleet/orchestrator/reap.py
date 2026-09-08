@@ -165,7 +165,7 @@ def discard_isolation(st: SupervisorState, task: Task, task_dir: Path, info: dic
             worktree.delete_branch(repo_root, task.id)
     (task_dir / ".worktree").unlink(missing_ok=True)
     with contextlib.suppress(Exception):  # noqa: BLE001
-        st.queue.clear_isolation_info(task.id)  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
+        st.queue.clear_isolation_info(task.id)
 
 
 def apply_noop(

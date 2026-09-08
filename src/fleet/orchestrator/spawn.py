@@ -154,7 +154,7 @@ def _ensure_isolation(
         block_terminal(st, task, f"terminal: worktree setup failed: {exc}")
         return None
     try:
-        st.queue.set_isolation_info(task.id, str(repo_root), base_ref, str(task_root))  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
+        st.queue.set_isolation_info(task.id, str(repo_root), base_ref, str(task_root))
     except Exception as exc:
         st.log.warning("isolation_info_write_failed", task_id=task.id, error=str(exc))
     return task_root
@@ -226,7 +226,7 @@ def spawn_worker(st: SupervisorState, task: Task) -> RunningWorker | None:
         return None
     coder, coder_name, model = coder_triple
     if st.coder_pin is None:
-        st.queue.freeze_coder_model(task.id, coder_name, model)  # type: ignore[arg-type]  # model override triple is never None here; bead 4 types the Queue contract
+        st.queue.freeze_coder_model(task.id, coder_name, model)
     st.log.info("task_coder_selected", task_id=task.id, coder=coder_name, model=model)
     task_root = _ensure_isolation(st, task, base_cwd, repo_root)
     if task_root is None:

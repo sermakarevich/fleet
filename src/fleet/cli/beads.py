@@ -136,8 +136,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
 
         if task_id and not user_wants_dry_run:
             queue = BeadsQueue(home)
-            # rewrite_create_argv always sets cwd; bead 4 will type overrides precisely.
-            queue.set_cwd(task_id, invocation_cwd)  # type: ignore[arg-type]
+            queue.set_cwd(task_id, invocation_cwd)
             queue.set_overrides(
                 task_id,
                 coder=coder_override,

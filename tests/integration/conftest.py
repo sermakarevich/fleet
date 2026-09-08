@@ -14,10 +14,11 @@ from pathlib import Path
 import pytest
 import structlog
 
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
+from fleet.core.job_ready import BeadSummary
 from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.rate_gauge import RateGauge
@@ -90,6 +91,8 @@ class MemoryQueue(Queue):
         self.closed: list[tuple[str, str]] = []
         self.claims: list[str] = []
         self._ignores: dict[str, str] = {}
+        self._children: dict[str, list[BeadSummary]] = {}
+        self._isolation: dict[str, dict] = {}
         self._listeners: list[Callable[[str, str], None]] = []
 
     def add_task(self, task: Task) -> None:
@@ -103,16 +106,28 @@ class MemoryQueue(Queue):
         for cb in self._listeners:
             cb(method, task_id)
 
-    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
+    def claim(self, task_id: str, claimer_id: str) -> Task:
+        """Move one open task to in_progress (the single claim path)."""
+        _ = claimer_id
+        task = self.get(task_id)
+        updated = replace(task, status="in_progress")
+        self._tasks[task_id] = updated
+        self.claims.append(task_id)
+        self._fire("claim", task_id)
+        return updated
+
+    def claim_next(
+        self,
+        claimer_id: str,
+        *,
+        can_claim: Callable[[str | None], bool] | None = None,
+    ) -> Task | None:
+        _ = claimer_id
         for tid, t in list(self._tasks.items()):
             if t.status == "open":
                 if can_claim is not None and not can_claim(t.coder):
                     continue
-                updated = replace(t, status="in_progress")
-                self._tasks[tid] = updated
-                self.claims.append(tid)
-                self._fire("claim", tid)
-                return updated
+                return self.claim(tid, claimer_id)
         return None
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
@@ -142,6 +157,7 @@ class MemoryQueue(Queue):
         model: str | None = None,
         worker: str | None = None,
         isolation: str | None = None,
+        job_gate: str | None = None,
     ) -> None:
         if task_id in self._tasks:
             t = self._tasks[task_id]
@@ -149,6 +165,9 @@ class MemoryQueue(Queue):
                 t,
                 coder=coder if coder is not None else t.coder,
                 model=model if model is not None else t.model,
+                worker=worker if worker is not None else t.worker,
+                isolation=isolation if isolation is not None else t.isolation,
+                job_gate=job_gate if job_gate is not None else t.job_gate,
             )
 
     def close(self, task_id: str, reason: str = "completed") -> None:
@@ -167,7 +186,7 @@ class MemoryQueue(Queue):
 
     def get(self, task_id: str) -> Task:
         if task_id not in self._tasks:
-            raise BeadsError(f"Task {task_id} not found")
+            raise BdError(f"Task {task_id} not found")
         return self._tasks[task_id]
 
     def list_ready(self, limit: int = 50) -> list[Task]:
@@ -194,7 +213,7 @@ class MemoryQueue(Queue):
             status=body.get("status", t.status),
         )
 
-    def create_task(
+    def create_task(  # noqa: PLR0913, PLR0917  # mirrors Queue.create_task signature
         self,
         title: str,
         description: str | None = None,
@@ -203,7 +222,10 @@ class MemoryQueue(Queue):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        worker: str | None = None,
+        extra_args: str | None = None,
     ) -> Task:
+        _ = (depends_on, labels, extra_args)
         task_id = f"mem-{len(self._tasks):03d}"
         task = Task(
             id=task_id,
@@ -213,9 +235,57 @@ class MemoryQueue(Queue):
             cwd=cwd,
             coder=coder,
             model=model,
+            worker=worker,
         )
         self._tasks[task_id] = task
         return task
+
+    def create_child(self, epic_id: str, spec: dict) -> Task:
+        """Open one child bead under an epic and link it."""
+        epic = self.get(epic_id)
+        child = self.create_task(
+            spec.get("title") or epic.title,
+            description=spec.get("body") or "",
+            cwd=spec.get("cwd") or epic.cwd,
+            coder=spec.get("coder") or epic.coder,
+            model=spec.get("model") or epic.model,
+        )
+        self._children.setdefault(epic_id, []).append(BeadSummary(id=child.id, status="open"))
+        return child
+
+    def list_children(self, epic_id: str) -> list[BeadSummary]:
+        """List an epic's child beads with their statuses."""
+        return list(self._children.get(epic_id, []))
+
+    def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
+        """List blocked tasks whose triage ignore is still recorded."""
+        rows = [
+            (self._tasks[tid], until) for tid, until in self._ignores.items() if tid in self._tasks
+        ]
+        return rows[:limit]
+
+    def set_cwd(self, task_id: str, cwd: str) -> None:
+        """Persist the invocation cwd for a task."""
+        if task_id in self._tasks:
+            self._tasks[task_id] = replace(self._tasks[task_id], cwd=cwd)
+
+    def set_isolation_info(
+        self, task_id: str, repo_root: str, base_ref: str, worktree_path: str
+    ) -> None:
+        """Persist git isolation info for a task."""
+        self._isolation[task_id] = {
+            "repo_root": repo_root,
+            "base_ref": base_ref,
+            "worktree_path": worktree_path,
+        }
+
+    def read_isolation_info(self, task_id: str) -> dict | None:
+        """Return git isolation info, or None when not isolated."""
+        return self._isolation.get(task_id)
+
+    def clear_isolation_info(self, task_id: str) -> None:
+        """Drop git isolation info after merge/cleanup."""
+        self._isolation.pop(task_id, None)
 
 
 # ---------------------------------------------------------------------------

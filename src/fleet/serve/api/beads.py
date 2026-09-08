@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.serve.api.tasks import _sync_remove_assignee
 from fleet.state.paths import fleet_home as get_fleet_home
 
@@ -85,7 +85,7 @@ def create_beads_router() -> APIRouter:
         home = get_fleet_home()
         try:
             await asyncio.to_thread(beads_client.run, ["update", bead_id, *extra], cwd=home)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc) or "bd update failed"}, status_code=502)
         return JSONResponse({"ok": True})
 
@@ -94,7 +94,7 @@ def create_beads_router() -> APIRouter:
         home = get_fleet_home()
         try:
             items = await asyncio.to_thread(beads_client.list_all, home)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc) or "bd list failed"}, status_code=502)
         beads = [_summary(it) for it in items if isinstance(it, dict)]
         return JSONResponse({"beads": beads})
@@ -104,7 +104,7 @@ def create_beads_router() -> APIRouter:
         home = get_fleet_home()
         try:
             body = await asyncio.to_thread(beads_client.show, bead_id, home)
-        except BeadsError as exc:
+        except BdError as exc:
             return JSONResponse({"error": str(exc) or "bd show failed"}, status_code=502)
         if not isinstance(body, dict):
             return JSONResponse({"error": "not found"}, status_code=404)
@@ -126,7 +126,7 @@ def create_beads_router() -> APIRouter:
                     ["close", bead_id, "--reason", "closed via BD portal"],
                     cwd=home,
                 )
-            except BeadsError as exc:
+            except BdError as exc:
                 return JSONResponse({"error": str(exc) or "bd close failed"}, status_code=502)
             return JSONResponse({"ok": True})
         return await _update(bead_id, ["--status", status])

@@ -13,7 +13,7 @@ from rich.console import Console
 from typer.core import TyperCommand
 
 from fleet.beads import client as beads_client
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.beads.queue import BeadsQueue
 from fleet.cli.format import render_tasks_table
 from fleet.core.job_phase import JobSnapshot, phase
@@ -61,7 +61,7 @@ def _running_tasks_help_text() -> str:
     header = "Currently running tasks (run `fleet tasks` for full details):"
     try:
         tasks = BeadsQueue(fleet_home()).list_in_progress(limit=50)
-    except BeadsError:
+    except BdError:
         return f"{header}\n\n  (unable to query bd queue)"
     if not tasks:
         return f"{header}\n\n  (none)"
@@ -140,7 +140,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if force or not beads_dir.exists():
             try:
                 beads_client.run(["init"], cwd=home)
-            except BeadsError as exc:
+            except BdError as exc:
                 if "already" not in str(exc).lower():
                     typer.echo(f"bd init failed: {exc}", err=True)
                     raise typer.Exit(1) from exc
@@ -157,7 +157,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         q = BeadsQueue(fleet_home())
         try:
             tasks = q.list_ready(limit=limit)
-        except BeadsError as exc:
+        except BdError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
         if not tasks:
@@ -188,7 +188,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         q = BeadsQueue(root)
         try:
             task = q.get(task_id)
-        except BeadsError as exc:
+        except BdError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
         cfg = load_config(root / "runtime.toml")
@@ -233,7 +233,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if ignored:
             try:
                 rows = q.list_ignored(limit=limit)
-            except BeadsError as exc:
+            except BdError as exc:
                 typer.echo(str(exc), err=True)
                 raise typer.Exit(1) from exc
             if not rows:
@@ -245,7 +245,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             return
         try:
             tasks = q.list_in_progress(limit=limit)
-        except BeadsError as exc:
+        except BdError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
         if not tasks:
@@ -352,7 +352,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         q = BeadsQueue(home)
         try:
             task = q.get(job_id)
-        except BeadsError as exc:
+        except BdError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
         task_dir = _task_dir(home, job_id)
@@ -362,7 +362,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         approved = (artifacts / "APPROVED").exists()
         try:
             children = q.list_children(job_id)
-        except BeadsError:
+        except BdError:
             children = []
         try:
             pending = QuestionStore().fetch_pending_for_task(job_id, "job_gate")

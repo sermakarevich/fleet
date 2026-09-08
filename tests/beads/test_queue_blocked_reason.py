@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,10 +9,10 @@ from fleet.beads.queue import BeadsQueue
 def test_set_blocked_writes_reason_and_clears_on_release(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
 
-    def mock_bd(*args: str, json_envelope: bool = True, actor=None):
-        return None
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=["bd"], returncode=0, stdout="", stderr="")
 
-    with patch.object(q, "_bd", side_effect=mock_bd):
+    with patch.object(q._client, "run", side_effect=fake_run):
         q.set_blocked("t-001", "needs human review")
         meta_path = tmp_path / "tasks" / "t-001" / "task.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8"))

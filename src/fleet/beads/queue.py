@@ -1,64 +1,102 @@
+"""Beads-backed task queue: the orchestrator's view of `bd`.
+
+Called by ``orchestrator/`` (claim, spawn, reap, leases, triage,
+merge_validation), ``serve/api/tasks.py``, ``cli/tasks.py``,
+``cli/beads.py``, ``workers/observe.py``, ``workers/job.py`` and
+``integrations/telegram/bot.py``. This module only talks to ``bd``
+(through :class:`BdClient`); every task.json read or write lives in
+``beads/task_store.py``.
+"""
+
+from __future__ import annotations
+
 import contextlib
-import json
 import shlex
 import shutil
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
 from pathlib import Path
 
-from fleet.beads import client as beads_client
-from fleet.beads.client import BeadsError
-from fleet.core.iso import now_iso, parse_iso
+from fleet.beads.client import BdClient, BdError, children_of
+from fleet.beads.task_store import TaskStore, build_task, order_ready
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
-from fleet.core.triage_policy import ignore_active
-from fleet.state.paths import task_dir as _task_dir
-from fleet.state.task_meta import TaskMeta
 
 
 class Queue(ABC):
+    """Everything the orchestrator, serve, CLI and workers need from `bd`."""
+
+    # -- claiming: ready() lists, claim(id) moves, claim_next picks --
     @abstractmethod
-    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None: ...
+    def claim_next(
+        self, claimer_id: str, *, can_claim: Callable[[str | None], bool] | None = None
+    ) -> Task | None:
+        """Claim the highest-priority claimable open task, or None."""
+        ...
 
     @abstractmethod
-    def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None: ...
+    def claim(self, task_id: str, claimer_id: str) -> Task:
+        """Move one open task to in_progress and write its lease."""
+        ...
 
     @abstractmethod
-    def set_blocked(self, task_id: str, reason: str) -> None: ...
+    def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
+        """Return a task to open, with an optional retry delay."""
+        ...
+
+    # -- terminal/reporting transitions: close, block, comment --
+    @abstractmethod
+    def close(self, task_id: str, reason: str = "completed") -> None:
+        """Close a task with a reason."""
+        ...
 
     @abstractmethod
-    def close(self, task_id: str, reason: str = "completed") -> None: ...
+    def set_blocked(self, task_id: str, reason: str) -> None:
+        """Mark a task blocked with a reason."""
+        ...
 
     @abstractmethod
-    def comment(self, task_id: str, body: str) -> None: ...
+    def comment(self, task_id: str, body: str) -> None:
+        """Append a comment to a task."""
+        ...
+
+    # -- reads: show one, list by status, children --
+    @abstractmethod
+    def get(self, task_id: str) -> Task:
+        """Show one task by id."""
+        ...
 
     @abstractmethod
-    def get(self, task_id: str) -> Task: ...
+    def list_ready(self, limit: int = 50) -> list[Task]:
+        """List open tasks whose dependencies are all closed."""
+        ...
 
     @abstractmethod
-    def list_ready(self, limit: int = 50) -> list[Task]: ...
+    def list_in_progress(self, limit: int = 50) -> list[Task]:
+        """List claimed tasks."""
+        ...
 
     @abstractmethod
-    def list_in_progress(self, limit: int = 50) -> list[Task]: ...
+    def list_blocked(self, limit: int = 100) -> list[Task]:
+        """List blocked tasks."""
+        ...
 
     @abstractmethod
-    def list_blocked(self, limit: int = 100) -> list[Task]: ...
+    def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
+        """List blocked tasks whose triage ignore is still active."""
+        ...
 
     @abstractmethod
-    def set_ignore(self, task_id: str, ignore_until: str) -> None: ...
+    def list_children(self, epic_id: str) -> list[BeadSummary]:
+        """List an epic's child beads with their statuses."""
+        ...
 
     @abstractmethod
-    def clear_ignore(self, task_id: str) -> None: ...
+    def delete(self, task_id: str) -> None:
+        """Delete a task and drop its task dir."""
+        ...
 
-    @abstractmethod
-    def set_bd_fields(self, task_id: str, body: dict) -> None: ...
-
-    @abstractmethod
-    def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None: ...
-
-    @abstractmethod
-    def delete(self, task_id: str) -> None: ...
-
+    # -- creation --
     @abstractmethod
     def create_task(  # noqa: PLR0913, PLR0917  # ADR 0006 bead 4
         self,
@@ -71,26 +109,22 @@ class Queue(ABC):
         model: str | None = None,
         worker: str | None = None,
         extra_args: str | None = None,
-    ) -> Task: ...
+    ) -> Task:
+        """Open a new task and snapshot it to task.json."""
+        ...
 
+    @abstractmethod
+    def create_child(self, epic_id: str, spec: dict) -> Task:
+        """Open one child bead under an epic; raises when the dep link fails."""
+        ...
 
-class BeadsQueue(Queue):
-    def __init__(self, repo_root: Path) -> None:
-        self.repo_root = repo_root
-
-    def _load_meta(self, task_id: str) -> dict:
-        meta = TaskMeta.load(_task_dir(self.repo_root, task_id))
-        return meta.to_dict() if meta is not None else {}
-
-    def _write_meta(self, task_id: str, data: dict) -> None:
-        task_dir = _task_dir(self.repo_root, task_id)
-        task_dir.mkdir(parents=True, exist_ok=True)
-        TaskMeta.from_dict(task_id, data).save(task_dir)
-
+    # -- task.json fields owned by TaskStore (set_* / clear_* / read_*) --
+    @abstractmethod
     def set_cwd(self, task_id: str, cwd: str) -> None:
-        """Persist invocation cwd into task.json, preserving other fields if present."""
-        TaskMeta.update(_task_dir(self.repo_root, task_id), cwd=cwd)
+        """Persist the invocation cwd into task.json."""
+        ...
 
+    @abstractmethod
     def set_overrides(
         self,
         task_id: str,
@@ -100,316 +134,130 @@ class BeadsQueue(Queue):
         isolation: str | None = None,
         job_gate: str | None = None,
     ) -> None:
-        """Persist per-task coder/model/worker/isolation/job-gate overrides into task.json.
+        """Persist per-task overrides into task.json."""
+        ...
 
-        Only the non-None fields are written; existing meta keys are preserved.
-        Distinct from freeze_coder_model, which writes both fields at spawn time.
-        """
-        if (
-            coder is None
-            and model is None
-            and worker is None
-            and isolation is None
-            and job_gate is None
-        ):
-            return
-        updates = {}
-        if coder is not None:
-            updates["coder"] = coder
-        if model is not None:
-            updates["model"] = model
-        if worker is not None:
-            updates["worker"] = worker
-        if isolation is not None:
-            updates["isolation"] = isolation
-        if job_gate is not None:
-            updates["job_gate"] = job_gate
-        TaskMeta.update(_task_dir(self.repo_root, task_id), **updates)
+    @abstractmethod
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        """Snapshot title/description/status/priority from a bd body."""
+        ...
 
-    def set_isolation_info(
-        self,
-        task_id: str,
-        repo_root: str,
-        base_ref: str,
-        worktree_path: str,
-    ) -> None:
-        """Persist git isolation info into task.json, preserving other fields.
+    @abstractmethod
+    def freeze_coder_model(self, task_id: str, coder: str, model: str | None) -> None:
+        """Lock the effective coder and model at first spawn (None model writes null)."""
+        ...
 
-        Called once at spawn when a task is isolated into a worktree; reused
-        across attempts (the same worktree/branch is kept). Replaces the old
-        bare `.worktree` marker file.
-        """
-        TaskMeta.update(
-            _task_dir(self.repo_root, task_id),
-            repo_root=repo_root,
-            base_ref=base_ref,
-            worktree_path=worktree_path,
-        )
-
-    def clear_isolation_info(self, task_id: str) -> None:
-        """Drop git isolation info from task.json after merge/cleanup."""
-        meta = self._load_meta(task_id) or {"id": task_id}
-        changed = False
-        for key in ("repo_root", "base_ref", "worktree_path"):
-            if key in meta:
-                del meta[key]
-                changed = True
-        if changed:
-            self._write_meta(task_id, meta)
-
-    def read_isolation_info(self, task_id: str) -> dict | None:
-        """Return {repo_root, base_ref, worktree_path} or None when not isolated.
-
-        Falls back to the legacy `.worktree` marker file (worktree path only)
-        for task dirs written before the task.json contract.
-        """
-        meta = self._load_meta(task_id)
-        repo_root = meta.get("repo_root")
-        base_ref = meta.get("base_ref")
-        worktree_path = meta.get("worktree_path")
-        if repo_root and base_ref and worktree_path:
-            return {
-                "repo_root": repo_root,
-                "base_ref": base_ref,
-                "worktree_path": worktree_path,
-            }
-        # Legacy fallback: bare marker held only the worktree path.
-        try:
-            marker = _task_dir(self.repo_root, task_id) / ".worktree"
-            if marker.exists():
-                text = marker.read_text(encoding="utf-8").strip()
-                if text:
-                    return {
-                        "repo_root": repo_root or "",
-                        "base_ref": base_ref or "main",
-                        "worktree_path": text,
-                    }
-        except OSError:
-            pass
-        return None
-
+    @abstractmethod
     def set_ignore(self, task_id: str, ignore_until: str) -> None:
-        """Suppress triage for a blocked task until an ISO time or "forever"."""
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["ignore_until"] = ignore_until
-        self._write_meta(task_id, meta)
+        """Suppress triage for a blocked task until a time or "forever"."""
+        ...
 
+    @abstractmethod
     def clear_ignore(self, task_id: str) -> None:
         """Lift a triage ignore so the next tick asks again."""
-        meta = self._load_meta(task_id) or {"id": task_id}
-        if "ignore_until" in meta:
-            del meta["ignore_until"]
-            self._write_meta(task_id, meta)
+        ...
 
-    def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
-        """Blocked tasks whose task.json ignore_until is still active."""
+    @abstractmethod
+    def set_isolation_info(
+        self, task_id: str, repo_root: str, base_ref: str, worktree_path: str
+    ) -> None:
+        """Persist git isolation info into task.json."""
+        ...
 
-        out: list[tuple[Task, str]] = []
-        for task in self.list_blocked(limit=limit):
-            raw = self._load_meta(task.id).get("ignore_until")
-            if isinstance(raw, str) and ignore_active(raw):
-                out.append((task, raw))
-        return out
+    @abstractmethod
+    def read_isolation_info(self, task_id: str) -> dict | None:
+        """Return git isolation info, or None when not isolated."""
+        ...
 
-    def set_bd_fields(self, task_id: str, body: dict) -> None:
-        """Persist title/description/status/priority from a bd body into task.json.
+    @abstractmethod
+    def clear_isolation_info(self, task_id: str) -> None:
+        """Drop git isolation info after merge/cleanup."""
+        ...
 
-        Used right after `bd create` so pending tasks show a title in the UI
-        before the supervisor's claim-time snapshot. Existing keys are preserved.
-        """
-        meta = self._load_meta(task_id) or {"id": task_id}
-        for key in ("title", "description", "status", "priority"):
-            val = body.get(key)
-            if val is not None:
-                meta[key] = val
-        self._write_meta(task_id, meta)
 
-    def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
-        """Lock the effective coder and model into task.json at first spawn.
+class BeadsQueue(Queue):
+    """Queue backed by the `bd` CLI plus the on-disk TaskStore."""
 
-        Called once per execution start so that config changes to runtime.toml
-        after a task begins do not affect retries or context-pressure reclaims.
-        """
-        TaskMeta.update(_task_dir(self.repo_root, task_id), coder=coder, model=model)
-
-    def _snapshot_meta(
+    def __init__(
         self,
-        body: dict,
-        status: str | None = None,
-        cwd: str | None = None,
-        coder: str | None = None,
-        model: str | None = None,
-        worker: str | None = None,
-        depends_on: list[str] | None = None,
-    ) -> dict:
-        """Build a task.json payload from a bd body, preserving prior fleet fields."""
-        existing = self._load_meta(body["id"])
-        result: dict = {
-            "id": body["id"],
-            "title": body.get("title", existing.get("title")),
-            "description": body.get("description", existing.get("description")),
-            "status": status or body.get("status") or existing.get("status", "open"),
-            "cwd": cwd if cwd is not None else existing.get("cwd"),
-            "coder": coder if coder is not None else existing.get("coder"),
-            "model": model if model is not None else existing.get("model"),
-        }
-        eff_worker = worker if worker is not None else existing.get("worker")
-        if eff_worker is not None:
-            result["worker"] = eff_worker
-        priority = (
-            body.get("priority") if body.get("priority") is not None else existing.get("priority")
-        )
-        if priority is not None:
-            result["priority"] = priority
-        deps = depends_on if depends_on is not None else existing.get("depends_on")
-        if deps:
-            result["depends_on"] = deps
-        for key in (
-            "retry_after",
-            "max_attempt_minutes",
-            "ignore_until",
-            "isolation",
-            "job_gate",
-            "repo_root",
-            "base_ref",
-            "worktree_path",
-        ):
-            if existing.get(key) is not None:
-                result[key] = existing.get(key)
-        return result
+        repo_root: Path,
+        *,
+        client: BdClient | None = None,
+        store: TaskStore | None = None,
+    ) -> None:
+        self.repo_root = repo_root
+        self._client = client or BdClient(repo_root)
+        self._store = store or TaskStore(repo_root)
 
-    def _bd(self, *args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
-        env = {"BD_JSON_ENVELOPE": "1"} if json_envelope else None
-        if actor is not None:
-            env = {**(env or {}), "BEADS_ACTOR": actor}
-        result = beads_client.run(list(args), cwd=self.repo_root, env=env)
-        if json_envelope and result.stdout.strip():
-            return json.loads(result.stdout)
+    def claim(self, task_id: str, claimer_id: str) -> Task:
+        self._client.run(["update", task_id, "--claim"], actor=claimer_id)
+        body = self._client.run_json(["show", task_id])
+        if isinstance(body, list):
+            body = body[0] if body else None
+        if not isinstance(body, dict):
+            raise BdError(f"bd show {task_id}: no issue returned")
+        self._store.write(task_id, self._store.snapshot(body, status="in_progress"))
+        return build_task(body, self._store.read(task_id), status_override="in_progress")
+
+    def claim_next(
+        self, claimer_id: str, *, can_claim: Callable[[str | None], bool] | None = None
+    ) -> Task | None:
+        # `bd ready` only lists issues whose dependencies all closed. An epic
+        # with a `blocked` child never becomes ready, so ready epics whose
+        # children are all terminal are appended as extra candidates. Both
+        # sources flow through the single claim(id) below.
+        for rows in (self._ready_rows(), self._ready_epic_rows()):
+            for cand in order_ready(rows):
+                task_id = cand.get("id") if isinstance(cand, dict) else None
+                if not task_id:
+                    continue
+                if self._store.retry_after_active(task_id):
+                    continue
+                if can_claim is not None and not can_claim(self._store.coder_of(task_id, cand)):
+                    continue
+                try:
+                    return self.claim(task_id, claimer_id)
+                except BdError:
+                    continue
         return None
 
-    @staticmethod
-    def _order_ready(items: list) -> list:
-        """Claim order: highest priority first (lower number = higher priority),
-        then oldest first (earliest created_at) within the same priority."""
-        return sorted(
-            items,
-            key=lambda c: (c.get("priority", 99), c.get("created_at") or ""),
-        )
-
-    def _task_from_dict(self, body: dict, *, status_override: str | None = None) -> Task:
-        meta = self._load_meta(body["id"])
-        # bd's own `metadata` field is populated atomically at `bd create` time
-        # (see cli.py's bd_passthrough), so it's available even before the
-        # separate task.json write lands. task.json wins once it exists (e.g.
-        # after a later `set_overrides`/`freeze_coder_model` call); bd metadata
-        # is the fallback that closes the race window for brand-new beads.
-        bd_meta = body.get("metadata") or {}
-        raw_max = meta.get("max_attempt_minutes", bd_meta.get("fleet_max_attempt_minutes"))
+    def _ready_rows(self) -> list[dict]:
+        """Raw `bd ready` rows (unlimited; we sort and filter above)."""
         try:
-            max_minutes = int(raw_max) if raw_max is not None else None
-        except (TypeError, ValueError):
-            max_minutes = None
-        return Task(
-            id=body["id"],
-            title=body["title"],
-            description=body.get("description"),
-            status=status_override or body.get("status", "open"),
-            cwd=meta.get("cwd") or bd_meta.get("fleet_cwd"),
-            coder=meta.get("coder") or bd_meta.get("fleet_coder"),
-            model=meta.get("model") or bd_meta.get("fleet_model"),
-            type=body.get("issue_type"),
-            worker=meta.get("worker") or bd_meta.get("fleet_worker"),
-            max_attempt_minutes=max_minutes,
-            retry_after=meta.get("retry_after"),
-            ignore_until=meta.get("ignore_until"),
-            isolation=meta.get("isolation") or bd_meta.get("fleet_isolation"),
-            job_gate=meta.get("job_gate") or bd_meta.get("fleet_job_gate"),
-            repo_root=meta.get("repo_root"),
-            base_ref=meta.get("base_ref"),
-            worktree_path=meta.get("worktree_path"),
-        )
+            data = self._client.run_json(["ready", "--limit", "0"])
+        except BdError:
+            return []
+        items = data.get("data", data) if isinstance(data, dict) else (data or [])
+        return items if isinstance(items, list) else []
 
-    def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
-        ready = self._bd("ready", "--json", "--limit", "0")  # 0 = unlimited; we sort below
-        items: list = ready.get("data", ready) if isinstance(ready, dict) else (ready or [])
-        if not isinstance(items, list):
-            items = []
-        for cand in self._order_ready(items):
-            if self._retry_after_in_future(cand["id"]):
-                continue
-            if can_claim is not None:
-                cand_coder = self._load_meta(cand["id"]).get("coder") or (
-                    cand.get("metadata") or {}
-                ).get("fleet_coder")
-                if not can_claim(cand_coder):
-                    continue
-            try:
-                self._bd(
-                    "update",
-                    cand["id"],
-                    "--claim",
-                    json_envelope=False,
-                    actor=claimer_id,
-                )
-            except BeadsError:
-                continue
-            self._write_meta(cand["id"], self._snapshot_meta(cand, status="in_progress"))
-            return self._task_from_dict(cand, status_override="in_progress")
-        # `bd ready` only lists issues whose dependencies all closed. An epic
-        # with a `blocked` child never becomes ready, so scan open epics and
-        # claim the first whose children are all terminal (closed/blocked).
-        return self._claim_ready_epic(claimer_id, can_claim=can_claim)
-
-    def _claim_ready_epic(self, claimer_id: str, *, can_claim=None) -> Task | None:
-        """Claim one open epic whose children are all closed/blocked, if any.
-
-        Epics are the observer worker's input (workers/observe.py); the
-        WaitChildren step re-releases when a child is still running, so a
-        race here only costs one short attempt.
-        """
+    def _ready_epic_rows(self) -> list[dict]:
+        """Open epics whose children are all closed/blocked (observer input)."""
         try:
-            data = self._bd("list", "--status", "open", "--json", "--limit", "0")
-        except BeadsError:
-            return None
-        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+            data = self._client.run_json(["list", "--status", "open", "--limit", "0"])
+        except BdError:
+            return []
+        items = data.get("data", data) if isinstance(data, dict) else (data or [])
         if not isinstance(items, list):
-            return None
-        epics = [c for c in items if isinstance(c, dict) and c.get("issue_type") == "epic"]
-        for cand in self._order_ready(epics):
+            return []
+        rows = []
+        for cand in items:
+            if not isinstance(cand, dict) or cand.get("issue_type") != "epic":
+                continue
             epic_id = cand.get("id")
             if not epic_id:
                 continue
-            if self._retry_after_in_future(epic_id):
-                continue
             try:
                 children = self.list_children(epic_id)
-            except BeadsError:
+            except BdError:
                 continue
             if not children or not children_terminal(children):
                 continue
-            if can_claim is not None:
-                cand_coder = self._load_meta(epic_id).get("coder") or (
-                    cand.get("metadata") or {}
-                ).get("fleet_coder")
-                if not can_claim(cand_coder):
-                    continue
-            try:
-                self._bd(
-                    "update",
-                    epic_id,
-                    "--claim",
-                    json_envelope=False,
-                    actor=claimer_id,
-                )
-            except BeadsError:
-                continue
-            self._write_meta(epic_id, self._snapshot_meta(cand, status="in_progress"))
-            return self._task_from_dict(cand, status_override="in_progress")
-        return None
+            rows.append(cand)
+        return rows
 
     def list_children(self, epic_id: str) -> list[BeadSummary]:
         """The epic's child beads (its dependencies) with their statuses."""
-        raw = beads_client.children_of(epic_id, self.repo_root)
+        raw = children_of(epic_id, self.repo_root, timeout=self._client.timeout)
         return [
             BeadSummary(id=str(c.get("id")), status=str(c.get("status") or ""))
             for c in raw
@@ -419,12 +267,9 @@ class BeadsQueue(Queue):
     def create_child(self, epic_id: str, spec: dict) -> Task:
         """Open one child bead under *epic_id* (observer follow-up or job task).
 
-        *spec* carries title/body/cwd/depends_on (sibling bead ids for
-        --deps); job tasks additionally carry coder/model/priority per task.
-        Title/body/cwd fall back to the epic's own; coder/model are inherited
-        from the epic unless the spec pins them, so a follow-up runs the same
-        setup. The epic gains a dependency on each child, so beads keeps it
-        asleep until they close.
+        The epic gains a dependency on each child, so beads keeps it asleep
+        until they close. A failed `dep add` raises BdError so the caller
+        sees the orphan instead of silently leaving one behind.
         """
         epic = self.get(epic_id)
         title = spec.get("title") or epic.title
@@ -438,117 +283,87 @@ class BeadsQueue(Queue):
             model=spec.get("model") or epic.model,
         )
         if spec.get("priority") is not None:
-            with contextlib.suppress(BeadsError, TypeError, ValueError):
-                self._bd(
-                    "update",
-                    child.id,
-                    "--priority",
-                    str(int(spec["priority"])),
-                    json_envelope=False,
-                )
-        with contextlib.suppress(BeadsError):
-            self._bd("dep", "add", epic_id, child.id, json_envelope=False)
+            with contextlib.suppress(BdError, TypeError, ValueError):
+                self._client.run(["update", child.id, "--priority", str(int(spec["priority"]))])
+        self._client.run(["dep", "add", epic_id, child.id])
         return child
 
-    def _retry_after_in_future(self, task_id: str) -> bool:
-        """True when task.json retry_after is still in the future (delayed retry)."""
-        raw = self._load_meta(task_id).get("retry_after")
-        if not raw or not isinstance(raw, str):
-            return False
-        parsed = parse_iso(raw)
-        if parsed is None:
-            return False
-        return parsed > datetime.now(tz=UTC)
-
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
-        self._bd("update", task_id, "--status", "open", "--assignee", "", json_envelope=False)
+        """Return a task to open, with an optional retry delay."""
+        self._client.run(["update", task_id, "--status", "open", "--assignee", ""])
         if reason:
-            self._bd("comment", task_id, reason, json_envelope=False)
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["status"] = "open"
-        meta.pop("blocked_reason", None)
-        meta.pop("blocked_at", None)
-        meta.pop("ignore_until", None)
-        if wait_sec and wait_sec > 0:
-            meta["retry_after"] = (
-                datetime.now(tz=UTC) + timedelta(seconds=int(wait_sec))
-            ).isoformat()
-        else:
-            meta.pop("retry_after", None)
-        self._write_meta(task_id, meta)
+            self._client.run(["comment", task_id, reason])
+        self._store.mark_released(task_id, wait_sec)
 
     def set_blocked(self, task_id: str, reason: str) -> None:
-        self._bd(
-            "update",
-            task_id,
-            "--status",
-            "blocked",
-            "--notes",
-            reason,
-            json_envelope=False,
-        )
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["status"] = "blocked"
-        meta["blocked_reason"] = reason
-        meta["blocked_at"] = now_iso()
-        meta.pop("retry_after", None)
-        meta.pop("ignore_until", None)
-        self._write_meta(task_id, meta)
+        """Mark a task blocked with a reason."""
+        self._client.run(["update", task_id, "--status", "blocked", "--notes", reason])
+        self._store.mark_blocked(task_id, reason)
 
     def close(self, task_id: str, reason: str = "completed") -> None:
-        self._bd("close", task_id, "--reason", reason, json_envelope=False)
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["status"] = "closed"
-        meta.pop("blocked_reason", None)
-        meta.pop("blocked_at", None)
-        meta.pop("retry_after", None)
-        meta.pop("ignore_until", None)
-        self._write_meta(task_id, meta)
+        """Close a task with a reason."""
+        self._client.run(["close", task_id, "--reason", reason])
+        self._store.mark_closed(task_id)
 
     def delete(self, task_id: str) -> None:
-        self._bd("delete", task_id, "--force", json_envelope=False)
-        task_dir = _task_dir(self.repo_root, task_id)
+        """Delete a task and drop its task dir."""
+        self._client.run(["delete", task_id, "--force"])
+        task_dir = self._store.task_dir(task_id)
         if task_dir.exists():
             shutil.rmtree(task_dir)
 
     def comment(self, task_id: str, body: str) -> None:
-        self._bd("comment", task_id, body, json_envelope=False)
+        """Append a comment to a task."""
+        self._client.run(["comment", task_id, body])
 
     def get(self, task_id: str) -> Task:
-        data = self._bd("show", task_id, "--json")
-        if data is None:
-            raise BeadsError(f"bd show {task_id}: empty response")
-        body = data.get("data", data) if isinstance(data, dict) else data
+        """Show one task by id."""
+        body = self._client.run_json(["show", task_id])
+        if body is None:
+            raise BdError(f"bd show {task_id}: empty response")
         if isinstance(body, list):
             if not body:
-                raise BeadsError(f"bd show {task_id}: no issue returned")
+                raise BdError(f"bd show {task_id}: no issue returned")
             body = body[0]
-        return self._task_from_dict(body)
+        return build_task(body, self._store.read(task_id))
 
     def list_ready(self, limit: int = 50) -> list[Task]:
-        data = self._bd("ready", "--json", "--limit", str(limit))
-        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
-        if not isinstance(items, list):
-            items = []
-        return [self._task_from_dict(item) for item in items]
+        """List open tasks whose dependencies are all closed."""
+        rows = self._rows("ready", limit)
+        return [build_task(item, self._store.read(item["id"])) for item in rows]
 
     def list_in_progress(self, limit: int = 50) -> list[Task]:
-        data = self._bd("list", "--status", "in_progress", "--json", "--limit", str(limit))
-        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
-        if not isinstance(items, list):
-            items = []
-        return [self._task_from_dict(item, status_override="in_progress") for item in items]
+        """List claimed tasks."""
+        rows = self._rows("list:status=in_progress", limit)
+        return [
+            build_task(item, self._store.read(item["id"]), status_override="in_progress")
+            for item in rows
+        ]
 
     def list_blocked(self, limit: int = 100) -> list[Task]:
-        """Beads with status blocked (fleet-blocked and human-blocked alike).
+        """List blocked tasks (fleet-blocked and human-blocked alike)."""
+        rows = self._rows("list:status=blocked", limit)
+        return [
+            build_task(item, self._store.read(item["id"]), status_override="blocked")
+            for item in rows
+        ]
 
-        Triage filters these further by task.json blocked_reason/ignore_until.
-        """
-        data = self._bd("list", "--status", "blocked", "--json", "--limit", str(limit))
+    def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
+        """Blocked tasks whose task.json ignore_until is still active."""
+        return self._store.select_ignored(self.list_blocked(limit=limit))
+
+    def _rows(self, query: str, limit: int) -> list[dict]:
+        """Run one list-shaped `bd` query and return its dict rows."""
+        if query == "ready":
+            argv = ["ready", "--limit", str(limit)]
+        else:
+            name, _, status = query.partition(":status=")
+            argv = [name, "--status", status, "--limit", str(limit)]
+        data = self._client.run_json(argv)
         items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
         if not isinstance(items, list):
-            items = []
-        return [self._task_from_dict(item, status_override="blocked") for item in items]
+            return []
+        return [item for item in items if isinstance(item, dict) and item.get("id")]
 
     def create_task(  # noqa: PLR0913, PLR0917  # ADR 0006 bead 4
         self,
@@ -562,24 +377,22 @@ class BeadsQueue(Queue):
         worker: str | None = None,
         extra_args: str | None = None,
     ) -> Task:
+        """Open a new task and snapshot it to task.json."""
         args = ["create", "--title", title, "--json"]
         if description:
             args += ["--description", description]
         if extra_args:
             args += shlex.split(extra_args)
-        data = self._bd(*args)
-        body = data.get("data", data) if isinstance(data, dict) else data
-        task_id = (body or {}).get("id", "") if isinstance(body, dict) else ""
+        body = self._client.run_json(args)
+        task_id = body.get("id", "") if isinstance(body, dict) else ""
         if not task_id:
-            raise BeadsError("bd create returned no task id")
+            raise BdError("bd create returned no task id")
         if depends_on:
             for dep_id in depends_on:
-                self._bd("dep", "add", task_id, dep_id, json_envelope=False)
-        # Snapshot the fresh task (title/description/status/priority/depends_on) into
-        # task.json, adding fleet-managed fields (cwd, coder, model) if provided.
-        self._write_meta(
+                self._client.run(["dep", "add", task_id, dep_id])
+        self._store.write(
             task_id,
-            self._snapshot_meta(
+            self._store.snapshot(
                 body or {"id": task_id},
                 cwd=cwd,
                 coder=coder,
@@ -589,3 +402,51 @@ class BeadsQueue(Queue):
             ),
         )
         return self.get(task_id)
+
+    def set_cwd(self, task_id: str, cwd: str) -> None:
+        """Persist the invocation cwd into task.json."""
+        self._store.set_cwd(task_id, cwd)
+
+    def set_overrides(
+        self,
+        task_id: str,
+        coder: str | None = None,
+        model: str | None = None,
+        worker: str | None = None,
+        isolation: str | None = None,
+        job_gate: str | None = None,
+    ) -> None:
+        """Persist per-task overrides into task.json."""
+        self._store.set_overrides(
+            task_id, coder=coder, model=model, worker=worker, isolation=isolation, job_gate=job_gate
+        )
+
+    def set_bd_fields(self, task_id: str, body: dict) -> None:
+        """Snapshot title/description/status/priority from a bd body."""
+        self._store.set_bd_fields(task_id, body)
+
+    def freeze_coder_model(self, task_id: str, coder: str, model: str | None) -> None:
+        """Lock the effective coder and model at first spawn."""
+        self._store.freeze_coder_model(task_id, coder, model)
+
+    def set_ignore(self, task_id: str, ignore_until: str) -> None:
+        """Suppress triage for a blocked task until a time or "forever"."""
+        self._store.set_ignore(task_id, ignore_until)
+
+    def clear_ignore(self, task_id: str) -> None:
+        """Lift a triage ignore so the next tick asks again."""
+        self._store.clear_ignore(task_id)
+
+    def set_isolation_info(
+        self, task_id: str, repo_root: str, base_ref: str, worktree_path: str
+    ) -> None:
+        """Persist git isolation info into task.json."""
+        self._store.set_isolation_info(task_id, repo_root, base_ref, worktree_path)
+
+    def read_isolation_info(self, task_id: str) -> dict | None:
+        """Return git isolation info, or None when not isolated."""
+        return self._store.read_isolation_info(task_id)
+
+    def clear_isolation_info(self, task_id: str) -> None:
+        """Drop git isolation info after merge/cleanup."""
+        self._store.clear_isolation_info(task_id)

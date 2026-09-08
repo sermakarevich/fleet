@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
-from fleet.beads.client import BeadsError
+from fleet.beads.client import BdError
 from fleet.cli.main import app
 from fleet.core.task import Task
 
@@ -76,7 +76,7 @@ def test_job_prints_children_and_gate(tmp_path) -> None:
 def test_job_missing_bead_exits_nonzero(tmp_path) -> None:
 
     queue = MagicMock()
-    queue.get.side_effect = BeadsError("no such bead")
+    queue.get.side_effect = BdError("no such bead")
     with patch("fleet.cli.tasks.BeadsQueue", return_value=queue):
         old = os.environ.get("FLEET_HOME")
         os.environ["FLEET_HOME"] = str(tmp_path)

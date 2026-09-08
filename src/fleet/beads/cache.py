@@ -1,6 +1,7 @@
 """TTL-cached map of beads status by task id, built from beads.client.list_all.
 
 Avoids a `bd list` subprocess on every poll from the API/CLI layers.
+Called by serve/api/tasks.py, serve/analytics/summary.py and cli/format.py.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ import time
 from pathlib import Path
 
 from fleet.beads import client as beads_client
+from fleet.beads.client import BdError
 
 # TTL cache — key: str(home), value: (expires_at, result)
 _beads_map_cache: dict[str, tuple[float, dict[str, dict] | None]] = {}
@@ -46,7 +48,9 @@ def get_beads_status_map(home: Path) -> dict[str, dict] | None:
             for item in items
             if item.get("id")
         }
-    except Exception:
+    except BdError:
+        # `bd` failed (missing binary, hung, bad DB): keep serving the
+        # last-known map (possibly None) until the TTL expires.
         pass
     _beads_map_cache[key] = (now + _BEADS_CACHE_TTL, result_value)
     return result_value

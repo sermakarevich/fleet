@@ -16,7 +16,9 @@ from fleet.serve.app import create_app
 def _fake_bd(returncode: int = 0, stdout: str = "", stderr: str = ""):
     """Build a fake subprocess.run that records its invocations."""
 
-    def _run(args, capture_output=True, text=True, cwd=None, env=None, check=True):  # noqa: ANN001
+    def _run(  # noqa: ANN001
+        args, capture_output=True, text=True, cwd=None, env=None, check=True, timeout=None
+    ):
         _run.calls.append(list(args))
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
