@@ -29,6 +29,12 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
   const isBlocked = task.status === 'blocked';
   const unblockTask = useUnblockTask();
+  // A lease whose lease_until already passed while the task still shows as
+  // running: the heartbeat stopped (crashed runner, slept host). The
+  // supervisor reclaims it once the pid is provably dead; until then flag it.
+  const staleLease = task.status === 'in_progress'
+    && task.lease != null
+    && Number(new Date(task.lease.lease_until)) < Date.now();
 
   return (
     <div style={styles.row} className="row-interactive" tabIndex={0} onClick={() => onRowClick(task.id)}>
@@ -44,6 +50,11 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
         {isBlocked && (
           <span style={styles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
             {task.blocked_reason ?? 'No recorded reason'}
+          </span>
+        )}
+        {staleLease && (
+          <span style={styles.staleLeaseBadge} title={`Last heartbeat ${task.lease?.heartbeat_at ?? '—'}; lease until ${task.lease?.lease_until ?? '—'}`}>
+            stale lease
           </span>
         )}
       </span>

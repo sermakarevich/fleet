@@ -112,7 +112,7 @@ def latest_attempt_dir(task_dir: Path, before_n: int | None = None) -> Path | No
     it (used when planning attempt N to find the last *completed* attempt,
     since attempt N's own row/dir may already exist by the time this runs).
     When omitted, returns the highest attempt number recorded at all (used by
-    tailing/log/stall/orphans, which want "the currently running or most
+    tailing/log/stall/leases, which want "the currently running or most
     recently run attempt").
     """
     candidates = [a["n"] for a in load_attempts(task_dir)]

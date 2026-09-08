@@ -149,6 +149,17 @@ export const styles = {
     fontSize: '0.75rem',
     color: '#f59e0b',
   } as React.CSSProperties,
+  staleLeaseBadge: {
+    display: 'inline-block',
+    padding: '0.05rem 0.4rem',
+    borderRadius: 4,
+    border: '1px solid #f59e0b',
+    color: '#f59e0b',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+    width: 'fit-content',
+  } as React.CSSProperties,
   coderCell: {
     width: '9rem',
     flexShrink: 0,

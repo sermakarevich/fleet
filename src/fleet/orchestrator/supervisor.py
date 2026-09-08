@@ -17,14 +17,14 @@ from fleet.state.paths import task_dir as _task_dir
 from fleet.workers.base import WorkerRun
 
 from .claim import ClaimMixin
-from .orphans import OrphansMixin
+from .leases import LeasesMixin
 from .rate_gauge import RateGauge
 from .reap import ReapMixin
 from .spawn import SpawnMixin
 from .stall import StallMixin
 
 
-class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, OrphansMixin):
+class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin):
     def __init__(
         self,
         queue: Queue,
@@ -61,6 +61,10 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, OrphansMixin):
         self._done: asyncio.Event | None = None
         self._stall_warned: set[str] = set()
         self._stall_killed: set[str] = set()
+        # Dedupe keys for recurring lease notices ("event:task_id") and the
+        # last periodic reconcile_leases() run (epoch seconds, monotonic).
+        self._lease_logged: set[str] = set()
+        self._last_lease_reconcile: float | None = None
 
     async def run(self) -> int:
         self._done = asyncio.Event()
@@ -68,7 +72,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, OrphansMixin):
         self._install_signal_handlers(loop)
 
         self._sweep_orphan_worktrees()
-        self._reconcile_orphans()
+        self.reconcile_leases()
 
         bg = [
             asyncio.create_task(self._claim_and_spawn_loop(), name="claim_and_spawn"),

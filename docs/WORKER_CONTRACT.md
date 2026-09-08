@@ -214,6 +214,27 @@ default 75; `context_kill_pct`, default 90):
   latest `peak_context_pct`; the Attempts timeline shows a "context" badge on
   such attempts.
 
+## Liveness
+
+Three different clocks watch a running attempt, and they answer three
+different questions:
+
+- **Stall** watches `attempts/<n>/events.jsonl` mtime: "is the agent still
+  *saying* anything?" Silence past `stall_warning_minutes` warns (and kills
+  with `stall_action="kill"`); see `orchestrator/stall.py`.
+- **Lease** watches `attempts/<n>/run.json` `heartbeat_at`/`lease_until`:
+  "is the runner process still *alive*?" `workers/llm_session.py` refreshes
+  the lease every `HEARTBEAT_SEC` (30 s) while the coder subprocess lives;
+  `orchestrator/leases.py::reconcile_leases` (startup + every 60 s) releases
+  a bead whose lease is stale past one full heartbeat *and* whose pid is
+  provably dead (or on another host). A stale lease with a live pid only
+  warns — fleet never kills what it cannot prove is its own — and beads
+  with no attempt dir (human-claimed) are never touched.
+- **Timeout** watches the wall clock: "has this attempt run *too long*?"
+  `max_attempt_minutes` (per-task `fleet_max_attempt_minutes` or global)
+  kills the process group with outcome `KILLED` reason `timeout`, retried on
+  the stall ladder.
+
 ## Steps and workers
 
 See `docs/adr/0003-workers-as-step-pipelines.md` for the full rationale.

@@ -5,6 +5,13 @@ CLAIM_POLL_INTERVAL_SEC: int = 5
 SHUTDOWN_GRACE_SEC: int = 30
 RATE_LIMIT_DEFAULT_SLEEP_SEC: int = 300
 STATUS_LOG_INTERVAL_SEC: int = 30
+# Lease heartbeat: while a worker attempt runs, workers/llm_session.py
+# rewrites run.json every HEARTBEAT_SEC with heartbeat_at/lease_until
+# (lease_until = now + 3 * HEARTBEAT_SEC). A lease counts as stale only
+# when it has been past for more than one full HEARTBEAT_SEC, so a single
+# slow event-loop tick can never trigger a reclaim.
+HEARTBEAT_SEC: int = 30
+LEASE_RECONCILE_INTERVAL_SEC: int = 60
 PROBE_INTERVAL_SEC: int = 30
 PROBE_SILENCE_SEC: int = 60
 # opencode retries provider rate limits itself with growing back-off; streaks

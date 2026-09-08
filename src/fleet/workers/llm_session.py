@@ -16,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-from datetime import UTC, datetime
+import socket
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fleet.core.limits import (
+    HEARTBEAT_SEC,
     PROBE_INTERVAL_SEC,
     PROBE_SILENCE_SEC,
     RATE_LIMIT_PROBE_SILENCE_SEC,
@@ -167,6 +169,52 @@ def _read_file_tail(path: Path, max_bytes: int = _STDERR_TAIL_BYTES) -> str | No
         return f.read().decode("utf-8", errors="replace")
 
 
+def _host_name() -> str:
+    """This machine's hostname for the run.json lease (best effort)."""
+    try:
+        return socket.gethostname()
+    except OSError:
+        return "unknown"
+
+
+def _lease_times(now: datetime | None = None) -> tuple[str, str]:
+    """Return (heartbeat_at, lease_until) ISO timestamps for *now*.
+
+    The lease outlives one heartbeat by 3x so a single slow event-loop
+    tick can never make it look expired.
+    """
+    at = now or datetime.now(tz=UTC)
+    return at.isoformat(), (at + timedelta(seconds=3 * HEARTBEAT_SEC)).isoformat()
+
+
+async def _heartbeat_loop(run_file: Path, proc: asyncio.subprocess.Process) -> None:
+    """Refresh heartbeat_at/lease_until in run.json until cancelled.
+
+    Also exits on its own once the subprocess is gone, so an unexpected
+    exception in the readout loop can never leave a heartbeat refreshing
+    a dead attempt's lease forever. Read-merge-write (via write_run_json)
+    so the heartbeat never clobbers keys other writers own (pid, steps,
+    exit_code). A failed write is skipped: the lease simply ages, which
+    is the safe direction.
+    """
+    try:
+        while proc.returncode is None:
+            await asyncio.sleep(float(HEARTBEAT_SEC))
+            if proc.returncode is not None:
+                break
+            heartbeat_at, lease_until = _lease_times()
+            try:
+                write_run_json(
+                    run_file,
+                    heartbeat_at=heartbeat_at,
+                    lease_until=lease_until,
+                )
+            except OSError:
+                pass
+    except asyncio.CancelledError:
+        pass
+
+
 class LlmSession:
     """Spawn the coder subprocess for this attempt and turn its exit into an outcome."""
 
@@ -233,9 +281,15 @@ class LlmSession:
                     pgid=pgid,
                     started_at=started_at.isoformat(),
                     coder=coder.__class__.__name__,
+                    host=_host_name(),
+                    supervisor_pid=os.getpid(),
+                    heartbeat_at=started_at.isoformat(),
+                    lease_until=_lease_times(started_at)[1],
                 )
             except OSError as exc:
                 ctx.log.warning("run_file_write_failed", error=str(exc))
+
+            heartbeat_task = asyncio.create_task(_heartbeat_loop(run_file, proc))
 
             # cancel() may have run while we were awaiting create_subprocess_exec
             # — at that moment `self._proc` was still None, so cancel() returned
@@ -476,6 +530,8 @@ class LlmSession:
                     break
 
             exit_code = await proc.wait()
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
             try:
                 write_run_json(
                     run_file,

@@ -7,6 +7,14 @@ export interface TaskRounds {
   noclose: number;
 }
 
+// Claim lease from the latest attempt's run.json (see state/task_summary.py).
+// Null when there is no attempt, no run.json, or no heartbeat keys yet.
+export interface TaskLease {
+  heartbeat_at: string;
+  lease_until: string;
+  alive: boolean;
+}
+
 export interface TaskSummary {
   id: string;
   title: string;
@@ -42,6 +50,7 @@ export interface TaskSummary {
   handoff_excerpt: string | null;
   worker: string | null;
   steps: RunStep[];
+  lease: TaskLease | null;
 }
 
 // One entry from the current attempt's run.json["steps"].

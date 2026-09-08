@@ -166,7 +166,10 @@ $FLEET_HOME/tasks/<id>/
    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
    attempts/<n>/      # n = attempt number from state.attempts.record_start
-     run.json         # pid, started_at, worker name, per-step status of this attempt
+      run.json         # pid, pgid, host, supervisor_pid, started_at, worker name,
+                       # per-step status of this attempt, plus the claim lease:
+                       # heartbeat_at + lease_until, refreshed every HEARTBEAT_SEC
+                       # by workers/llm_session.py while the coder subprocess lives
      events.jsonl      log.jsonl   log.stderr
      launch.json      # {"mode": "fresh|continue|compact", "pack_bytes": n, "kind": "work|compact"}, written at spawn
      RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)

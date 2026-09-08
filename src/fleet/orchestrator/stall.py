@@ -1,21 +1,35 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 
-from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
+from fleet.core.limits import LEASE_RECONCILE_INTERVAL_SEC, STATUS_LOG_INTERVAL_SEC
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import task_dir as _task_dir
 
 
 class StallMixin:
     async def _status_log_loop(self) -> None:
-        """Periodically emit a heartbeat with in-flight count and rate-limit usage."""
+        """Periodically emit a heartbeat with in-flight count and rate-limit usage.
+
+        Every LEASE_RECONCILE_INTERVAL_SEC the same tick also runs
+        reconcile_leases(), so beads orphaned by a runner that died
+        without reaping are re-queued while the supervisor keeps running.
+        """
         while not self._shutting_down:
             await asyncio.sleep(STATUS_LOG_INTERVAL_SEC)
             if self._shutting_down:
                 break
             self._log_status_snapshot()
+            now = time.monotonic()
+            last = getattr(self, "_last_lease_reconcile", None)
+            if last is None or now - last >= LEASE_RECONCILE_INTERVAL_SEC:
+                self._last_lease_reconcile = now
+                try:
+                    self.reconcile_leases()
+                except Exception as exc:  # noqa: BLE001 - lease sweep must not kill the loop
+                    self._log.warning("lease_reconcile_failed", error=str(exc))
 
     def _log_status_snapshot(self) -> None:
         self._log.info("supervisor_status", **self._fleet_log_context())

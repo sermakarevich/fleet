@@ -1,81 +1,77 @@
+"""Startup reconciliation contract (was: orphan release; now: lease reclaim).
+
+`Supervisor.run` calls `reconcile_leases()` at startup. Unlike the old
+orphan sweep, a bead with no attempt dir / no run.json / no heartbeat
+keys is NEVER touched (human-claimed beads), and a stale lease reclaims
+only on a provably dead pid. Full case coverage lives in
+test_leases.py; these tests pin the startup-path guarantees that
+changed.
+"""
+
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
-from fleet.core.task import Task
-
+from tests.helpers.task_dir import make_attempt
+from tests.orchestrator.test_leases import LeaseQueue
 from tests.orchestrator.test_supervisor_failures import (
-    StubQueue,
     _make_supervisor,
     _task,
 )
 
 
-class ReconcileQueue(StubQueue):
-    """StubQueue with controllable list_in_progress output."""
-
-    def __init__(self, in_progress: list[Task], status: str = "in_progress") -> None:
-        super().__init__(status=status)
-        self._in_progress = in_progress
-
-    def list_in_progress(self, limit: int = 500) -> list[Task]:
-        return self._in_progress[:limit]
-
-
-def test_orphan_no_run_json_released_once(tmp_path: Path) -> None:
-    task = _task("t-orphan-1")
-    queue = ReconcileQueue([task])
-    s = _make_supervisor(tmp_path, queue)
-    # No run.json written on purpose.
-    s._reconcile_orphans()
-    assert len(queue.released) == 1
-    assert queue.released[0][0] == "t-orphan-1"
-    assert "orphaned claim released" in queue.released[0][1]
-
-
-def test_orphan_dead_pid_released(tmp_path: Path) -> None:
-    task = _task("t-orphan-2")
-    queue = ReconcileQueue([task])
-    s = _make_supervisor(tmp_path, queue)
-    # PID from a finished process is guaranteed dead.
+def _dead_pid() -> int:
     proc = subprocess.Popen(["true"])
     proc.wait()
-    dead_pid = proc.pid
-    task_dir = s._task_dir_for(task)
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / "run.json").write_text(
-        json.dumps({"pid": dead_pid, "pgid": dead_pid}),
-        encoding="utf-8",
-    )
-    s._reconcile_orphans()
-    assert len(queue.released) == 1
-    assert queue.released[0][0] == "t-orphan-2"
+    return proc.pid
 
 
-def test_orphan_ended_run_released_without_kill(tmp_path: Path, monkeypatch) -> None:
-    task = _task("t-orphan-3")
-    queue = ReconcileQueue([task])
+def test_startup_reconcile_leaves_bead_without_attempt_dir(tmp_path: Path) -> None:
+    """Human-claimed bead (no task dir): the old sweep released it; now untouched."""
+    task = _task("t-orphan-1")
+    queue = LeaseQueue([task])
+    s = _make_supervisor(tmp_path, queue)
+    # No task dir written on purpose.
+    s.reconcile_leases()
+    assert queue.released == []
+
+
+def test_startup_reconcile_leaves_run_without_heartbeat(tmp_path: Path) -> None:
+    """Dead pid but old-format run.json (no lease keys): proves nothing, untouched."""
+    task = _task("t-orphan-2")
+    queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
     task_dir = s._task_dir_for(task)
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / "run.json").write_text(
+    attempt_dir = make_attempt(task_dir, 1)
+    (attempt_dir / "run.json").write_text(
+        json.dumps({"pid": _dead_pid(), "pgid": _dead_pid()}),
+        encoding="utf-8",
+    )
+    s.reconcile_leases()
+    assert queue.released == []
+
+
+def test_startup_reconcile_leaves_ended_attempt(tmp_path: Path) -> None:
+    """Ended run.json + journaled end line: reap owns the bead, no double-release."""
+    task = _task("t-orphan-3")
+    queue = LeaseQueue([task])
+    s = _make_supervisor(tmp_path, queue)
+    task_dir = s._task_dir_for(task)
+    attempt_dir = make_attempt(
+        task_dir, 1, outcome="failure", reason="rc=1", exit_code=1, action="release"
+    )
+    (attempt_dir / "run.json").write_text(
         json.dumps(
             {
-                "pid": os.getpid(),
-                "pgid": os.getpid(),
+                "pid": _dead_pid(),
                 "ended_at": "2026-01-01T00:00:00+00:00",
+                "heartbeat_at": "2026-01-01T00:00:00+00:00",
+                "lease_until": "2020-01-01T00:00:00+00:00",
             }
         ),
         encoding="utf-8",
     )
-
-    def _fail_kill(pid, sig):
-        raise AssertionError("os.kill must not be called for ended runs")
-
-    monkeypatch.setattr(os, "kill", _fail_kill)
-    s._reconcile_orphans()
-    assert len(queue.released) == 1
-    assert queue.released[0][0] == "t-orphan-3"
+    s.reconcile_leases()
+    assert queue.released == []

@@ -90,6 +90,46 @@ def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
     return data.get("worker"), steps if isinstance(steps, list) else []
 
 
+def _pid_alive(pid: object) -> bool:
+    """True when *pid* names a live process (signal 0 probe, best effort)."""
+    import os
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
+def _read_lease(task_dir: Path) -> dict | None:
+    """Read the claim lease from the latest attempt's run.json, if any.
+
+    Returns ``{"heartbeat_at", "lease_until", "alive"}`` where *alive*
+    probes the recorded pid. Returns None when there is no attempt, no
+    run.json, or no heartbeat keys (old attempts, human-claimed beads).
+    """
+    attempt_dir = latest_attempt_dir(task_dir)
+    if attempt_dir is None:
+        return None
+    try:
+        data = json.loads((attempt_dir / "run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    heartbeat_at = data.get("heartbeat_at")
+    lease_until = data.get("lease_until")
+    if not isinstance(heartbeat_at, str) or not isinstance(lease_until, str):
+        return None
+    return {
+        "heartbeat_at": heartbeat_at,
+        "lease_until": lease_until,
+        "alive": _pid_alive(data.get("pid")),
+    }
+
+
 def _read_json_file(path: Path) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -236,5 +276,6 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "handoff_excerpt": _read_handoff_excerpt(task_dir),
         "worker": worker,
         "steps": steps,
+        "lease": _read_lease(task_dir),
         "attempts": attempt_rows,
     }
