@@ -68,6 +68,7 @@ class PrepareArtifacts:
     async def run(self, ctx: StepContext) -> StepResult:
         _ensure_state(ctx.task_dir, ctx.task.id)
         fresh_plan = LaunchPlan(mode="fresh", pack="", pack_bytes=0, needs_compaction=False)
+        ctx.plan = fresh_plan
         _record_launch(ctx, fresh_plan)
         assert ctx.coder is not None
         ctx.coder.write_runtime_config(ctx.project_root, ctx.task)
@@ -86,6 +87,7 @@ class PrepareContinue:
 
     async def run(self, ctx: StepContext) -> StepResult:
         plan = _plan_launch_for(ctx)
+        ctx.plan = plan
         ctx.scratch["launch_plan"] = plan
         _record_launch(ctx, plan)
         assert ctx.coder is not None

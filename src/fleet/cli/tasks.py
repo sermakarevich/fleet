@@ -16,7 +16,8 @@ from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
 from fleet.beads.queue import BeadsQueue
 from fleet.cli.format import render_tasks_table
-from fleet.core.job_phase import JobSnapshot, phase
+from fleet.core.job_phase import phase
+from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.observability import tailview

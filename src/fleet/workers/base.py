@@ -18,6 +18,7 @@ import structlog
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
 from fleet.core.iso import now_iso
+from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import RUN_JSON
 from fleet.state.run_file import RunRecord
@@ -44,6 +45,10 @@ class StepContext:
     # run_worker() falls back to task_dir when attempt_dir is None.
     attempt_dir: Path | None = None
     attempt_n: int = 0
+    # The launch plan a prepare step computed for this attempt (fresh vs.
+    # continue/validate pack). Prepare steps set it; LlmSession reads it.
+    # None until a prepare step runs (e.g. tests that skip preparation).
+    plan: LaunchPlan | None = None
     # Small values passed forward between steps (e.g. prompt text). Never
     # file contents > 16 KB.
     scratch: dict[str, Any] = field(default_factory=dict)

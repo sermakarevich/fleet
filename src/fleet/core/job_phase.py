@@ -9,28 +9,11 @@ files or beads.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal
 
+from fleet.core.job_snapshot import JobSnapshot
+
 JobPhase = Literal["research", "design", "gate", "spawn", "observe"]
-
-
-@dataclass(frozen=True)
-class JobSnapshot:
-    """Everything ``phase()`` needs, read from files by the caller.
-
-    - *has_research*: artifacts/RESEARCH.md exists.
-    - *has_tasks*: artifacts/tasks.json exists and parses.
-    - *gate_enabled*: cfg.job_gate and bead metadata fleet_job_gate != "off".
-    - *approved*: artifacts/APPROVED exists.
-    - *has_children*: the epic already has child beads.
-    """
-
-    has_research: bool = False
-    has_tasks: bool = False
-    gate_enabled: bool = True
-    approved: bool = False
-    has_children: bool = False
 
 
 def phase(snapshot: JobSnapshot) -> JobPhase:

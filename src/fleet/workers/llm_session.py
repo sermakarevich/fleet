@@ -156,7 +156,7 @@ class LlmSession:
         task_dir.mkdir(parents=True, exist_ok=True)
         attempt_dir = ctx.attempt_dir or task_dir
         attempt_dir.mkdir(parents=True, exist_ok=True)
-        plan = ctx.scratch.get("launch_plan")
+        plan = ctx.plan if ctx.plan is not None else ctx.scratch.get("launch_plan")
         launch_mode = plan.mode if plan is not None else "fresh"
         with open_task_log(attempt_dir, task.id) as task_log:
             await self._spawn(ctx, task_dir, attempt_dir, task_log, plan, launch_mode)

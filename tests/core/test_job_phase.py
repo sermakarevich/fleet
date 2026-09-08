@@ -1,6 +1,7 @@
 """Tests for core/job_phase.py. Mirrors the source path."""
 
-from fleet.core.job_phase import JobSnapshot, phase, phase_attempts, phase_failures
+from fleet.core.job_phase import phase, phase_attempts, phase_failures
+from fleet.core.job_snapshot import JobSnapshot
 
 
 def _snap(**kw) -> JobSnapshot:

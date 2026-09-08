@@ -14,7 +14,7 @@ class Task:
     coder: str | None = None
     model: str | None = None
     # Bead type ("task", "bug", "feature", "epic", "chore", ...); routes to a
-    # worker family in workers/__init__.py::FAMILIES.
+    # worker family in workers/__init__.py::WORKERS.
     type: str | None = None
     # Optional metadata override (fleet_worker) naming the family directly.
     worker: str | None = None

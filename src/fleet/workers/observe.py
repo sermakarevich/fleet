@@ -152,6 +152,30 @@ def _render_child_section(child_id: str, bead_status: str, digest: dict) -> str:
     return "\n".join(lines)[:CHILD_SECTION_MAX_CHARS]
 
 
+def _write_digest(ctx: StepContext, raw: list) -> str:
+    """Render child sections into artifacts/CHILDREN.md (≤ 8 KB) and return it."""
+    sections = [
+        _render_child_section(
+            str(c.get("id")),
+            str(c.get("status") or ""),
+            _child_digest(str(c.get("id")), ctx.fleet_home),
+        )
+        for c in raw
+        if isinstance(c, dict) and c.get("id")
+    ]
+    # Bounded by construction: oldest sections drop first past the cap.
+    while len("\n\n".join(sections).encode("utf-8")) > CHILDREN_MD_MAX_BYTES and sections:
+        sections.pop(0)
+    if sections:
+        body = "# Children digest\n\n" + "\n\n".join(sections)
+    else:
+        body = "# Children digest\n\n(none)"
+    artifacts_dir = ctx.task_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "CHILDREN.md").write_text(body, encoding="utf-8")
+    return body
+
+
 class CollectChildren:
     """Digest every child into artifacts/CHILDREN.md (≤ 8 KB) for the validator."""
 
@@ -161,51 +185,41 @@ class CollectChildren:
         self._queue_factory = queue_factory or _default_queue
 
     async def run(self, ctx: StepContext) -> StepResult:
-        raw = ctx.scratch.get("children")
-        if raw is None:
-            try:
-                raw = [
-                    {"id": c.id, "status": c.status}
-                    for c in _as_summaries(
-                        self._queue_factory(ctx.fleet_home).list_children(ctx.task.id)
-                    )
-                ]
-            except Exception as exc:  # noqa: BLE001 - step contract
-                return StepResult(status="fail", reason=f"cannot list children: {exc}")
-        sections = [
-            _render_child_section(
-                str(c.get("id")),
-                str(c.get("status") or ""),
-                _child_digest(str(c.get("id")), ctx.fleet_home),
-            )
-            for c in raw
-            if isinstance(c, dict) and c.get("id")
-        ]
-        # Bounded by construction: oldest sections drop first past the cap.
-        while len("\n\n".join(sections).encode("utf-8")) > CHILDREN_MD_MAX_BYTES and sections:
-            sections.pop(0)
-        body = (
-            "# Children digest\n\n" + "\n\n".join(sections)
-            if sections
-            else "# Children digest\n\n(none)"
-        )
-        artifacts_dir = ctx.task_dir / "artifacts"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        (artifacts_dir / "CHILDREN.md").write_text(body, encoding="utf-8")
+        raw, early = self._load_rows(ctx)
+        if early is not None:
+            return early
+        assert raw is not None
+        body = _write_digest(ctx, raw)
         blocked = sum(1 for c in raw if isinstance(c, dict) and c.get("status") == "blocked")
         ctx.scratch["child_ids"] = [
             str(c["id"]) for c in raw if isinstance(c, dict) and c.get("id")
         ]
         ctx.scratch["blocked_children"] = blocked
         pack_bytes = len(body.encode("utf-8"))
-        ctx.scratch["launch_plan"] = LaunchPlan(
-            mode="validate", pack=body, pack_bytes=pack_bytes, needs_compaction=False
-        )
+        plan = LaunchPlan(mode="validate", pack=body, pack_bytes=pack_bytes, needs_compaction=False)
+        ctx.plan = plan
+        ctx.scratch["launch_plan"] = plan
         merge_run_json(
             ctx,
             launch={"mode": "validate", "pack_bytes": pack_bytes, "kind": "work"},
         )
         return StepResult(status="ok")
+
+    def _load_rows(self, ctx: StepContext) -> tuple[list | None, StepResult | None]:
+        """Child rows from the previous step, or listed fresh from the queue."""
+        raw = ctx.scratch.get("children")
+        if raw is not None:
+            return raw, None
+        try:
+            rows = [
+                {"id": c.id, "status": c.status}
+                for c in _as_summaries(
+                    self._queue_factory(ctx.fleet_home).list_children(ctx.task.id)
+                )
+            ]
+        except Exception as exc:  # noqa: BLE001 - step contract
+            return None, StepResult(status="fail", reason=f"cannot list children: {exc}")
+        return rows, None
 
     async def cancel(self, reason: str) -> None:
         return None
@@ -227,7 +241,7 @@ class SpawnFollowups:
         result = parse_result(text)
         if result is None or result.status != "partial" or not result.followups:
             return StepResult(status="ok")
-        max_followups = getattr(ctx.config, "observer_max_followups", 10)
+        max_followups = ctx.config.observer_max_followups
         try:
             specs = validate_followups(result.followups, max_followups=max_followups)
         except ValueError as exc:

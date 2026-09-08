@@ -61,7 +61,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             "`--isolation`, and `--job-gate` are "
             "intercepted and stored as per-task overrides instead of being forwarded to bd. "
             "`--worker` names the worker family that should run this bead (see "
-            "workers/__init__.py::FAMILIES), overriding the type-based default. "
+            "workers/__init__.py::WORKERS), overriding the type-based default. "
             "`--isolation none` opts out of git worktree isolation for this task. "
             "`--job-gate off` skips the job worker's human approval gate. "
             "Use `--cwd <path>` to set the task working directory explicitly instead of "

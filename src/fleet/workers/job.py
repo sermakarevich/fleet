@@ -2,7 +2,7 @@
 
 A bead of type `epic` with metadata ``fleet_worker=job`` (``fleet bd
 create --worker job``) decomposes itself instead of being decomposed by a
-human: ``plan_job`` reads the task directory into a ``core/job_phase``
+human: ``plan_job`` reads the task directory into a ``core/job_snapshot``
 snapshot and picks one phase worker per attempt (``job.research``,
 ``job.design``, ``job.gate``, ``job.spawn``, ``job.observe``), so the
 Attempts timeline shows the job's history. After research and design the
@@ -23,8 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from fleet.beads.queue import BeadsQueue
-from fleet.core.job_phase import JobSnapshot, phase, phase_failures
+from fleet.core.job_phase import phase, phase_failures
 from fleet.core.job_plan import validate_tasks
+from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.integrations.ask_human.store import QuestionStore
@@ -146,6 +147,7 @@ class JobPrepare:
             needs_compaction=False,
         )
         ctx.scratch["launch_plan"] = plan
+        ctx.plan = plan
         merge_run_json(
             ctx,
             launch={"mode": self._mode, "pack_bytes": plan.pack_bytes, "kind": "work"},
@@ -156,6 +158,14 @@ class JobPrepare:
 
     async def cancel(self, reason: str) -> None:
         return None
+
+
+def _waiting(reason: str) -> StepResult:
+    """An outcome step result that re-releases the bead to wait on a human."""
+    return StepResult(
+        status="outcome",
+        outcome=TaskOutcomeRecord(outcome=TaskOutcome.WAITING, reason=reason),
+    )
 
 
 class AskApproval:
@@ -181,34 +191,52 @@ class AskApproval:
         )
         return StepResult(status="ok")
 
-    async def run(self, ctx: StepContext) -> StepResult:  # noqa: PLR0911  # ADR 0006 bead 8
+    async def run(self, ctx: StepContext) -> StepResult:
+        doc, early = self._load_validated(ctx)
+        if early is not None:
+            return early
+        assert doc is not None
+        return self._gate(ctx, doc)
+
+    def _load_validated(self, ctx: StepContext) -> tuple[Any | None, StepResult | None]:
+        """Load tasks.json and validate it; invalid plans go back to design."""
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
-            return self._invalid_plan(ctx, [load_error])
-        max_children = getattr(ctx.config, "job_max_children", 30)
-        errors = validate_tasks(doc, max_children=max_children)
+            return None, self._invalid_plan(ctx, [load_error])
+        errors = validate_tasks(doc, max_children=ctx.config.job_max_children)
         if errors:
-            return self._invalid_plan(ctx, errors)
+            return None, self._invalid_plan(ctx, errors)
+        return doc, None
+
+    def _gate(self, ctx: StepContext, doc: Any) -> StepResult:
+        """Apply an existing gate answer, or ask and wait for a new one."""
         store = self._store_factory(ctx.fleet_home)
-        try:
-            answered = store.fetch_answered_for_task(ctx.task.id, JOB_GATE_CONTEXT)
-        except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
-            return StepResult(status="fail", reason=f"cannot read gate answers: {exc}")
+        answered = self._store_read(
+            store, "answers", lambda: store.fetch_answered_for_task(ctx.task.id, JOB_GATE_CONTEXT)
+        )
+        if isinstance(answered, StepResult):
+            return answered
         if answered:
-            question = answered[-1]
-            return self._apply_answer(ctx, question)
-        try:
-            pending = store.fetch_pending_for_task(ctx.task.id, JOB_GATE_CONTEXT)
-        except Exception as exc:  # noqa: BLE001 - step contract
-            return StepResult(status="fail", reason=f"cannot read gate questions: {exc}")
+            return self._apply_answer(ctx, answered[-1])
+        pending = self._store_read(
+            store, "questions", lambda: store.fetch_pending_for_task(ctx.task.id, JOB_GATE_CONTEXT)
+        )
+        if isinstance(pending, StepResult):
+            return pending
         if pending:
-            return StepResult(
-                status="outcome",
-                outcome=TaskOutcomeRecord(
-                    outcome=TaskOutcome.WAITING,
-                    reason="waiting for job gate approval",
-                ),
-            )
+            return _waiting("waiting for job gate approval")
+        return self._ask(ctx, store, doc)
+
+    @staticmethod
+    def _store_read(store: Any, label: str, thunk: Callable[[], Any]) -> Any:
+        """Run a gate store read; store failures become a fail result."""
+        try:
+            return thunk()
+        except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
+            return StepResult(status="fail", reason=f"cannot read gate {label}: {exc}")
+
+    def _ask(self, ctx: StepContext, store: Any, doc: Any) -> StepResult:
+        """Post the approval question, then wait for the operator."""
         titles = _task_titles(doc)
         prompt = f"Job {ctx.task.id}: approve {len(titles)} tasks?\n" + "\n".join(
             f"- {t}" for t in titles
@@ -223,13 +251,7 @@ class AskApproval:
             )
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status="fail", reason=f"cannot ask gate question: {exc}")
-        return StepResult(
-            status="outcome",
-            outcome=TaskOutcomeRecord(
-                outcome=TaskOutcome.WAITING,
-                reason="waiting for job gate approval",
-            ),
-        )
+        return _waiting("waiting for job gate approval")
 
     def _apply_answer(self, ctx: StepContext, question: dict) -> StepResult:
         """Apply the operator's gate answer: approve, revise, or cancel."""
@@ -256,8 +278,14 @@ class AskApproval:
                 next_step="spawn",
             )
             return StepResult(status="ok")
-        # Revise (explicit option, a note alongside approve, or a free-text
-        # note alone — the note always wins, same as the triage loop).
+        return self._apply_revise(task_dir, artifacts_dir, note)
+
+    def _apply_revise(self, task_dir: Path, artifacts_dir: Path, note: str | None) -> StepResult:
+        """Send the plan back to design, keeping the operator's note if any.
+
+        Covers the explicit revise option, a note alongside approve, and a
+        free-text note alone — the note always wins, same as triage.
+        """
         if note:
             existing = _read_text_capped(artifacts_dir / "DESIGN_NOTES.md", DESIGN_NOTES_MAX_CHARS)
             block = f"## Operator note\n\n{note}\n"
@@ -298,6 +326,29 @@ def _topo_order(tasks: list[dict]) -> list[dict]:
     return ordered
 
 
+def _normalize_task(raw: dict) -> dict:
+    """Keep one validated tasks.json entry's spawn fields with stripped text."""
+    return {
+        "key": str(raw.get("key")).strip(),
+        "title": str(raw.get("title")).strip(),
+        "body": str(raw.get("body") or ""),
+        "cwd": raw.get("cwd"),
+        "coder": raw.get("coder"),
+        "model": raw.get("model"),
+        "priority": raw.get("priority"),
+        "depends_on": list(raw.get("depends_on") or []),
+    }
+
+
+def _load_journal(children_file: Path) -> dict[str, str]:
+    """Read the spawn journal (key -> child id); empty when missing/corrupt."""
+    try:
+        existing = json.loads(children_file.read_text(encoding="utf-8"))
+        return dict(existing) if isinstance(existing, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 class SpawnChildren:
     """Create child beads from tasks.json, idempotent across crashes."""
 
@@ -307,72 +358,16 @@ class SpawnChildren:
         self._queue_factory = queue_factory or _default_queue
 
     async def run(self, ctx: StepContext) -> StepResult:
+        ordered, early = self._load_ordered(ctx)
+        if early is not None:
+            return early
+        assert ordered is not None
         artifacts_dir = ctx.task_dir / "artifacts"
-        doc, load_error = _load_tasks_doc(ctx.task_dir)
-        if load_error is not None:
-            return self._invalid(ctx, [load_error])
-        max_children = getattr(ctx.config, "job_max_children", 30)
-        errors = validate_tasks(doc, max_children=max_children)
-        if errors:
-            return self._invalid(ctx, errors)
-        tasks = doc["tasks"]
-        ordered = _topo_order(
-            [
-                {
-                    "key": str(t.get("key")).strip(),
-                    "title": str(t.get("title")).strip(),
-                    "body": str(t.get("body") or ""),
-                    "cwd": t.get("cwd"),
-                    "coder": t.get("coder"),
-                    "model": t.get("model"),
-                    "priority": t.get("priority"),
-                    "depends_on": list(t.get("depends_on") or []),
-                }
-                for t in tasks
-            ]
-        )
         children_file = artifacts_dir / "children.json"
-        try:
-            existing = json.loads(children_file.read_text(encoding="utf-8"))
-            created: dict[str, str] = dict(existing) if isinstance(existing, dict) else {}
-        except (OSError, ValueError):
-            created = {}
-
-        def _save() -> None:
-            tmp = children_file.with_name(children_file.name + ".tmp")
-            tmp.write_text(json.dumps(created, indent=2), encoding="utf-8")
-            tmp.replace(children_file)
-
+        created = _load_journal(children_file)
         queue = self._queue_factory(ctx.fleet_home)
-        default_coder = getattr(ctx.config, "job_child_coder", None) or None
-        default_model = getattr(ctx.config, "job_child_model", None) or None
-        design_path = str(artifacts_dir / "DESIGN.md")
         try:
-            for task in ordered:
-                if task["key"] in created:
-                    continue
-                try:
-                    deps = [created[d] for d in task["depends_on"]]
-                except KeyError as exc:
-                    return StepResult(
-                        status="fail",
-                        reason=f"task {task['key']!r} depends on uncreated {exc}",
-                    )
-                body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
-                child = queue.create_child(
-                    ctx.task.id,
-                    {
-                        "title": task["title"],
-                        "body": body,
-                        "cwd": task["cwd"] or ctx.task.cwd,
-                        "depends_on": deps,
-                        "coder": task["coder"] or default_coder,
-                        "model": task["model"] or default_model,
-                        "priority": task["priority"],
-                    },
-                )
-                created[task["key"]] = child.id
-                _save()
+            self._spawn_missing(ctx, queue, ordered, created, children_file)
             queue.comment(
                 ctx.task.id,
                 f"[fleet] job spawned {len(created)} children: {', '.join(created.values())}",
@@ -388,6 +383,52 @@ class SpawnChildren:
             next_step="observe",
         )
         return StepResult(status="ok")
+
+    def _load_ordered(self, ctx: StepContext) -> tuple[list[dict] | None, StepResult | None]:
+        """Load tasks.json, validate it, and order entries dependencies-first."""
+        doc, load_error = _load_tasks_doc(ctx.task_dir)
+        if load_error is not None:
+            return None, self._invalid(ctx, [load_error])
+        errors = validate_tasks(doc, max_children=ctx.config.job_max_children)
+        if errors:
+            return None, self._invalid(ctx, errors)
+        return _topo_order([_normalize_task(t) for t in doc["tasks"]]), None
+
+    def _spawn_missing(
+        self,
+        ctx: StepContext,
+        queue: Any,
+        ordered: list[dict],
+        created: dict[str, str],
+        children_file: Path,
+    ) -> None:
+        """Create every not-yet-spawned child, journaling each id at once."""
+        artifacts_dir = ctx.task_dir / "artifacts"
+        design_path = str(artifacts_dir / "DESIGN.md")
+        for task in ordered:
+            if task["key"] in created:
+                continue
+            try:
+                deps = [created[d] for d in task["depends_on"]]
+            except KeyError as exc:
+                raise ValueError(f"task {task['key']!r} depends on uncreated {exc}") from exc
+            body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
+            child = queue.create_child(
+                ctx.task.id,
+                {
+                    "title": task["title"],
+                    "body": body,
+                    "cwd": task["cwd"] or ctx.task.cwd,
+                    "depends_on": deps,
+                    "coder": task["coder"] or ctx.config.job_child_coder or None,
+                    "model": task["model"] or ctx.config.job_child_model or None,
+                    "priority": task["priority"],
+                },
+            )
+            created[task["key"]] = child.id
+            tmp = children_file.with_name(children_file.name + ".tmp")
+            tmp.write_text(json.dumps(created, indent=2), encoding="utf-8")
+            tmp.replace(children_file)
 
     def _invalid(self, ctx: StepContext, errors: list[str]) -> StepResult:
         artifacts_dir = ctx.task_dir / "artifacts"
@@ -434,9 +475,7 @@ def _snapshot_for(ctx: StepContext, queue_factory: QueueFactory | None = None) -
     has_research = (artifacts_dir / "RESEARCH.md").exists()
     has_tasks = (artifacts_dir / "tasks.json").exists()
     approved = (artifacts_dir / "APPROVED").exists()
-    gate_enabled = bool(getattr(ctx.config, "job_gate", True)) and (
-        (ctx.task.job_gate or "") != "off"
-    )
+    gate_enabled = bool(ctx.config.job_gate) and ((ctx.task.job_gate or "") != "off")
     try:
         factory = queue_factory or _default_queue
         children = factory(ctx.fleet_home).list_children(ctx.task.id)
@@ -473,7 +512,7 @@ def plan_job(ctx: StepContext, queue_factory: QueueFactory | None = None) -> Wor
             for a in state_attempts.load_attempts(ctx.task_dir)
             if isinstance(a, dict) and a.get("n", 0) < ctx.attempt_n
         ]
-        max_attempts = getattr(ctx.config, "job_max_phase_attempts", 2)
+        max_attempts = ctx.config.job_max_phase_attempts
         if phase_failures(history, current_phase) >= max_attempts:
             return Worker("job.blocked", (BlockJob(),))
     if current_phase == "research":
