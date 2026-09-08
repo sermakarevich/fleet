@@ -1,4 +1,5 @@
 """The one place that knows how a task directory path is built."""
+
 from __future__ import annotations
 
 import os

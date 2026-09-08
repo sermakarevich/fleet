@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -72,10 +73,8 @@ def test_outcome_of_failure_on_raised_future() -> None:
             raise RuntimeError("kablam")
 
         fut = asyncio.ensure_future(_boom())
-        try:
+        with contextlib.suppress(RuntimeError):
             await fut
-        except RuntimeError:
-            pass
         return outcome_of(fut)
 
     record = asyncio.run(_run())

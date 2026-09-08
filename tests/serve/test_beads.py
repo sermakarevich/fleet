@@ -1,4 +1,5 @@
 """Tests for the beads portal REST routes (BD tab)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,7 @@ from fleet.serve.app import create_app
 def _fake_bd(returncode: int = 0, stdout: str = "", stderr: str = ""):
     """Build a fake subprocess.run that records its invocations."""
 
-    def _run(args, capture_output=True, text=True, cwd=None, env=None):  # noqa: ANN001
+    def _run(args, capture_output=True, text=True, cwd=None, env=None, check=True):  # noqa: ANN001
         _run.calls.append(list(args))
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
@@ -95,7 +96,9 @@ def test_beads_list_502_on_bd_failure(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "boom" in resp.json()["error"]
 
 
-def test_bead_detail_returns_deps_and_comments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bead_detail_returns_deps_and_comments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/beads/{id} returns description, notes, dependencies and comments."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     payload = json.dumps(

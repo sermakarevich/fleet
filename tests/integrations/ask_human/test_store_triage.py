@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from fleet.integrations.ask_human.store import QuestionStore
@@ -35,7 +36,6 @@ def test_fetch_answered_triage_only_triage(tmp_path: Path):
 
 
 def test_migration_adds_columns_to_old_db(tmp_path: Path):
-    import sqlite3
 
     db = tmp_path / "old.db"
     conn = sqlite3.connect(db)
@@ -47,7 +47,8 @@ def test_migration_adds_columns_to_old_db(tmp_path: Path):
         "created_at REAL NOT NULL, answered_at REAL)"
     )
     conn.execute(
-        "INSERT INTO questions (id, prompt, status, created_at) VALUES ('q1', 'hi?', 'pending', 1.0)"
+        "INSERT INTO questions (id, prompt, status, created_at) "
+        "VALUES ('q1', 'hi?', 'pending', 1.0)"
     )
     conn.commit()
     conn.close()

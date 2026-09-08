@@ -14,12 +14,15 @@ status and drive the queue.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json as _json
 import os
 import signal
 import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from fleet.core.context_window import parse_context_windows
 from fleet.core.limits import (
     HEARTBEAT_SEC,
     PROBE_INTERVAL_SEC,
@@ -77,7 +80,6 @@ def overrides_of(config) -> dict[str, int]:
     A malformed value must never kill a session: it parses to {} (built-in
     table only) so the checkpoint/kill thresholds keep a sane denominator.
     """
-    from fleet.core.context_window import parse_context_windows
 
     raw = getattr(config, "context_windows", "") or ""
     try:
@@ -99,7 +101,6 @@ def error_text_of(evt) -> str:
     count. The model's own prose (``assistant_text``) is never scanned: a
     worker that *talks about* "context windows" is not overflowing one.
     """
-    import json as _json
 
     raw = evt.raw if isinstance(evt.raw, dict) else {}
     if evt.kind == "error":
@@ -123,10 +124,8 @@ def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
     try:
         os.killpg(os.getpgid(proc.pid), sig)
     except (ProcessLookupError, PermissionError, OSError):
-        try:
+        with contextlib.suppress(ProcessLookupError, OSError):
             proc.send_signal(sig)
-        except (ProcessLookupError, OSError):
-            pass
 
 
 def _input_tokens(usage: dict) -> int:
@@ -204,14 +203,12 @@ async def _heartbeat_loop(run_file: Path, proc: asyncio.subprocess.Process) -> N
             if proc.returncode is not None:
                 break
             heartbeat_at, lease_until = _lease_times()
-            try:
+            with contextlib.suppress(OSError):
                 write_run_json(
                     run_file,
                     heartbeat_at=heartbeat_at,
                     lease_until=lease_until,
                 )
-            except OSError:
-                pass
     except asyncio.CancelledError:
         pass
 
@@ -227,7 +224,7 @@ class LlmSession:
         self._killed = False
         self._kill_reason = "manual_kill"
 
-    async def run(self, ctx: StepContext) -> StepResult:
+    async def run(self, ctx: StepContext) -> StepResult:  # noqa: PLR0912, PLR0915  # ADR 0006 bead 6
         task = ctx.task
         coder = ctx.coder
         assert coder is not None
@@ -323,7 +320,7 @@ class LlmSession:
             # readline loop so we can catch and skip oversize lines instead of
             # crashing the whole runner.  In Python 3.12 the buffer IS consumed
             # before LimitOverrunError is raised, so `continue` is safe.
-            proc.stdout._limit = 100 * 1024 * 1024
+            proc.stdout._limit = 100 * 1024 * 1024  # type: ignore[attr-defined]  # private asyncio buffer knob; bead 6 owns the session runner
             last_event_at = started_at
             last_probe_at = started_at
             attempt_budget_sec = _max_attempt_sec(ctx)
@@ -422,7 +419,7 @@ class LlmSession:
                 if evt.session_id:
                     # Lets probe_health tell this run's provider errors apart
                     # from other sessions sharing the same CLI log file.
-                    coder.current_session_id = evt.session_id
+                    coder.current_session_id = evt.session_id  # type: ignore[attr-defined]  # per-run session tag; bead 6 moves it into CoderProcess
 
                 append_event(attempt_dir, evt)
 
@@ -432,9 +429,7 @@ class LlmSession:
                 elif evt.kind == "tool_use":
                     ctx.log.info(
                         "agent_tool_use",
-                        tool=evt.tool_name
-                        or evt.raw.get("tool_name")
-                        or evt.raw.get("name"),
+                        tool=evt.tool_name or evt.raw.get("tool_name") or evt.raw.get("name"),
                     )
                 elif evt.kind == "session_ended":
                     ctx.log.info("agent_session_ended")
@@ -460,9 +455,7 @@ class LlmSession:
                             try:
                                 checkpoint_file.touch(exist_ok=True)
                             except OSError as exc:
-                                ctx.log.warning(
-                                    "checkpoint_marker_failed", error=str(exc)
-                                )
+                                ctx.log.warning("checkpoint_marker_failed", error=str(exc))
                             checkpoint_written = True
                             task_log.log.warning(
                                 "context_checkpoint",

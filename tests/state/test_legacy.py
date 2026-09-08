@@ -12,7 +12,7 @@ from fleet.state.legacy import (
     legacy_result,
     legacy_state_text,
 )
-from tests.helpers.task_dir import make_task_dir
+from tests.helpers.task_dir import make_attempt, make_task_dir
 
 
 def _seed_legacy(task_dir: Path) -> None:
@@ -78,7 +78,6 @@ def test_legacy_result_invalid_is_none(tmp_path: Path) -> None:
 
 
 def test_attempt_state_snapshot_prefers_state_md(tmp_path: Path) -> None:
-    from tests.helpers.task_dir import make_attempt
 
     task_dir = make_task_dir(tmp_path, "t-6")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
@@ -89,7 +88,6 @@ def test_attempt_state_snapshot_prefers_state_md(tmp_path: Path) -> None:
 
 
 def test_attempt_state_snapshot_falls_back_to_old_name(tmp_path: Path) -> None:
-    from tests.helpers.task_dir import make_attempt
 
     task_dir = make_task_dir(tmp_path, "t-7")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
@@ -99,7 +97,6 @@ def test_attempt_state_snapshot_falls_back_to_old_name(tmp_path: Path) -> None:
 
 
 def test_attempt_state_snapshot_none_when_missing(tmp_path: Path) -> None:
-    from tests.helpers.task_dir import make_attempt
 
     task_dir = make_task_dir(tmp_path, "t-8")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")

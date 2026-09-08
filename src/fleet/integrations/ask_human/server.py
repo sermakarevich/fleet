@@ -25,6 +25,8 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from contextlib import suppress
+from os.path import basename
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -74,8 +76,6 @@ def _default_agent_id() -> str | None:
     task_dir = os.environ.get("FLEET_TASK_DIR")
     if task_dir:
         # Extract task id from path like /.../.fleet/tasks/fleet-xxxx
-        from os.path import basename
-
         name = basename(task_dir)
         if name:
             return name
@@ -107,21 +107,25 @@ async def _await_answer(
     while q["status"] == "pending":
         if deadline is not None and time.time() >= deadline:
             store._expire_if_pending(qid)
-            return store.get(qid)
+            q = store.get(qid)
+            if q is None:
+                raise KeyError(qid)
+            return q
         await asyncio.sleep(poll_interval)
         waited += poll_interval
         since_keepalive += poll_interval
         if ctx is not None and since_keepalive >= keepalive_s:
             since_keepalive = 0.0
-            try:
+            # Keepalive is best-effort; never fail the wait over it.
+            with suppress(Exception):
                 await ctx.report_progress(
                     progress=waited,
                     total=None,
                     message="waiting for a human operator…",
                 )
-            except Exception:
-                pass  # keepalive is best-effort; never fail the wait over it
         q = store.get(qid)
+        if q is None:
+            raise KeyError(qid)
     return q
 
 

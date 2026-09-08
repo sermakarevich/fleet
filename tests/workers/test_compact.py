@@ -1,4 +1,5 @@
 """Tests for workers/compact.py: the pre-continue compaction step."""
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,10 @@ from fleet.workers.compact import (
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.task import ContinueLargeTask, ContinueTask, PrepareContinue, plan_task
 
-_STATE_BODY = "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n## Next\n- z\n\n## Facts\n- fleet uses beads\n"
+_STATE_BODY = (
+    "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n"
+    "## Next\n- z\n\n## Facts\n- fleet uses beads\n"
+)
 
 _SUCCESS_LINES = [
     json.dumps({"text": "```STATE\n" + _STATE_BODY + "\n```"}),
@@ -58,9 +62,7 @@ class FakeCompactionCoder:
         self.model = model
 
     @classmethod
-    def context_limit_for(
-        cls, model: str | None, overrides: dict[str, int] | None = None
-    ) -> int:
+    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
         return cls.context_limit
 
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
@@ -95,7 +97,9 @@ def _setup_task_dir(tmp_path: Path, task_id: str = "t-compact") -> tuple[Task, P
     return task, task_dir
 
 
-def _ctx(task: Task, task_dir: Path, attempt_n: int, config: RuntimeConfig | None = None) -> StepContext:
+def _ctx(
+    task: Task, task_dir: Path, attempt_n: int, config: RuntimeConfig | None = None
+) -> StepContext:
     return StepContext(
         task=task,
         task_dir=task_dir,
@@ -116,7 +120,7 @@ def _patch_coder(monkeypatch, lines: list[str]) -> None:
     def _get_coder(name: str):
         return FakeCompactionCoder
 
-    monkeypatch.setattr("fleet.coders.get_coder", _get_coder)
+    monkeypatch.setattr("fleet.workers.compact.get_coder", _get_coder)
 
 
 # ---------------------------------------------------------------------------

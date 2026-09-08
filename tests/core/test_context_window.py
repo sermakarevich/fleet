@@ -10,16 +10,11 @@ from fleet.core.context_window import (
 
 
 def test_exact_model_id_resolves():
-    assert (
-        resolve_window("muse-spark-1.3-contributor", None, 128_000) == 1_048_576
-    )
+    assert resolve_window("muse-spark-1.3-contributor", None, 128_000) == 1_048_576
 
 
 def test_provider_prefix_is_stripped():
-    assert (
-        resolve_window("opencode-go/muse-spark-1.3-contributor", None, 128_000)
-        == 1_048_576
-    )
+    assert resolve_window("opencode-go/muse-spark-1.3-contributor", None, 128_000) == 1_048_576
 
 
 def test_family_prefix_match_both_directions():
@@ -74,9 +69,7 @@ def test_parse_context_windows_round_trip():
         "muse-spark-1.3-contributor": 1_048_576
     }
     # Model tags contain colons: split on the LAST one.
-    assert parse_context_windows("qwen3.6:latest:100000") == {
-        "qwen3.6:latest": 100_000
-    }
+    assert parse_context_windows("qwen3.6:latest:100000") == {"qwen3.6:latest": 100_000}
     assert parse_context_windows("") == {}
     assert parse_context_windows("   ") == {}
 

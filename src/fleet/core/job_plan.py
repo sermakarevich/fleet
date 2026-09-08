@@ -16,6 +16,8 @@ Three rules live here:
 
 from __future__ import annotations
 
+_TITLE_MAX_LEN = 120  # follow-up titles longer than this are rejected
+
 
 def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
     """Check an observer RESULT.json `followups` list; return normalized specs.
@@ -31,9 +33,7 @@ def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
     if not isinstance(followups, list):
         raise ValueError("followups must be a list")
     if len(followups) > max_followups:
-        raise ValueError(
-            f"too many follow-ups ({len(followups)} > {max_followups})"
-        )
+        raise ValueError(f"too many follow-ups ({len(followups)} > {max_followups})")
     specs: list[dict] = []
     for i, item in enumerate(followups):
         if not isinstance(item, dict):
@@ -42,9 +42,7 @@ def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
         if not title:
             raise ValueError(f"follow-up #{i} has a blank title")
         depends_on = item.get("depends_on") or []
-        if not isinstance(depends_on, list) or not all(
-            isinstance(d, str) for d in depends_on
-        ):
+        if not isinstance(depends_on, list) or not all(isinstance(d, str) for d in depends_on):
             raise ValueError(f"follow-up {title!r}: depends_on must be a list of titles")
         specs.append(
             {
@@ -61,13 +59,9 @@ def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
     for spec in specs:
         for dep in spec["depends_on"]:
             if dep not in by_title:
-                raise ValueError(
-                    f"follow-up {spec['title']!r} depends on unknown {dep!r}"
-                )
+                raise ValueError(f"follow-up {spec['title']!r} depends on unknown {dep!r}")
             if dep == spec["title"]:
-                raise ValueError(
-                    f"follow-up {spec['title']!r} cannot depend on itself"
-                )
+                raise ValueError(f"follow-up {spec['title']!r} cannot depend on itself")
     _check_acyclic(specs)
     return specs
 
@@ -82,9 +76,7 @@ def _check_acyclic(specs: list[dict]) -> None:
         if title in done:
             return
         if title in visiting:
-            raise ValueError(
-                f"follow-up dependency cycle: {' -> '.join([*chain, title])}"
-            )
+            raise ValueError(f"follow-up dependency cycle: {' -> '.join([*chain, title])}")
         visiting.add(title)
         for dep in by_title[title]["depends_on"]:
             visit(dep, [*chain, title])
@@ -116,7 +108,7 @@ def observer_rounds(history: list[dict]) -> int:
     return count
 
 
-def validate_tasks(doc: object, max_children: int = 30) -> list[str]:
+def validate_tasks(doc: object, max_children: int = 30) -> list[str]:  # noqa: PLR0912  # ADR 0006 bead 5
     """Check a parsed tasks.json doc; return error strings (empty when valid).
 
     Expected shape: ``{"tasks": [{key, title, body, cwd, coder, model,
@@ -147,15 +139,13 @@ def validate_tasks(doc: object, max_children: int = 30) -> list[str]:
         title = str(item.get("title") or "").strip()
         if not title:
             errors.append(f"task {key!r} has a blank title")
-        elif len(title) > 120:
-            errors.append(f"task {key!r} title exceeds 120 chars")
+        elif len(title) > _TITLE_MAX_LEN:
+            errors.append(f"task {key!r} title exceeds {_TITLE_MAX_LEN} chars")
         body = str(item.get("body") or "").strip()
         if not body:
             errors.append(f"task {key!r} has a blank body")
         depends_on = item.get("depends_on") or []
-        if not isinstance(depends_on, list) or not all(
-            isinstance(d, str) for d in depends_on
-        ):
+        if not isinstance(depends_on, list) or not all(isinstance(d, str) for d in depends_on):
             errors.append(f"task {key!r}: depends_on must be a list of keys")
             depends_on = []
         specs.append({"key": key, "depends_on": list(depends_on)})
@@ -166,13 +156,9 @@ def validate_tasks(doc: object, max_children: int = 30) -> list[str]:
     for spec in specs:
         for dep in spec["depends_on"]:
             if dep not in by_key:
-                errors.append(
-                    f"task {spec['key']!r} depends on unknown {dep!r}"
-                )
+                errors.append(f"task {spec['key']!r} depends on unknown {dep!r}")
             elif dep == spec["key"]:
-                errors.append(
-                    f"task {spec['key']!r} cannot depend on itself"
-                )
+                errors.append(f"task {spec['key']!r} cannot depend on itself")
     if not errors:
         try:
             _check_tasks_acyclic(specs)
@@ -191,9 +177,7 @@ def _check_tasks_acyclic(specs: list[dict]) -> None:
         if key in done:
             return
         if key in visiting:
-            raise ValueError(
-                f"task dependency cycle: {' -> '.join([*chain, key])}"
-            )
+            raise ValueError(f"task dependency cycle: {' -> '.join([*chain, key])}")
         visiting.add(key)
         for dep in by_key[key]["depends_on"]:
             visit(dep, [*chain, key])

@@ -31,13 +31,8 @@ def test_codex_resolves_through_shared_table():
 
 
 def test_opencode_muse_spark_is_1m():
-    assert (
-        OpencodeCoder.context_limit_for("muse-spark-1.3-contributor") == 1_048_576
-    )
-    assert (
-        OpencodeCoder.context_limit_for("opencode-go/muse-spark-1.3-contributor")
-        == 1_048_576
-    )
+    assert OpencodeCoder.context_limit_for("muse-spark-1.3-contributor") == 1_048_576
+    assert OpencodeCoder.context_limit_for("opencode-go/muse-spark-1.3-contributor") == 1_048_576
 
 
 def test_opencode_qwen_is_65k():
@@ -54,12 +49,7 @@ def test_opencode_bedrock_is_200k():
 
 
 def test_opencode_override_wins():
-    assert (
-        OpencodeCoder.context_limit_for(
-            "qwen3.6:latest", {"qwen3.6:latest": 70_000}
-        )
-        == 70_000
-    )
+    assert OpencodeCoder.context_limit_for("qwen3.6:latest", {"qwen3.6:latest": 70_000}) == 70_000
 
 
 def test_pi_muse_spark_is_1m():
@@ -72,9 +62,7 @@ def test_pi_qwen_is_65k():
 
 def test_pi_bedrock_is_200k():
     assert (
-        PiCoder.context_limit_for(
-            "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-        )
+        PiCoder.context_limit_for("amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
         == 200_000
     )
 

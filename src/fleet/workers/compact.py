@@ -12,6 +12,7 @@ pure ``core.compaction_fallback`` truncation so the launch still works.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fleet.coders import get_coder
 from fleet.core.compaction_fallback import compact_fallback
 from fleet.state import attempts as state_attempts
 from fleet.state.attempt_summary import render_markdown, summarize
@@ -83,8 +85,6 @@ def _git_lines(workdir: Path | None, args: list[str], limit: int) -> list[str]:
 
 def _resolve_workdir(ctx: StepContext) -> Path | None:
     try:
-        import json
-
         meta = json.loads((ctx.task_dir / "task.json").read_text(encoding="utf-8"))
         if isinstance(meta, dict) and meta.get("worktree_path"):
             return Path(meta["worktree_path"])
@@ -135,10 +135,7 @@ def collect_material(
     mat.git_log = _git_lines(workdir, ["log", "--oneline", "-30"], GIT_LOG_LINES)
     mat.git_status = _git_lines(workdir, ["status", "--short"], GIT_STATUS_LINES)
 
-    total = sum(
-        len(s.encode("utf-8"))
-        for s in [mat.state, mat.result_text, *mat.summaries]
-    )
+    total = sum(len(s.encode("utf-8")) for s in [mat.state, mat.result_text, *mat.summaries])
     while total > TOTAL_INPUT_CAP_BYTES and mat.summaries:
         dropped = mat.summaries.pop(0)
         total -= len(dropped.encode("utf-8"))
@@ -172,7 +169,7 @@ def _compaction_argv(coder: object, task: object, task_dir: Path, prompt: str) -
     Reuses ``coder.build_argv`` (prompt is always the last element) and swaps
     in the compaction prompt; for claude adds a hard ``--max-turns 2`` cap.
     """
-    build = coder.build_argv
+    build = coder.build_argv  # type: ignore[attr-defined]  # duck-typed Coder; bead 6 gives Compact the shared process wrapper
     argv = list(build(task, task_dir, None))
     if not argv:
         raise ValueError("coder.build_argv returned empty argv")
@@ -244,7 +241,7 @@ async def _run_compaction_model(
         start_new_session=True,
     )
     assert proc.stdout is not None
-    proc.stdout._limit = 100 * 1024 * 1024
+    proc.stdout._limit = 100 * 1024 * 1024  # type: ignore[attr-defined]  # private asyncio buffer knob; bead 6 owns the session runner
     texts: list[str] = []
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_sec
@@ -263,27 +260,21 @@ async def _run_compaction_model(
             evt = coder.normalize_event(raw_line)  # type: ignore[attr-defined]
             if evt is None:
                 continue
-            try:
+            with contextlib.suppress(OSError):
                 append_event(compact_dir, evt)
-            except OSError:
-                pass
             if evt.kind == "assistant_text":
                 text = _extract_text(evt.raw)
                 if text:
                     texts.append(text)
     finally:
         if proc.returncode is None:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 proc.terminate()
-            except ProcessLookupError:
-                pass
             try:
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
             except TimeoutError:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
                 await proc.wait()
         else:
             await proc.wait()
@@ -302,7 +293,6 @@ class Compact:
     name = "compact"
 
     async def run(self, ctx: StepContext) -> StepResult:
-        from fleet.coders import get_coder
 
         task_dir = ctx.task_dir
         state_cap = ctx.config.state_max_bytes
@@ -315,7 +305,7 @@ class Compact:
             ctx.log.warning("compaction_fallback", reason=f"unknown coder: {exc}")
             return self._fallback(ctx, f"unknown coder: {exc}")
 
-        coder = coder_cls(model=ctx.config.compaction_model)
+        coder = coder_cls(model=ctx.config.compaction_model)  # type: ignore[call-arg]  # Coder subclasses take model=; bead 21 adds coder_factory
         material = collect_material(task_dir, _resolve_workdir(ctx), before_n=ctx.attempt_n)
         prompt = render_compaction_prompt(material)
         try:
@@ -344,10 +334,9 @@ class Compact:
             fallback_reason = f"model call failed: {exc}"
             output = ""
         parsed = parse_compaction_output(output) if not fallback_reason else None
-        if parsed is not None:
-            if len(parsed.encode("utf-8")) > state_cap:
-                fallback_reason = "output violated byte cap"
-                parsed = None
+        if parsed is not None and len(parsed.encode("utf-8")) > state_cap:
+            fallback_reason = "output violated byte cap"
+            parsed = None
         if parsed is None:
             if fallback_reason is None:
                 fallback_reason = "unparseable model output"
@@ -373,9 +362,7 @@ class Compact:
         return StepResult(status="ok", reason=outcome_reason)
 
     def _fallback(self, ctx: StepContext, reason: str) -> StepResult:
-        material = collect_material(
-            ctx.task_dir, _resolve_workdir(ctx), before_n=ctx.attempt_n
-        )
+        material = collect_material(ctx.task_dir, _resolve_workdir(ctx), before_n=ctx.attempt_n)
         state = compact_fallback(
             material.state,
             material.summaries,
@@ -391,9 +378,7 @@ class Compact:
         ctx.log.warning("compaction_fallback", reason=reason)
         return StepResult(status="ok", reason=f"compaction_fallback: {reason}")
 
-    def _finish_compact_row(
-        self, ctx: StepContext, n: int, outcome: str, reason: str
-    ) -> None:
+    def _finish_compact_row(self, ctx: StepContext, n: int, outcome: str, reason: str) -> None:
         try:
             state_attempts.record_end(
                 ctx.task_dir, outcome=outcome, exit_code=0, reason=reason, action="close", n=n

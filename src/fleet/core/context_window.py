@@ -47,8 +47,8 @@ def parse_context_windows(raw: str) -> dict[str, int]:
     result: dict[str, int] = {}
     if not raw.strip():
         return result
-    for part in raw.split(","):
-        part = part.strip()
+    for raw_part in raw.split(","):
+        part = raw_part.strip()
         if not part:
             continue
         if ":" not in part:
@@ -65,9 +65,7 @@ def parse_context_windows(raw: str) -> dict[str, int]:
                 f"Invalid context_windows entry (tokens not an int): {part!r}"
             ) from None
         if tokens <= 0:
-            raise ValueError(
-                f"Invalid context_windows entry (tokens must be > 0): {part!r}"
-            )
+            raise ValueError(f"Invalid context_windows entry (tokens must be > 0): {part!r}")
         result[name] = tokens
     return result
 
@@ -80,9 +78,7 @@ def _strip_provider(model: str) -> str:
     return model
 
 
-def _family_match(
-    stripped: str, table: dict[str, int]
-) -> int | None:
+def _family_match(stripped: str, table: dict[str, int]) -> int | None:
     """Longest prefix-match of *stripped* against table keys (case-insensitive).
 
     Matches either direction — the table key is a prefix of the model
@@ -94,10 +90,9 @@ def _family_match(
     best_len = -1
     for key, tokens in table.items():
         k = key.lower()
-        if lowered.startswith(k) or k.startswith(lowered):
-            if len(k) > best_len:
-                best = tokens
-                best_len = len(k)
+        if (lowered.startswith(k) or k.startswith(lowered)) and len(k) > best_len:
+            best = tokens
+            best_len = len(k)
     return best
 
 

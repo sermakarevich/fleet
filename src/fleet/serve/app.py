@@ -1,4 +1,5 @@
 """FastAPI application factory for `fleet serve` (FR-48, FR-49)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,12 +7,13 @@ import json
 import logging
 import os
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -75,8 +77,7 @@ async def _question_poller(app: FastAPI) -> None:
                             q_id,
                         )
                 created_at = float(q.get("created_at") or 0)
-                if created_at > new_wm:
-                    new_wm = created_at
+                new_wm = max(new_wm, created_at)
             watermark = new_wm
         except asyncio.CancelledError:
             raise
@@ -91,7 +92,7 @@ class _SPAStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404:
+            if exc.status_code == HTTPStatus.NOT_FOUND:
                 return await super().get_response("index.html", scope)
             raise
 
@@ -103,7 +104,7 @@ class AppState:
     config_mtime: float | None
 
 
-def create_app(queue: Queue | None = None) -> FastAPI:
+def create_app(queue: Queue | None = None) -> FastAPI:  # noqa: PLR0915  # ADR 0006 bead 9
     """Create and configure the fleet FastAPI application."""
     mgr = ConnectionManager()
     watcher = FileWatcher()
@@ -120,7 +121,9 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         watcher_task = asyncio.create_task(watcher.start(home, mgr))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
-            tg.inbound_listener(app, home / "telegram_update_offset", home / "telegram_question_msgs.json")
+            tg.inbound_listener(
+                app, home / "telegram_update_offset", home / "telegram_question_msgs.json"
+            )
         )
         try:
             yield
@@ -128,24 +131,14 @@ def create_app(queue: Queue | None = None) -> FastAPI:
             watcher_task.cancel()
             poller_task.cancel()
             listener_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await watcher_task
-            except asyncio.CancelledError:
-                pass
-            try:
+            with suppress(asyncio.CancelledError):
                 await poller_task
-            except asyncio.CancelledError:
-                pass
-            try:
+            with suppress(asyncio.CancelledError):
                 await listener_task
-            except asyncio.CancelledError:
-                pass
 
     app = FastAPI(lifespan=_lifespan)
-    import os
-
-    from fastapi import Request
-    from fastapi.responses import JSONResponse
 
     def _expected_token() -> str:
         return os.environ.get("FLEET_API_TOKEN", "").strip()
@@ -156,7 +149,11 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         path = request.url.path
         if token and path.startswith("/api/"):
             auth = request.headers.get("authorization", "")
-            supplied = auth[7:] if auth.lower().startswith("bearer ") else request.query_params.get("token", "")
+            supplied = (
+                auth[7:]
+                if auth.lower().startswith("bearer ")
+                else request.query_params.get("token", "")
+            )
             if supplied != token:
                 return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -184,13 +181,15 @@ def create_app(queue: Queue | None = None) -> FastAPI:
                 pass
         current_fp = code_fingerprint()
         stale = stored_fp is not None and stored_fp != current_fp
-        return JSONResponse({
-            "status": "ok",
-            "fleet_home": str(home),
-            "version_fingerprint": stored_fp,
-            "current_fingerprint": current_fp,
-            "stale": stale,
-        })
+        return JSONResponse(
+            {
+                "status": "ok",
+                "fleet_home": str(home),
+                "version_fingerprint": stored_fp,
+                "current_fingerprint": current_fp,
+                "stale": stale,
+            }
+        )
 
     @app.websocket("/ws/events")
     async def ws_events(ws: WebSocket) -> None:

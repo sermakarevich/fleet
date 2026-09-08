@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import tempfile
@@ -78,7 +79,7 @@ def _coerce(key: str, value: object) -> object:
                 return False
             raise ValueError(f"Invalid bool for {key}: {value!r}")
         return bool(value)
-    return typ(value)  # type: ignore[operator]
+    return typ(value)
 
 
 def _write_toml_str(data: dict) -> str:
@@ -97,9 +98,7 @@ def _write_toml_str(data: dict) -> str:
 # Removed keys, kept only to warn on migration: use `context_windows`
 # ("model:tokens,model:tokens", e.g. "muse-spark-1.3-contributor:1048576")
 # instead of one global number per backend.
-_DEPRECATED_CONTEXT_KEYS = frozenset(
-    {"opencode_context_limit", "opencode_bedrock_context_limit"}
-)
+_DEPRECATED_CONTEXT_KEYS = frozenset({"opencode_context_limit", "opencode_bedrock_context_limit"})
 
 
 def _warn_deprecated(data: dict) -> None:
@@ -107,7 +106,7 @@ def _warn_deprecated(data: dict) -> None:
     if found:
         logger.warning(
             "Deprecated runtime.toml key(s) %s ignored; use "
-            "context_windows=\"model:tokens,model:tokens\" instead.",
+            'context_windows="model:tokens,model:tokens" instead.',
             ", ".join(found),
         )
 
@@ -115,9 +114,7 @@ def _warn_deprecated(data: dict) -> None:
 def _validate_isolation(value: object) -> None:
     """Raise ValueError when `isolation` is not a known mode."""
     if value not in ("worktree", "none"):
-        raise ValueError(
-            f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'"
-        )
+        raise ValueError(f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'")
 
 
 def _parse(data: dict) -> RuntimeConfig:
@@ -165,8 +162,10 @@ def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
         raise ValueError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
 
     if "coder" in updates:
-        # Lazy import: avoid any chance of a circular import with the coders package.
-        from fleet.coders import get_coder
+        # Lazy import: core must not import the coders package at module level
+        # (lower layers never import higher ones; ADR 0006 bead 4 moves this
+        # validation into beads/client with the other create-time checks).
+        from fleet.coders import get_coder  # noqa: PLC0415  # ADR 0006 bead 4
 
         get_coder(updates["coder"])  # raises ValueError on unknown coder name
 
@@ -192,10 +191,8 @@ def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
             fh.write(toml_str)
         os.replace(tmp_path, path)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
     return RuntimeConfig(**merged)

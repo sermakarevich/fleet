@@ -1,4 +1,5 @@
 """Tests for full-text search endpoint (FR-47)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -133,7 +134,9 @@ def test_search_endpoint_returns_results(tmp_path: Path, monkeypatch: pytest.Mon
     assert "match_context" in r
 
 
-def test_search_endpoint_empty_q_returns_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_empty_q_returns_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /api/search?q= returns empty results for empty query."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()

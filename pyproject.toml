@@ -46,12 +46,21 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "I", "B", "UP", "SIM", "RET", "C4", "PL"]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-statements = 60
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "PLR0913"]
+
+[tool.ruff.format]
 
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-check_untyped_defs = false
+check_untyped_defs = true
 warn_unused_ignores = true
 exclude = ["tests/", "src/fleet/ui/"]

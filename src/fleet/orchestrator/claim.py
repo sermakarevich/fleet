@@ -29,8 +29,8 @@ def parse_overrides(raw: str) -> dict[str, int]:
     Blank or malformed entries and non-positive counts are ignored.
     """
     result: dict[str, int] = {}
-    for part in raw.split(","):
-        part = part.strip()
+    for raw_part in raw.split(","):
+        part = raw_part.strip()
         if not part or ":" not in part:
             continue
         name, _, value = part.partition(":")
@@ -99,19 +99,13 @@ def read_isolation_info(task_dir: Path) -> dict | None:
 
 def can_claim(st: SupervisorState, coder: str | None) -> bool:
     """True when another worker under `coder` fits below its cap."""
-    running = running_by_coder(
-        (rw.task for rw in st.running.values()), st.config.coder
-    )
+    running = running_by_coder((rw.task for rw in st.running.values()), st.config.coder)
     effective = coder or st.config.coder
-    cap = cap_for_coder(
-        effective, st.config.max_concurrent, st.config.max_concurrent_overrides
-    )
+    cap = cap_for_coder(effective, st.config.max_concurrent, st.config.max_concurrent_overrides)
     return running.get(effective, 0) < cap
 
 
-async def release_after_spawn_failure(
-    st: SupervisorState, task: Task, exc: Exception
-) -> None:
+async def release_after_spawn_failure(st: SupervisorState, task: Task, exc: Exception) -> None:
     """Hand the bead back after an unexpected spawn error; never raises."""
     st.log.exception("spawn_failed", task_id=task.id, error=str(exc))
     try:
@@ -129,9 +123,7 @@ class Claim(PeriodicService):
     name = "claim"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(
-            interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
-        )
+        super().__init__(interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC)
 
     def _paused(self, st: SupervisorState) -> bool:
         """True while the rate-limit pause holds; clears it once it passes.
@@ -159,9 +151,7 @@ class Claim(PeriodicService):
         if task is None:
             return
         if task.id in st.running:
-            st.log.warning(
-                "task_already_in_flight", task_id=task.id, in_flight=len(st.running)
-            )
+            st.log.warning("task_already_in_flight", task_id=task.id, in_flight=len(st.running))
             return
         st.log.info(
             "task_claimed",

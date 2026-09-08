@@ -1,4 +1,5 @@
 """Archive closed task directories older than a retention window."""
+
 from __future__ import annotations
 
 import json
@@ -30,8 +31,10 @@ class StaleWorktree:
     path: Path
     repo_root: str | None
 
+
 def _dir_size(p: Path) -> int:
     return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
 
 def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     tasks_dir = tasks_root(home)

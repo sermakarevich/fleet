@@ -1,13 +1,14 @@
 """Integration tests for the manual task kill mechanism."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import subprocess
 import time
 from pathlib import Path
 
 from fleet.core.task import Task
-
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -23,9 +24,7 @@ def _no_orphans(tag: str, timeout: float = 2.0) -> bool:
     deadline = time.monotonic() + timeout
     while True:
         result = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True,
+            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
         )
         if result.returncode != 0:
             return True
@@ -78,12 +77,10 @@ def test_kill_blocks_task_with_comment(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            except (TimeoutError, asyncio.CancelledError, Exception):
                 sup_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 
@@ -92,10 +89,9 @@ def test_kill_blocks_task_with_comment(tmp_path: Path) -> None:
     )
     assert len(queue.blocked) >= 1
     assert any(tid == "t-001" for tid, _ in queue.blocked)
-    assert any(
-        "t-001" == tid and "manual" in body.lower()
-        for tid, body in queue.comments
-    ), f"expected a 'manual interruption' comment; got {queue.comments}"
+    assert any(tid == "t-001" and "manual" in body.lower() for tid, body in queue.comments), (
+        f"expected a 'manual interruption' comment; got {queue.comments}"
+    )
     assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should survive kill"
 
 
@@ -130,12 +126,10 @@ def test_kill_sentinel_removed_after_processing(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            except (TimeoutError, asyncio.CancelledError, Exception):
                 sup_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 
@@ -169,18 +163,16 @@ def test_stale_kill_sentinel_ignored_on_fresh_run(tmp_path: Path) -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
             await asyncio.wait_for(done.wait(), timeout=15.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            except (TimeoutError, asyncio.CancelledError, Exception):
                 sup_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 

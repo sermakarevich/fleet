@@ -1,4 +1,5 @@
 """Task runtime stats: log.jsonl started_at + state.events scan results."""
+
 from __future__ import annotations
 
 import json
@@ -26,6 +27,7 @@ class TaskRuntimeStats:
 @dataclass
 class TaskRuntimeInfo:
     """Combined single-pass result: stats + last-event fields."""
+
     started_at: datetime | None
     last_event_at: datetime | None
     events: int

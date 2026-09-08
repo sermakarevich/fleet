@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from fleet.orchestrator import default_services
 from fleet.orchestrator.service import Service, ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
@@ -61,7 +62,6 @@ def test_run_returns_zero_with_no_services(tmp_path) -> None:  # type: ignore[no
 
 def test_default_services_cover_all_concerns(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """default_services() wires one service per concern, in non-decreasing order."""
-    from fleet.orchestrator import default_services
 
     services = default_services()
     names = sorted(svc.name for svc in services)

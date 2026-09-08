@@ -101,8 +101,13 @@ def _ctx(
     task_dir.mkdir(parents=True, exist_ok=True)
     return StepContext(
         task=Task(
-            id=task_id, title="job", description="goal", status="in_progress",
-            type="epic", worker="job", job_gate=job_gate,
+            id=task_id,
+            title="job",
+            description="goal",
+            status="in_progress",
+            type="epic",
+            worker="job",
+            job_gate=job_gate,
         ),
         task_dir=task_dir,
         project_root=tmp_path,
@@ -127,9 +132,7 @@ def _store_factory(store: FakeStore):
 def _valid_tasks(*keys: str) -> dict:
     return {
         "tasks": [
-            {"key": k, "title": f"title {k}", "body": f"body {k}",
-             "depends_on": []}
-            for k in keys
+            {"key": k, "title": f"title {k}", "body": f"body {k}", "depends_on": []} for k in keys
         ]
     }
 
@@ -198,19 +201,24 @@ def test_plan_job_observe_when_children_exist(tmp_path: Path) -> None:
     worker = plan_job(ctx, _factory(queue))
     assert worker.name == "job.observe"
     assert [s.name for s in worker.steps] == [
-        "wait_children", "collect_children", "llm_session", "spawn_followups",
+        "wait_children",
+        "collect_children",
+        "llm_session",
+        "spawn_followups",
     ]
 
 
 def test_plan_job_blocks_after_two_research_failures(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, attempt_n=99)
     for _ in range(2):
-        n = attempts.record_start(
-            ctx.task_dir, coder="c", model="m", worker="job.research"
-        )
+        n = attempts.record_start(ctx.task_dir, coder="c", model="m", worker="job.research")
         attempts.record_end(
-            ctx.task_dir, outcome="failure", exit_code=1,
-            reason="boom", action="release", n=n,
+            ctx.task_dir,
+            outcome="failure",
+            exit_code=1,
+            reason="boom",
+            action="release",
+            n=n,
         )
     worker = plan_job(ctx, _factory(FakeQueue()))
     assert worker.name == "job.blocked"
@@ -220,12 +228,14 @@ def test_plan_job_partial_research_does_not_block(tmp_path: Path) -> None:
     # A research attempt ending PARTIAL succeeded — it must move forward.
     ctx = _ctx(tmp_path, attempt_n=99)
     for _ in range(2):
-        n = attempts.record_start(
-            ctx.task_dir, coder="c", model="m", worker="job.research"
-        )
+        n = attempts.record_start(ctx.task_dir, coder="c", model="m", worker="job.research")
         attempts.record_end(
-            ctx.task_dir, outcome="partial", exit_code=0,
-            reason="design", action="release", n=n,
+            ctx.task_dir,
+            outcome="partial",
+            exit_code=0,
+            reason="design",
+            action="release",
+            n=n,
         )
     worker = plan_job(ctx, _factory(FakeQueue()))
     assert worker.name == "job.research"
@@ -268,42 +278,30 @@ def test_gate_approve_writes_marker(tmp_path: Path) -> None:
     result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
     assert result.status == "ok"
     assert (ctx.task_dir / "artifacts" / "APPROVED").exists()
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "partial" and declared["next_step"] == "spawn"
 
 
 def test_gate_revise_appends_note_and_deletes_tasks(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
-    store = FakeStore(
-        answered=[{"id": "q1", "answer": "revise (write note)", "note": "split t1"}]
-    )
+    store = FakeStore(answered=[{"id": "q1", "answer": "revise (write note)", "note": "split t1"}])
     result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
     assert result.status == "ok"
     assert not (ctx.task_dir / "artifacts" / "tasks.json").exists()
-    notes = (ctx.task_dir / "artifacts" / "DESIGN_NOTES.md").read_text(
-        encoding="utf-8"
-    )
+    notes = (ctx.task_dir / "artifacts" / "DESIGN_NOTES.md").read_text(encoding="utf-8")
     assert "split t1" in notes
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "partial" and declared["next_step"] == "design"
 
 
 def test_gate_cancel_blocks(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
-    store = FakeStore(
-        answered=[{"id": "q1", "answer": "cancel job", "note": None}]
-    )
+    store = FakeStore(answered=[{"id": "q1", "answer": "cancel job", "note": None}])
     result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
     assert result.status == "ok"
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "blocked"
     assert declared["blocked_reason"] == "cancelled by operator"
 
@@ -316,9 +314,7 @@ def test_gate_invalid_tasks_skips_question(tmp_path: Path) -> None:
     assert result.status == "ok"
     assert store.asked == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"
 
 
@@ -347,33 +343,23 @@ def test_spawn_creates_children_with_deps_and_footer(tmp_path: Path) -> None:
     assert queue.created[0][1]["depends_on"] == []
     assert queue.created[1][1]["depends_on"] == ["kid-1"]
     assert "Part of job job-1" in queue.created[0][1]["body"]
-    journal = json.loads(
-        (ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8")
-    )
+    journal = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8"))
     assert journal == {"t1": "kid-1", "t2": "kid-2"}
-    assert queue.comments == [
-        ("job-1", "[fleet] job spawned 2 children: kid-1, kid-2")
-    ]
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    assert queue.comments == [("job-1", "[fleet] job spawned 2 children: kid-1, kid-2")]
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "partial" and declared["next_step"] == "observe"
 
 
 def test_spawn_resumes_without_duplicates(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1", "t2"))
-    (ctx.task_dir / "artifacts" / "children.json").write_text(
-        json.dumps({"t1": "kid-old"})
-    )
+    (ctx.task_dir / "artifacts" / "children.json").write_text(json.dumps({"t1": "kid-old"}))
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(_factory(queue)).run(ctx))
     assert result.status == "ok"
     # Only t2 is created; t1 keeps its earlier id.
     assert [spec["title"] for _, spec in queue.created] == ["title t2"]
-    journal = json.loads(
-        (ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8")
-    )
+    journal = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8"))
     assert journal == {"t1": "kid-old", "t2": "kid-1"}
 
 
@@ -385,7 +371,5 @@ def test_spawn_invalid_tasks_writes_errors(tmp_path: Path) -> None:
     assert result.status == "ok"
     assert queue.created == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
-    declared = json.loads(
-        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
-    )
+    declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"

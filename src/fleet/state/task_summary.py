@@ -8,12 +8,15 @@ API report the same numbers for the same task.
 from __future__ import annotations
 
 import json
+import os
+import tomllib
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.beads.cache import get_beads_status_map
 from fleet.coders import get_coder
+from fleet.core.context_window import parse_context_windows
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.triage_policy import ignore_active
@@ -35,9 +38,6 @@ def context_overrides_for_home(home: Path) -> dict[str, int]:
     table only) — the summary display must never crash on config drift.
     Never creates the file: plain ``tomllib`` read, no ``core.config.load``.
     """
-    import tomllib
-
-    from fleet.core.context_window import parse_context_windows
 
     try:
         with (home / "runtime.toml").open("rb") as fh:
@@ -85,9 +85,7 @@ def read_result(task_dir: Path) -> dict | None:
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is not None:
         try:
-            parsed = _parse_result_text(
-                (attempt_dir / RESULT_JSON).read_text(encoding="utf-8")
-            )
+            parsed = _parse_result_text((attempt_dir / RESULT_JSON).read_text(encoding="utf-8"))
         except OSError:
             parsed = None
         if parsed is not None:
@@ -125,7 +123,6 @@ def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
 
 def _pid_alive(pid: object) -> bool:
     """True when *pid* names a live process (signal 0 probe, best effort)."""
-    import os
 
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
@@ -183,8 +180,9 @@ def _build_attempts_summary(
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
         adir = _attempt_dir_path(task_dir, n)
-        run = _read_json_file(adir / "run.json") or {}
-        launch = run.get("launch") if isinstance(run.get("launch"), dict) else {}
+        run: dict = _read_json_file(adir / "run.json") or {}
+        raw_launch = run.get("launch")
+        launch: dict = raw_launch if isinstance(raw_launch, dict) else {}
         result = _read_json_file(adir / "RESULT.json")
         stats = scan_rows(iter_attempt_events(task_dir, n))
         peak_context_pct = (

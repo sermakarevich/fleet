@@ -1,5 +1,7 @@
 # fleet — convenience commands. Run `just` to list them.
 
+FLEET_HOME := env_var_or_default("FLEET_HOME", home_directory() / ".fleet")
+
 # default: show available recipes
 default:
     @just --list
@@ -11,6 +13,30 @@ sync:
 # run the test suite
 test *ARGS:
     uv run pytest {{ARGS}}
+
+# lint: ruff check over source, tests and helper scripts
+lint:
+    uv run ruff check src tests bin
+
+# format source, tests and helper scripts
+fmt:
+    uv run ruff format src tests bin
+
+# fail if anything needs formatting
+fmt-check:
+    uv run ruff format --check src tests bin
+
+# static types for the fleet package
+typecheck:
+    uv run mypy src
+
+# one command that says "green": lint + format check + types + unit tests
+check: lint fmt-check typecheck
+    uv run pytest -q -p no:cacheprovider tests --ignore=tests/integration
+
+# check plus the integration suite
+check-all: check
+    uv run pytest -q -p no:cacheprovider tests/integration
 
 # initialize the centralized fleet home (~/.fleet by default, $FLEET_HOME otherwise)
 init:
@@ -48,9 +74,29 @@ set +PAIRS:
 beads-gc:
     cd "${FLEET_HOME:-$HOME/.fleet}" && bd export -o "beads_export_$(date +%Y-%m-%d).jsonl" && bd flatten --force && bd gc --skip-decay --force
 
-# remove build artefacts and caches
+# remove build artefacts and caches (never the .venv itself)
 clean:
-    rm -rf .pytest_cache .venv *.egg-info src/fleet/__pycache__ src/fleet/*/__pycache__ tests/__pycache__ tests/*/__pycache__
+    rm -rf .pytest_cache *.egg-info src/fleet/__pycache__ src/fleet/*/__pycache__ tests/__pycache__ tests/*/__pycache__
+
+# install the web UI's node dependencies
+ui-install:
+    cd src/fleet/ui && npm install
+
+# build the web UI and copy dist/ to $FLEET_HOME/ui_dist
+ui-build: ui-install
+    cd src/fleet/ui && npm run build
+    mkdir -p "{{FLEET_HOME}}"
+    rm -rf "{{FLEET_HOME}}/ui_dist"
+    cp -r src/fleet/ui/dist "{{FLEET_HOME}}/ui_dist"
+    @echo "UI built → {{FLEET_HOME}}/ui_dist"
+
+# typecheck the web UI without emitting output
+ui-check:
+    cd src/fleet/ui && npx tsc --noEmit
+
+# run the Vite dev server with hot reload (for working on the UI itself)
+ui-dev:
+    cd src/fleet/ui && npm run dev
 
 # establish the ssh tunnel to rtx ollama (local 11435 -> rtx 11434); no-op if already up
 ollama-tunnel:

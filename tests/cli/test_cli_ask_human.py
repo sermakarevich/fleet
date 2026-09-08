@@ -37,9 +37,7 @@ def test_install_registers_with_claude_mcp_add() -> None:
         return _Done()
 
     def fake_which(name):
-        return {"claude": "/usr/local/bin/claude", "fleet": "/usr/local/bin/fleet"}.get(
-            name
-        )
+        return {"claude": "/usr/local/bin/claude", "fleet": "/usr/local/bin/fleet"}.get(name)
 
     with (
         patch("shutil.which", side_effect=fake_which),

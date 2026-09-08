@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import json as _json
 from pathlib import Path
 
 from fleet.state.task_summary import (
@@ -8,6 +9,7 @@ from fleet.state.task_summary import (
     coder_context_limit,
     context_overrides_for_home,
 )
+from tests.helpers.task_dir import make_attempt
 
 
 def _task_dir(tmp_path: Path, task_id: str = "t-001") -> Path:
@@ -45,7 +47,6 @@ def test_result_is_none_when_result_json_invalid(tmp_path: Path) -> None:
 
 def test_result_falls_back_to_attempt_snapshot(tmp_path: Path) -> None:
     """Post-reap the live file is gone; the snapshot still reports."""
-    from tests.helpers.task_dir import make_attempt
 
     task_dir = _task_dir(tmp_path)
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
@@ -130,9 +131,6 @@ def test_context_overrides_missing_file_is_empty(tmp_path: Path) -> None:
 
 def test_attempt_row_reads_launch_from_run_json(tmp_path: Path) -> None:
     """Attempt rows take kind/mode from run.json["launch"], not launch.json."""
-    import json as _json
-
-    from tests.helpers.task_dir import make_attempt
 
     task_dir = _task_dir(tmp_path)
     attempt_dir = make_attempt(task_dir, 1, outcome="partial", reason="x")

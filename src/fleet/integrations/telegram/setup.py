@@ -38,12 +38,7 @@ def discover_chats(token: str) -> tuple[list[dict], int | None]:
             chat = msg.get("chat") or {}
             cid = str(chat.get("id", ""))
             if cid and cid not in seen_chats:
-                title = (
-                    chat.get("title")
-                    or chat.get("username")
-                    or chat.get("first_name")
-                    or "?"
-                )
+                title = chat.get("title") or chat.get("username") or chat.get("first_name") or "?"
                 seen_chats[cid] = {"id": cid, "type": chat.get("type", "?"), "title": title}
         if seen_chats:
             break

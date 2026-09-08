@@ -2,7 +2,14 @@ import json
 from pathlib import Path
 
 from fleet.state import attempts
-from fleet.state.attempts import latest_attempt_dir, record_end, record_start, set_worker
+from fleet.state.attempts import (
+    latest_attempt_dir,
+    load_attempts,
+    record_end,
+    record_start,
+    record_unblock,
+    set_worker,
+)
 
 
 def test_set_worker_tags_start_line(tmp_path: Path) -> None:
@@ -21,9 +28,7 @@ def test_start_end_round_trip(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "t-001"
     n = attempts.record_start(task_dir, coder="claude", model="sonnet")
     assert n == 1
-    attempts.record_end(
-        task_dir, outcome="failure", exit_code=1, reason="rc=1", action="released"
-    )
+    attempts.record_end(task_dir, outcome="failure", exit_code=1, reason="rc=1", action="released")
     items = attempts.load_attempts(task_dir)
     assert len(items) == 1
     item = items[0]
@@ -107,7 +112,6 @@ def test_last_attempt_none_when_empty(tmp_path: Path) -> None:
 def test_record_unblock_adds_row_and_keeps_numbering(tmp_path: Path) -> None:
     """An unblock row gets its own n, loads as kind "unblock"/outcome
     "unblocked", and the next start continues numbering after it."""
-    from fleet.state.attempts import load_attempts, record_unblock
 
     n1 = record_start(tmp_path, coder="c", model="m")
     record_end(tmp_path, outcome="failure", exit_code=1, reason="boom", action="block")

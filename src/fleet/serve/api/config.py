@@ -1,4 +1,5 @@
 """Config read and write REST routes (FR-43)."""
+
 from __future__ import annotations
 
 from dataclasses import asdict

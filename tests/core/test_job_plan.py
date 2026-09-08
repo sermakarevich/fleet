@@ -19,9 +19,7 @@ def test_valid_single_followup() -> None:
 
 
 def test_valid_chain_resolves_sibling_titles() -> None:
-    specs = validate_followups(
-        [_spec("a"), _spec("b", depends_on=["a"])], max_followups=10
-    )
+    specs = validate_followups([_spec("a"), _spec("b", depends_on=["a"])], max_followups=10)
     assert specs[1]["depends_on"] == ["a"]
 
 
@@ -120,31 +118,21 @@ def test_validate_tasks_not_an_object() -> None:
 def test_validate_tasks_empty_and_over_max() -> None:
     assert validate_tasks({"tasks": []}) != []
     many = _doc(*(_task(f"t{i}") for i in range(3)))
-    assert validate_tasks(many, max_children=2) == [
-        "too many tasks (3 > 2)"
-    ]
+    assert validate_tasks(many, max_children=2) == ["too many tasks (3 > 2)"]
 
 
 def test_validate_tasks_blank_key_and_duplicates() -> None:
     assert validate_tasks(_doc({"title": "x", "body": "y"})) != []
-    assert validate_tasks(_doc(_task("a"), _task("a"))) == [
-        "task keys must be unique"
-    ]
+    assert validate_tasks(_doc(_task("a"), _task("a"))) == ["task keys must be unique"]
 
 
 def test_validate_tasks_title_rules() -> None:
-    assert validate_tasks(_doc(_task("a", title="  "))) == [
-        "task 'a' has a blank title"
-    ]
-    assert validate_tasks(_doc(_task("a", title="x" * 121))) == [
-        "task 'a' title exceeds 120 chars"
-    ]
+    assert validate_tasks(_doc(_task("a", title="  "))) == ["task 'a' has a blank title"]
+    assert validate_tasks(_doc(_task("a", title="x" * 121))) == ["task 'a' title exceeds 120 chars"]
 
 
 def test_validate_tasks_blank_body() -> None:
-    assert validate_tasks(_doc(_task("a", body="  "))) == [
-        "task 'a' has a blank body"
-    ]
+    assert validate_tasks(_doc(_task("a", body="  "))) == ["task 'a' has a blank body"]
 
 
 def test_validate_tasks_unknown_self_and_cycle() -> None:
@@ -154,7 +142,5 @@ def test_validate_tasks_unknown_self_and_cycle() -> None:
     assert validate_tasks(_doc(_task("a", depends_on=["a"]))) == [
         "task 'a' cannot depend on itself"
     ]
-    errors = validate_tasks(
-        _doc(_task("a", depends_on=["b"]), _task("b", depends_on=["a"]))
-    )
+    errors = validate_tasks(_doc(_task("a", depends_on=["b"]), _task("b", depends_on=["a"])))
     assert len(errors) == 1 and "cycle" in errors[0]

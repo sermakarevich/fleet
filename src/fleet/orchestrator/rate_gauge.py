@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -24,7 +24,7 @@ class RateGauge:
             return
         if evt.rate_info is None:
             return
-        self.last_updated = datetime.now(tz=timezone.utc)
+        self.last_updated = datetime.now(tz=UTC)
         usage_pct = evt.rate_info.get("usage_pct")
         if usage_pct is not None:
             self.current_usage_pct = float(usage_pct)
@@ -34,7 +34,7 @@ class RateGauge:
 
     def current_pct(self, now: datetime | None = None) -> float:
         if now is None:
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
         if self.resets_at is not None and now.timestamp() >= self.resets_at + _RESET_GRACE_SEC:
             self.current_usage_pct = 0.0
             self.resets_at = None

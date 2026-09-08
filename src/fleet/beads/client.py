@@ -1,4 +1,5 @@
 """The one client for the `bd` CLI: subprocess invocation and envelope unwrap."""
+
 from __future__ import annotations
 
 import json
@@ -23,11 +24,7 @@ def run(
     full_env = {**os.environ, **env} if env else None
     try:
         result = subprocess.run(
-            ["bd", *args],
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            env=full_env,
+            ["bd", *args], capture_output=True, text=True, cwd=cwd, env=full_env, check=False
         )
     except FileNotFoundError as exc:
         raise BeadsError("bd executable not found") from exc
@@ -43,9 +40,7 @@ def _unwrap(data: Any) -> Any:
     return data
 
 
-def run_json(
-    args: list[str], *, cwd: Path, env: dict[str, str] | None = None
-) -> Any:
+def run_json(args: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> Any:
     """Run `bd <args> --json` and return the unwrapped payload (None if empty)."""
     full_args = list(args)
     if "--json" not in full_args:

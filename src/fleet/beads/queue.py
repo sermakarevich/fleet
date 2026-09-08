@@ -1,3 +1,4 @@
+import contextlib
 import json
 import shlex
 import shutil
@@ -9,6 +10,7 @@ from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
+from fleet.core.triage_policy import ignore_active
 from fleet.state.paths import task_dir as _task_dir
 
 
@@ -56,7 +58,7 @@ class Queue(ABC):
     def delete(self, task_id: str) -> None: ...
 
     @abstractmethod
-    def create_task(
+    def create_task(  # noqa: PLR0913, PLR0917  # ADR 0006 bead 4
         self,
         title: str,
         description: str | None = None,
@@ -117,7 +119,13 @@ class BeadsQueue(Queue):
         Only the non-None fields are written; existing meta keys are preserved.
         Distinct from freeze_coder_model, which writes both fields at spawn time.
         """
-        if coder is None and model is None and worker is None and isolation is None and job_gate is None:
+        if (
+            coder is None
+            and model is None
+            and worker is None
+            and isolation is None
+            and job_gate is None
+        ):
             return
         meta = self._load_meta(task_id) or {"id": task_id}
         if coder is not None:
@@ -208,7 +216,6 @@ class BeadsQueue(Queue):
 
     def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
         """Blocked tasks whose task.json ignore_until is still active."""
-        from fleet.core.triage_policy import ignore_active
 
         out: list[tuple[Task, str]] = []
         for task in self.list_blocked(limit=limit):
@@ -266,9 +273,7 @@ class BeadsQueue(Queue):
         if eff_worker is not None:
             result["worker"] = eff_worker
         priority = (
-            body.get("priority")
-            if body.get("priority") is not None
-            else existing.get("priority")
+            body.get("priority") if body.get("priority") is not None else existing.get("priority")
         )
         if priority is not None:
             result["priority"] = priority
@@ -289,9 +294,7 @@ class BeadsQueue(Queue):
                 result[key] = existing.get(key)
         return result
 
-    def _bd(
-        self, *args: str, json_envelope: bool = True, actor: str | None = None
-    ) -> dict | None:
+    def _bd(self, *args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
         env = {"BD_JSON_ENVELOPE": "1"} if json_envelope else None
         if actor is not None:
             env = {**(env or {}), "BEADS_ACTOR": actor}
@@ -309,9 +312,7 @@ class BeadsQueue(Queue):
             key=lambda c: (c.get("priority", 99), c.get("created_at") or ""),
         )
 
-    def _task_from_dict(
-        self, body: dict, *, status_override: str | None = None
-    ) -> Task:
+    def _task_from_dict(self, body: dict, *, status_override: str | None = None) -> Task:
         meta = self._load_meta(body["id"])
         # bd's own `metadata` field is populated atomically at `bd create` time
         # (see cli.py's bd_passthrough), so it's available even before the
@@ -345,12 +346,8 @@ class BeadsQueue(Queue):
         )
 
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
-        ready = self._bd(
-            "ready", "--json", "--limit", "0"
-        )  # 0 = unlimited; we sort below
-        items: list = (
-            ready.get("data", ready) if isinstance(ready, dict) else (ready or [])
-        )
+        ready = self._bd("ready", "--json", "--limit", "0")  # 0 = unlimited; we sort below
+        items: list = ready.get("data", ready) if isinstance(ready, dict) else (ready or [])
         if not isinstance(items, list):
             items = []
         for cand in self._order_ready(items):
@@ -372,9 +369,7 @@ class BeadsQueue(Queue):
                 )
             except BeadsError:
                 continue
-            self._write_meta(
-                cand["id"], self._snapshot_meta(cand, status="in_progress")
-            )
+            self._write_meta(cand["id"], self._snapshot_meta(cand, status="in_progress"))
             return self._task_from_dict(cand, status_override="in_progress")
         # `bd ready` only lists issues whose dependencies all closed. An epic
         # with a `blocked` child never becomes ready, so scan open epics and
@@ -424,9 +419,7 @@ class BeadsQueue(Queue):
                 )
             except BeadsError:
                 continue
-            self._write_meta(
-                epic_id, self._snapshot_meta(cand, status="in_progress")
-            )
+            self._write_meta(epic_id, self._snapshot_meta(cand, status="in_progress"))
             return self._task_from_dict(cand, status_override="in_progress")
         return None
 
@@ -461,17 +454,16 @@ class BeadsQueue(Queue):
             model=spec.get("model") or epic.model,
         )
         if spec.get("priority") is not None:
-            try:
+            with contextlib.suppress(BeadsError, TypeError, ValueError):
                 self._bd(
-                    "update", child.id, "--priority", str(int(spec["priority"])),
+                    "update",
+                    child.id,
+                    "--priority",
+                    str(int(spec["priority"])),
                     json_envelope=False,
                 )
-            except (BeadsError, TypeError, ValueError):
-                pass
-        try:
+        with contextlib.suppress(BeadsError):
             self._bd("dep", "add", epic_id, child.id, json_envelope=False)
-        except BeadsError:
-            pass
         return child
 
     def _retry_after_in_future(self, task_id: str) -> bool:
@@ -488,9 +480,7 @@ class BeadsQueue(Queue):
         return dt > datetime.now(tz=UTC)
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
-        self._bd(
-            "update", task_id, "--status", "open", "--assignee", "", json_envelope=False
-        )
+        self._bd("update", task_id, "--status", "open", "--assignee", "", json_envelope=False)
         if reason:
             self._bd("comment", task_id, reason, json_envelope=False)
         meta = self._load_meta(task_id) or {"id": task_id}
@@ -562,15 +552,11 @@ class BeadsQueue(Queue):
         return [self._task_from_dict(item) for item in items]
 
     def list_in_progress(self, limit: int = 50) -> list[Task]:
-        data = self._bd(
-            "list", "--status", "in_progress", "--json", "--limit", str(limit)
-        )
+        data = self._bd("list", "--status", "in_progress", "--json", "--limit", str(limit))
         items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
         if not isinstance(items, list):
             items = []
-        return [
-            self._task_from_dict(item, status_override="in_progress") for item in items
-        ]
+        return [self._task_from_dict(item, status_override="in_progress") for item in items]
 
     def list_blocked(self, limit: int = 100) -> list[Task]:
         """Beads with status blocked (fleet-blocked and human-blocked alike).
@@ -583,7 +569,7 @@ class BeadsQueue(Queue):
             items = []
         return [self._task_from_dict(item, status_override="blocked") for item in items]
 
-    def create_task(
+    def create_task(  # noqa: PLR0913, PLR0917  # ADR 0006 bead 4
         self,
         title: str,
         description: str | None = None,

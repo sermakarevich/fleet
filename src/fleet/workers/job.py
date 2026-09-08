@@ -16,21 +16,25 @@ orchestrator runs workers.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from fleet.beads.queue import BeadsQueue
 from fleet.core.job_phase import JobSnapshot, phase, phase_failures
 from fleet.core.job_plan import validate_tasks
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
+from fleet.integrations.ask_human.store import QuestionStore
 from fleet.state import attempts as state_attempts
 from fleet.state.paths import RESULT_JSON
 
 from .base import StepContext, StepResult, Worker, merge_run_json
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
+from .task import _ensure_state as _seed
 
 # artifacts/RESEARCH.md cap the research prompt enforces (also truncates reads).
 RESEARCH_MAX_BYTES = 12 * 1024
@@ -50,22 +54,18 @@ StoreFactory = Callable[[Path], Any]
 
 
 def _default_queue(home: Path) -> Any:
-    from fleet.beads.queue import BeadsQueue
 
     return BeadsQueue(home)
 
 
 def _default_store(_home: Path) -> Any:
     """The ask_human store, same pattern as the triage loop (default DB)."""
-    from fleet.integrations.ask_human.store import QuestionStore
 
     return QuestionStore()
 
 
 def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
     """Seed the STATE.md stub and outputs/ if missing (see workers/task.py)."""
-    from .task import _ensure_state as _seed
-
     _seed(task_dir, task_id)
 
 
@@ -84,9 +84,7 @@ def _write_result(
         payload["next_step"] = next_step
     if blocked_reason:
         payload["blocked_reason"] = blocked_reason
-    (task_dir / RESULT_JSON).write_text(
-        json.dumps(payload, indent=2), encoding="utf-8"
-    )
+    (task_dir / RESULT_JSON).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _read_text_capped(path: Path, cap: int) -> str | None:
@@ -135,16 +133,16 @@ class JobPrepare:
             notes = _read_text_capped(artifacts_dir / "DESIGN_NOTES.md", DESIGN_NOTES_MAX_CHARS)
             if notes:
                 parts.append(f"# Operator revision notes\n\n{notes}")
-            errors = _read_text_capped(
-                artifacts_dir / "DESIGN_ERRORS.md", DESIGN_ERRORS_MAX_CHARS
-            )
+            errors = _read_text_capped(artifacts_dir / "DESIGN_ERRORS.md", DESIGN_ERRORS_MAX_CHARS)
             if errors:
                 parts.append(f"# Previous validation errors (fix these)\n\n{errors}")
             pack = "\n\n---\n\n".join(parts)
         else:
             pack = ""
         plan = LaunchPlan(
-            mode=self._mode, pack=pack, pack_bytes=len(pack.encode("utf-8")),
+            mode=self._mode,  # type: ignore[arg-type]  # _mode is a launch-mode str; bead 8 declares phase fields
+            pack=pack,
+            pack_bytes=len(pack.encode("utf-8")),
             needs_compaction=False,
         )
         ctx.scratch["launch_plan"] = plan
@@ -168,9 +166,7 @@ class AskApproval:
     def __init__(self, store_factory: StoreFactory | None = None) -> None:
         self._store_factory = store_factory or _default_store
 
-    def _invalid_plan(
-        self, ctx: StepContext, errors: list[str]
-    ) -> StepResult:
+    def _invalid_plan(self, ctx: StepContext, errors: list[str]) -> StepResult:
         """Send an invalid plan back to design without asking the operator."""
         artifacts_dir = ctx.task_dir / "artifacts"
         (artifacts_dir / "DESIGN_ERRORS.md").write_text(
@@ -178,13 +174,14 @@ class AskApproval:
             encoding="utf-8",
         )
         _write_result(
-            ctx.task_dir, status="partial",
+            ctx.task_dir,
+            status="partial",
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
         return StepResult(status="ok")
 
-    async def run(self, ctx: StepContext) -> StepResult:
+    async def run(self, ctx: StepContext) -> StepResult:  # noqa: PLR0911  # ADR 0006 bead 8
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
             return self._invalid_plan(ctx, [load_error])
@@ -218,8 +215,11 @@ class AskApproval:
         )
         try:
             store.ask(
-                prompt, list(GATE_OPTIONS),
-                task_id=ctx.task.id, context=JOB_GATE_CONTEXT, agent_id="job",
+                prompt,
+                list(GATE_OPTIONS),
+                task_id=ctx.task.id,
+                context=JOB_GATE_CONTEXT,
+                agent_id="job",
             )
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status="fail", reason=f"cannot ask gate question: {exc}")
@@ -241,7 +241,8 @@ class AskApproval:
         note = (question.get("note") or "").strip() or None
         if answer == GATE_OPTION_CANCEL:
             _write_result(
-                task_dir, status="blocked",
+                task_dir,
+                status="blocked",
                 summary="job cancelled by operator",
                 blocked_reason="cancelled by operator",
             )
@@ -249,7 +250,8 @@ class AskApproval:
         if answer == GATE_OPTION_APPROVE and not note:
             (artifacts_dir / "APPROVED").write_text("approved\n", encoding="utf-8")
             _write_result(
-                task_dir, status="partial",
+                task_dir,
+                status="partial",
                 summary="job plan approved; spawning children",
                 next_step="spawn",
             )
@@ -257,18 +259,17 @@ class AskApproval:
         # Revise (explicit option, a note alongside approve, or a free-text
         # note alone — the note always wins, same as the triage loop).
         if note:
-            existing = _read_text_capped(
-                artifacts_dir / "DESIGN_NOTES.md", DESIGN_NOTES_MAX_CHARS
-            )
+            existing = _read_text_capped(artifacts_dir / "DESIGN_NOTES.md", DESIGN_NOTES_MAX_CHARS)
             block = f"## Operator note\n\n{note}\n"
-            combined = (existing.rstrip() + "\n\n" + block) if existing and existing.strip() else block
+            combined = (
+                (existing.rstrip() + "\n\n" + block) if existing and existing.strip() else block
+            )
             (artifacts_dir / "DESIGN_NOTES.md").write_text(combined, encoding="utf-8")
-        try:
+        with contextlib.suppress(OSError):
             (artifacts_dir / "tasks.json").unlink(missing_ok=True)
-        except OSError:
-            pass
         _write_result(
-            task_dir, status="partial",
+            task_dir,
+            status="partial",
             summary="job plan needs revision; see DESIGN_NOTES.md",
             next_step="design",
         )
@@ -357,9 +358,7 @@ class SpawnChildren:
                         status="fail",
                         reason=f"task {task['key']!r} depends on uncreated {exc}",
                     )
-                body = task["body"] + (
-                    f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}"
-                )
+                body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
                 child = queue.create_child(
                     ctx.task.id,
                     {
@@ -380,12 +379,11 @@ class SpawnChildren:
             )
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status="fail", reason=f"cannot spawn children: {exc}")
-        try:
+        with contextlib.suppress(OSError):
             (artifacts_dir / "DESIGN_ERRORS.md").unlink(missing_ok=True)
-        except OSError:
-            pass
         _write_result(
-            ctx.task_dir, status="partial",
+            ctx.task_dir,
+            status="partial",
             summary=f"spawned {len(created)} children",
             next_step="observe",
         )
@@ -398,7 +396,8 @@ class SpawnChildren:
             encoding="utf-8",
         )
         _write_result(
-            ctx.task_dir, status="partial",
+            ctx.task_dir,
+            status="partial",
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
@@ -418,8 +417,10 @@ class BlockJob:
 
     async def run(self, ctx: StepContext) -> StepResult:
         _write_result(
-            ctx.task_dir, status="blocked",
-            summary=self._reason, blocked_reason=self._reason,
+            ctx.task_dir,
+            status="blocked",
+            summary=self._reason,
+            blocked_reason=self._reason,
         )
         return StepResult(status="ok")
 
@@ -427,9 +428,7 @@ class BlockJob:
         return None
 
 
-def _snapshot_for(
-    ctx: StepContext, queue_factory: QueueFactory | None = None
-) -> JobSnapshot:
+def _snapshot_for(ctx: StepContext, queue_factory: QueueFactory | None = None) -> JobSnapshot:
     """Read the task directory + children into a pure phase snapshot (I/O here)."""
     artifacts_dir = ctx.task_dir / "artifacts"
     has_research = (artifacts_dir / "RESEARCH.md").exists()
@@ -457,9 +456,7 @@ def _snapshot_for(
     )
 
 
-def plan_job(
-    ctx: StepContext, queue_factory: QueueFactory | None = None
-) -> Worker:
+def plan_job(ctx: StepContext, queue_factory: QueueFactory | None = None) -> Worker:
     """Pick the job worker for this attempt: research/design/gate/spawn/observe.
 
     Reads files and the child list (I/O), then applies the pure
@@ -472,7 +469,8 @@ def plan_job(
     current_phase = phase(snapshot)
     if current_phase in ("research", "design"):
         history = [
-            a for a in state_attempts.load_attempts(ctx.task_dir)
+            a
+            for a in state_attempts.load_attempts(ctx.task_dir)
             if isinstance(a, dict) and a.get("n", 0) < ctx.attempt_n
         ]
         max_attempts = getattr(ctx.config, "job_max_phase_attempts", 2)

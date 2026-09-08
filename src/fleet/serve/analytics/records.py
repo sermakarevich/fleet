@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from fleet.state.attempts import load_attempts
 from fleet.state.events import EventScanCache, scan_cached
 
 # Owner of cached event scans for the analytics record builder below.
@@ -46,17 +47,13 @@ def _build_record(tdir: Path) -> dict:
     stats = scan_cached(tdir, _events_cache)
 
     try:
-        from fleet.state.attempts import load_attempts
-
         _history = load_attempts(tdir)
         # Context pressure is outcome-driven: any attempt that ended with
         # outcome=context_pressure (workers/llm_session.py reports it from
         # usage counters and CLI overflow errors; attempts.jsonl is the
         # record). The old .context_pressure marker file was never written.
         context_pressure = any(
-            h.get("outcome") == "context_pressure"
-            for h in _history
-            if isinstance(h, dict)
+            h.get("outcome") == "context_pressure" for h in _history if isinstance(h, dict)
         )
         _last = _history[-1] if _history else {}
         noclose = _last.get("outcome") in ("success", "partial") and _last.get("action") in (
@@ -67,9 +64,7 @@ def _build_record(tdir: Path) -> dict:
         # load_attempts merges start/end rows; an unfinished latest attempt has
         # outcome None. Fall back to the outcome-bearing tail in that case.
         if _last.get("outcome") is None:
-            noclose = any(
-                h.get("outcome") in ("success", "partial") for h in _history[-3:]
-            )
+            noclose = any(h.get("outcome") in ("success", "partial") for h in _history[-3:])
     except Exception:
         noclose = False
 

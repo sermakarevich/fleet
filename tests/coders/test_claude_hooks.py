@@ -1,7 +1,9 @@
 """Tests for the claude checkpoint hooks (PostToolUse + PreCompact)."""
+
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 from pathlib import Path
@@ -9,11 +11,14 @@ from pathlib import Path
 from fleet.coders.claude import ClaudeCoder
 
 
-def _run_hook(script: Path, attempt_dir: Path, extra_env: dict | None = None) -> subprocess.CompletedProcess:
-    import os
+def _run_hook(
+    script: Path, attempt_dir: Path, extra_env: dict | None = None
+) -> subprocess.CompletedProcess:
 
     env = {**os.environ, "FLEET_ATTEMPT_DIR": str(attempt_dir), **(extra_env or {})}
-    return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env, timeout=15)
+    return subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True, env=env, timeout=15, check=False
+    )
 
 
 class TestWriteRuntimeConfigCheckpointHook:
@@ -71,9 +76,7 @@ class TestPosttoolCheckpointScript:
 
         assert proc.returncode == 0
         payload = json.loads(proc.stdout.strip())
-        assert (
-            payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
-        )
+        assert payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
         assert "STATE.md" in payload["hookSpecificOutput"]["additionalContext"]
         assert (attempt_dir / ".checkpoint_sent").exists()
 
@@ -82,13 +85,12 @@ class TestPosttoolCheckpointScript:
         assert second.stdout.strip() == ""
 
     def test_no_attempt_dir_is_noop(self, tmp_path: Path) -> None:
-        import os
 
         script = self._script()
         env = {k: v for k, v in os.environ.items() if k != "FLEET_ATTEMPT_DIR"}
         env.pop("FLEET_ATTEMPT_DIR", None)
         proc = subprocess.run(
-            ["bash", str(script)], capture_output=True, text=True, env=env, timeout=15
+            ["bash", str(script)], capture_output=True, text=True, env=env, timeout=15, check=False
         )
         assert proc.returncode == 0
         assert proc.stdout.strip() == ""

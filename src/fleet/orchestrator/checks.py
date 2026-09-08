@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -32,11 +33,10 @@ class AskHumanServerImportable:
     """Warn when the bundled ask_human MCP server cannot be imported."""
 
     name = "ask_human_server_importable"
-    severity: Literal["warn"] = "warn"
+    severity: Literal["warn", "abort"] = "warn"
 
     def run(self, st: SupervisorState) -> str | None:
         """Return a problem string when the ask_human server module is missing."""
-        import importlib.util
 
         if importlib.util.find_spec("fleet.integrations.ask_human.server") is None:
             return (

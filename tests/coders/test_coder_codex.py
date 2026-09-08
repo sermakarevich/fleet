@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fleet.coders import get_coder
 from fleet.coders.base import Coder
-from fleet.coders.codex import CodexCoder
+from fleet.coders.codex import CODEX_HOME_DIRNAME, CodexCoder, _write_codex_config
 from fleet.core.task import Task
 
 
@@ -19,6 +19,7 @@ def _task(task_id: str = "test-001") -> Task:
 # Registry
 # ---------------------------------------------------------------------------
 
+
 def test_get_coder_returns_codex_class():
     cls = get_coder("codex")
     assert cls is CodexCoder
@@ -31,6 +32,7 @@ def test_codex_coder_is_subclass_of_coder_base():
 # ---------------------------------------------------------------------------
 # build_argv
 # ---------------------------------------------------------------------------
+
 
 def test_build_argv_starts_with_codex_exec(tmp_path: Path):
     argv = _coder().build_argv(_task(), tmp_path)
@@ -106,6 +108,7 @@ def test_build_argv_omits_invocation_line_when_no_cwd(tmp_path: Path):
 # env
 # ---------------------------------------------------------------------------
 
+
 def test_env_includes_required_vars(tmp_path: Path):
     env = _coder().env(_task("t-42"), tmp_path)
     assert env["FLEET_TASK_ID"] == "t-42"
@@ -115,6 +118,7 @@ def test_env_includes_required_vars(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # normalize_event — malformed / unknown
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_event_returns_none_for_empty_lines():
     coder = _coder()
@@ -148,6 +152,7 @@ def test_normalize_turn_started_returns_none():
 # normalize_event — thread.started → session_started
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_thread_started():
     coder = _coder()
     raw = json.dumps({"type": "thread.started", "thread_id": "thread-abc123"})
@@ -161,17 +166,20 @@ def test_normalize_thread_started():
 # normalize_event — turn.completed → session_ended
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_turn_completed():
     coder = _coder()
-    raw = json.dumps({
-        "type": "turn.completed",
-        "usage": {
-            "input_tokens": 500,
-            "cached_input_tokens": 100,
-            "output_tokens": 200,
-            "reasoning_output_tokens": 50,
-        },
-    })
+    raw = json.dumps(
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 500,
+                "cached_input_tokens": 100,
+                "output_tokens": 200,
+                "reasoning_output_tokens": 50,
+            },
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "session_ended"
@@ -193,6 +201,7 @@ def test_normalize_turn_completed_no_usage():
 # normalize_event — turn.failed / error → error
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_turn_failed():
     coder = _coder()
     raw = json.dumps({"type": "turn.failed", "error": {"message": "model error"}})
@@ -213,12 +222,15 @@ def test_normalize_error_event():
 # normalize_event — agent_message
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_agent_message_completed_is_assistant_text():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_0", "type": "agent_message", "text": "Done!"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "agent_message", "text": "Done!"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "assistant_text"
@@ -226,19 +238,23 @@ def test_normalize_agent_message_completed_is_assistant_text():
 
 def test_normalize_agent_message_started_returns_none():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_0", "type": "agent_message", "text": ""},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_0", "type": "agent_message", "text": ""},
+        }
+    )
     assert coder.normalize_event(raw) is None
 
 
 def test_normalize_agent_message_updated_returns_none():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.updated",
-        "item": {"id": "item_0", "type": "agent_message", "text": "partial"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.updated",
+            "item": {"id": "item_0", "type": "agent_message", "text": "partial"},
+        }
+    )
     assert coder.normalize_event(raw) is None
 
 
@@ -246,12 +262,15 @@ def test_normalize_agent_message_updated_returns_none():
 # normalize_event — reasoning → thinking
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_reasoning_completed_is_thinking():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_1", "type": "reasoning", "text": "Let me think..."},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_1", "type": "reasoning", "text": "Let me think..."},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "thinking"
@@ -259,10 +278,12 @@ def test_normalize_reasoning_completed_is_thinking():
 
 def test_normalize_reasoning_started_returns_none():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_1", "type": "reasoning", "text": ""},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_1", "type": "reasoning", "text": ""},
+        }
+    )
     assert coder.normalize_event(raw) is None
 
 
@@ -270,12 +291,15 @@ def test_normalize_reasoning_started_returns_none():
 # normalize_event — tool item types
 # ---------------------------------------------------------------------------
 
+
 def test_normalize_command_execution_started_is_tool_use():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_2", "type": "command_execution", "command": "ls"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_2", "type": "command_execution", "command": "ls"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_use"
@@ -284,10 +308,12 @@ def test_normalize_command_execution_started_is_tool_use():
 
 def test_normalize_command_execution_completed_is_tool_result():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_2", "type": "command_execution", "exit_code": 0},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_2", "type": "command_execution", "exit_code": 0},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_result"
@@ -296,19 +322,23 @@ def test_normalize_command_execution_completed_is_tool_result():
 
 def test_normalize_command_execution_updated_returns_none():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.updated",
-        "item": {"id": "item_2", "type": "command_execution"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.updated",
+            "item": {"id": "item_2", "type": "command_execution"},
+        }
+    )
     assert coder.normalize_event(raw) is None
 
 
 def test_normalize_file_change_started_is_tool_use():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_3", "type": "file_change"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_3", "type": "file_change"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_use"
@@ -317,10 +347,12 @@ def test_normalize_file_change_started_is_tool_use():
 
 def test_normalize_file_change_completed_is_tool_result():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_3", "type": "file_change"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_3", "type": "file_change"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_result"
@@ -329,10 +361,12 @@ def test_normalize_file_change_completed_is_tool_result():
 
 def test_normalize_mcp_tool_call_started_is_tool_use():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_4", "type": "mcp_tool_call"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_4", "type": "mcp_tool_call"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_use"
@@ -341,10 +375,12 @@ def test_normalize_mcp_tool_call_started_is_tool_use():
 
 def test_normalize_web_search_started_is_tool_use():
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.started",
-        "item": {"id": "item_5", "type": "web_search"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.started",
+            "item": {"id": "item_5", "type": "web_search"},
+        }
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "tool_use"
@@ -354,10 +390,12 @@ def test_normalize_web_search_started_is_tool_use():
 def test_normalize_todo_list_returns_none():
     """todo_list is an agent-internal planning artifact, not a fleet event."""
     coder = _coder()
-    raw = json.dumps({
-        "type": "item.completed",
-        "item": {"id": "item_6", "type": "todo_list"},
-    })
+    raw = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_6", "type": "todo_list"},
+        }
+    )
     assert coder.normalize_event(raw) is None
 
 
@@ -367,14 +405,12 @@ def test_normalize_todo_list_returns_none():
 
 
 def test_env_points_codex_home_at_attempt_dir(tmp_path: Path):
-    from fleet.coders.codex import CODEX_HOME_DIRNAME
 
     e = _coder().env(_task(), tmp_path)
     assert e["CODEX_HOME"] == str(tmp_path / CODEX_HOME_DIRNAME)
 
 
 def test_write_codex_config_lists_fleet_servers(tmp_path: Path):
-    from fleet.coders.codex import _write_codex_config
 
     home = tmp_path / "fleet_home"
     cfg_path = _write_codex_config(tmp_path / "codex_home", home)
@@ -386,8 +422,6 @@ def test_write_codex_config_lists_fleet_servers(tmp_path: Path):
 
 
 def test_build_argv_cd_flag_follows_the_isolated_worktree(tmp_path: Path) -> None:
-    import json
-
     worktree = tmp_path / "worktrees" / "repo-t-iso"
     task = Task(id="t-iso", title="t", description="d", status="open", cwd="/repo/main")
     task_dir = tmp_path / "tasks" / task.id

@@ -27,13 +27,12 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 DEFAULT_DB_PATH = Path(
-    os.environ.get("ASK_HUMAN_DB")
-    or (Path.home() / ".claude" / "ask_human" / "questions.db")
+    os.environ.get("ASK_HUMAN_DB") or (Path.home() / ".claude" / "ask_human" / "questions.db")
 )
 
 # Monkeypatchable by tests / callers that point at a different DB file; the
@@ -47,19 +46,19 @@ CREATE TABLE IF NOT EXISTS questions (
     agent_id       TEXT,
     session_id     TEXT,
     prompt         TEXT NOT NULL,
-    options        TEXT,                              -- JSON array of strings, or NULL for free text
+    options        TEXT,  -- JSON string array, or NULL for free text
     multi_select   INTEGER NOT NULL DEFAULT 0,
     priority       INTEGER NOT NULL DEFAULT 0,
-    status         TEXT NOT NULL DEFAULT 'pending',   -- pending | answered | expired | cancelled
-    answer         TEXT,                              -- JSON (list if multi_select, else string); may be NULL when the operator answers via `note` alone
-    note           TEXT,                              -- operator's free-text note/correction; always allowed, even when `options` are offered
-    default_answer TEXT,                              -- JSON; returned on timeout
+    status         TEXT NOT NULL DEFAULT 'pending',  -- pending | answered | expired | cancelled
+    answer         TEXT,  -- JSON answer; NULL when answered via `note` alone
+    note           TEXT,  -- free-text note; always allowed alongside `options`
+    default_answer TEXT,  -- JSON; returned on timeout
     timeout_s      REAL,
     answered_by    TEXT,
     created_at     REAL NOT NULL,
     answered_at    REAL,
-    task_id        TEXT,                              -- fleet bead this question is about (triage + human gates), or NULL
-    context        TEXT                               -- disambiguator, e.g. task.json blocked_at for triage; digest id-lists for digest questions
+    task_id        TEXT,  -- bead this question is about, or NULL
+    context        TEXT   -- disambiguator, e.g. blocked_at; digest id-lists
 );
 CREATE INDEX IF NOT EXISTS idx_questions_open
     ON questions(status, priority DESC, created_at ASC);
@@ -84,9 +83,7 @@ def _loads(value: Any) -> Any:
         return value
 
 
-def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
-    if row is None:
-        return None
+def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     for key in ("options", "answer", "default_answer"):
         if key in d:
@@ -107,14 +104,12 @@ class QuestionStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
-            try:
+            # Pre-existing DB from before some columns existed: the
+            # CREATE TABLE went through but a later statement (index on
+            # a not-yet-migrated column) failed. _migrate below adds the
+            # missing columns and re-creates the indexes.
+            with suppress(sqlite3.OperationalError):
                 conn.executescript(_SCHEMA)
-            except sqlite3.OperationalError:
-                # Pre-existing DB from before some columns existed: the
-                # CREATE TABLE went through but a later statement (index on
-                # a not-yet-migrated column) failed. _migrate below adds the
-                # missing columns and re-creates the indexes.
-                pass
             self._migrate(conn)
 
     @staticmethod
@@ -128,25 +123,19 @@ class QuestionStore:
         """
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(questions)")}
         if "note" not in cols:
-            try:
+            # Another process (server + CLI start together) may add it first.
+            with suppress(sqlite3.OperationalError):
                 conn.execute("ALTER TABLE questions ADD COLUMN note TEXT")
-            except sqlite3.OperationalError:
-                pass  # another process (server + CLI start together) added it first
         if "task_id" not in cols:
-            try:
+            with suppress(sqlite3.OperationalError):
                 conn.execute("ALTER TABLE questions ADD COLUMN task_id TEXT")
-            except sqlite3.OperationalError:
-                pass
         if "context" not in cols:
-            try:
+            with suppress(sqlite3.OperationalError):
                 conn.execute("ALTER TABLE questions ADD COLUMN context TEXT")
-            except sqlite3.OperationalError:
-                pass
         # Index for the triage pending lookup (task_id + blocked_at); harmless
         # to re-run on a DB that already has it.
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_questions_task "
-            "ON questions(task_id, context, status)"
+            "CREATE INDEX IF NOT EXISTS idx_questions_task ON questions(task_id, context, status)"
         )
 
     @contextmanager
@@ -194,7 +183,7 @@ class QuestionStore:
             context=context,
         )
 
-    def _insert(
+    def _insert(  # noqa: PLR0913  # ADR 0006 bead 11
         self,
         prompt: str,
         options: list[str] | None,
@@ -267,9 +256,7 @@ class QuestionStore:
             )
         return qid
 
-    def fetch_pending_for_task(
-        self, task_id: str, context: str | None = None
-    ) -> list[dict]:
+    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[dict]:
         """Pending questions about one bead, optionally for one context.
 
         Triage passes the bead's ``blocked_at`` as context so a re-blocked
@@ -306,9 +293,7 @@ class QuestionStore:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    def fetch_answered_for_task(
-        self, task_id: str, context: str | None = None
-    ) -> list[dict]:
+    def fetch_answered_for_task(self, task_id: str, context: str | None = None) -> list[dict]:
         """Answered questions about one bead, oldest first (job gate lookup).
 
         The job worker's gate step asks with ``context="job_gate"`` and
@@ -378,10 +363,8 @@ class QuestionStore:
 
     def get(self, qid: str) -> dict | None:
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM questions WHERE id=?", (qid,)
-            ).fetchone()
-        return _row_to_dict(row)
+            row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
+        return _row_to_dict(row) if row is not None else None
 
     def list_pending(self, limit: int = 100) -> list[dict]:
         with self._conn() as conn:
@@ -424,9 +407,14 @@ class QuestionStore:
         while q["status"] == "pending":
             if deadline is not None and time.time() >= deadline:
                 self._expire_if_pending(qid)
-                return self.get(qid)
+                q = self.get(qid)
+                if q is None:
+                    raise KeyError(qid)
+                return q
             time.sleep(poll_interval)
             q = self.get(qid)
+            if q is None:
+                raise KeyError(qid)
         return q
 
 
@@ -513,7 +501,7 @@ def get(qid: str, *, db_path: Path | None = None) -> dict | None:
     conn = _connect(path)
     try:
         row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
-        return _row_to_dict(row)
+        return _row_to_dict(row) if row is not None else None
     finally:
         conn.close()
 

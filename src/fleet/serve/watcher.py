@@ -1,4 +1,5 @@
 """WebSocket event streaming pipeline for fleet serve (FR-03, FR-06, FR-10, FR-13)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,9 +19,9 @@ from fleet.state.tail import read_new_bytes
 
 @dataclass
 class _TailState:
-    offset: int   # byte position in events.jsonl
+    offset: int  # byte position in events.jsonl
     mtime: float  # last observed st_mtime
-    path: Path    # the attempt's events.jsonl this state belongs to
+    path: Path  # the attempt's events.jsonl this state belongs to
 
 
 class ConnectionManager:
@@ -97,9 +98,7 @@ class FileWatcher:
     def _prune_stale(self, tasks_dir: Path) -> None:
         """Drop _tail_state entries whose task directory no longer exists."""
         existing = (
-            {d.name for d in tasks_dir.iterdir() if d.is_dir()}
-            if tasks_dir.exists()
-            else set()
+            {d.name for d in tasks_dir.iterdir() if d.is_dir()} if tasks_dir.exists() else set()
         )
         for task_id in list(self._tail_state):
             if task_id not in existing:
@@ -166,10 +165,7 @@ class FileWatcher:
         """Inject summary stats into a session_ended event before broadcast."""
         raw = event_dict.get("raw") or {}
         subtype = raw.get("subtype") or ""
-        if subtype:
-            result = subtype
-        else:
-            result = "failure" if raw.get("is_error") else "success"
+        result = subtype or ("failure" if raw.get("is_error") else "success")
 
         task_title: str = task_id
         task_file = task_dir / "task.json"

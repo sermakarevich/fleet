@@ -58,7 +58,7 @@ def register(app: typer.Typer) -> None:
             new_cfg = write_atomic(path, updates)
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
         typer.echo(f"{'key':<38} value")
         typer.echo("-" * 55)

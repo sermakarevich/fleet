@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 from fleet.core.config import RuntimeConfig
@@ -101,10 +102,8 @@ def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path) -> None:
         # Cleanup
         if not t.done():
             t.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
@@ -164,10 +163,8 @@ def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path) -> None:
 
         # Cleanup
         t.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await t
-        except (asyncio.CancelledError, Exception):
-            pass
 
     asyncio.run(_run())
 
@@ -193,10 +190,8 @@ def test_shutdown_force_releases_correct_task_id(tmp_path: Path) -> None:
         assert "supervisor shutdown" in queue.released[0][1]
 
         t.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await t
-        except (asyncio.CancelledError, Exception):
-            pass
 
     asyncio.run(_run())
 
@@ -223,9 +218,7 @@ def test_shutdown_idempotent(tmp_path: Path) -> None:
         assert len(forced) == 1  # only one force-release, not two
 
         t.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await t
-        except (asyncio.CancelledError, Exception):
-            pass
 
     asyncio.run(_run())

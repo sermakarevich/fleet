@@ -8,6 +8,7 @@ is not in a repo run in place (no worktree, no merge step).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import subprocess
@@ -52,6 +53,7 @@ def detect_repo_root(cwd: Path | str) -> Path | None:
             ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -73,6 +75,7 @@ def resolve_base_ref(repo_root: Path | str) -> str:
             ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode == 0:
             ref = result.stdout.strip()
@@ -88,6 +91,7 @@ def resolve_base_ref(repo_root: Path | str) -> str:
             ["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode == 0:
             branch = result.stdout.strip()
@@ -103,6 +107,7 @@ def _branch_exists(repo_root: Path | str, branch: str) -> bool:
         ["git", "-C", str(repo_root), "rev-parse", "--verify", branch],
         capture_output=True,
         text=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -153,18 +158,14 @@ def remove_worktree(
         path = Path(worktree_path_arg)
     else:
         repo = Path(repo_root)
-        candidate = worktree_path(
-            task_id, fleet_home=fleet_home, repo_name=repo.name
-        )
-        if candidate.exists():
-            path = candidate
-        else:
-            # Legacy layout (<task_id> without repo prefix).
-            path = worktree_path(task_id, fleet_home=fleet_home)
+        candidate = worktree_path(task_id, fleet_home=fleet_home, repo_name=repo.name)
+        # Legacy layout (<task_id> without repo prefix).
+        path = candidate if candidate.exists() else worktree_path(task_id, fleet_home=fleet_home)
     result = subprocess.run(
         ["git", "-C", str(repo_root), "worktree", "remove", "--force", str(path)],
         capture_output=True,
         text=True,
+        check=False,
     )
     if (
         result.returncode != 0
@@ -181,6 +182,7 @@ def delete_branch(repo_root: Path | str, task_id: str) -> None:
         ["git", "-C", str(repo_root), "branch", "-D", branch],
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -191,6 +193,7 @@ def is_repo_dirty(repo_root: Path | str) -> bool:
             ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=no"],
             capture_output=True,
             text=True,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return True
@@ -210,6 +213,7 @@ def has_uncommitted_changes(worktree_path_arg: Path | str) -> bool:
             ["git", "-C", str(worktree_path_arg), "status", "--porcelain"],
             capture_output=True,
             text=True,
+            check=False,
         )
     except Exception:
         return True
@@ -218,14 +222,14 @@ def has_uncommitted_changes(worktree_path_arg: Path | str) -> bool:
     return bool(status_result.stdout.strip())
 
 
-def is_committed_clean(worktree_path_arg: Path | str, base_ref: str = "main") -> bool:
+def is_committed_clean(  # noqa: PLR0911  # ADR 0006 bead 20
+    worktree_path_arg: Path | str, base_ref: str = "main"
+) -> bool:
     """True when the worktree is clean AND its HEAD advanced past *base_ref*."""
     wt = str(worktree_path_arg)
     try:
         status_result = subprocess.run(
-            ["git", "-C", wt, "status", "--porcelain"],
-            capture_output=True,
-            text=True,
+            ["git", "-C", wt, "status", "--porcelain"], capture_output=True, text=True, check=False
         )
         if status_result.returncode != 0:
             return False
@@ -233,14 +237,10 @@ def is_committed_clean(worktree_path_arg: Path | str, base_ref: str = "main") ->
             return False
 
         head_result = subprocess.run(
-            ["git", "-C", wt, "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
+            ["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True, text=True, check=False
         )
         base_result = subprocess.run(
-            ["git", "-C", wt, "rev-parse", base_ref],
-            capture_output=True,
-            text=True,
+            ["git", "-C", wt, "rev-parse", base_ref], capture_output=True, text=True, check=False
         )
         if head_result.returncode != 0 or base_result.returncode != 0:
             return False
@@ -251,6 +251,7 @@ def is_committed_clean(worktree_path_arg: Path | str, base_ref: str = "main") ->
             ["git", "-C", wt, "rev-list", "--count", f"{base_ref}..HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         )
         if count.returncode != 0:
             return False
@@ -281,14 +282,10 @@ def merge_to_base(
     branch = f"fleet/{task_id}"
 
     if is_repo_dirty(repo):
-        return MergeResult(
-            ok=False, conflict=False, message="base repo dirty; merge manually"
-        )
+        return MergeResult(ok=False, conflict=False, message="base repo dirty; merge manually")
 
     checkout_result = subprocess.run(
-        ["git", "-C", repo, "checkout", base_ref],
-        capture_output=True,
-        text=True,
+        ["git", "-C", repo, "checkout", base_ref], capture_output=True, text=True, check=False
     )
     if checkout_result.returncode != 0:
         return MergeResult(ok=False, conflict=False, message=checkout_result.stderr)
@@ -298,6 +295,7 @@ def merge_to_base(
         ["git", "-C", repo, "merge", "--ff-only", branch],
         capture_output=True,
         text=True,
+        check=False,
     )
     if ff_result.returncode == 0:
         return MergeResult(ok=True, conflict=False, message="merged")
@@ -306,6 +304,7 @@ def merge_to_base(
         ["git", "-C", repo, "merge", "--no-ff", branch, "-m", f"merge {branch}"],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     if merge_result.returncode == 0:
@@ -315,18 +314,14 @@ def merge_to_base(
     is_conflict = "CONFLICT" in combined_output
     if not is_conflict:
         ls_result = subprocess.run(
-            ["git", "-C", repo, "ls-files", "-u"],
-            capture_output=True,
-            text=True,
+            ["git", "-C", repo, "ls-files", "-u"], capture_output=True, text=True, check=False
         )
         if ls_result.returncode == 0 and ls_result.stdout.strip():
             is_conflict = True
 
     if is_conflict:
         subprocess.run(
-            ["git", "-C", repo, "merge", "--abort"],
-            capture_output=True,
-            text=True,
+            ["git", "-C", repo, "merge", "--abort"], capture_output=True, text=True, check=False
         )
         return MergeResult(ok=False, conflict=True, message=merge_result.stderr)
 
@@ -353,11 +348,7 @@ def run_post_merge_command(
         return False, f"bad post_merge_command: {exc}"
     try:
         result = subprocess.run(
-            argv,
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
+            argv, cwd=str(cwd), capture_output=True, text=True, timeout=timeout_sec, check=False
         )
     except subprocess.TimeoutExpired as exc:
         out = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
@@ -392,10 +383,8 @@ def cleanup_worktree(
     Swallows errors when the worktree is already gone so the call is safe
     at task shutdown regardless of prior state.
     """
-    try:
+    with contextlib.suppress(Exception):
         remove_worktree(repo_root, task_id, worktree_path_arg, fleet_home=fleet_home)
-    except Exception:
-        pass
 
 
 def is_task_advanced(worktree_path_arg: Path | str, base_ref: str = "main") -> bool:

@@ -48,7 +48,7 @@ def _truncate(text: str, max_bytes: int) -> str:
 
 
 def _result_lines(result: dict) -> list[str]:
-    """The Previous-RESULT.json lines the pack carries: summary, next_step, open_questions, tests."""
+    """The Previous-RESULT.json lines the pack carries: summary, next steps, questions, tests."""
     lines = [f"summary: {result.get('summary') or ''}"]
     lines.append(f"next_step: {result.get('next_step') or ''}")
     open_questions = result.get("open_questions") or []

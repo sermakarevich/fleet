@@ -21,8 +21,6 @@ def test_followups_partial_parsed() -> None:
 
 
 def test_followups_non_list_defaults_to_empty() -> None:
-    result = parse_result(
-        json.dumps({"schema": 1, "status": "partial", "followups": "nope"})
-    )
+    result = parse_result(json.dumps({"schema": 1, "status": "partial", "followups": "nope"}))
     assert result is not None
     assert result.followups == []

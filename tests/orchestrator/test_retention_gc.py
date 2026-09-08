@@ -18,9 +18,7 @@ OLD = time.time() - 40 * 86400
 def _make_task(home: Path, task_id: str, status: str, old: bool) -> Path:
     d = home / "tasks" / task_id
     d.mkdir(parents=True, exist_ok=True)
-    (d / "task.json").write_text(
-        json.dumps({"id": task_id, "status": status}), encoding="utf-8"
-    )
+    (d / "task.json").write_text(json.dumps({"id": task_id, "status": status}), encoding="utf-8")
     mtime = OLD if old else time.time()
     os.utime(d, (mtime, mtime))
     return d

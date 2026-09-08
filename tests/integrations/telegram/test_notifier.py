@@ -1,20 +1,27 @@
 """Tests for Telegram notifier, question poller, and config round-trip."""
+
 from __future__ import annotations
 
 import asyncio
 import json
+import pathlib
 import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
+import fleet.integrations.ask_human.store as db_mod
 import fleet.integrations.telegram.bot as tg
+import fleet.serve.api.chat as chat_mod
+import fleet.serve.app as app_mod
 from fleet.core.config import RuntimeConfig, load, write_atomic
+from fleet.core.task import Task
 
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+
 
 def _create_questions_db(path: Path) -> None:
     conn = sqlite3.connect(str(path))
@@ -82,6 +89,7 @@ class _FakeResp:
 # Notifier tests
 # ---------------------------------------------------------------------------
 
+
 def test_send_message_posts_correct_url_and_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     """send_message POSTs to the correct Bot API URL with the right JSON payload."""
     captured: list = []
@@ -115,8 +123,11 @@ def test_send_message_truncates_to_4096_chars(monkeypatch: pytest.MonkeyPatch) -
     assert len(captured_texts[0]) == 4096
 
 
-def test_send_message_swallows_exception_and_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_send_message_swallows_exception_and_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """send_message never raises; HTTP errors are swallowed."""
+
     def _fake_urlopen(req, timeout=None):
         raise OSError("connection refused")
 
@@ -142,9 +153,6 @@ def test_poller_skips_send_when_token_missing(
     """No HTTP call is made when TELEGRAM_BOT_TOKEN is absent (silent no-op)."""
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
-
-    import fleet.serve.api.chat as chat_mod
-    import fleet.serve.app as app_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -178,6 +186,7 @@ def test_poller_skips_send_when_token_missing(
 # Poller tests
 # ---------------------------------------------------------------------------
 
+
 def test_poller_does_not_send_preexisting_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -185,9 +194,6 @@ def test_poller_does_not_send_preexisting_rows(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="old question", created_at=1000.0)
-
-    import fleet.serve.api.chat as chat_mod
-    import fleet.serve.app as app_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -223,9 +229,6 @@ def test_poller_sends_new_question_exactly_once(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
 
-    import fleet.serve.api.chat as chat_mod
-    import fleet.serve.app as app_mod
-
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
@@ -257,15 +260,10 @@ def test_poller_sends_new_question_exactly_once(
     assert "new question?" in sent[0]
 
 
-def test_poller_continues_after_send_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_poller_continues_after_send_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A send error does not kill the poll loop."""
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)  # empty → watermark = 0.0
-
-    import fleet.serve.api.chat as chat_mod
-    import fleet.serve.app as app_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -298,6 +296,7 @@ def test_poller_continues_after_send_error(
 # Config round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_telegram_chat_id_round_trips(tmp_path: Path) -> None:
     """telegram_chat_id persists through write_atomic and is readable via load."""
     cfg_path = tmp_path / "runtime.toml"
@@ -320,6 +319,7 @@ def test_telegram_chat_id_default_is_empty_string(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # New config fields round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_telegram_allowed_ids_default_is_empty_string(tmp_path: Path) -> None:
     cfg = load(tmp_path / "runtime.toml")
@@ -351,6 +351,7 @@ def test_telegram_default_cwd_round_trips(tmp_path: Path) -> None:
 # _parse_allowed_ids
 # ---------------------------------------------------------------------------
 
+
 def test_parse_allowed_ids_empty_string() -> None:
     assert tg._parse_allowed_ids("") == set()
 
@@ -370,6 +371,7 @@ def test_parse_allowed_ids_ignores_empty_segments() -> None:
 # ---------------------------------------------------------------------------
 # _is_allowed
 # ---------------------------------------------------------------------------
+
 
 def _make_update(from_id: str | None = None, chat_id: str | None = None) -> dict:
     msg: dict = {}
@@ -403,6 +405,7 @@ def test_is_allowed_no_ids_in_update() -> None:
 # ---------------------------------------------------------------------------
 # _parse_new_task_command
 # ---------------------------------------------------------------------------
+
 
 def test_parse_new_task_command_simple() -> None:
     assert tg._parse_new_task_command("/new_task Fix the bug") == ("Fix the bug", None)
@@ -454,6 +457,7 @@ def test_parse_new_task_command_bare_no_text_returns_none() -> None:
 # Offset persistence
 # ---------------------------------------------------------------------------
 
+
 def test_load_offset_missing_file(tmp_path: Path) -> None:
     assert tg._load_offset(tmp_path / "offset") is None
 
@@ -480,6 +484,7 @@ def test_load_offset_invalid_content(tmp_path: Path) -> None:
 # inbound_listener — no token → exits immediately
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_exits_when_no_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -487,12 +492,13 @@ def test_inbound_listener_exits_when_no_token(
     app = MagicMock()
     asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
     # Must return without making any calls
-    app.state.fleet_state.config  # not accessed
+    assert app.mock_calls == []
 
 
 # ---------------------------------------------------------------------------
 # inbound_listener — empty allowlist → no polling
 # ---------------------------------------------------------------------------
+
 
 def test_inbound_listener_skips_polling_when_allowlist_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -529,6 +535,7 @@ def test_inbound_listener_skips_polling_when_allowlist_empty(
 # inbound_listener — rejected sender
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_rejects_unknown_sender(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -538,7 +545,12 @@ def test_inbound_listener_rejects_unknown_sender(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 10, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/new_task Bad actor"}}]
+    updates = [
+        {
+            "update_id": 10,
+            "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/new_task Bad actor"},
+        }
+    ]
 
     call_n = [0]
 
@@ -565,6 +577,7 @@ def test_inbound_listener_rejects_unknown_sender(
 # inbound_listener — creates task on /task command
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_creates_task_and_replies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -574,11 +587,19 @@ def test_inbound_listener_creates_task_and_replies(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.core.task import Task
     fake_task = Task(id="fleet-abc1", title="Fix the bug", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
-    updates = [{"update_id": 5, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/new_task Fix the bug\nSome details"}}]
+    updates = [
+        {
+            "update_id": 5,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/new_task Fix the bug\nSome details",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []  # (chat_id, text)
 
@@ -613,6 +634,7 @@ def test_inbound_listener_creates_task_and_replies(
 # ---------------------------------------------------------------------------
 # inbound_listener — error backoff
 # ---------------------------------------------------------------------------
+
 
 def test_inbound_listener_backs_off_on_network_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -649,6 +671,7 @@ def test_inbound_listener_backs_off_on_network_error(
 # ---------------------------------------------------------------------------
 # inbound_listener — malformed /task command gets error reply
 # ---------------------------------------------------------------------------
+
 
 def test_inbound_listener_malformed_task_sends_error_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -700,6 +723,7 @@ def test_inbound_listener_malformed_task_sends_error_reply(
 # inbound_listener — /new_task@botname creates task
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_new_task_botname_creates_task(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -710,11 +734,19 @@ def test_inbound_listener_new_task_botname_creates_task(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.core.task import Task
     fake_task = Task(id="fleet-bot1", title="Bot task", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
-    updates = [{"update_id": 30, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/new_task@mybot Bot task"}}]
+    updates = [
+        {
+            "update_id": 30,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/new_task@mybot Bot task",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -746,6 +778,7 @@ def test_inbound_listener_new_task_botname_creates_task(
 # inbound_listener — /tasks and /task send transitional usage reply
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_tasks_command_lists_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -756,7 +789,6 @@ def test_inbound_listener_tasks_command_lists_tasks(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.core.task import Task
     app.state.queue.list_in_progress.return_value = [
         Task(id="fleet-aaa1", title="Task A", description=None, status="in_progress")
     ]
@@ -764,7 +796,9 @@ def test_inbound_listener_tasks_command_lists_tasks(
         Task(id="fleet-bbb1", title="Task B", description=None, status="open")
     ]
 
-    updates = [{"update_id": 40, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    updates = [
+        {"update_id": 40, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -799,7 +833,9 @@ def test_inbound_listener_tasks_both_empty_replies_no_open_tasks(
     app.state.queue.list_in_progress.return_value = []
     app.state.queue.list_ready.return_value = []
 
-    updates = [{"update_id": 43, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    updates = [
+        {"update_id": 43, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -826,7 +862,9 @@ def test_inbound_listener_tasks_queue_error_replies_could_not_fetch(
     app.state.fleet_state.config = cfg
     app.state.queue.list_in_progress.side_effect = RuntimeError("bd failed")
 
-    updates = [{"update_id": 44, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    updates = [
+        {"update_id": 44, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -852,7 +890,9 @@ def test_inbound_listener_tasks_rejected_sender_no_queue_call(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 45, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/tasks"}}]
+    updates = [
+        {"update_id": 45, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/tasks"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -887,7 +927,9 @@ def test_inbound_listener_task_command_sends_usage(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 41, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task"}}]
+    updates = [
+        {"update_id": 41, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task"}}
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -926,7 +968,9 @@ def test_inbound_listener_tasks_not_confused_with_task(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 42, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}]
+    updates = [
+        {"update_id": 42, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -954,6 +998,7 @@ def test_inbound_listener_tasks_not_confused_with_task(
 # inbound_listener — /task <id> detail view
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_task_id_shows_details(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -964,11 +1009,17 @@ def test_inbound_listener_task_id_shows_details(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    from fleet.core.task import Task
-    fake_task = Task(id="fleet-xyz1", title="Fix the widget", description=None, status="in_progress")
+    fake_task = Task(
+        id="fleet-xyz1", title="Fix the widget", description=None, status="in_progress"
+    )
     app.state.queue.get.return_value = fake_task
 
-    updates = [{"update_id": 50, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task fleet-xyz1"}}]
+    updates = [
+        {
+            "update_id": 50,
+            "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task fleet-xyz1"},
+        }
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -998,7 +1049,12 @@ def test_inbound_listener_task_id_unknown_sends_hint(
     app.state.fleet_state.config = cfg
     app.state.queue.get.side_effect = RuntimeError("task not found")
 
-    updates = [{"update_id": 51, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task fleet-0000"}}]
+    updates = [
+        {
+            "update_id": 51,
+            "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task fleet-0000"},
+        }
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -1025,7 +1081,12 @@ def test_inbound_listener_task_id_rejected_sender_no_reply(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 53, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/task fleet-xyz1"}}]
+    updates = [
+        {
+            "update_id": 53,
+            "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/task fleet-xyz1"},
+        }
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token, chat_id, text):
@@ -1053,6 +1114,7 @@ def test_inbound_listener_task_id_rejected_sender_no_reply(
 # inbound_listener — offset persistence prevents duplicates on restart
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_offset_prevents_duplicate_on_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1072,8 +1134,6 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
             },
         }
     ]
-
-    from fleet.core.task import Task
 
     fake_task = Task(id="fleet-xyz1", title="Title", description=None, status="open")
     offset_path = tmp_path / "offset"
@@ -1131,6 +1191,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
 # ---------------------------------------------------------------------------
 # send_message_with_id
 # ---------------------------------------------------------------------------
+
 
 class _JsonResp:
     def __init__(self, body: dict) -> None:
@@ -1191,6 +1252,7 @@ def test_send_message_with_id_truncates_to_4096(monkeypatch: pytest.MonkeyPatch)
 # record_question_message / lookup_question_for_message
 # ---------------------------------------------------------------------------
 
+
 def test_record_and_lookup_question_message(tmp_path: Path) -> None:
     """Basic round-trip: record then look up."""
     path = tmp_path / "q_msgs.json"
@@ -1230,7 +1292,6 @@ def test_record_question_message_swallows_oserror(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """OSError during write is swallowed; function must not raise."""
-    import pathlib
 
     def _bad_write(self: Path, data: str, encoding: str | None = None, **kw: object) -> None:
         raise OSError("disk full")
@@ -1244,16 +1305,12 @@ def test_record_question_message_swallows_oserror(
 # Poller records message_id -> question_id mapping
 # ---------------------------------------------------------------------------
 
-def test_poller_records_message_id_mapping(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_poller_records_message_id_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When send_message_with_id returns a message_id the poller persists the mapping."""
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
-
-    import fleet.serve.api.chat as chat_mod
-    import fleet.serve.app as app_mod
 
     monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
@@ -1298,6 +1355,7 @@ def test_poller_records_message_id_mapping(
 # inbound_listener — answer via reply-to / single-pending / option shortcut
 # ---------------------------------------------------------------------------
 
+
 def _make_fetch_dispatcher(updates: list) -> object:
     """Fake asyncio.to_thread: returns updates on 1st _fetch_updates call,
     CancelledError on 2nd; calls fn(*args) for all other functions."""
@@ -1318,7 +1376,6 @@ def test_inbound_listener_answer_via_reply_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Replying to a question message resolves it and replies 'Answered [agent_id]'."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1333,15 +1390,17 @@ def test_inbound_listener_answer_via_reply_to(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 5,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "blue",
-            "reply_to_message": {"message_id": 42},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 5,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "blue",
+                "reply_to_message": {"message_id": 42},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1375,15 +1434,17 @@ def test_inbound_listener_reply_to_unknown_mapping(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 6,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "some answer",
-            "reply_to_message": {"message_id": 999},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 6,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "some answer",
+                "reply_to_message": {"message_id": 999},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1406,7 +1467,6 @@ def test_inbound_listener_reply_to_already_answered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reply-to an already-answered question replies 'Question already answered'."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1421,15 +1481,17 @@ def test_inbound_listener_reply_to_already_answered(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 7,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "too late",
-            "reply_to_message": {"message_id": 77},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 7,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "too late",
+                "reply_to_message": {"message_id": 77},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1450,7 +1512,6 @@ def test_inbound_listener_single_pending_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with exactly one pending question answers it via fallback."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1462,14 +1523,16 @@ def test_inbound_listener_single_pending_fallback(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 8,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "fine thanks",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 8,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "fine thanks",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1496,7 +1559,6 @@ def test_inbound_listener_multiple_pending_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with multiple pending questions sends a count hint."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1509,14 +1571,16 @@ def test_inbound_listener_multiple_pending_reply(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 9,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "hello",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 9,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "hello",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1538,7 +1602,6 @@ def test_inbound_listener_zero_pending_silently_dropped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with no pending questions is silently dropped."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1549,14 +1612,16 @@ def test_inbound_listener_zero_pending_silently_dropped(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 10,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "just chatting",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 10,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "just chatting",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1576,7 +1641,6 @@ def test_inbound_listener_numeric_option_shortcut(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare integer text picks the matching option string from the question's options list."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1598,15 +1662,17 @@ def test_inbound_listener_numeric_option_shortcut(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 11,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "2",
-            "reply_to_message": {"message_id": 55},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 11,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "2",
+                "reply_to_message": {"message_id": 55},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1633,7 +1699,6 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Integer text out of options range is stored as the raw string, not an option."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1655,15 +1720,17 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 12,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "99",
-            "reply_to_message": {"message_id": 88},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 12,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "99",
+                "reply_to_message": {"message_id": 88},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -1689,6 +1756,7 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
 # inbound_listener — /help and /start commands
 # ---------------------------------------------------------------------------
 
+
 def test_inbound_listener_help_replies_with_help_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1698,7 +1766,9 @@ def test_inbound_listener_help_replies_with_help_text(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 100, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help"}}]
+    updates = [
+        {"update_id": 100, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token: str, chat_id: str, text: str) -> None:
@@ -1723,7 +1793,9 @@ def test_inbound_listener_start_replies_with_help_text(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 101, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}]
+    updates = [
+        {"update_id": 101, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token: str, chat_id: str, text: str) -> None:
@@ -1748,7 +1820,12 @@ def test_inbound_listener_help_botname_replies_with_help_text(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 102, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help@myfleetbot"}}]
+    updates = [
+        {
+            "update_id": 102,
+            "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help@myfleetbot"},
+        }
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token: str, chat_id: str, text: str) -> None:
@@ -1773,7 +1850,9 @@ def test_inbound_listener_help_rejected_sender_no_reply(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{"update_id": 103, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/help"}}]
+    updates = [
+        {"update_id": 103, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/help"}}
+    ]
     sent: list[tuple[str, str]] = []
 
     async def _fake_send(token: str, chat_id: str, text: str) -> None:
@@ -1800,7 +1879,6 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """/start replies with help text and does not trigger the answer fallback."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -1812,14 +1890,16 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     app = MagicMock()
     app.state.fleet_state.config = cfg
 
-    updates = [{
-        "update_id": 13,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "/start",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 13,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/start",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 

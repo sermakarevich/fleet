@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders.base import Coder, render_prompt
+from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 
@@ -58,16 +59,13 @@ class PiCoder(Coder):
     default_model = "qwen3.6:latest"
 
     @classmethod
-    def context_limit_for(
-        cls, model: str | None, overrides: dict[str, int] | None = None
-    ) -> int:
+    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
         """Context window for the given model string.
 
         Resolves through ``core.context_window.resolve_window`` (per-model
         table, Bedrock ids included) with the class ``context_limit`` as
         the fallback, so supervisor and UI share one denominator.
         """
-        from fleet.core.context_window import resolve_window
 
         return resolve_window(model, overrides, cls.context_limit)
 
@@ -94,18 +92,14 @@ class PiCoder(Coder):
                 bedrock_context_limit if bedrock_context_limit is not None else resolved
             )
         else:
-            self.context_limit = (
-                context_limit if context_limit is not None else resolved
-            )
+            self.context_limit = context_limit if context_limit is not None else resolved
 
     @property
     def is_bedrock(self) -> bool:
         full_id, _ = _resolve_model(self.model, self.default_model)
         return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
 
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         prompt = render_prompt(task, task_dir, plan)
         full_id, _ = _resolve_model(self.model, self.default_model)
         # pi emits one NDJSON event per stdout line in --mode json. `-p` selects
@@ -203,9 +197,7 @@ class PiCoder(Coder):
 
         # Session header: {"type":"session","id":<uuid>,"cwd":...}.
         if t == "session":
-            return Event(
-                kind="session_started", raw=data, ts=ts, session_id=data.get("id")
-            )
+            return Event(kind="session_started", raw=data, ts=ts, session_id=data.get("id"))
 
         # A completed message. role/usage/content are nested under .message;
         # incremental deltas arrive as message_update and are skipped below.
@@ -221,13 +213,12 @@ class PiCoder(Coder):
             return Event(kind="assistant_text", raw=data, ts=ts, usage=usage)
 
         if t == "tool_execution_start":
-            return Event(
-                kind="tool_use", raw=data, ts=ts, tool_name=data.get("toolName")
-            )
+            return Event(kind="tool_use", raw=data, ts=ts, tool_name=data.get("toolName"))
 
         if t == "tool_execution_end":
-            kind = "error" if data.get("isError") else "tool_result"
-            return Event(kind=kind, raw=data, ts=ts, tool_name=data.get("toolName"))
+            if data.get("isError"):
+                return Event(kind="error", raw=data, ts=ts, tool_name=data.get("toolName"))
+            return Event(kind="tool_result", raw=data, ts=ts, tool_name=data.get("toolName"))
 
         # Final event of a run; per-message usage already flowed via message_end.
         if t == "agent_end":

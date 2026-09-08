@@ -6,9 +6,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders.base import Coder, render_prompt, workdir_for
+from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.state.paths import fleet_home
 
 _DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
@@ -108,16 +111,13 @@ class OpencodeCoder(Coder):
     default_model = "gpt-oss:20b"
 
     @classmethod
-    def context_limit_for(
-        cls, model: str | None, overrides: dict[str, int] | None = None
-    ) -> int:
+    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
         """Context window for the given model string.
 
         Resolves through ``core.context_window.resolve_window`` (per-model
         table, Bedrock ids included) with the class ``context_limit`` as
         the fallback, so supervisor and UI share one denominator.
         """
-        from fleet.core.context_window import resolve_window
 
         return resolve_window(model, overrides, cls.context_limit)
 
@@ -142,18 +142,14 @@ class OpencodeCoder(Coder):
                 bedrock_context_limit if bedrock_context_limit is not None else resolved
             )
         else:
-            self.context_limit = (
-                context_limit if context_limit is not None else resolved
-            )
+            self.context_limit = context_limit if context_limit is not None else resolved
 
     @property
     def is_bedrock(self) -> bool:
         full_id, _ = _resolve_model(self.model, self.default_model)
         return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
 
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         prompt = render_prompt(task, task_dir, plan)
         full_id, _ = _resolve_model(self.model, self.default_model)
         argv = ["opencode", "run", "--format", "json", "--model", full_id]
@@ -187,7 +183,7 @@ class OpencodeCoder(Coder):
         Kept for Coder-interface compatibility. Previously this wrote
         ``project/opencode.json``, which polluted every task cwd.
         """
-        return None
+        return
 
     def _build_config(self) -> dict:
         """Build the opencode config dict (provider + MCP + permission).
@@ -229,9 +225,6 @@ class OpencodeCoder(Coder):
                 "name": "Amazon Bedrock",
                 "models": bedrock_models,
             }
-
-        from fleet.integrations.mcp_servers import fleet_mcp_servers
-        from fleet.state.paths import fleet_home
 
         shared = fleet_mcp_servers(fleet_home())
         ask_human = shared["ask_human"]
@@ -276,13 +269,7 @@ class OpencodeCoder(Coder):
                 "uv",
                 "run",
                 "--script",
-                str(
-                    Path.home()
-                    / ".claude"
-                    / "mcp-servers"
-                    / "claude_code"
-                    / "server.py"
-                ),
+                str(Path.home() / ".claude" / "mcp-servers" / "claude_code" / "server.py"),
             ],
             "enabled": True,
         }
@@ -373,9 +360,7 @@ class OpencodeCoder(Coder):
 
         return None
 
-    def probe_health(
-        self, task: Task, task_dir: Path, since: datetime
-    ) -> TaskOutcomeRecord | None:
+    def probe_health(self, task: Task, task_dir: Path, since: datetime) -> TaskOutcomeRecord | None:
         """Detect provider rate-limit/connect errors opencode swallows silently.
 
         `opencode run --format json` never emits a provider error into its
@@ -400,6 +385,4 @@ class OpencodeCoder(Coder):
         # LlmSession records the session id it sees in this run's events so a
         # sibling task's rate-limit errors are never attributed to us.
         session_id = getattr(self, "current_session_id", None)
-        return classify_opencode_log_lines(
-            lines, since=since, model=model, session_id=session_id
-        )
+        return classify_opencode_log_lines(lines, since=since, model=model, session_id=session_id)

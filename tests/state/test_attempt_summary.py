@@ -30,8 +30,14 @@ def _write_events(attempt_dir: Path, rows: list[dict]) -> None:
 def test_summarize_reads_run_launch_and_attempt_row(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-1")
     attempt_dir = make_attempt(
-        task_dir, 1, coder="claude", model="sonnet", outcome="done",
-        reason="finished", exit_code=0, ended_at="2026-01-01T00:05:00+00:00",
+        task_dir,
+        1,
+        coder="claude",
+        model="sonnet",
+        outcome="done",
+        reason="finished",
+        exit_code=0,
+        ended_at="2026-01-01T00:05:00+00:00",
     )
     _write_run(attempt_dir, {"mode": "fresh", "pack_bytes": 0, "kind": "work"})
 

@@ -151,9 +151,7 @@ def _seed_partial_observer_rounds(tmp_path: Path, task_id: str, n: int) -> None:
 
 
 def test_observer_partial_below_cap_releases(tmp_path: Path) -> None:
-    _write_result(
-        tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"}
-    )
+    _write_result(tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"})
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
     _handle(s, _task(type="epic"), _rc0())
@@ -162,9 +160,7 @@ def test_observer_partial_below_cap_releases(tmp_path: Path) -> None:
 
 
 def test_observer_partial_at_cap_blocks(tmp_path: Path) -> None:
-    _write_result(
-        tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"}
-    )
+    _write_result(tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"})
     _seed_partial_observer_rounds(tmp_path, "t-001", 2)
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
@@ -176,9 +172,7 @@ def test_observer_partial_at_cap_blocks(tmp_path: Path) -> None:
 def test_task_partial_at_same_history_still_releases(tmp_path: Path) -> None:
     # The cap only applies to observer runs: a task-family partial with two
     # prior task-family partials follows the normal 5-round ladder.
-    _write_result(
-        tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"}
-    )
+    _write_result(tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"})
     task_dir = _task_dir(tmp_path, "t-001")
     for _ in range(2):
         m = attempts.record_start(task_dir, coder="c", model="m", worker="task.continue")

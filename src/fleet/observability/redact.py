@@ -13,14 +13,12 @@ def _is_credential_key(key: str) -> bool:
     # Singular "token" is a credential (auth_token, access_token, …).
     # Plural "tokens" is an LLM usage count (input_tokens, output_tokens,
     # cache_creation_input_tokens, …) and must not be redacted.
-    if "token" in lower and "tokens" not in lower:
-        return True
-    return False
+    return "token" in lower and "tokens" not in lower
 
 
 def redact(payload: dict) -> dict:
     """Return a new dict with credential keys replaced by '<redacted>'."""
-    result = {}
+    result: dict = {}
     for k, v in payload.items():
         if _is_credential_key(k):
             result[k] = "<redacted>"

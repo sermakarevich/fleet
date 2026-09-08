@@ -6,10 +6,12 @@ and a real QuestionStore on a tmp file.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.core.triage_policy import (
     CLOSE,
@@ -18,6 +20,7 @@ from fleet.core.triage_policy import (
     IGNORE_FOREVER,
     RETRY_OPUS,
     RETRY_SAME,
+    ignore_until_24h,
 )
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.orchestrator.triage import Triage, apply_answer, collect_candidates, triage_tick
@@ -100,14 +103,23 @@ def test_candidates_skip_ignored_and_pending(tmp_path: Path):
     q.blocked = [_bead("ign"), _bead("pend"), _bead("ok")]
     future = (datetime.now(tz=UTC) + timedelta(hours=1)).isoformat()
     _task(
-        tmp_path, "ign", blocked_reason="r", blocked_at="2026-09-01T00:00:00+00:00",
+        tmp_path,
+        "ign",
+        blocked_reason="r",
+        blocked_at="2026-09-01T00:00:00+00:00",
         ignore_until=future,
     )
     _task(
-        tmp_path, "pend", blocked_reason="r", blocked_at="2026-09-01T00:00:00+00:00",
+        tmp_path,
+        "pend",
+        blocked_reason="r",
+        blocked_at="2026-09-01T00:00:00+00:00",
     )
     _task(
-        tmp_path, "ok", blocked_reason="r", blocked_at="2026-09-01T00:00:00+00:00",
+        tmp_path,
+        "ok",
+        blocked_reason="r",
+        blocked_at="2026-09-01T00:00:00+00:00",
     )
     s = _store(tmp_path)
     s.ask("q?", ["a"], task_id="pend", context="2026-09-01T00:00:00+00:00")
@@ -188,11 +200,14 @@ def test_apply_retry_opus_pins_override(tmp_path: Path):
 def test_apply_edit_appends_note_and_releases(tmp_path: Path):
     q = FakeQueue()
     _task(
-        tmp_path, "t", blocked_reason="r", blocked_at="ts", description="orig desc",
+        tmp_path,
+        "t",
+        blocked_reason="r",
+        blocked_at="ts",
+        description="orig desc",
     )
     assert (
-        apply_answer(q, tmp_path, _answered("t", EDIT_RETRY, note="split into A/B"))
-        == "released"
+        apply_answer(q, tmp_path, _answered("t", EDIT_RETRY, note="split into A/B")) == "released"
     )
     assert q.descriptions["t"] == "orig desc\n\nOperator note: split into A/B"
     assert any(c[0] == "release" for c in q.calls)
@@ -251,7 +266,6 @@ def test_stale_answer_skipped(tmp_path: Path):
 
 def test_ignore_honoured_after_apply(tmp_path: Path):
     """Once ignored, the task is no longer a candidate."""
-    from fleet.core.triage_policy import ignore_until_24h
 
     q = FakeQueue()
     q.blocked = [_bead("t")]
@@ -298,9 +312,6 @@ def test_tick_applies_answered_end_to_end(tmp_path: Path):
 
 def test_triage_interval_zero_never_ticks(tmp_path: Path):
     """With triage_interval_minutes=0 the service tick returns before asking."""
-    import asyncio
-
-    from fleet.core.config import RuntimeConfig
 
     q = FakeQueue()
     q.blocked = [_bead("t")]

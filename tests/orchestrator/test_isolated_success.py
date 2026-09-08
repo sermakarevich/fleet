@@ -8,6 +8,8 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
+from fleet.state import attempts as attempts_mod
+from fleet.state.attempts import load_attempts
 from tests.conftest import make_running_worker, make_supervisor
 
 # ------ Test doubles (Mirror test_supervisor_failures.py) ------
@@ -67,7 +69,6 @@ def _make_supervisor(
 
 def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
     """Fold one outcome through reap, opening a fresh attempt like spawn does."""
-    from fleet.state import attempts as attempts_mod
 
     n = attempts_mod.record_start(
         s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
@@ -196,7 +197,6 @@ def test_isolated_dirty_no_needs_validation(tmp_path: Path) -> None:
 
 def test_isolated_dirty_journals_history(tmp_path: Path) -> None:
     """ISOLATED + dirty: attempt journaled, no counter files."""
-    from fleet.state.attempts import load_attempts
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
@@ -349,4 +349,3 @@ def test_isolated_uncommitted_changes_still_ask_for_a_commit(tmp_path: Path) -> 
     assert queue.closed == []
     assert len(queue.released) == 1
     assert "uncommitted changes" in queue.released[0][1]
-

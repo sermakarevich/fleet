@@ -10,18 +10,23 @@ from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.serve.analytics import records as records_module
 from fleet.state.events import parse_iso
+from fleet.state.task_summary import context_overrides_for_home
+
+_HOURLY_BUCKET_MAX_DAYS = 3  # windows this short get hour buckets, longer ones day buckets
+_CTX_PCT_FULL = 100
+_CTX_PCT_HIGH = 75
+_CTX_PCT_MID = 50
+_CTX_PCT_LOW = 25
+_DAYS_PER_WEEK = 7
+_HOURS_PER_DAY = 24
 
 
-def compute_summary(home: Path, days: int) -> dict:
+def compute_summary(home: Path, days: int) -> dict:  # noqa: PLR0912, PLR0915  # ADR 0006 bead 10
     """Compute the /summary analytics endpoint data."""
-    from fleet.state.task_summary import context_overrides_for_home
 
     _context_overrides = context_overrides_for_home(home)
     # Clamp days
-    if days <= 0:
-        clamped = 0
-    else:
-        clamped = min(days, 365)
+    clamped = 0 if days <= 0 else min(days, 365)
 
     # 1. Get records and beads map
     records = records_module.collect_records(home)
@@ -29,15 +34,15 @@ def compute_summary(home: Path, days: int) -> dict:
 
     # 2. Reconcile each record
     reconciled = []
-    for r in records:
-        rid = r["id"]
+    for record in records:
+        rid = record["id"]
         if beads is not None:
-            merged = merge_status(r, beads.get(rid))
-            r = dict(r)
+            merged = merge_status(record, beads.get(rid))
+            r = dict(record)
             r["status_reconciled"] = merged["status"]
             r["created_at"] = merged["created_at"]
         else:
-            r = dict(r)
+            r = dict(record)
             r["status_reconciled"] = r["status_raw"]
             r["created_at"] = None
 
@@ -58,10 +63,7 @@ def compute_summary(home: Path, days: int) -> dict:
 
     # 4. Window: completed = outcome in {success, failed, blocked} AND last_ts >= cutoff
     # Active records are never window-filtered
-    if clamped == 0:
-        cutoff = None
-    else:
-        cutoff = now - timedelta(days=clamped)
+    cutoff = None if clamped == 0 else now - timedelta(days=clamped)
 
     windowed = []
     for r in reconciled:
@@ -82,12 +84,8 @@ def compute_summary(home: Path, days: int) -> dict:
                 continue
         windowed.append(r)
 
-    completed = [
-        r for r in reconciled if r["outcome"] in ("success", "failed", "blocked")
-    ]
-    completed_in_window = [
-        r for r in windowed if r["outcome"] in ("success", "failed", "blocked")
-    ]
+    completed = [r for r in reconciled if r["outcome"] in ("success", "failed", "blocked")]
+    completed_in_window = [r for r in windowed if r["outcome"] in ("success", "failed", "blocked")]
 
     # ---- KPIs ----
     n_completed = len(completed_in_window)
@@ -148,9 +146,7 @@ def compute_summary(home: Path, days: int) -> dict:
 
     total_output_tokens = sum(r.get("output_tokens", 0) for r in completed_in_window)
     total_input_tokens = sum(r.get("input_tokens", 0) for r in completed_in_window)
-    total_cache_read_tokens = sum(
-        r.get("cache_read_tokens", 0) for r in completed_in_window
-    )
+    total_cache_read_tokens = sum(r.get("cache_read_tokens", 0) for r in completed_in_window)
     total_cache_creation_tokens = sum(
         r.get("cache_creation_tokens", 0) for r in completed_in_window
     )
@@ -166,9 +162,7 @@ def compute_summary(home: Path, days: int) -> dict:
 
     noclose_count = sum(1 for r in completed_in_window if r.get("noclose", False))
 
-    rate_limited_tasks = sum(
-        1 for r in completed_in_window if r.get("rate_limited", 0) > 0
-    )
+    rate_limited_tasks = sum(1 for r in completed_in_window if r.get("rate_limited", 0) > 0)
 
     kpis = {
         "completed": n_completed,
@@ -192,12 +186,12 @@ def compute_summary(home: Path, days: int) -> dict:
     # ---- Throughput ----
     if clamped == 0:
         bucket_size = "day"
-    elif 1 <= clamped <= 3:
+    elif 1 <= clamped <= _HOURLY_BUCKET_MAX_DAYS:
         bucket_size = "hour"
     else:
         bucket_size = "day"
 
-    throughput_buckets: dict[str, dict[str, int]] = {}
+    throughput_buckets: dict[str, dict] = {}
     for r in completed_in_window:
         last_ts_str = r.get("last_ts")
         if not last_ts_str:
@@ -250,9 +244,7 @@ def compute_summary(home: Path, days: int) -> dict:
         tb = token_buckets[key]
         tb["output_tokens"] += r.get("output_tokens", 0)
         tb["input_tokens"] += r.get("input_tokens", 0)
-        tb["cache_tokens"] += r.get("cache_read_tokens", 0) + r.get(
-            "cache_creation_tokens", 0
-        )
+        tb["cache_tokens"] += r.get("cache_read_tokens", 0) + r.get("cache_creation_tokens", 0)
 
     token_throughput = {
         "bucket_size": bucket_size,
@@ -264,9 +256,9 @@ def compute_summary(home: Path, days: int) -> dict:
     for r in completed_in_window:
         coder = r.get("coder") or "unknown"
         model = r.get("model") or "unknown"
-        key = (coder, model)
-        if key not in model_agg:
-            model_agg[key] = {
+        model_key = (coder, model)
+        if model_key not in model_agg:
+            model_agg[model_key] = {
                 "total": 0,
                 "successes": 0,
                 "run_secs": [],
@@ -276,7 +268,7 @@ def compute_summary(home: Path, days: int) -> dict:
                 "errors": 0,
                 "rate_limited": 0,
             }
-        a = model_agg[key]
+        a = model_agg[model_key]
         a["total"] += 1
         if r["outcome"] == "success":
             a["successes"] += 1
@@ -304,16 +296,12 @@ def compute_summary(home: Path, days: int) -> dict:
                 "model": model,
                 "total": t,
                 "success_rate": a["successes"] / t if t else 0.0,
-                "median_run_sec": _percentile(sorted(a["run_secs"]), 50)
-                if a["run_secs"]
-                else 0.0,
+                "median_run_sec": _percentile(sorted(a["run_secs"]), 50) if a["run_secs"] else 0.0,
                 "mean_peak_context_tokens": sum(a["peak_ctx"]) / len(a["peak_ctx"])
                 if a["peak_ctx"]
                 else 0.0,
                 "output_tokens": a["output_tokens"],
-                "avg_segments": sum(a["segments"]) / len(a["segments"])
-                if a["segments"]
-                else 0.0,
+                "avg_segments": sum(a["segments"]) / len(a["segments"]) if a["segments"] else 0.0,
                 "errors": a["errors"],
                 "rate_limited": a["rate_limited"],
             }
@@ -352,9 +340,7 @@ def compute_summary(home: Path, days: int) -> dict:
                 "cwd": cwd,
                 "total": t,
                 "success_rate": a["successes"] / t if t else 0.0,
-                "median_run_sec": _percentile(sorted(a["run_secs"]), 50)
-                if a["run_secs"]
-                else 0.0,
+                "median_run_sec": _percentile(sorted(a["run_secs"]), 50) if a["run_secs"] else 0.0,
                 "output_tokens": a["output_tokens"],
             }
         )
@@ -369,7 +355,7 @@ def compute_summary(home: Path, days: int) -> dict:
     total_tools = sum(all_tool_counts.values())
     rows_tools = sorted(
         [{"name": name, "count": count} for name, count in all_tool_counts.items()],
-        key=lambda x: x["count"],
+        key=lambda x: x["count"],  # type: ignore[arg-type, return-value]  # untyped rows; bead 10 adds metric models
         reverse=True,
     )[:20]
     tools = {"total": total_tools, "rows": rows_tools}
@@ -394,22 +380,21 @@ def compute_summary(home: Path, days: int) -> dict:
         if limit <= 0:
             limit = 200_000
         ratio = (pct / limit) * 100
-        if ratio < 0:
-            ratio = 0
-        if ratio >= 100:
+        ratio = max(ratio, 0)
+        if ratio >= _CTX_PCT_FULL:
             _HIST_BUCKETS_COUNTS["100+"] += 1
-        elif ratio >= 75:
+        elif ratio >= _CTX_PCT_HIGH:
             _HIST_BUCKETS_COUNTS["75-100"] += 1
-        elif ratio >= 50:
+        elif ratio >= _CTX_PCT_MID:
             _HIST_BUCKETS_COUNTS["50-75"] += 1
-        elif ratio >= 25:
+        elif ratio >= _CTX_PCT_LOW:
             _HIST_BUCKETS_COUNTS["25-50"] += 1
         else:
             _HIST_BUCKETS_COUNTS["0-25"] += 1
     context_histogram = {"buckets": _HIST_BUCKETS_COUNTS}
 
     # ---- heatmap: 7x24 matrix summed across in-window records ----
-    heatmap = [[0] * 24 for _ in range(7)]
+    heatmap = [[0] * _HOURS_PER_DAY for _ in range(_DAYS_PER_WEEK)]
     for r in windowed:
         hh = r.get("hour_hist") or {}
         for key, val in hh.items():
@@ -417,7 +402,7 @@ def compute_summary(home: Path, days: int) -> dict:
                 parts = key.split("-")
                 wd = int(parts[0])
                 hr = int(parts[1])
-                if 0 <= wd < 7 and 0 <= hr < 24:
+                if 0 <= wd < _DAYS_PER_WEEK and 0 <= hr < _HOURS_PER_DAY:
                     heatmap[wd][hr] += val
             except (ValueError, IndexError):
                 pass
@@ -478,4 +463,3 @@ def compute_summary(home: Path, days: int) -> dict:
         "errors_recent": errors_recent,
         "rate_limits": rate_limits,
     }
-

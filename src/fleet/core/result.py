@@ -55,12 +55,8 @@ def parse_result(text: str) -> Result | None:
         summary=str(data.get("summary") or ""),
         commits=[str(c) for c in commits] if isinstance(commits, list) else [],
         tests=tests if isinstance(tests, dict) else None,
-        open_questions=[str(q) for q in open_questions]
-        if isinstance(open_questions, list)
-        else [],
+        open_questions=[str(q) for q in open_questions] if isinstance(open_questions, list) else [],
         next_step=str(data.get("next_step") or ""),
         blocked_reason=str(data.get("blocked_reason") or ""),
-        followups=[f for f in followups]
-        if isinstance(followups, list)
-        else [],
+        followups=list(followups) if isinstance(followups, list) else [],
     )

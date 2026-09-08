@@ -1,4 +1,5 @@
 """Tests for the Telegram answer interface: mapping store, send_message_with_id, inbound flows."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,8 +10,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import fleet.integrations.ask_human.store as db_mod
 import fleet.integrations.telegram.bot as tg
 from fleet.core.config import RuntimeConfig
+from fleet.core.task import Task
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -180,7 +183,6 @@ def test_reply_to_mapped_message_answers_question(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reply-to a mapped message: status=answered, answer JSON-encoded, answered_by=telegram."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -193,15 +195,17 @@ def test_reply_to_mapped_message_answers_question(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
 
-    updates = [{
-        "update_id": 5,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "blue",
-            "reply_to_message": {"message_id": 42},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 5,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "blue",
+                "reply_to_message": {"message_id": 42},
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 
@@ -227,11 +231,8 @@ def test_reply_to_mapped_message_answers_question(
     assert row[2] == "telegram"
 
 
-def test_plain_text_one_pending_answers_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plain_text_one_pending_answers_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plain text with exactly one pending question answers that question."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -241,14 +242,16 @@ def test_plain_text_one_pending_answers_it(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
 
-    updates = [{
-        "update_id": 8,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "yes",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 8,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "yes",
+            },
+        }
+    ]
 
     sent: list[str] = []
 
@@ -275,7 +278,6 @@ def test_plain_text_two_pending_sends_hint_no_db_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plain text with two pending questions sends the hint message; neither is answered."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -286,14 +288,16 @@ def test_plain_text_two_pending_sends_hint_no_db_write(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
 
-    updates = [{
-        "update_id": 9,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "hello",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 9,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "hello",
+            },
+        }
+    ]
 
     sent: list[str] = []
 
@@ -320,7 +324,6 @@ def test_numeric_reply_with_options_stores_option_string(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Bare integer '2' via reply-to resolves to option[1] ('beta') and stores that string."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -340,15 +343,17 @@ def test_numeric_reply_with_options_stores_option_string(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
 
-    updates = [{
-        "update_id": 11,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "2",
-            "reply_to_message": {"message_id": 55},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 11,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "2",
+                "reply_to_message": {"message_id": 55},
+            },
+        }
+    ]
 
     sent: list[str] = []
 
@@ -374,7 +379,6 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An update from a sender not in the allowlist is rejected; the question is not touched."""
-    import fleet.integrations.ask_human.store as db_mod
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -388,15 +392,17 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
     # Allowed only: 999; sender is 111
     app = _make_fake_app(allowed_ids="999")
 
-    updates = [{
-        "update_id": 20,
-        "message": {
-            "from": {"id": 111},
-            "chat": {"id": 111},
-            "text": "hacked",
-            "reply_to_message": {"message_id": 99},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 20,
+            "message": {
+                "from": {"id": 111},
+                "chat": {"id": 111},
+                "text": "hacked",
+                "reply_to_message": {"message_id": 99},
+            },
+        }
+    ]
 
     sent: list[str] = []
 
@@ -420,8 +426,7 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
 def test_already_answered_conflict_reply_no_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Replying to an already-answered question yields 'Question already answered'; answer unchanged."""
-    import fleet.integrations.ask_human.store as db_mod
+    """A second answer is rejected ('already answered'); the first answer stands."""
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
@@ -441,15 +446,17 @@ def test_already_answered_conflict_reply_no_overwrite(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
 
-    updates = [{
-        "update_id": 7,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "too late",
-            "reply_to_message": {"message_id": 77},
-        },
-    }]
+    updates = [
+        {
+            "update_id": 7,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "too late",
+                "reply_to_message": {"message_id": 77},
+            },
+        }
+    ]
 
     sent: list[str] = []
 
@@ -474,22 +481,23 @@ def test_already_answered_conflict_reply_no_overwrite(
 def test_task_command_creates_task_regression(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """/new_task command still creates a task even when answer interface is wired up (regression)."""
-    from fleet.core.task import Task
+    """/new_task still creates a task when the answer interface is wired (regression)."""
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
     fake_task = Task(id="fleet-reg1", title="Regression check", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
 
-    updates = [{
-        "update_id": 30,
-        "message": {
-            "from": {"id": 123},
-            "chat": {"id": 123},
-            "text": "/new_task Regression check",
-        },
-    }]
+    updates = [
+        {
+            "update_id": 30,
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/new_task Regression check",
+            },
+        }
+    ]
 
     sent: list[tuple[str, str]] = []
 

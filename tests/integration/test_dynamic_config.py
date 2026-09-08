@@ -1,12 +1,13 @@
 """FR-24 / FR-25 / FR-26: runtime.toml reloads atomically; in-flight not killed."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 from fleet.core.config import write_atomic
 from fleet.core.task import Task
-
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -68,12 +69,10 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 
@@ -140,13 +139,9 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
             await sup._shutdown()
             try:
                 await asyncio.wait_for(sup_task, timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sup_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
-
-

@@ -24,6 +24,7 @@ from fleet.workers.observe import (
     WaitChildren,
     plan_observer,
 )
+from tests.conftest import make_running_worker, make_supervisor
 
 
 class FakeQueue:
@@ -84,9 +85,7 @@ def _write_child(
     if result is not None:
         (child_dir / "RESULT.json").write_text(json.dumps(result))
     n = attempts.record_start(child_dir, coder="c", model="m", worker="task.fresh")
-    attempts.record_end(
-        child_dir, outcome="success", exit_code=0, reason="", action="close", n=n
-    )
+    attempts.record_end(child_dir, outcome="success", exit_code=0, reason="", action="close", n=n)
     adir = attempts.attempt_dir(child_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "run.json").write_text(
@@ -206,7 +205,9 @@ def test_collect_children_truncates_oldest_first(tmp_path: Path) -> None:
 
 def _write_partial_result(ctx: StepContext, followups: list) -> None:
     (ctx.task_dir / "RESULT.json").write_text(
-        json.dumps({"schema": 1, "status": "partial", "summary": "more work", "followups": followups})
+        json.dumps(
+            {"schema": 1, "status": "partial", "summary": "more work", "followups": followups}
+        )
     )
 
 
@@ -258,7 +259,12 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
     _write_child(
         tmp_path,
         "c-1",
-        result={"schema": 1, "status": "blocked", "summary": "stuck", "blocked_reason": "needs creds"},
+        result={
+            "schema": 1,
+            "status": "blocked",
+            "summary": "stuck",
+            "blocked_reason": "needs creds",
+        },
         blocked_reason="needs creds",
     )
     queue = FakeQueue([BeadSummary("c-1", "blocked")])
@@ -279,7 +285,9 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
             self.blocked: list[tuple[str, str]] = []
 
         def get(self, task_id: str):
-            return Task(id=task_id, title="epic", description=None, status="in_progress", type="epic")
+            return Task(
+                id=task_id, title="epic", description=None, status="in_progress", type="epic"
+            )
 
         def set_blocked(self, task_id: str, reason: str) -> None:
             self.blocked.append((task_id, reason))
@@ -298,8 +306,6 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
 
         def normalize_event(self, raw_line):
             return None
-
-    from tests.conftest import make_running_worker, make_supervisor
 
     stub = StubQueue()
     sup = make_supervisor(tmp_path, queue=stub, services=[], checks=[])

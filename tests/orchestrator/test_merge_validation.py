@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import subprocess
 from pathlib import Path
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
+from fleet.core.task import Task
+from fleet.orchestrator import merge_validation as mv_mod
 from fleet.orchestrator import worktree
 from fleet.orchestrator.merge_validation import MergeValidation
 from fleet.orchestrator.service import ServiceOrder
@@ -52,7 +55,6 @@ class StubQueue:
         self.comments.append((task_id, body))
 
     def get(self, task_id):
-        from fleet.core.task import Task
 
         return Task(id=task_id, title="T", description=None, status=self._status)
 
@@ -72,19 +74,17 @@ def _make_state(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None =
 
 
 def _git(path: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(path), *args], capture_output=True, check=True
-    )
+    subprocess.run(["git", "-C", str(path), *args], capture_output=True, check=True)
 
 
 def _git_init(path: Path) -> None:
+    subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True)
     subprocess.run(
-        ["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True
+        ["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True, check=False
     )
     subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True
+        ["git", "config", "user.name", "test"], cwd=path, capture_output=True, check=False
     )
-    subprocess.run(["git", "config", "user.name", "test"], cwd=path, capture_output=True)
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
         cwd=path,
@@ -115,9 +115,7 @@ def _isolate(
     task_dir = fleet_home / "tasks" / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / ".needs_validation").write_text("1")
-    wt = worktree.create_worktree(
-        repo, task_id, base_ref=base_ref, fleet_home=fleet_home
-    )
+    wt = worktree.create_worktree(repo, task_id, base_ref=base_ref, fleet_home=fleet_home)
     (task_dir / "task.json").write_text(
         json.dumps(
             {
@@ -199,9 +197,7 @@ class TestCleanMerge:
 
 
 class TestConflict:
-    def _setup_conflict(
-        self, fleet_home: Path, repo: Path, task_id: str
-    ) -> tuple[Path, Path]:
+    def _setup_conflict(self, fleet_home: Path, repo: Path, task_id: str) -> tuple[Path, Path]:
         _commit(repo, "tracked.txt", "line1\nline2\n", msg="initial")
         task_dir, wt = _isolate(fleet_home, repo, task_id)
         (wt / "tracked.txt").write_text("branch version\nline2\n")
@@ -268,6 +264,7 @@ class TestConflict:
             ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"],
             capture_output=True,
             text=True,
+            check=False,
         )
         assert status.stdout.strip() == ""
 
@@ -285,6 +282,7 @@ class TestDirtyBase:
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         ).stdout.strip()
 
         queue = StubQueue(status="in_progress")
@@ -298,6 +296,7 @@ class TestDirtyBase:
             ["git", "-C", str(repo), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         ).stdout.strip()
         assert head_before == head_after
 
@@ -381,9 +380,6 @@ class TestPostMergeCommand:
 
     def test_no_ui_prefix_special_case(self, tmp_path: Path):
         """Any file type merges the same; no src/fleet/ui diff special-casing remains."""
-        import inspect
-
-        from fleet.orchestrator import merge_validation as mv_mod
 
         src = inspect.getsource(mv_mod)
         assert "src/fleet/ui" not in src

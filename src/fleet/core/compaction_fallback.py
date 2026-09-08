@@ -11,6 +11,8 @@ from __future__ import annotations
 
 STATE_MAX_BYTES = 6144
 
+_DONE_BYTES_CAP = 600  # Done-section budget when folding git log entries in
+
 _STATE_HEADINGS = ("Plan", "Done", "In flight", "Next", "Facts")
 
 
@@ -24,7 +26,7 @@ def _truncate(text: str, max_bytes: int) -> str:
 
 def _split_sections(text: str) -> dict[str, str]:
     """Split STATE.md *text* into its five sections (missing ones are "")."""
-    sections: dict[str, str] = {h: "" for h in _STATE_HEADINGS}
+    sections: dict[str, str] = dict.fromkeys(_STATE_HEADINGS, "")
     current: str | None = None
     buckets: dict[str, list[str]] = {h: [] for h in _STATE_HEADINGS}
     for line in text.splitlines():
@@ -74,9 +76,9 @@ def fallback_state(
             done_lines.append(entry)
     if summaries:
         latest = summaries[-1].strip().splitlines()[:10]
-        for line in latest:
-            line = line.strip()
-            if line and line not in done_lines and len("\n".join(done_lines)) < 600:
+        for raw_line in latest:
+            line = raw_line.strip()
+            if line and line not in done_lines and len("\n".join(done_lines)) < _DONE_BYTES_CAP:
                 done_lines.append(f"- {line}" if not line.startswith("-") else line)
     if result_text.strip():
         first = result_text.strip().splitlines()[0][:200]

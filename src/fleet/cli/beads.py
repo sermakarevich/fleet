@@ -29,7 +29,7 @@ def _first_positional(args: list[str]) -> str | None:
     return None
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
     @app.command(
         "bd",
         context_settings={
@@ -51,7 +51,7 @@ def register(app: typer.Typer) -> None:
             "centralized location for multiple projects."
         ),
     )
-    def bd_passthrough(ctx: typer.Context) -> None:
+    def bd_passthrough(ctx: typer.Context) -> None:  # noqa: PLR0912, PLR0915  # ADR 0006 bead 12
         """Forward all trailing args verbatim to `bd`, with cwd=$FLEET_HOME.
 
         For `bd create` / `bd new`, also captures the task working directory and persists
@@ -71,7 +71,7 @@ def register(app: typer.Typer) -> None:
         if not is_create:
             # Simple passthrough: stream stdout/stderr straight to the terminal
             # (no capture) so colors/interactivity behave like a direct `bd` call.
-            result = subprocess.run(["bd", *bd_args], cwd=home)
+            result = subprocess.run(["bd", *bd_args], cwd=home, check=False)
             raise typer.Exit(result.returncode)
 
         try:
@@ -117,7 +117,8 @@ def register(app: typer.Typer) -> None:
 
         if task_id and not user_wants_dry_run:
             queue = BeadsQueue(home)
-            queue.set_cwd(task_id, invocation_cwd)
+            # rewrite_create_argv always sets cwd; bead 4 will type overrides precisely.
+            queue.set_cwd(task_id, invocation_cwd)  # type: ignore[arg-type]
             queue.set_overrides(
                 task_id,
                 coder=coder_override,

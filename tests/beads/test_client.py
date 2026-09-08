@@ -11,9 +11,7 @@ from fleet.beads.client import BeadsError
 
 
 def _completed(stdout: str = "", returncode: int = 0) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(
-        args=["bd"], returncode=returncode, stdout=stdout, stderr=""
-    )
+    return subprocess.CompletedProcess(args=["bd"], returncode=returncode, stdout=stdout, stderr="")
 
 
 def test_run_json_unwraps_bare_list(tmp_path: Path) -> None:
@@ -44,9 +42,11 @@ def test_beads_error_on_nonzero_rc(tmp_path: Path) -> None:
     failed = subprocess.CompletedProcess(
         args=["bd", "show", "nope"], returncode=1, stdout="", stderr="not found"
     )
-    with patch("fleet.beads.client.subprocess.run", return_value=failed):
-        with pytest.raises(BeadsError, match="not found"):
-            beads_client.run(["show", "nope"], cwd=tmp_path)
+    with (
+        patch("fleet.beads.client.subprocess.run", return_value=failed),
+        pytest.raises(BeadsError, match="not found"),
+    ):
+        beads_client.run(["show", "nope"], cwd=tmp_path)
 
 
 def test_run_check_false_does_not_raise(tmp_path: Path) -> None:

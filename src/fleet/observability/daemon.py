@@ -15,8 +15,10 @@ scope.)
 The module is console-agnostic: methods return small result dataclasses and
 raise typed errors, so the CLI layer owns all user-facing echoing.
 """
+
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -28,6 +30,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+import fleet as _fleet_pkg
+from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
 
 # Seconds to wait after spawning before probing liveness, so `start` can report
 # an immediately-crashing daemon (bad config, import error) instead of a false
@@ -42,15 +47,12 @@ def code_fingerprint(pkg_root: Path | None = None) -> str:
     git pulls (changed content) and local edits (uncommitted changes).
     """
     if pkg_root is None:
-        import fleet as _fleet_pkg
         pkg_root = Path(_fleet_pkg.__file__).parent
     h = hashlib.sha1(usedforsecurity=False)
     for p in sorted(pkg_root.rglob("*.py")):
         h.update(p.as_posix().encode())
-        try:
+        with contextlib.suppress(OSError):
             h.update(p.read_bytes())
-        except OSError:
-            pass
     return h.hexdigest()[:12]
 
 
@@ -121,7 +123,7 @@ class Daemon:
 
     # -- PID file -----------------------------------------------------------
 
-    def read_pidfile(self) -> dict | None:
+    def read_pidfile(self) -> dict | None:  # noqa: PLR0911  # ADR 0006 bead 17
         """Return the parsed PID-file dict, or None if absent/unreadable.
 
         Tolerates a bare-integer PID file for backward compatibility with the
@@ -173,10 +175,8 @@ class Daemon:
         tmp.replace(self.spec.pidfile)  # atomic on POSIX
 
     def _clear_pidfile(self) -> None:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             self.spec.pidfile.unlink()
-        except FileNotFoundError:
-            pass
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -189,7 +189,9 @@ class Daemon:
         if pid is None or not _pid_alive(pid):
             self._clear_pidfile()  # stale
             return DaemonStatus(running=False, pid=None, started_at=None, extra={})
-        extra = {k: v for k, v in data.items() if k not in ("pid", "started_at", "version_fingerprint")}
+        extra = {
+            k: v for k, v in data.items() if k not in ("pid", "started_at", "version_fingerprint")
+        }
         stored_fp = data.get("version_fingerprint")
         current_fp = code_fingerprint()
         stale = stored_fp is not None and stored_fp != current_fp
@@ -276,10 +278,8 @@ class Daemon:
             return
         except (ProcessLookupError, PermissionError):
             pass
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
     def restart(self, before_start: Callable[[], None] | None = None) -> StartResult:
         """Stop (if running) then start.
@@ -301,7 +301,6 @@ def python_module_argv(*args: str) -> list[str]:
 
 
 def _log_dir(home: Path) -> Path:
-    from fleet.core.limits import LOG_ROOT
 
     log_root = Path(LOG_ROOT)
     return log_root if log_root.is_absolute() else home / log_root
@@ -314,7 +313,6 @@ def supervisor_spec(home: Path) -> DaemonSpec:
     lights up. stop_timeout exceeds SHUTDOWN_GRACE_SEC so the supervisor's
     graceful shutdown (releasing in-flight tasks) completes before any SIGKILL.
     """
-    from fleet.core.limits import SHUTDOWN_GRACE_SEC
 
     return DaemonSpec(
         name="supervisor",
@@ -333,9 +331,7 @@ def serve_spec(home: Path, host: str, port: int) -> DaemonSpec:
         name="serve",
         pidfile=home / ".serve.pid",
         logfile=_log_dir(home) / "serve.daemon.log",
-        argv=python_module_argv(
-            "serve", "foreground", "--host", host, "--port", str(port)
-        ),
+        argv=python_module_argv("serve", "foreground", "--host", host, "--port", str(port)),
         cwd=home,
         stop_timeout=10.0,
         extra={"port": port, "host": host},

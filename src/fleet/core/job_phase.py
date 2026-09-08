@@ -90,11 +90,14 @@ def phase_failures(history: list[dict], phase_name: str) -> int:
             continue
         if entry.get("worker") != want:
             continue
-        if entry.get("outcome") == "failure":
-            count += 1
-        elif entry.get("outcome") == "killed" and entry.get("reason") in (
-            "stalled",
-            "timeout",
+        if (
+            entry.get("outcome") == "failure"
+            or entry.get("outcome") == "killed"
+            and entry.get("reason")
+            in (
+                "stalled",
+                "timeout",
+            )
         ):
             count += 1
     return count

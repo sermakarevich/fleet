@@ -24,15 +24,20 @@ bead up later. Nothing here re-spawns work directly.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import shutil
 import socket
+import subprocess
 from datetime import UTC, datetime
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
 from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import tasks_root as _tasks_root
 from fleet.state.validation_marker import needs_validation
 
 from . import worktree
@@ -100,9 +105,6 @@ def _remove_orphan_dir(path) -> None:
     admin metadata is cleaned; falls back to a plain recursive delete when
     the repo is gone (best effort, never raises).
     """
-    import shutil
-    import subprocess
-    from pathlib import Path as _Path
 
     target = _Path(path)
     try:
@@ -110,6 +112,7 @@ def _remove_orphan_dir(path) -> None:
             ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             common = _Path(result.stdout.strip())
@@ -118,15 +121,14 @@ def _remove_orphan_dir(path) -> None:
                 ["git", "-C", str(repo), "worktree", "remove", "--force", str(target)],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             if rm.returncode == 0:
                 return
     except (OSError, subprocess.SubprocessError):
         pass
-    try:
+    with contextlib.suppress(Exception):
         shutil.rmtree(target, ignore_errors=True)
-    except Exception:
-        pass
 
 
 def _task_names(tasks_root) -> list[str]:
@@ -141,9 +143,6 @@ def _task_names(tasks_root) -> list[str]:
 
 def sweep_orphan_worktrees(st: SupervisorState) -> None:
     """Remove worktrees with no corresponding active task (startup sweep)."""
-    from pathlib import Path as _Path
-
-    from fleet.state.paths import tasks_root as _tasks_root
 
     worktrees_dir = worktree.worktrees_root(st.project_root)
     if not worktrees_dir.is_dir():
@@ -157,17 +156,13 @@ def sweep_orphan_worktrees(st: SupervisorState) -> None:
     live: set[str] = set()
     for task_dir in [tasks_root / n for n in names]:
         try:
-            import json as _json
-
-            meta = _json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+            meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             meta = {}
         wt = meta.get("worktree_path") if isinstance(meta, dict) else None
         if wt:
-            try:
+            with contextlib.suppress(OSError):
                 live.add(str(_Path(wt).resolve()))
-            except OSError:
-                pass
 
     for worktree_dir in worktrees_dir.iterdir():
         if not worktree_dir.is_dir():
@@ -232,7 +227,9 @@ def reconcile_leases(st: SupervisorState, seen: set[str] | None = None) -> None:
             st.log.warning("lease_reconcile_failed", task_id=task.id, error=str(exc))
 
 
-def _reconcile_one_lease(st: SupervisorState, task: Task, seen: set[str]) -> None:
+def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
+    st: SupervisorState, task: Task, seen: set[str]
+) -> None:
     """Reclaim *task* iff its lease is stale on a provably dead attempt."""
     task_dir = st.task_dir_for(task.id)
     attempt_dir = latest_attempt_dir(task_dir)

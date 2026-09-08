@@ -133,9 +133,7 @@ def test_tick_cap_reached_claims_nothing(tmp_path: Path, monkeypatch) -> None:
     for i in range(3):
         sup.state.running[f"t-{i:03d}"] = make_running_worker(f"t-{i:03d}", tmp_path)
     spawned: list[str] = []
-    monkeypatch.setattr(
-        claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id)
-    )
+    monkeypatch.setattr(claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id))
     asyncio.run(Claim(interval_sec=0.01).tick(sup.state))
     assert spawned == []
     assert "t-new" not in sup.state.running
@@ -160,9 +158,7 @@ def test_tick_skips_task_already_running(tmp_path: Path, monkeypatch) -> None:
     sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
     sup.state.running["t-dup"] = make_running_worker("t-dup", tmp_path)
     spawned: list[str] = []
-    monkeypatch.setattr(
-        claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id)
-    )
+    monkeypatch.setattr(claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id))
     asyncio.run(Claim(interval_sec=0.01).tick(sup.state))
     assert spawned == []
     assert len(sup.state.running) == 1

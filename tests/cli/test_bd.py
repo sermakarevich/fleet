@@ -1,4 +1,5 @@
 """TDD tests for `fleet bd create --cwd <path>` flag (FR-21, FR-22, FR-23)."""
+
 from __future__ import annotations
 
 import json
@@ -8,12 +9,12 @@ from typer.testing import CliRunner
 
 from fleet.cli.main import app
 
-BD_CREATE_JSON_RESPONSE = json.dumps(
-    {"data": [{"id": "task-abc", "title": "Test Task"}]}
-)
+BD_CREATE_JSON_RESPONSE = json.dumps({"data": [{"id": "task-abc", "title": "Test Task"}]})
 
 
-def _make_completed_process(stdout: str = BD_CREATE_JSON_RESPONSE, returncode: int = 0) -> MagicMock:
+def _make_completed_process(
+    stdout: str = BD_CREATE_JSON_RESPONSE, returncode: int = 0
+) -> MagicMock:
     proc = MagicMock()
     proc.stdout = stdout
     proc.stderr = ""

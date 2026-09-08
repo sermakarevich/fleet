@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -110,10 +111,8 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
         # Cleanup
         for rw in list(s.state.running.values()):
             rw.future.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await rw.future
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
@@ -149,10 +148,8 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
         tid = "t-000"
         removed = s.state.running.pop(tid)
         removed.future.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await removed.future
-        except (asyncio.CancelledError, Exception):
-            pass
 
         assert _can_spawn(s) is False
 
@@ -160,20 +157,16 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
         tid = "t-001"
         removed = s.state.running.pop(tid)
         removed.future.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await removed.future
-        except (asyncio.CancelledError, Exception):
-            pass
 
         assert _can_spawn(s) is True
 
         # Cleanup remaining
         for rw in list(s.state.running.values()):
             rw.future.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await rw.future
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
@@ -219,9 +212,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
         # Cleanup
         for rw in list(s.state.running.values()):
             rw.future.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await rw.future
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())

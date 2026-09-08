@@ -82,7 +82,9 @@ def _terminal_children(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_epic_with_terminal_children_claimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_epic_with_terminal_children_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _terminal_children(monkeypatch)
     fake = FakeBd(ready=[], open_issues=[_epic_row()])
     q = _queue(tmp_path, fake)
@@ -93,7 +95,9 @@ def test_epic_with_terminal_children_claimed(tmp_path: Path, monkeypatch: pytest
     assert fake.claimed == ["epic-1"]
 
 
-def test_epic_with_running_child_not_claimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_epic_with_running_child_not_claimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "fleet.beads.client.children_of",
         lambda epic_id, cwd: [
@@ -143,9 +147,7 @@ def test_create_child_links_epic_and_inherits_setup(tmp_path: Path) -> None:
     }
     fake = FakeBd(shows={"epic-1": epic_body, "kid-1": {"id": "kid-1", "title": "a"}})
     q = _queue(tmp_path, fake)
-    child = q.create_child(
-        "epic-1", {"title": "a", "body": "do a", "cwd": None, "depends_on": []}
-    )
+    child = q.create_child("epic-1", {"title": "a", "body": "do a", "cwd": None, "depends_on": []})
     assert child.id == "kid-1"
     assert child.coder == "claude"
     assert child.model == "opus"

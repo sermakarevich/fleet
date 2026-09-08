@@ -81,7 +81,7 @@ Requires:
 - [beads (`bd`)](https://github.com/gastownhall/beads) on your `PATH`
 - `git` on your `PATH` (beads stores its database inside a git repo)
 - At least one coder CLI on your `PATH`: `claude` (Claude Code), `agy`, `codex` (OpenAI Codex CLI), `opencode` (opencode CLI with Ollama backend), or `pi` (pi CLI)
-- **Node.js ≥ 18 and `npm`** — only needed to build the web UI (`fleet serve` / `make ui-build`). Not required for the headless supervisor.
+- **Node.js ≥ 18 and `npm`** — only needed to build the web UI (`fleet serve` / `just ui-build`). Not required for the headless supervisor.
 - `claude` (Claude Code) on your `PATH` — only needed to register the bundled `ask_human` MCP server (`fleet ask-human install`).
 
 ---
@@ -481,7 +481,7 @@ fleet serve start                 # start on 0.0.0.0:7890 (default, all interfac
 fleet serve start --host 127.0.0.1 # local-only bind
 fleet serve start --port 8080     # custom port
 fleet serve status                # running? (pid, start time, port)
-fleet serve restart               # rebuild the UI (make ui-build) and restart
+fleet serve restart               # rebuild the UI (just ui-build) and restart
 fleet serve restart --no-build    # restart without rebuilding the UI
 fleet serve stop                  # stop the server
 fleet serve foreground --port 8080  # run in the current terminal (blocks)
@@ -501,7 +501,7 @@ Starts a local web server backed by FastAPI and serves a React SPA at
 |---|---|
 | `start` | Spawn the UI server detached on `<host>:<port>` (default `0.0.0.0:7890`; `--host 127.0.0.1` for local only). Idempotent. |
 | `stop` | Stop the server daemon. |
-| `restart` | Run `make ui-build` (rebuild the SPA) **first**, then `stop` + `start`. The build runs before the old server is stopped, so a failed build leaves the current server running. The port defaults to the one recorded in the PID file. Pass `--no-build` to skip the rebuild, or `--port` to change it. |
+| `restart` | Run `just ui-build` (rebuild the SPA) **first**, then `stop` + `start`. The build runs before the old server is stopped, so a failed build leaves the current server running. The port defaults to the one recorded in the PID file. Pass `--no-build` to skip the rebuild, or `--port` to change it. |
 | `status` | Print running/stopped plus pid, start time, and port. Exits non-zero when stopped. |
 | `foreground` | Run uvicorn in the foreground (blocks). This is what `start` execs. |
 
@@ -511,18 +511,19 @@ assets must be built once before first use (and are rebuilt by
 [Installation](#installation)).
 
 ```bash
-make ui-build      # npm install (deps) + npm run build, then copy dist → $FLEET_HOME/ui_dist/
+just ui-build      # npm install (deps) + npm run build, then copy dist → $FLEET_HOME/ui_dist/
 ```
 
-The Makefile exposes three targets, all rooted at `src/fleet/ui/`:
+The justfile exposes four UI recipes, all rooted at `src/fleet/ui/`:
 
-| Target | What it does |
+| Recipe | What it does |
 |---|---|
-| `make ui-install` | `npm install` — install/refresh the SPA's node dependencies. |
-| `make ui-build` | Depends on `ui-install`, then `npm run build` (`tsc && vite build`) and copies `dist/` to `$FLEET_HOME/ui_dist/`. This is the only target you need for a normal build — it installs deps for you. |
-| `make ui-dev` | `npm run dev` — Vite dev server with hot reload, for working on the UI itself. |
+| `just ui-install` | `npm install` — install/refresh the SPA's node dependencies. |
+| `just ui-build` | Depends on `ui-install`, then `npm run build` (`tsc && vite build`) and copies `dist/` to `$FLEET_HOME/ui_dist/`. This is the only recipe you need for a normal build — it installs deps for you. |
+| `just ui-dev` | `npm run dev` — Vite dev server with hot reload, for working on the UI itself. |
+| `just ui-check` | `npx tsc --noEmit` — typecheck the SPA without emitting output. |
 
-`fleet serve restart` runs `make ui-build` for you. If there is no `Makefile`
+`fleet serve restart` runs `just ui-build` for you. If there is no `justfile`
 (e.g. a non-source install), the build step is skipped with a warning rather
 than failing. If `$FLEET_HOME/ui_dist/` is absent, the server starts without the
 UI and logs a warning.

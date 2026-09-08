@@ -16,6 +16,13 @@ from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.task_summary import build_task_summary
 
+_SEC_PER_MINUTE = 60
+_SEC_PER_HOUR = 3600
+_THOUSAND = 1000
+_MILLION = 1_000_000
+_PCT_WARN = 50
+_PCT_CRITICAL = 80
+
 
 def format_started(started_at_iso: str | None) -> str:
     if not started_at_iso:
@@ -32,13 +39,13 @@ def format_elapsed(seconds: float | None) -> str:
     if seconds is None:
         return "-"
     total = max(0, int(seconds))
-    if total < 60:
+    if total < _SEC_PER_MINUTE:
         return f"{total}s"
-    if total < 3600:
-        m, s = divmod(total, 60)
+    if total < _SEC_PER_HOUR:
+        m, s = divmod(total, _SEC_PER_MINUTE)
         return f"{m}m{s:02d}s"
-    h, rem = divmod(total, 3600)
-    m, _ = divmod(rem, 60)
+    h, rem = divmod(total, _SEC_PER_HOUR)
+    m, _ = divmod(rem, _SEC_PER_MINUTE)
     return f"{h}h{m:02d}m"
 
 
@@ -46,36 +53,36 @@ def format_idle(seconds: float | None) -> str:
     if seconds is None:
         return "-"
     total = max(0, int(seconds))
-    if total < 60:
+    if total < _SEC_PER_MINUTE:
         return f"{total}s"
-    if total < 3600:
-        return f"{total // 60}m"
-    return f"{total // 3600}h"
+    if total < _SEC_PER_HOUR:
+        return f"{total // _SEC_PER_MINUTE}m"
+    return f"{total // _SEC_PER_HOUR}h"
 
 
 def format_events(count: int) -> str:
-    if count < 1000:
+    if count < _THOUSAND:
         return str(count)
-    if count < 1_000_000:
-        return f"{count / 1000:.1f}k"
-    return f"{count / 1_000_000:.1f}M"
+    if count < _MILLION:
+        return f"{count / _THOUSAND:.1f}k"
+    return f"{count / _MILLION:.1f}M"
 
 
 def format_tokens(count: int) -> str:
-    if count < 1000:
+    if count < _THOUSAND:
         return str(count)
-    if count < 1_000_000:
-        return f"{count / 1000:.1f}k"
-    return f"{count / 1_000_000:.2f}M"
+    if count < _MILLION:
+        return f"{count / _THOUSAND:.1f}k"
+    return f"{count / _MILLION:.2f}M"
 
 
 def format_context(tokens: int | None, pct: float | None) -> Text:
     if tokens is None or tokens <= 0:
         return Text("-", style="dim")
     label = f"{format_tokens(tokens)} ({pct:.0f}%)" if pct is not None else format_tokens(tokens)
-    if pct is not None and pct >= 80:
+    if pct is not None and pct >= _PCT_CRITICAL:
         return Text(label, style="bold red")
-    if pct is not None and pct >= 50:
+    if pct is not None and pct >= _PCT_WARN:
         return Text(label, style="yellow")
     return Text(label, style="green")
 

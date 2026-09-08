@@ -3,10 +3,14 @@ from pathlib import Path
 
 import pytest
 
+import fleet.coders.base as coder_mod
+import fleet.coders.claude as cli_mod
+import fleet.core.task as task_mod
 from fleet.coders import get_coder
 from fleet.coders.base import Coder
-from fleet.coders.claude import ClaudeCoder
+from fleet.coders.claude import ClaudeCoder, _write_mcp_config
 from fleet.core.task import Task
+from fleet.integrations.mcp_servers import fleet_mcp_servers
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -16,15 +20,11 @@ def _coder() -> ClaudeCoder:
 
 
 def _task(task_id: str = "test-001") -> Task:
-    return Task(
-        id=task_id, title="Test task", description="Do the thing.", status="in_progress"
-    )
+    return Task(id=task_id, title="Test task", description="Do the thing.", status="in_progress")
 
 
 def _lines(fixture: str) -> list[str]:
-    return [
-        line for line in (FIXTURES / fixture).read_text().splitlines() if line.strip()
-    ]
+    return [line for line in (FIXTURES / fixture).read_text().splitlines() if line.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -471,16 +471,11 @@ def test_normalize_thinking_event():
 
 
 def test_no_anthropic_import_in_coder_module():
-    import fleet.coders.base as coder_mod
-    import fleet.coders.claude as cli_mod
-    import fleet.core.task as task_mod
 
     for mod in (coder_mod, cli_mod, task_mod):
         src = Path(mod.__file__).read_text()
         assert "anthropic" not in src, f"anthropic import found in {mod.__file__}"
-        assert "claude-agent-sdk" not in src, (
-            f"agent-sdk import found in {mod.__file__}"
-        )
+        assert "claude-agent-sdk" not in src, f"agent-sdk import found in {mod.__file__}"
 
 
 # ---------------------------------------------------------------------------
@@ -502,8 +497,6 @@ def test_build_argv_includes_mcp_config_pointing_at_file_with_ask_human(
 
 
 def test_write_mcp_config_matches_shared_definitions(tmp_path: Path):
-    from fleet.coders.claude import _write_mcp_config
-    from fleet.integrations.mcp_servers import fleet_mcp_servers
 
     home = tmp_path / "home"
     cfg_path = _write_mcp_config(tmp_path / "mcp.json", home)

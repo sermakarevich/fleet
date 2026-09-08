@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+_SID_SHORT_LEN = 8  # how many trailing session-id chars to show in the divider
+
 
 def _ts_prefix(evt: dict) -> str:
     ts_str = evt.get("ts")
@@ -32,7 +34,7 @@ def _compact_json(obj: object) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
-def render_event(evt: dict, state: dict) -> str | None:
+def render_event(evt: dict, state: dict) -> str | None:  # noqa: PLR0911, PLR0912, PLR0915  # ADR 0006 bead 25
     """Render one parsed events.jsonl line, or None to skip.
 
     *state* is a mutable dict carrying renderer state across calls
@@ -57,7 +59,7 @@ def render_event(evt: dict, state: dict) -> str | None:
             return None  # deduplicate real session changes (opencode emits one
             # step_start per LLM step — dozens per run)
         state["last_session"] = sid
-        last8 = sid[-8:] if len(sid) >= 8 else sid
+        last8 = sid[-_SID_SHORT_LEN:] if len(sid) >= _SID_SHORT_LEN else sid
         return f"\u2500\u2500 session {last8} started \u2500\u2500"
 
     # ---- tool_use -----------------------------------------------------------
@@ -179,7 +181,7 @@ def render_lines(lines: list[str]) -> list[str]:
     return results
 
 
-def event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
+def event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:  # noqa: PLR0911, PLR0912, PLR0915  # ADR 0006 bead 25
     """Derive a ~200-char one-line summary from a raw event dict.
 
     Used by GET /api/tasks/{id}/events to render a compact preview per row.
@@ -221,7 +223,7 @@ def event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
                 ps = part.get("state", {})
                 if isinstance(ps, dict):
                     inp = ps.get("input")
-        if isinstance(inp, dict) or isinstance(inp, list):
+        if isinstance(inp, dict | list):
             return json.dumps(
                 {"tool": tool, "input": inp},
                 ensure_ascii=False,
@@ -237,10 +239,7 @@ def event_summary(kind: str, raw: dict, tool_name: str | None = None) -> str:
         if isinstance(state, dict):
             out = state.get("output")
             if out is not None:
-                if isinstance(out, str):
-                    out_str = out[:200]
-                else:
-                    out_str = str(out)[:200]
+                out_str = out[:200] if isinstance(out, str) else str(out)[:200]
         if out_str:
             return tool + " " + out_str
         return tool

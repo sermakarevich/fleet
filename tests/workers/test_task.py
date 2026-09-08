@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import structlog
@@ -37,7 +38,6 @@ def _ctx(tmp_path: Path, task_id: str = "t-001") -> StepContext:
 
 
 def test_prepare_artifacts_creates_stubs(tmp_path: Path) -> None:
-    import json
 
     ctx = _ctx(tmp_path)
     ctx.attempt_dir = ctx.task_dir / "attempts" / "1"

@@ -52,15 +52,13 @@ def _get(app, path: str, **kwargs) -> httpx.Response:
 
 def _mock_beads_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkey-patch get_beads_status_map to return None (skip beads in tests)."""
-    monkeypatch.setattr(
-        "fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None)
-    )
+    monkeypatch.setattr("fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None))
 
 
 def test_default_returns_all_active_plus_most_recent_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Default call returns ALL non-closed tasks plus the most-RECENT closed ones, sorted by recency descending."""
+    """Default call returns open tasks plus recent closed ones, newest first."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
 
@@ -90,9 +88,7 @@ def test_default_returns_all_active_plus_most_recent_closed(
         started_at="2024-01-02T00:00:01Z",
     )
     _make_task_dir(tasks_root, "task-ooo", "open", created_at="2024-01-04T00:00:00Z")
-    _make_task_dir(
-        tasks_root, "task-xxx", "in_progress", created_at="2024-01-05T00:00:00Z"
-    )
+    _make_task_dir(tasks_root, "task-xxx", "in_progress", created_at="2024-01-05T00:00:00Z")
     _make_task_dir(
         tasks_root,
         "task-zzz",
@@ -121,9 +117,7 @@ def test_default_returns_all_active_plus_most_recent_closed(
     # task-xxx (in_progress) and task-ooo (open) should be first (active)
     [tid for tid in task_ids if tid in ("task-xxx", "task-ooo")]
     closed_ids = [
-        tid
-        for tid in task_ids
-        if tid in ("task-aaa", "task-ddd", "task-mmm", "task-zzz")
+        tid for tid in task_ids if tid in ("task-aaa", "task-ddd", "task-mmm", "task-zzz")
     ]
     assert closed_ids == ["task-zzz", "task-ddd", "task-mmm", "task-aaa"], (
         f"Expected closed tasks sorted by recency descending, got {closed_ids}"
@@ -187,9 +181,7 @@ def test_closed_limit_zero_returns_everything(
 
     for i in range(25):
         ts = f"2024-01-{i + 1:02d}T00:00:00Z"
-        _make_task_dir(
-            tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
-        )
+        _make_task_dir(tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts)
 
     _mock_beads_monkeypatch(monkeypatch)
 
@@ -201,9 +193,7 @@ def test_closed_limit_zero_returns_everything(
     assert len(data["tasks"]) == 25
 
 
-def test_response_shape_is_correct(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_response_shape_is_correct(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Response shape is {\"tasks\": [...]} with the same summary fields as before."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -258,9 +248,7 @@ def test_clamped_limit_to_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     for i in range(5):
         ts = f"2024-01-{i + 1:02d}T00:00:00Z"
-        _make_task_dir(
-            tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
-        )
+        _make_task_dir(tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts)
 
     _mock_beads_monkeypatch(monkeypatch)
 
@@ -273,18 +261,14 @@ def test_clamped_limit_to_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert len(data["tasks"]) == 5
 
 
-def test_closed_limit_is_clamped_to_min(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_closed_limit_is_clamped_to_min(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Negative closed_limit is clamped to 0 (unlimited)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
 
     for i in range(5):
         ts = f"2024-01-{i + 1:02d}T00:00:00Z"
-        _make_task_dir(
-            tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts
-        )
+        _make_task_dir(tasks_root, f"task-{i:03d}", "closed", created_at=ts, started_at=ts)
 
     _mock_beads_monkeypatch(monkeypatch)
 

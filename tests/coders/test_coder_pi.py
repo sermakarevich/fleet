@@ -74,9 +74,7 @@ def test_resolve_model_bare_custom_name_gets_ollama_prefix():
 
 
 def test_resolve_model_with_slash_used_as_is():
-    full_id, local_key = _resolve_model(
-        "ollama/deepseek-r1:32b", "qwen3.6:latest"
-    )
+    full_id, local_key = _resolve_model("ollama/deepseek-r1:32b", "qwen3.6:latest")
     assert full_id == "ollama/deepseek-r1:32b"
     assert local_key == "deepseek-r1:32b"
 
@@ -239,9 +237,7 @@ def test_build_argv_haiku_alias_resolved_to_default(tmp_path: Path):
 
 
 def test_build_argv_sonnet_with_custom_default_resolves_custom(tmp_path: Path):
-    argv = PiCoder(model="sonnet", default_model="qwen3.5:27b").build_argv(
-        _task(), tmp_path
-    )
+    argv = PiCoder(model="sonnet", default_model="qwen3.5:27b").build_argv(_task(), tmp_path)
     idx = argv.index("--model")
     assert argv[idx + 1] == "ollama/qwen3.5:27b"
 
@@ -315,9 +311,7 @@ def test_build_argv_bedrock_model_passed_verbatim(tmp_path: Path):
     coder = PiCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     argv = coder.build_argv(_task(), tmp_path)
     idx = argv.index("--model")
-    assert (
-        argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    assert argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 # ---------------------------------------------------------------------------
@@ -502,8 +496,11 @@ def test_normalize_message_end_length_stop_is_error():
     line = json.dumps(
         {
             "type": "message_end",
-            "message": {"role": "assistant", "stopReason": "length",
-                        "usage": {"input": 131000, "output": 72}},
+            "message": {
+                "role": "assistant",
+                "stopReason": "length",
+                "usage": {"input": 131000, "output": 72},
+            },
         }
     )
     evt = _coder().normalize_event(line)
@@ -512,16 +509,12 @@ def test_normalize_message_end_length_stop_is_error():
 
 
 def test_normalize_message_end_user_role_returns_none():
-    line = json.dumps(
-        {"type": "message_end", "message": {"role": "user", "content": "hi"}}
-    )
+    line = json.dumps({"type": "message_end", "message": {"role": "user", "content": "hi"}})
     assert _coder().normalize_event(line) is None
 
 
 def test_normalize_message_end_tool_role_returns_none():
-    line = json.dumps(
-        {"type": "message_end", "message": {"role": "toolResult", "content": "out"}}
-    )
+    line = json.dumps({"type": "message_end", "message": {"role": "toolResult", "content": "out"}})
     assert _coder().normalize_event(line) is None
 
 
@@ -543,9 +536,7 @@ def test_normalize_tool_execution_start_is_tool_use():
 
 
 def test_normalize_tool_execution_end_is_tool_result():
-    line = json.dumps(
-        {"type": "tool_execution_end", "toolName": "write", "isError": False}
-    )
+    line = json.dumps({"type": "tool_execution_end", "toolName": "write", "isError": False})
     evt = _coder().normalize_event(line)
     assert evt is not None
     assert evt.kind == "tool_result"
@@ -560,9 +551,7 @@ def test_normalize_tool_execution_end_missing_is_error_flag_is_tool_result():
 
 
 def test_normalize_tool_execution_end_error_is_error():
-    line = json.dumps(
-        {"type": "tool_execution_end", "toolName": "write", "isError": True}
-    )
+    line = json.dumps({"type": "tool_execution_end", "toolName": "write", "isError": True})
     evt = _coder().normalize_event(line)
     assert evt is not None
     assert evt.kind == "error"
@@ -591,9 +580,7 @@ def test_normalize_error_type_is_error():
 # ---------------------------------------------------------------------------
 
 
-def test_write_runtime_config_creates_models_json_in_agent_dir(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_creates_models_json_in_agent_dir(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     _coder().write_runtime_config(tmp_path / "project", _task())
     target = tmp_path / "models.json"
@@ -602,9 +589,7 @@ def test_write_runtime_config_creates_models_json_in_agent_dir(
     assert "ollama" in data["providers"]
 
 
-def test_write_runtime_config_does_not_write_project_pi_json(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_does_not_write_project_pi_json(monkeypatch, tmp_path: Path):
     agent_dir = tmp_path / "agent"
     project = tmp_path / "project"
     project.mkdir()
@@ -614,9 +599,7 @@ def test_write_runtime_config_does_not_write_project_pi_json(
     assert (agent_dir / "models.json").exists()
 
 
-def test_write_runtime_config_ollama_provider_entry_structure(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_ollama_provider_entry_structure(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     _coder().write_runtime_config(tmp_path, _task())
     entry = _read_models(tmp_path)["providers"]["ollama"]
@@ -628,9 +611,7 @@ def test_write_runtime_config_ollama_provider_entry_structure(
     assert {"id": "qwen3.6:latest"} in entry["models"]
 
 
-def test_write_runtime_config_models_is_list_of_id_dicts(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_models_is_list_of_id_dicts(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     _coder().write_runtime_config(tmp_path, _task())
     models = _read_models(tmp_path)["providers"]["ollama"]["models"]
@@ -638,9 +619,7 @@ def test_write_runtime_config_models_is_list_of_id_dicts(
     assert all(set(m.keys()) == {"id"} for m in models)
 
 
-def test_write_runtime_config_default_model_sonnet_alias_in_models(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_default_model_sonnet_alias_in_models(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     coder = PiCoder(model="sonnet", default_model="qwen3.6:latest")
     coder.write_runtime_config(tmp_path, _task())
@@ -648,9 +627,7 @@ def test_write_runtime_config_default_model_sonnet_alias_in_models(
     assert {"id": "qwen3.6:latest"} in models
 
 
-def test_write_runtime_config_custom_default_used_for_alias(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_custom_default_used_for_alias(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     coder = PiCoder(model="sonnet", default_model="qwen3.5:27b")
     coder.write_runtime_config(tmp_path, _task())
@@ -664,14 +641,10 @@ def test_write_runtime_config_ollama_url_constructor(monkeypatch, tmp_path: Path
     coder = PiCoder(ollama_url="http://127.0.0.1:12345/v1")
     coder.write_runtime_config(tmp_path, _task())
     cfg = _read_models(tmp_path)
-    assert (
-        cfg["providers"]["ollama"]["baseUrl"] == "http://127.0.0.1:12345/v1"
-    )
+    assert cfg["providers"]["ollama"]["baseUrl"] == "http://127.0.0.1:12345/v1"
 
 
-def test_write_runtime_config_preserves_foreign_top_level_keys(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_preserves_foreign_top_level_keys(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     (tmp_path / "models.json").write_text(json.dumps({"theme": "dark"}))
     _coder().write_runtime_config(tmp_path, _task())
@@ -680,9 +653,7 @@ def test_write_runtime_config_preserves_foreign_top_level_keys(
     assert "ollama" in data["providers"]
 
 
-def test_write_runtime_config_preserves_other_providers(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_preserves_other_providers(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     existing = {"providers": {"mine": {"baseUrl": "http://x", "models": []}}}
     (tmp_path / "models.json").write_text(json.dumps(existing, indent=2))
@@ -692,9 +663,7 @@ def test_write_runtime_config_preserves_other_providers(
     assert "ollama" in data["providers"]
 
 
-def test_write_runtime_config_merges_models_without_clobbering(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_merges_models_without_clobbering(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     existing = {
         "providers": {"ollama": {"baseUrl": "http://old", "models": [{"id": "other-model"}]}}
@@ -706,9 +675,7 @@ def test_write_runtime_config_merges_models_without_clobbering(
     assert {"id": "qwen3.6:latest"} in models
 
 
-def test_write_runtime_config_does_not_duplicate_model_id(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_does_not_duplicate_model_id(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     _coder().write_runtime_config(tmp_path, _task())
     _coder().write_runtime_config(tmp_path, _task())
@@ -763,9 +730,7 @@ def test_write_runtime_config_writes_no_mcp_block(monkeypatch, tmp_path: Path):
     assert "mcp" not in _read_models(tmp_path)
 
 
-def test_write_runtime_config_writes_no_permission_block(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_writes_no_permission_block(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     _coder().write_runtime_config(tmp_path, _task())
     assert "permission" not in _read_models(tmp_path)
@@ -790,18 +755,14 @@ def test_write_runtime_config_custom_model_entry(monkeypatch, tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_write_runtime_config_bedrock_model_writes_no_file(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_bedrock_model_writes_no_file(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     coder = PiCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     coder.write_runtime_config(tmp_path, _task())
     assert not (tmp_path / "models.json").exists()
 
 
-def test_write_runtime_config_bedrock_leaves_existing_file_untouched(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_bedrock_leaves_existing_file_untouched(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     existing = {"providers": {"ollama": {"models": [{"id": "qwen3.6:latest"}]}}}
     (tmp_path / "models.json").write_text(json.dumps(existing, indent=2))
@@ -811,9 +772,7 @@ def test_write_runtime_config_bedrock_leaves_existing_file_untouched(
     assert (tmp_path / "models.json").read_bytes() == before
 
 
-def test_write_runtime_config_ollama_model_writes_no_bedrock_provider(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_ollama_model_writes_no_bedrock_provider(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     PiCoder(model="qwen3.6:latest").write_runtime_config(tmp_path, _task())
     providers = _read_models(tmp_path)["providers"]
@@ -897,9 +856,7 @@ def test_ollama_prefixed_model_is_bedrock_false():
 
 def test_context_limit_for_bedrock_model():
     assert (
-        PiCoder.context_limit_for(
-            "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-        )
+        PiCoder.context_limit_for("amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
         == 200_000
     )
 
@@ -916,9 +873,7 @@ def test_context_limit_for_none_model():
     assert PiCoder.context_limit_for(None) == 128_000
 
 
-def test_bedrock_kwargs_accepted_but_inert_for_ollama_routing(
-    monkeypatch, tmp_path: Path
-):
+def test_bedrock_kwargs_accepted_but_inert_for_ollama_routing(monkeypatch, tmp_path: Path):
     _agent_dir(monkeypatch, tmp_path)
     coder = PiCoder(
         model="qwen3.6:latest",
@@ -931,9 +886,7 @@ def test_bedrock_kwargs_accepted_but_inert_for_ollama_routing(
     assert "ollama" in _read_models(tmp_path)["providers"]
 
 
-def test_write_runtime_config_creates_agent_dir_recursively(
-    monkeypatch, tmp_path: Path
-):
+def test_write_runtime_config_creates_agent_dir_recursively(monkeypatch, tmp_path: Path):
     nested = tmp_path / "a" / "b"
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(nested))
     _coder().write_runtime_config(tmp_path, _task())
@@ -941,8 +894,6 @@ def test_write_runtime_config_creates_agent_dir_recursively(
 
 
 @pytest.mark.parametrize("alias", ["sonnet", "opus", "haiku"])
-def test_build_argv_claude_aliases_all_resolve_to_default(
-    tmp_path: Path, alias: str
-):
+def test_build_argv_claude_aliases_all_resolve_to_default(tmp_path: Path, alias: str):
     argv = PiCoder(model=alias).build_argv(_task(), tmp_path)
     assert argv[argv.index("--model") + 1] == "ollama/qwen3.6:latest"

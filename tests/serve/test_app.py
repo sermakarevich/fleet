@@ -1,4 +1,5 @@
 """Tests for src/fleet/serve/app.py — FR-48, FR-49."""
+
 from __future__ import annotations
 
 import asyncio

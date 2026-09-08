@@ -1,4 +1,5 @@
 """Full-text search route (FR-47)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +13,8 @@ from fastapi.responses import JSONResponse
 from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import STATE_MD, tasks_root
 from fleet.state.paths import fleet_home as get_fleet_home
+
+_MAX_RESULTS = 20  # search stops collecting and truncates here
 
 
 @dataclass
@@ -40,7 +43,7 @@ def _state_text(task_dir: Path) -> str:
 
 
 def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
-    """Scan task directories for query matches; return up to 20 results."""
+    """Scan task directories for query matches; return up to _MAX_RESULTS results."""
     results: list[SearchResult] = []
     tasks_dir = tasks_root(fleet_home)
     if not tasks_dir.is_dir() or not query.strip():
@@ -63,34 +66,40 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
         desc = data.get("description") or ""
 
         if q in task_title.lower():
-            results.append(SearchResult(
-                task_id=task_id,
-                task_title=task_title,
-                source="title",
-                match_context=_snippet(task_title, q),
-            ))
+            results.append(
+                SearchResult(
+                    task_id=task_id,
+                    task_title=task_title,
+                    source="title",
+                    match_context=_snippet(task_title, q),
+                )
+            )
 
         if q in desc.lower():
-            results.append(SearchResult(
-                task_id=task_id,
-                task_title=task_title,
-                source="description",
-                match_context=_snippet(desc, q),
-            ))
+            results.append(
+                SearchResult(
+                    task_id=task_id,
+                    task_title=task_title,
+                    source="description",
+                    match_context=_snippet(desc, q),
+                )
+            )
 
         state_text = _state_text(task_dir)
         if state_text and q in state_text.lower():
-            results.append(SearchResult(
-                task_id=task_id,
-                task_title=task_title,
-                source="state",
-                match_context=_snippet(state_text, q),
-            ))
+            results.append(
+                SearchResult(
+                    task_id=task_id,
+                    task_title=task_title,
+                    source="state",
+                    match_context=_snippet(state_text, q),
+                )
+            )
 
-        if len(results) >= 20:
+        if len(results) >= _MAX_RESULTS:
             break
 
-    return results[:20]
+    return results[:_MAX_RESULTS]
 
 
 def create_search_router() -> APIRouter:
@@ -102,16 +111,18 @@ def create_search_router() -> APIRouter:
             return JSONResponse({"results": []})
         home = get_fleet_home()
         results = await asyncio.to_thread(search_tasks, home, q)
-        return JSONResponse({
-            "results": [
-                {
-                    "task_id": r.task_id,
-                    "task_title": r.task_title,
-                    "source": r.source,
-                    "match_context": r.match_context,
-                }
-                for r in results
-            ]
-        })
+        return JSONResponse(
+            {
+                "results": [
+                    {
+                        "task_id": r.task_id,
+                        "task_title": r.task_title,
+                        "source": r.source,
+                        "match_context": r.match_context,
+                    }
+                    for r in results
+                ]
+            }
+        )
 
     return router

@@ -9,11 +9,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
+      - uses: extractions/setup-just@v2
       - run: uv python install 3.12
       - run: uv sync --group dev
-      # TODO: drop --exit-zero once the baseline is clean
-      - run: uv run ruff check src tests --exit-zero
-      - run: uv run pytest tests -q -p no:cacheprovider
+      - run: just check-all
   ui:
     runs-on: ubuntu-latest
     defaults:

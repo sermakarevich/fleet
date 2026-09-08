@@ -25,9 +25,7 @@ class AgyCoder(Coder):
         # future write-settings step.
         self.model = model
 
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         prompt = render_prompt(task, task_dir, plan)
         return [
             "agy",
@@ -42,7 +40,7 @@ class AgyCoder(Coder):
             "FLEET_TASK_DIR": str(task_dir),
         }
 
-    def normalize_event(self, raw_line: str) -> Event | None:
+    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911  # ADR 0006 bead 7
         if not raw_line.strip():
             return None
 
@@ -60,21 +58,21 @@ class AgyCoder(Coder):
                         session_id=data.get("session_id"),
                         usage=data.get("message", {}).get("usage"),
                     )
-                elif t == "tool_use":
+                if t == "tool_use":
                     return Event(
                         kind="tool_use",
                         raw=data,
                         ts=ts,
                         tool_name=data.get("name"),
                     )
-                elif t == "tool_result":
+                if t == "tool_result":
                     return Event(
                         kind="tool_result",
                         raw=data,
                         ts=ts,
                         tool_name=data.get("name"),
                     )
-                elif t == "result":
+                if t == "result":
                     return Event(
                         kind="session_ended",
                         raw=data,

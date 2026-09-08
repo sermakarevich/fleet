@@ -31,8 +31,8 @@ def _is_stub(content: str, task_id: str) -> bool:
     if not content.strip():
         return True
     try:
-        stub = (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8").format(
-            task_id=task_id
+        stub = (
+            (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8").format(task_id=task_id)
         )
     except OSError:
         return False
@@ -59,9 +59,7 @@ def _read_result_snapshot(prev_dir: Path | None) -> tuple[dict | None, bool]:
     return None, True
 
 
-def read_artifacts(
-    task_dir: Path, task_id: str, before_n: int | None = None
-) -> ArtifactSnapshot:
+def read_artifacts(task_dir: Path, task_id: str, before_n: int | None = None) -> ArtifactSnapshot:
     """Build the `ArtifactSnapshot` for planning the next attempt.
 
     *before_n*, when given, is the attempt number about to be planned; the
@@ -85,9 +83,9 @@ def read_artifacts(
         # No attempt snapshots at all (e.g. an old dir whose only record is
         # the live file): fall back to the legacy read, which yields None
         # for new-layout dirs.
-        legacy = legacy_result(task_dir)
-        if legacy is not None:
-            latest_result = legacy
+        legacy_result_data = legacy_result(task_dir)
+        if legacy_result_data is not None:
+            latest_result = legacy_result_data
 
     return ArtifactSnapshot(
         state_text=state_text,

@@ -1,4 +1,5 @@
 """FR-04: Exactly one concurrent claim succeeds when two workers race."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from fleet.beads.queue import BeadsQueue
 from fleet.core.task import Task
 from tests.integration.conftest import (
     MemoryQueue,
@@ -25,7 +27,6 @@ _BEADS_OK = beads_functional()
 def test_atomic_claim_real_beads(tmp_path: Path) -> None:
     """With real beads, exactly one concurrent claim wins. (FR-04)"""
     q1 = init_beads_queue(tmp_path)
-    from fleet.beads.queue import BeadsQueue
 
     q2 = BeadsQueue(tmp_path)
 
@@ -33,11 +34,10 @@ def test_atomic_claim_real_beads(tmp_path: Path) -> None:
 
     async def _run() -> tuple[Task | None, Task | None]:
         # Fire both claims concurrently in the same event loop
-        results = await asyncio.gather(
+        return await asyncio.gather(  # type: ignore[return-value]
             asyncio.get_event_loop().run_in_executor(None, q1.claim_next, "worker-1"),
             asyncio.get_event_loop().run_in_executor(None, q2.claim_next, "worker-2"),
         )
-        return results  # type: ignore[return-value]
 
     r1, r2 = asyncio.run(_run())
 

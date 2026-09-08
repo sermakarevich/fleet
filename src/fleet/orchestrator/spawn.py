@@ -9,6 +9,7 @@ the caller registers nothing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING
 from fleet.coders import get_coder
 from fleet.coders.base import Coder
 from fleet.core.task import Task, TaskOutcome
+from fleet.orchestrator.state import RunningWorker
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers import select_worker
@@ -30,8 +32,8 @@ if TYPE_CHECKING:
 def _repo_excluded(repo_root: Path, exclude: str) -> bool:
     """True when *repo_root* matches an entry of the comma-separated *exclude* list."""
     root = repo_root.expanduser().resolve()
-    for raw in exclude.split(","):
-        raw = raw.strip()
+    for entry in exclude.split(","):
+        raw = entry.strip()
         if raw and Path(raw).expanduser().resolve() == root:
             return True
     return False
@@ -62,7 +64,7 @@ def resolve_coder(st: SupervisorState, task: Task) -> tuple[Coder, str, str | No
         # Context windows are per-model now (``context_windows`` +
         # ``core.context_window.resolve_window``); the coder resolves the
         # window for its model itself, so no limit kwargs are passed.
-    return coder_cls(model=model, **kwargs), coder_name, model
+    return coder_cls(model=model, **kwargs), coder_name, model  # type: ignore[call-arg]  # Coder subclasses take model=; bead 21 adds coder_factory
 
 
 def block_terminal(st: SupervisorState, task: Task, reason: str) -> None:
@@ -73,11 +75,9 @@ def block_terminal(st: SupervisorState, task: Task, reason: str) -> None:
     The attempt is journaled so rounds history shows what happened.
     """
     task_dir = st.task_dir_for(task.id)
-    try:
+    with contextlib.suppress(OSError):
         attempts.record_start(task_dir, coder=task.coder, model=task.model, worker=None)
-    except OSError:
-        pass
-    try:
+    with contextlib.suppress(OSError):
         attempts.record_end(
             task_dir,
             outcome=TaskOutcome.TERMINAL.value,
@@ -85,8 +85,6 @@ def block_terminal(st: SupervisorState, task: Task, reason: str) -> None:
             reason=reason,
             action="block",
         )
-    except OSError:
-        pass
     st.log.error("task_terminal", task_id=task.id, reason=reason)
     st.queue.set_blocked(task.id, reason)
     st.queue.comment(task.id, f"[fleet] {reason}.")
@@ -110,9 +108,7 @@ def should_isolate(st: SupervisorState, task: Task, repo_root: Path | None) -> b
         return False
     if _repo_excluded(repo_root, getattr(st.config, "isolation_exclude", "")):
         return False
-    if (task.isolation or "") == "none":
-        return False
-    return True
+    return (task.isolation or "") != "none"
 
 
 def _purge_stale_kill_marker(st: SupervisorState, task: Task) -> None:
@@ -158,7 +154,7 @@ def _ensure_isolation(
         block_terminal(st, task, f"terminal: worktree setup failed: {exc}")
         return None
     try:
-        st.queue.set_isolation_info(task.id, str(repo_root), base_ref, str(task_root))
+        st.queue.set_isolation_info(task.id, str(repo_root), base_ref, str(task_root))  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
     except Exception as exc:
         st.log.warning("isolation_info_write_failed", task_id=task.id, error=str(exc))
     return task_root
@@ -193,21 +189,21 @@ def _build_step_context(
 
 def _start_worker_run(st: SupervisorState, task: Task, ctx: StepContext) -> RunningWorker | None:
     """Build the worker, start its asyncio task, and return the record."""
-    from fleet.orchestrator.state import RunningWorker
 
     try:
         worker = select_worker(task, ctx)
     except ValueError as exc:
         block_terminal(st, task, f"terminal: invalid worker: {exc}")
         return None
-    try:
+    with contextlib.suppress(OSError):
         attempts.set_worker(st.task_dir_for(task.id), ctx.attempt_n, worker.name)
-    except OSError:
-        pass
     run = WorkerRun(worker, ctx)
     future = asyncio.create_task(run.run(), name=f"worker:{task.id}")
     return RunningWorker(
-        task=task, run=run, future=future, attempt_n=ctx.attempt_n,
+        task=task,
+        run=run,
+        future=future,
+        attempt_n=ctx.attempt_n,
         started_at=datetime.now(tz=UTC),
     )
 
@@ -230,7 +226,7 @@ def spawn_worker(st: SupervisorState, task: Task) -> RunningWorker | None:
         return None
     coder, coder_name, model = coder_triple
     if st.coder_pin is None:
-        st.queue.freeze_coder_model(task.id, coder_name, model)
+        st.queue.freeze_coder_model(task.id, coder_name, model)  # type: ignore[arg-type]  # model override triple is never None here; bead 4 types the Queue contract
     st.log.info("task_coder_selected", task_id=task.id, coder=coder_name, model=model)
     task_root = _ensure_isolation(st, task, base_cwd, repo_root)
     if task_root is None:

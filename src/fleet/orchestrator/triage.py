@@ -83,14 +83,11 @@ def _read_result(task_dir: Path) -> dict | None:
     Falls back to the latest attempt's RESULT.json snapshot, then to the
     legacy artifacts/RESULT.json for old task dirs.
     """
-    for path in (
-        task_dir / RESULT_JSON,
-        *(
-            [latest_attempt_dir(task_dir) / RESULT_JSON]
-            if latest_attempt_dir(task_dir) is not None
-            else []
-        ),
-    ):
+    paths = [task_dir / RESULT_JSON]
+    prev_attempt = latest_attempt_dir(task_dir)
+    if prev_attempt is not None:
+        paths.append(prev_attempt / RESULT_JSON)
+    for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
@@ -108,9 +105,7 @@ def _read_result(task_dir: Path) -> dict | None:
     return asdict(result) if result is not None else None
 
 
-def collect_candidates(
-    queue: Any, project_root: Path, store: Any, limit: int = 100
-) -> list[dict]:
+def collect_candidates(queue: Any, project_root: Path, store: Any, limit: int = 100) -> list[dict]:
     """Blocked beads that need a triage question.
 
     Skipped: beads without task.json ``blocked_reason`` (human-blocked, not
@@ -136,9 +131,7 @@ def collect_candidates(
         task_dir = _task_dir(project_root, task_id)
         history = attempts_mod.load_attempts(task_dir)
         rounds = rounds_for_history(history)
-        rate_limited = any(
-            h.get("outcome") == "rate_limit" for h in history[-_RATE_LIMIT_WINDOW:]
-        )
+        rate_limited = any(h.get("outcome") == "rate_limit" for h in history[-_RATE_LIMIT_WINDOW:])
         candidates.append(
             {
                 "id": task_id,
@@ -164,7 +157,7 @@ def _append_note_to_description(queue: Any, project_root: Path, task_id: str, no
     queue.set_bd_fields(task_id, {"description": updated})
 
 
-def apply_answer(queue: Any, project_root: Path, question: dict) -> str:
+def apply_answer(queue: Any, project_root: Path, question: dict) -> str:  # noqa: PLR0911  # ADR 0006 bead 20
     """Apply one answered triage question; return what was done.
 
     The free-text ``note`` always wins over the selected option: it is

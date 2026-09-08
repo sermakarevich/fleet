@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -50,9 +51,7 @@ def _as_summaries(children: list) -> list[BeadSummary]:
     out: list[BeadSummary] = []
     for c in children:
         if isinstance(c, dict):
-            out.append(
-                BeadSummary(id=str(c.get("id")), status=str(c.get("status") or ""))
-            )
+            out.append(BeadSummary(id=str(c.get("id")), status=str(c.get("status") or "")))
         else:
             out.append(BeadSummary(id=str(c.id), status=str(c.status)))
     return out
@@ -68,14 +67,10 @@ class WaitChildren:
 
     async def run(self, ctx: StepContext) -> StepResult:
         try:
-            children = _as_summaries(
-                self._queue_factory(ctx.fleet_home).list_children(ctx.task.id)
-            )
+            children = _as_summaries(self._queue_factory(ctx.fleet_home).list_children(ctx.task.id))
         except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
             return StepResult(status="fail", reason=f"cannot list children: {exc}")
-        ctx.scratch["children"] = [
-            {"id": c.id, "status": c.status} for c in children
-        ]
+        ctx.scratch["children"] = [{"id": c.id, "status": c.status} for c in children]
         if children_terminal(children):
             return StepResult(status="ok")
         running = [c for c in children if c.status not in ("closed", "blocked")]
@@ -179,7 +174,9 @@ class CollectChildren:
                 return StepResult(status="fail", reason=f"cannot list children: {exc}")
         sections = [
             _render_child_section(
-                str(c.get("id")), str(c.get("status") or ""), _child_digest(str(c.get("id")), ctx.fleet_home)
+                str(c.get("id")),
+                str(c.get("status") or ""),
+                _child_digest(str(c.get("id")), ctx.fleet_home),
             )
             for c in raw
             if isinstance(c, dict) and c.get("id")
@@ -187,12 +184,18 @@ class CollectChildren:
         # Bounded by construction: oldest sections drop first past the cap.
         while len("\n\n".join(sections).encode("utf-8")) > CHILDREN_MD_MAX_BYTES and sections:
             sections.pop(0)
-        body = "# Children digest\n\n" + "\n\n".join(sections) if sections else "# Children digest\n\n(none)"
+        body = (
+            "# Children digest\n\n" + "\n\n".join(sections)
+            if sections
+            else "# Children digest\n\n(none)"
+        )
         artifacts_dir = ctx.task_dir / "artifacts"
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         (artifacts_dir / "CHILDREN.md").write_text(body, encoding="utf-8")
         blocked = sum(1 for c in raw if isinstance(c, dict) and c.get("status") == "blocked")
-        ctx.scratch["child_ids"] = [str(c["id"]) for c in raw if isinstance(c, dict) and c.get("id")]
+        ctx.scratch["child_ids"] = [
+            str(c["id"]) for c in raw if isinstance(c, dict) and c.get("id")
+        ]
         ctx.scratch["blocked_children"] = blocked
         pack_bytes = len(body.encode("utf-8"))
         ctx.scratch["launch_plan"] = LaunchPlan(
@@ -228,12 +231,10 @@ class SpawnFollowups:
         try:
             specs = validate_followups(result.followups, max_followups=max_followups)
         except ValueError as exc:
-            try:
+            with suppress(Exception):  # noqa: BLE001 - commenting is best effort
                 self._queue_factory(ctx.fleet_home).comment(
                     ctx.task.id, f"[fleet] ignoring invalid follow-ups: {exc}"
                 )
-            except Exception:  # noqa: BLE001 - commenting is best effort
-                pass
             return StepResult(status="ok")
         queue = self._queue_factory(ctx.fleet_home)
         created: dict[str, str] = {}
@@ -267,9 +268,7 @@ class SpawnFollowups:
 # fresh step instances per attempt instead of reusing these: LlmSession
 # holds per-attempt subprocess state on `self`, and attempts run
 # concurrently across tasks.
-Observer = Worker(
-    "observer", (WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups())
-)
+Observer = Worker("observer", (WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups()))
 
 
 def plan_observer(ctx: StepContext) -> Worker:

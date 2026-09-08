@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from fleet.orchestrator.leases import sweep_orphan_worktrees
+from fleet.orchestrator.leases import _remove_orphan_dir, sweep_orphan_worktrees
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.validation_marker import set_needs_validation
 from tests.conftest import make_running_worker, make_supervisor
@@ -74,8 +74,7 @@ class TestSweepOrphanWorktrees:
         task_dir.mkdir(parents=True)
         (task_dir / "task.json").write_text(
             json.dumps(
-                {"id": "t-live", "repo_root": "/r", "base_ref": "main",
-                 "worktree_path": str(wt)}
+                {"id": "t-live", "repo_root": "/r", "base_ref": "main", "worktree_path": str(wt)}
             )
         )
 
@@ -123,7 +122,6 @@ class TestSweepOrphanWorktrees:
 class TestRemoveOrphanDir:
     def test_falls_back_to_rmtree(self, tmp_path: Path) -> None:
         """A dir that is not a git worktree is deleted recursively."""
-        from fleet.orchestrator.leases import _remove_orphan_dir
 
         target = tmp_path / "orphan"
         target.mkdir()
@@ -132,6 +130,5 @@ class TestRemoveOrphanDir:
         assert not target.exists()
 
     def test_never_raises(self, tmp_path: Path) -> None:
-        from fleet.orchestrator.leases import _remove_orphan_dir
 
         _remove_orphan_dir(tmp_path / "does-not-exist")

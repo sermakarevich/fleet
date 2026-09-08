@@ -49,7 +49,10 @@ def test_run_startup_checks_returns_one_result_per_check(tmp_path) -> None:  # t
     st = _state(tmp_path)
     checks: list[StartupCheck] = [_Check("a", "warn", None), _Check("b", "warn", "disk full")]
     results = run_startup_checks(st, checks)
-    assert results == [CheckResult(name="a", problem=None), CheckResult(name="b", problem="disk full")]
+    assert results == [
+        CheckResult(name="a", problem=None),
+        CheckResult(name="b", problem="disk full"),
+    ]
 
 
 def test_warn_failure_does_not_raise(tmp_path) -> None:  # type: ignore[no-untyped-def]

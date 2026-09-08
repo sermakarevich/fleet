@@ -5,6 +5,7 @@ these endpoints are a direct portal into the beads DB at ``fleet_home()``: list
 every bead, inspect one (description, notes, dependencies, comments), and manage
 it (change status, unblock, remove assignee). All mutations shell out to ``bd``.
 """
+
 from __future__ import annotations
 
 import asyncio

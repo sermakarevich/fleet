@@ -84,9 +84,9 @@ def _make_supervisor(
 def _git_init(path: Path) -> None:
     subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True)
     subprocess.run(
-        ["git", "config", "user.email", "t@t.com"], cwd=path, capture_output=True
+        ["git", "config", "user.email", "t@t.com"], cwd=path, capture_output=True, check=False
     )
-    subprocess.run(["git", "config", "user.name", "t"], cwd=path, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, capture_output=True, check=False)
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
         cwd=path,
@@ -109,9 +109,7 @@ def test_git_task_isolates_by_default(tmp_path: Path) -> None:
     _git_init(repo)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    task = Task(
-        id="t-wt-1", title="X", description=None, status="in_progress", cwd=str(repo)
-    )
+    task = Task(id="t-wt-1", title="X", description=None, status="in_progress", cwd=str(repo))
     worker = _spawn(s, task)
 
     assert "t-wt-1" in queue.isolation_infos
@@ -130,9 +128,7 @@ def test_non_git_task_runs_in_place(tmp_path: Path) -> None:
     plain.mkdir()
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    task = Task(
-        id="t-wt-2", title="X", description=None, status="in_progress", cwd=str(plain)
-    )
+    task = Task(id="t-wt-2", title="X", description=None, status="in_progress", cwd=str(plain))
     worker = _spawn(s, task)
 
     assert "t-wt-2" not in queue.isolation_infos
@@ -167,9 +163,7 @@ def test_config_none_runs_in_place(tmp_path: Path) -> None:
     _git_init(repo)
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(isolation="none"))
-    task = Task(
-        id="t-wt-4", title="X", description=None, status="in_progress", cwd=str(repo)
-    )
+    task = Task(id="t-wt-4", title="X", description=None, status="in_progress", cwd=str(repo))
     _spawn(s, task)
 
     assert "t-wt-4" not in queue.isolation_infos
@@ -208,9 +202,7 @@ def test_invalid_coder_leaves_no_worktree(tmp_path: Path) -> None:
         services=[],
         checks=[],
     )
-    task = Task(
-        id="t-wt-5", title="X", description=None, status="in_progress", cwd=str(repo)
-    )
+    task = Task(id="t-wt-5", title="X", description=None, status="in_progress", cwd=str(repo))
     _spawn(s, task)
 
     assert len(queue.blocked) == 1

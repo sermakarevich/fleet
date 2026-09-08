@@ -22,6 +22,7 @@ Scenarios:
   block_via_bd         write Q&A.md Q block, bd update blocked, result, exit 0
   read_qa_and_close    verify A block in Q&A.md, bd close, result, exit 0
 """
+
 import json
 import os
 import signal
@@ -35,7 +36,7 @@ def emit(data: dict) -> None:
     print(json.dumps(data), flush=True)
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0912, PLR0915  # ADR 0006 bead 29
     scenario = os.environ.get("FAKE_CLAUDE_SCENARIO", "clean_exit")
     task_id = os.environ.get("FLEET_TASK_ID", "unknown")
     task_dir = Path(os.environ.get("FLEET_TASK_DIR", "."))
@@ -131,8 +132,7 @@ def main() -> None:
                 "**Need:** An answer from the human\n\n"
             )
         subprocess.run(
-            ["bd", "update", task_id, "--status", "blocked",
-             "--notes", "QUESTION: magic number?"],
+            ["bd", "update", task_id, "--status", "blocked", "--notes", "QUESTION: magic number?"],
             cwd=bd_root,
             check=False,
         )

@@ -5,6 +5,7 @@ ordering) is exercised with `subprocess.Popen` / `os.kill` mocked for
 determinism. One real-process test covers the actual spawn → detach → PID-file →
 liveness path end to end.
 """
+
 from __future__ import annotations
 
 import os
@@ -169,7 +170,9 @@ def test_stop_graceful_sigterm(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.observability.daemon.os.kill", kill)
     monkeypatch.setattr("fleet.observability.daemon.os.killpg", killpg)
     # alive at the pre-SIGTERM guard, dead on the first poll afterwards
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", MagicMock(side_effect=[True, False]))
+    monkeypatch.setattr(
+        "fleet.observability.daemon._pid_alive", MagicMock(side_effect=[True, False])
+    )
     monkeypatch.setattr("fleet.observability.daemon.time.sleep", lambda *_: None)
 
     assert d.stop() is True
@@ -215,9 +218,7 @@ def test_restart_runs_hook_before_stop_before_start(tmp_path: Path, monkeypatch)
     d = Daemon(make_spec(tmp_path))
     calls: list[str] = []
     monkeypatch.setattr(d, "stop", lambda *a, **k: calls.append("stop") or False)
-    monkeypatch.setattr(
-        d, "start", lambda: calls.append("start") or StartResult(1, False, True)
-    )
+    monkeypatch.setattr(d, "start", lambda: calls.append("start") or StartResult(1, False, True))
     d.restart(before_start=lambda: calls.append("build"))
     assert calls == ["build", "stop", "start"]
 

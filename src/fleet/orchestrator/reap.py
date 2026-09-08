@@ -9,6 +9,7 @@ other services (StallWatch) can drop their per-task scratch data.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -42,10 +43,8 @@ _STALE_COUNTER_FILES = (".failures", ".noclose", ".stalls")
 def _drop_stale_counter_files(task_dir: Path) -> None:
     """Remove pre-retry-policy counter files; rounds now come from attempts.jsonl."""
     for name in _STALE_COUNTER_FILES:
-        try:
+        with contextlib.suppress(OSError):
             (task_dir / name).unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def pop_finished(st: SupervisorState, fut: asyncio.Task) -> RunningWorker | None:
@@ -106,7 +105,7 @@ def fold_declared_result(record: TaskOutcomeRecord, result: Result) -> TaskOutco
     )
 
 
-def maybe_handle_isolated_success(
+def maybe_handle_isolated_success(  # noqa: PLR0911  # ADR 0006 bead 20
     st: SupervisorState,
     task: Task,
     task_dir: Path,
@@ -162,15 +161,11 @@ def discard_isolation(st: SupervisorState, task: Task, task_dir: Path, info: dic
     wt_path = Path(info["worktree_path"])
     if repo_root:
         worktree.cleanup_worktree(repo_root, task.id, wt_path, fleet_home=st.project_root)
-        try:
+        with contextlib.suppress(Exception):  # noqa: BLE001
             worktree.delete_branch(repo_root, task.id)
-        except Exception:  # noqa: BLE001
-            pass
     (task_dir / ".worktree").unlink(missing_ok=True)
-    try:
-        st.queue.clear_isolation_info(task.id)
-    except Exception:  # noqa: BLE001
-        pass
+    with contextlib.suppress(Exception):  # noqa: BLE001
+        st.queue.clear_isolation_info(task.id)  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
 
 
 def apply_noop(
@@ -317,9 +312,7 @@ def _release_failure(
     st.log.warning("task_failure_release", task_id=task.id, failures=rounds)
 
 
-def _release_partial(
-    st: SupervisorState, task: Task, task_dir: Path, decision: Decision
-) -> None:
+def _release_partial(st: SupervisorState, task: Task, task_dir: Path, decision: Decision) -> None:
     """Release a partial task for retry and comment the progress count."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
@@ -416,9 +409,7 @@ def apply_decision(
     _APPLY[decision.action](st, task, task_dir, record, decision, fleet_ctx, status, result)
 
 
-def snapshot_attempt_artifacts(
-    st: SupervisorState, task: Task, task_dir: Path, n: int
-) -> None:
+def snapshot_attempt_artifacts(st: SupervisorState, task: Task, task_dir: Path, n: int) -> None:
     """Copy this attempt's STATE.md/RESULT.json into attempts/<n>/ and unlink live RESULT."""
     attempt_dir = attempts.attempt_dir(task_dir, n)
     attempt_dir.mkdir(parents=True, exist_ok=True)
@@ -428,7 +419,9 @@ def snapshot_attempt_artifacts(
         try:
             (attempt_dir / STATE_MD).write_bytes(state_src.read_bytes())
         except OSError as exc:
-            st.log.warning("attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc))
+            st.log.warning(
+                "attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc)
+            )
 
     result_src = task_dir / RESULT_JSON
     if result_src.exists():
@@ -470,9 +463,7 @@ def observer_cap_decision(
     return None
 
 
-def handle_outcome(
-    st: SupervisorState, worker: RunningWorker, outcome: TaskOutcomeRecord
-) -> None:
+def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutcomeRecord) -> None:
     """Fold one finished worker's outcome into queue state and the attempts journal."""
     task = worker.task
     task_dir = st.task_dir_for(task.id)

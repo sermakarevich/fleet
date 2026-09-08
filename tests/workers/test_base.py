@@ -29,7 +29,9 @@ class _RecordingStep:
             await self._cancel_event.wait()
             return StepResult(
                 status="outcome",
-                outcome=TaskOutcomeRecord(outcome=TaskOutcome.KILLED, reason=self.cancel_reason or ""),
+                outcome=TaskOutcomeRecord(
+                    outcome=TaskOutcome.KILLED, reason=self.cancel_reason or ""
+                ),
             )
         outcome = None
         if self._status == "outcome":

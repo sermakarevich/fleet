@@ -1,7 +1,9 @@
+import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 
+from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task, TaskOutcomeRecord
 
@@ -19,8 +21,6 @@ _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 def isolation_workdir(task_dir: Path) -> str | None:
     """The worktree an isolated task runs in, from task.json (legacy `.worktree` fallback)."""
     try:
-        import json
-
         meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         if isinstance(meta, dict) and meta.get("worktree_path"):
             return str(meta["worktree_path"])
@@ -112,9 +112,7 @@ class Coder(ABC):
     default_model: str = ""
 
     @classmethod
-    def context_limit_for(
-        cls, model: str | None, overrides: dict[str, int] | None = None
-    ) -> int:
+    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
         """Context window for the given model string.
 
         Resolves through ``core.context_window.resolve_window`` with the
@@ -122,14 +120,11 @@ class Coder(ABC):
         one denominator. *overrides* is the parsed ``context_windows``
         config (``{model: tokens}``); None means the built-in table only.
         """
-        from fleet.core.context_window import resolve_window
 
         return resolve_window(model, overrides, cls.context_limit)
 
     @abstractmethod
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         """Return the argv list to spawn the coder CLI subprocess.
 
         *plan* is the `core.launch.LaunchPlan` for this attempt (fresh vs.
@@ -160,16 +155,14 @@ class Coder(ABC):
         SHALL be pure: no I/O, no logging, no side effects.
         """
 
-    def write_runtime_config(self, project: Path, task: Task) -> None:
+    def write_runtime_config(self, project: Path, task: Task) -> None:  # noqa: B027  # intentional no-op hook
         """Inject coder-managed config (hooks, settings) into project root before spawn.
 
         Default is a no-op; coders that need to write config should override this.
         Called by LlmSession.run before the subprocess is spawned.
         """
 
-    def probe_health(
-        self, task: Task, task_dir: Path, since: datetime
-    ) -> TaskOutcomeRecord | None:
+    def probe_health(self, task: Task, task_dir: Path, since: datetime) -> TaskOutcomeRecord | None:
         """Called periodically by LlmSession while the subprocess is silent.
 
         `since` is the time of the last stdout event: only provider errors

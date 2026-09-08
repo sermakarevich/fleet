@@ -8,10 +8,12 @@ concurrent waiters being released independently.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 from pathlib import Path
 
+from fleet.integrations.ask_human import store as store_mod
 from fleet.integrations.ask_human.store import QuestionStore
 
 
@@ -49,7 +51,7 @@ def test_first_writer_wins(tmp_path: Path):
     s = _store(tmp_path)
     qid = s.create("Pick one")
     assert s.answer(qid, "a") is True
-    assert s.answer(qid, "b") is False          # already resolved
+    assert s.answer(qid, "b") is False  # already resolved
     assert s.get(qid)["answer"] == "a"
 
 
@@ -105,7 +107,6 @@ def test_note_only_answer_overrides_options(tmp_path: Path):
 def test_migration_adds_note_column_to_preexisting_db(tmp_path: Path):
     # A DB created before `note` existed must gain the column on open (and keep
     # its rows) — the live questions.db is exactly this case.
-    import sqlite3
 
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)
@@ -124,7 +125,7 @@ def test_migration_adds_note_column_to_preexisting_db(tmp_path: Path):
     conn.close()
 
     s = QuestionStore(path)  # opening runs the migration
-    assert s.get("old1")["note"] is None            # pre-existing row survives
+    assert s.get("old1")["note"] is None  # pre-existing row survives
     assert s.answer("old1", "yes", note="works after migrate")
     assert s.get("old1")["note"] == "works after migrate"
 
@@ -134,7 +135,7 @@ def test_resolve_id_prefix_and_cancel(tmp_path: Path):
     qid = s.create("cancel me")
     assert s.resolve_id(qid[:6]) == qid
     assert s.cancel(qid) is True
-    assert s.answer(qid, "late") is False       # can't answer a cancelled one
+    assert s.answer(qid, "late") is False  # can't answer a cancelled one
 
 
 def test_shared_db_with_module_level_helpers(tmp_path: Path):
@@ -142,7 +143,6 @@ def test_shared_db_with_module_level_helpers(tmp_path: Path):
     # clients of the same SQLite file; an answer written through either side
     # must be visible to the other (this is exactly the serve-process /
     # MCP-server split in production).
-    from fleet.integrations.ask_human import store as store_mod
 
     path = tmp_path / "q.db"
     s = QuestionStore(path)
@@ -160,13 +160,14 @@ def test_shared_db_with_module_level_helpers(tmp_path: Path):
 
 
 def test_module_level_answer_writes_note(tmp_path: Path):
-    from fleet.integrations.ask_human import store as store_mod
 
     path = tmp_path / "q.db"
     s = QuestionStore(path)
     qid = s.create("Deploy to prod?", options=["yes", "no"])
 
-    result = store_mod.answer(qid, "yes", answered_by="web", note="wait for migration", db_path=path)
+    result = store_mod.answer(
+        qid, "yes", answered_by="web", note="wait for migration", db_path=path
+    )
     assert result["ok"] is True
 
     q = store_mod.get(qid, db_path=path)

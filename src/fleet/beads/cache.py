@@ -18,12 +18,12 @@ _beads_list_call_count: int = 0  # incremented on each real subprocess call; obs
 
 
 def get_beads_status_map(home: Path) -> dict[str, dict] | None:
-    """Return {task_id: {status, created_at, priority, title, description, notes}} for all tasks in the beads DB at `home`.
+    """Return {task_id: {status, ...}} for all tasks in the beads DB at `home`.
 
     Returns None if beads is unavailable so the caller can skip reconciliation.
     Results are cached for _BEADS_CACHE_TTL seconds to avoid a subprocess on every poll.
     """
-    global _beads_list_call_count
+    global _beads_list_call_count  # noqa: PLW0603  # ADR 0006 bead 4 owns beads/ shared state
     key = str(home)
     now = time.monotonic()
     cached = _beads_map_cache.get(key)

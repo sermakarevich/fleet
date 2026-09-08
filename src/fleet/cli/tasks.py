@@ -12,14 +12,19 @@ import typer
 from rich.console import Console
 from typer.core import TyperCommand
 
+from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
 from fleet.beads.queue import BeadsQueue
 from fleet.cli.format import render_tasks_table
 from fleet.core.config import load as load_config
+from fleet.core.job_phase import JobSnapshot, phase
 from fleet.core.limits import LOG_ROOT
+from fleet.integrations.ask_human.store import QuestionStore
 from fleet.observability import tailview
+from fleet.serve.stats import task_runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.tail import read_new_bytes
@@ -80,7 +85,7 @@ def _running_tasks_help_text() -> str:
 class _TaskHelpCommand(TyperCommand):
     """`fleet task` command whose --help appends a list of running tasks."""
 
-    def format_help(self, ctx, formatter):  # type: ignore[override]
+    def format_help(self, ctx, formatter):
         self.epilog = _running_tasks_help_text()
         return super().format_help(ctx, formatter)
 
@@ -118,7 +123,7 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
         sys.exit(0)
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
     @app.command()
     def init(
         force: Annotated[
@@ -126,7 +131,6 @@ def register(app: typer.Typer) -> None:
         ] = False,
     ) -> None:
         """Initialize the fleet home directory (beads + defaults)."""
-        from fleet.beads import client as beads_client
 
         home = fleet_home()
         home.mkdir(parents=True, exist_ok=True)
@@ -146,9 +150,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command()
     def ready(
-        limit: Annotated[
-            int, typer.Option("--limit", "-n", help="Maximum tasks to list.")
-        ] = 50,
+        limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
     ) -> None:
         """List ready tasks."""
         q = BeadsQueue(fleet_home())
@@ -173,7 +175,6 @@ def register(app: typer.Typer) -> None:
         ] = False,
     ) -> None:
         """Show one task."""
-        from fleet.beads import client as beads_client
 
         root = fleet_home()
         if json_output:
@@ -219,9 +220,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("tasks")
     def tasks_cmd(
-        limit: Annotated[
-            int, typer.Option("--limit", "-n", help="Maximum tasks to list.")
-        ] = 50,
+        limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
         ignored: Annotated[
             bool,
             typer.Option("--ignored", help="List triage-ignored blocked tasks."),
@@ -311,8 +310,6 @@ def register(app: typer.Typer) -> None:
                 _print_file_or_exit(state_path, f"No STATE.md for task {task_id}")
                 return
             # Old task dirs without STATE.md: render the legacy view on demand.
-            from fleet.state.legacy import legacy_state_text
-
             legacy = legacy_state_text(task_dir)
             if legacy is None:
                 typer.echo(f"No STATE.md for task {task_id}", err=True)
@@ -348,7 +345,6 @@ def register(app: typer.Typer) -> None:
         job_id: Annotated[str, typer.Argument(help="Job (epic) bead ID.")],
     ) -> None:
         """Show a job's phase, children table, and pending gate question."""
-        from fleet.core.job_phase import JobSnapshot, phase
 
         home = fleet_home()
         q = BeadsQueue(home)
@@ -367,8 +363,6 @@ def register(app: typer.Typer) -> None:
         except BeadsError:
             children = []
         try:
-            from fleet.integrations.ask_human.store import QuestionStore
-
             pending = QuestionStore().fetch_pending_for_task(job_id, "job_gate")
         except Exception:
             pending = []
@@ -395,13 +389,16 @@ def register(app: typer.Typer) -> None:
         else:
             typer.echo(f"children: {len(children)}")
             for child in children:
-                cid = getattr(child, "id", None) or child.get("id")
-                cstatus = getattr(child, "status", None) or child.get("status")
+                child_dict = child if isinstance(child, dict) else {}
+                cid = getattr(child, "id", None) or child_dict.get("id")
+                cstatus = getattr(child, "status", None) or child_dict.get("status")
                 typer.echo(f"  {cid}  [{cstatus}]")
         if pending:
             typer.echo(f"gate: {len(pending)} pending question(s)")
             for question in pending:
-                typer.echo(f"  {question.get('id')}: {(question.get('prompt') or '').splitlines()[0] if question.get('prompt') else ''}")
+                prompt = question.get("prompt") or ""
+                first_line = prompt.splitlines()[0] if prompt else ""
+                typer.echo(f"  {question.get('id')}: {first_line}")
         else:
             typer.echo("gate: no pending questions")
 
@@ -418,7 +415,6 @@ def register(app: typer.Typer) -> None:
         ] = False,
     ) -> None:
         """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
-        from fleet.serve.stats import task_runtime_stats
 
         home = fleet_home()
         task_dir_path = _task_dir(home, task_id)
@@ -445,9 +441,7 @@ def register(app: typer.Typer) -> None:
 
         stats = task_runtime_stats(task_id)
         last_event_str = (
-            stats.last_event_at.strftime("%H:%M:%S")
-            if stats.last_event_at is not None
-            else "-"
+            stats.last_event_at.strftime("%H:%M:%S") if stats.last_event_at is not None else "-"
         )
         ctx = stats.context_tokens if stats.context_tokens is not None else "-"
         typer.echo(

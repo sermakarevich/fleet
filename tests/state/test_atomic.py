@@ -1,6 +1,9 @@
 """Tests for `state.atomic.write_text_atomic` (temp file + rename)."""
+
 from __future__ import annotations
 
+import contextlib
+import threading
 from pathlib import Path
 
 from fleet.state.atomic import write_text_atomic
@@ -23,7 +26,6 @@ def test_overwrite_leaves_no_tmp_sibling(tmp_path: Path) -> None:
 
 def test_overwrite_is_atomic_for_readers(tmp_path: Path) -> None:
     """Reader either sees old or new content, never a torn mix."""
-    import threading
 
     target = tmp_path / "data.txt"
     target.write_text("a" * 1000, encoding="utf-8")
@@ -32,10 +34,8 @@ def test_overwrite_is_atomic_for_readers(tmp_path: Path) -> None:
 
     def reader() -> None:
         while not stop.is_set():
-            try:
+            with contextlib.suppress(OSError):
                 seen.add(target.read_text(encoding="utf-8"))
-            except OSError:
-                pass
 
     thread = threading.Thread(target=reader)
     thread.start()

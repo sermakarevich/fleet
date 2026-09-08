@@ -1,11 +1,17 @@
+import contextlib
 import json
 import stat
 from datetime import UTC, datetime
+from http import HTTPStatus
 from pathlib import Path
 
 from fleet.coders.base import Coder, render_prompt
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
+from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.state.attempts import latest_attempt_dir
+from fleet.state.paths import fleet_home
+from fleet.state.paths import task_dir as _resolve_task_dir
 
 
 def _extract_usage_pct(info: dict) -> float | None:
@@ -37,7 +43,6 @@ def _mcp_config_path(task_dir: Path) -> Path:
     attempt-independent, so resolving "latest" here and in
     ``write_runtime_config`` always agrees within one attempt.
     """
-    from fleet.state.attempts import latest_attempt_dir
 
     attempt_dir = latest_attempt_dir(task_dir)
     return (attempt_dir or task_dir) / MCP_CONFIG_FILENAME
@@ -50,7 +55,6 @@ def _write_mcp_config(path: Path, home: Path) -> Path:
     (the same source opencode and codex use); *home* is FLEET_HOME. Values are
     paths and module names, never secrets.
     """
-    from fleet.integrations.mcp_servers import fleet_mcp_servers
 
     servers = {}
     for name, entry in fleet_mcp_servers(home).items():
@@ -72,9 +76,7 @@ class ClaudeCoder(Coder):
     def __init__(self, model: str = "sonnet") -> None:
         self.model = model
 
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         prompt = render_prompt(task, task_dir, plan)
         # The worker prompt tells the model to call the ask_human MCP tool, so
         # the server must be handed explicitly: --mcp-config points at the
@@ -84,13 +86,10 @@ class ClaudeCoder(Coder):
         # argv always points at a real file; write_runtime_config writes the
         # same path before spawn — both resolve via _mcp_config_path, so they
         # always agree within one attempt.
-        from fleet.state.paths import fleet_home
 
         mcp_path = _mcp_config_path(task_dir)
-        try:
+        with contextlib.suppress(OSError):
             _write_mcp_config(mcp_path, fleet_home())
-        except OSError:
-            pass
         return [
             "claude",
             "-p",
@@ -181,18 +180,13 @@ class ClaudeCoder(Coder):
 
         hooks: dict = dict(existing.get("hooks", {}))
         for event_type, fleet_entry in fleet_hook_entries.items():
-            non_fleet = [
-                e for e in hooks.get(event_type, []) if not e.get("_fleet_managed")
-            ]
+            non_fleet = [e for e in hooks.get(event_type, []) if not e.get("_fleet_managed")]
             hooks[event_type] = non_fleet + [fleet_entry]
 
         result = {**existing, "hooks": hooks}
         settings_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
         try:
-            from fleet.state.paths import fleet_home
-            from fleet.state.paths import task_dir as _resolve_task_dir
-
             task_id = getattr(task, "id", None)
             if task_id:
                 tdir = _resolve_task_dir(fleet_home(), task_id)
@@ -234,7 +228,10 @@ class ClaudeCoder(Coder):
             )
 
         # Hard rate-limit rejection (HTTP 429 or explicit reject envelope)
-        if data.get("api_error_status") == 429 or data.get("error") == "rate_limit":
+        if (
+            data.get("api_error_status") == HTTPStatus.TOO_MANY_REQUESTS
+            or data.get("error") == "rate_limit"
+        ):
             return Event(
                 kind="rate_limit",
                 raw=data,

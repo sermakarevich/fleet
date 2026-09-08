@@ -1,4 +1,4 @@
-"""Tests for REST API routes (FR-07, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38, FR-39, FR-40, FR-41, FR-42, FR-43, FR-44)."""
+"""Tests for REST API routes (FR-07, FR-31 through FR-44)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from fleet.beads import cache as beads_info
+from fleet.serve import stats as stats_mod
 from fleet.serve.app import create_app
+from fleet.state import events as events_mod
 
 
 def _make_task_dir(
@@ -35,17 +38,13 @@ def _make_task_dir(
     return task_dir
 
 
-def test_tasks_list_returns_tasks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks returns task list with correct shape (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     _make_task_dir(tasks_root, "task-abc", "in_progress")
 
-    monkeypatch.setattr(
-        "fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None)
-    )
+    monkeypatch.setattr("fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None))
 
     app = create_app()
 
@@ -69,7 +68,7 @@ def test_tasks_list_returns_tasks(
 
 
 def test_task_kill_killing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """POST /api/tasks/{id}/kill returns killing when supervisor alive and task in_progress (FR-07)."""
+    """POST /api/tasks/{id}/kill returns killing when the task is in_progress (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task_dir(tasks_root, "task-kill", "in_progress")
@@ -89,9 +88,7 @@ def test_task_kill_killing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert (task_dir / ".kill").exists(), ".kill sentinel should be written"
 
 
-def test_task_kill_supervisor_not_running(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_kill_supervisor_not_running(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """POST /api/tasks/{id}/kill returns supervisor-not-running when no live supervisor (FR-07)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -185,9 +182,7 @@ def test_task_summary_includes_priority_and_depends_on(
     assert tasks["task-bd2"]["depends_on"] == []
 
 
-def test_config_get_returns_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_get_returns_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/config returns all RuntimeConfig fields (FR-43)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -206,9 +201,7 @@ def test_config_get_returns_fields(
     assert "coder" in data
 
 
-def test_config_put_updates_field(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_put_updates_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """PUT /api/config updates runtime.toml atomically and returns new config (FR-43)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -231,9 +224,7 @@ def test_config_put_updates_field(
 # ---------------------------------------------------------------------------
 
 
-def test_artifact_state_returns_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_artifact_state_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/artifacts/state returns STATE.md content and mtime."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-state")
@@ -294,9 +285,7 @@ def test_artifact_state_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert resp.status_code == 404
 
 
-def test_artifact_result_returns_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_artifact_result_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/artifacts/result returns RESULT.json content."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-result")
@@ -333,19 +322,13 @@ def test_artifact_result_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert resp.status_code == 404
 
 
-def test_logs_returns_parsed_lines(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_logs_returns_parsed_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/logs returns parsed log lines (FR-17)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-logs")
     log_lines = [
-        json.dumps(
-            {"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "started"}
-        ),
-        json.dumps(
-            {"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "failed"}
-        ),
+        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "started"}),
+        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "failed"}),
         "bad line",  # malformed line should be skipped
     ]
     (task_dir / "log.jsonl").write_text("\n".join(log_lines))
@@ -373,12 +356,8 @@ def test_logs_level_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-logfilter")
     log_lines = [
-        json.dumps(
-            {"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "ok"}
-        ),
-        json.dumps(
-            {"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "boom"}
-        ),
+        json.dumps({"timestamp": "2024-01-01T00:00:00", "level": "info", "event": "ok"}),
+        json.dumps({"timestamp": "2024-01-01T00:00:01", "level": "error", "event": "boom"}),
     ]
     (task_dir / "log.jsonl").write_text("\n".join(log_lines))
 
@@ -397,9 +376,7 @@ def test_logs_level_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert data["lines"][0]["level"] == "error"
 
 
-def test_stderr_returns_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_stderr_returns_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/stderr returns raw stderr content (FR-18)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-stderr")
@@ -419,9 +396,7 @@ def test_stderr_returns_content(
     assert "some error output" in data["content"]
 
 
-def test_stderr_empty_when_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_stderr_empty_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/stderr returns empty content when log.stderr absent (FR-18)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-nostderr")
@@ -442,7 +417,7 @@ def test_stderr_empty_when_missing(
 def test_supervisor_dead_with_stale_tasks_reports_zero_active(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/supervisor returns active_count=0 when supervisor is dead despite stale in_progress tasks (FR-42)."""
+    """GET /api/supervisor reports active_count=0 for a dead supervisor (FR-42)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     _make_task_dir(tasks_root, "stale-1", "in_progress")
@@ -474,8 +449,6 @@ def test_supervisor_running_counts_active_tasks(
     _make_task_dir(tasks_root, "active-1", "in_progress")
     _make_task_dir(tasks_root, "done-1", "completed")
 
-    import os
-
     pid = os.getpid()
     (tmp_path / ".supervisor.pid").write_text(
         json.dumps(
@@ -503,9 +476,7 @@ def test_supervisor_running_counts_active_tasks(
     assert data["free_slots"] == data["max_concurrent"] - 1
 
 
-def test_diff_returns_empty_for_non_git(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/diff returns empty diff when cwd is not a git repo (FR-19)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     work_dir = tmp_path / "workdir"
@@ -525,17 +496,12 @@ def test_diff_returns_empty_for_non_git(
     assert resp.json()["diff"] == ""
 
 
-def test_tasks_list_cache_hit_skips_rescan(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Second GET /api/tasks poll does not re-scan unchanged events.jsonl."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cachecheck")
     event = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
     (task_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
-
-    from fleet.state import events as events_mod
-    from fleet.serve import stats as stats_mod
 
     stats_mod._events_cache.clear()
 
@@ -576,9 +542,6 @@ def test_tasks_list_cache_invalidated_on_events_change(
     attempt_dir.mkdir(parents=True, exist_ok=True)
     (attempt_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
 
-    from fleet.state import events as events_mod
-    from fleet.serve import stats as stats_mod
-
     stats_mod._events_cache.clear()
 
     app = create_app()
@@ -614,8 +577,6 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     """
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
-
-    from fleet.beads import cache as beads_info
 
     # Reset module-level cache and counter so this test is isolated.
     monkeypatch.setattr("fleet.beads.cache._beads_map_cache", {})
@@ -739,16 +700,12 @@ def test_list_tasks_includes_block_and_retry_fields(
     """GET /api/tasks includes blocked_reason, restarts, rounds for a task."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
-    task_dir = _make_task_dir(
-        tasks_root, "task-blocked", "blocked", blocked_reason="x"
-    )
+    task_dir = _make_task_dir(tasks_root, "task-blocked", "blocked", blocked_reason="x")
     # Two consecutive failure attempts journaled in attempts.jsonl.
     (task_dir / "attempts.jsonl").write_text(
         "\n".join(
             [
-                json.dumps(
-                    {"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}
-                ),
+                json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}),
                 json.dumps(
                     {
                         "event": "end",
@@ -760,9 +717,7 @@ def test_list_tasks_includes_block_and_retry_fields(
                         "action": "release",
                     }
                 ),
-                json.dumps(
-                    {"event": "start", "n": 2, "ts": "2026-01-01T01:00:00+00:00"}
-                ),
+                json.dumps({"event": "start", "n": 2, "ts": "2026-01-01T01:00:00+00:00"}),
                 json.dumps(
                     {
                         "event": "end",
@@ -779,9 +734,7 @@ def test_list_tasks_includes_block_and_retry_fields(
         + "\n"
     )
 
-    monkeypatch.setattr(
-        "fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None)
-    )
+    monkeypatch.setattr("fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None))
 
     app = create_app()
 
@@ -799,16 +752,20 @@ def test_list_tasks_includes_block_and_retry_fields(
     assert t["rounds"]["failure"] == 2
 
 
-def test_task_detail_includes_attempts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_detail_includes_attempts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id} includes an attempts list built from attempts.jsonl."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task_dir(tasks_root, "task-attempts", "closed")
     lines = [
         json.dumps(
-            {"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00", "coder": "claude", "model": "sonnet"}
+            {
+                "event": "start",
+                "n": 1,
+                "ts": "2026-01-01T00:00:00+00:00",
+                "coder": "claude",
+                "model": "sonnet",
+            }
         ),
         json.dumps(
             {
@@ -824,9 +781,7 @@ def test_task_detail_includes_attempts(
     ]
     (task_dir / "attempts.jsonl").write_text("\n".join(lines) + "\n")
 
-    monkeypatch.setattr(
-        "fleet.serve.api.tasks._get_beads_task_info", lambda *a, **k: None
-    )
+    monkeypatch.setattr("fleet.serve.api.tasks._get_beads_task_info", lambda *a, **k: None)
 
     app = create_app()
 
@@ -853,7 +808,10 @@ def test_unblock_task_releases_and_clears_retry_state(
     task_dir = _make_task_dir(tasks_root, "task-unblock", "blocked")
     (task_dir / "task.json").write_text(
         json.dumps(
-            {**json.loads((task_dir / "task.json").read_text()), "retry_after": "2099-01-01T00:00:00+00:00"}
+            {
+                **json.loads((task_dir / "task.json").read_text()),
+                "retry_after": "2099-01-01T00:00:00+00:00",
+            }
         )
     )
     (task_dir / ".needs_validation").write_text("1")
@@ -865,9 +823,7 @@ def test_unblock_task_releases_and_clears_retry_state(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.post(
-                "/api/tasks/task-unblock/unblock", json={"note": "looks fine"}
-            )
+            return await client.post("/api/tasks/task-unblock/unblock", json={"note": "looks fine"})
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200
@@ -917,16 +873,22 @@ def _make_attempt_dir(tmp_path: Path, task_id: str = "task-attempt") -> Path:
         json.dumps({"schema": 1, "status": "partial", "summary": "wip"})
     )
     (task_dir / "attempts.jsonl").write_text(
-        json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00",
-                    "coder": "claude", "model": "sonnet", "worker": "task.continue"})
+        json.dumps(
+            {
+                "event": "start",
+                "n": 1,
+                "ts": "2026-01-01T00:00:00+00:00",
+                "coder": "claude",
+                "model": "sonnet",
+                "worker": "task.continue",
+            }
+        )
         + "\n"
     )
     return task_dir
 
 
-def test_attempt_summary_is_derived(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_attempt_summary_is_derived(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/attempts/{n}/summary renders on demand (no file)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_attempt_dir(tmp_path)
@@ -963,9 +925,7 @@ def test_attempt_prompt_returns_recorded_prompt(
     assert resp.json()["content"] == "the rendered prompt"
 
 
-def test_attempt_prompt_404_when_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_attempt_prompt_404_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/attempts/{n}/prompt 404s without prompt.md."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_attempt_dir(tmp_path, "task-noprompt")
@@ -982,9 +942,7 @@ def test_attempt_prompt_404_when_missing(
     assert resp.status_code == 404
 
 
-def test_attempt_state_returns_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_attempt_state_returns_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/attempts/{n}/state returns the STATE.md snapshot."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_attempt_dir(tmp_path)
@@ -1001,9 +959,7 @@ def test_attempt_state_returns_snapshot(
     assert "do the thing" in resp.json()["content"]
 
 
-def test_artifact_outputs_lists_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_artifact_outputs_lists_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/artifacts/outputs lists outputs/ files."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-outputs")

@@ -3,6 +3,7 @@
 Verifies the centralized-fleet model: fleet_home holds the queue, but each task
 carries its own working directory which the supervisor honors.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from fleet.orchestrator.service import Service, ServiceOrder
 from tests.integration.conftest import (
     BD_AVAILABLE,
     FakeClaudeCoder,
@@ -50,7 +52,6 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
     )
 
     # Stop as soon as the task completes successfully.
-    from fleet.orchestrator.service import Service, ServiceOrder
 
     class _DoneRecorder(Service):
         order = ServiceOrder.Logging
@@ -71,8 +72,6 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
 
     # Centralized layout: task state lives under FLEET_HOME, not the task cwd.
     task_dir = fleet_home / "tasks" / task.id
-    assert task_dir.exists(), (
-        f"task dir not centralized in fleet_home: expected {task_dir}"
-    )
+    assert task_dir.exists(), f"task dir not centralized in fleet_home: expected {task_dir}"
     assert (task_dir / "STATE.md").exists()
     assert (task_dir / "task.json").exists()

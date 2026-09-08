@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from fleet.cli.main import app
 from fleet.observability.tailview import render_lines
+from fleet.serve.stats import TaskRuntimeStats
 from tests.helpers.task_dir import make_attempt
 
 runner = CliRunner()
@@ -74,7 +75,10 @@ _samples: list[dict] = [
             "sessionID": "ses_1483abeabffeG5gmyKrwhuE1xB",
             "part": {
                 "type": "text",
-                "text": "Let me read the _resolve_coder method in supervisor.py to understand the pattern.",
+                "text": (
+                    "Let me read the _resolve_coder method in supervisor.py "
+                    "to understand the pattern."
+                ),
             },
         },
     },
@@ -257,8 +261,7 @@ def _seed_tail_task_dir(home: Path, task_id: str) -> Path:
     )
     # Also drop a minimal log.jsonl so task_runtime_stats doesn't blow up
     (attempt_dir / "log.jsonl").write_text(
-        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"})
-        + "\n",
+        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"}) + "\n",
         encoding="utf-8",
     )
     return task_dir
@@ -273,7 +276,6 @@ def test_tail_cli_prints_header_and_lines(
     _seed_tail_task_dir(tmp_path, task_id)
 
     # Mock task_runtime_stats to return plausible stats (avoid BD dependency)
-    from fleet.serve.stats import TaskRuntimeStats
 
     mock_stats = TaskRuntimeStats(
         events=5,
@@ -282,7 +284,7 @@ def test_tail_cli_prints_header_and_lines(
         started_at=None,
     )
 
-    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.cli.tasks.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -299,13 +301,11 @@ def test_tail_cli_n_limit(tmp_path: Path, monkeypatch: pytest.FixtureManager) ->
     task_id = "t-tail2"
     _seed_tail_task_dir(tmp_path, task_id)
 
-    from fleet.serve.stats import TaskRuntimeStats
-
     mock_stats = TaskRuntimeStats(
         events=5, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.cli.tasks.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id, "-n", "2"])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -373,22 +373,17 @@ def test_tail_unparseable_lines_and_unknown_kinds(
             }
         ),
     ]
-    (attempt_dir / "events.jsonl").write_text(
-        "\n".join(mixed_lines) + "\n", encoding="utf-8"
-    )
+    (attempt_dir / "events.jsonl").write_text("\n".join(mixed_lines) + "\n", encoding="utf-8")
     (attempt_dir / "log.jsonl").write_text(
-        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"})
-        + "\n",
+        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"}) + "\n",
         encoding="utf-8",
     )
-
-    from fleet.serve.stats import TaskRuntimeStats
 
     mock_stats = TaskRuntimeStats(
         events=0, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.cli.tasks.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0, result.output + (result.stderr or "")
@@ -406,22 +401,16 @@ def test_tail_events_file_gone_exits_nonzero(
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "log.jsonl").write_text(
-        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"})
-        + "\n",
+        json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"}) + "\n",
         encoding="utf-8",
     )
-
-    from fleet.serve.stats import TaskRuntimeStats
 
     mock_stats = TaskRuntimeStats(
         events=0, last_event_at=None, context_tokens=None, started_at=None
     )
 
-    with patch("fleet.serve.stats.task_runtime_stats", return_value=mock_stats):
+    with patch("fleet.cli.tasks.task_runtime_stats", return_value=mock_stats):
         result = runner.invoke(app, ["tail", task_id])
 
     assert result.exit_code == 0  # prints header and message
-    assert (
-        "does not exist yet" in result.output
-        or "(events.jsonl does not exist" in result.output
-    )
+    assert "does not exist yet" in result.output or "(events.jsonl does not exist" in result.output

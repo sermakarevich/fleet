@@ -1,3 +1,4 @@
+import json
 import subprocess
 import threading
 from pathlib import Path
@@ -56,14 +57,16 @@ def test_claim_next_contention_at_most_one_winner(tmp_path: Path) -> None:
         barrier.wait()  # synchronize so both call claim_next at the same time
         results[idx] = q.claim_next(f"worker-{idx}")
 
-    with patch.object(q1, "_bd", side_effect=shared_mock_bd):
-        with patch.object(q2, "_bd", side_effect=shared_mock_bd):
-            t1 = threading.Thread(target=run, args=(q1, 0))
-            t2 = threading.Thread(target=run, args=(q2, 1))
-            t1.start()
-            t2.start()
-            t1.join()
-            t2.join()
+    with (
+        patch.object(q1, "_bd", side_effect=shared_mock_bd),
+        patch.object(q2, "_bd", side_effect=shared_mock_bd),
+    ):
+        t1 = threading.Thread(target=run, args=(q1, 0))
+        t2 = threading.Thread(target=run, args=(q2, 1))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
     non_none = [r for r in results if r is not None]
     assert len(non_none) <= 1
@@ -74,15 +77,11 @@ def test_claim_next_reads_cwd_from_meta_file(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     task_meta_dir = tmp_path / "tasks" / "t-001"
     task_meta_dir.mkdir(parents=True)
-    (task_meta_dir / "task.json").write_text(
-        '{"cwd": "/abs/project"}', encoding="utf-8"
-    )
+    (task_meta_dir / "task.json").write_text('{"cwd": "/abs/project"}', encoding="utf-8")
 
     task_data = [{"id": "t-001", "title": "Task 1", "description": None}]
 
-    def mock_bd(
-        *args: str, json_envelope: bool = True, actor: str | None = None
-    ) -> dict | None:
+    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
         if args and args[0] == "ready":
             return {"data": task_data}
         return None
@@ -99,9 +98,7 @@ def test_claim_next_no_meta_file_yields_none_cwd(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     task_data = [{"id": "t-002", "title": "Task 2", "description": None}]
 
-    def mock_bd(
-        *args: str, json_envelope: bool = True, actor: str | None = None
-    ) -> dict | None:
+    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
         if args and args[0] == "ready":
             return {"data": task_data}
         return None
@@ -117,9 +114,7 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
     """create_task with cwd= writes <repo_root>/tasks/<id>/task.json with the cwd."""
     q = BeadsQueue(repo_root=tmp_path)
 
-    def mock_bd(
-        *args: str, json_envelope: bool = True, actor: str | None = None
-    ) -> dict | None:
+    def mock_bd(*args: str, json_envelope: bool = True, actor: str | None = None) -> dict | None:
         if "create" in args:
             return {"data": {"id": "t-100"}}
         if "show" in args:
@@ -138,7 +133,6 @@ def test_create_task_with_cwd_writes_meta_file(tmp_path: Path) -> None:
 
     meta_path = tmp_path / "tasks" / "t-100" / "task.json"
     assert meta_path.exists()
-    import json
 
     assert json.loads(meta_path.read_text())["cwd"] == "/some/project"
     assert task.cwd == "/some/project"
@@ -149,13 +143,9 @@ def test_freeze_coder_model_writes_coder_and_model(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     task_dir = tmp_path / "tasks" / "t-001"
     task_dir.mkdir(parents=True)
-    (task_dir / "task.json").write_text(
-        '{"id": "t-001", "cwd": "/some/project"}', encoding="utf-8"
-    )
+    (task_dir / "task.json").write_text('{"id": "t-001", "cwd": "/some/project"}', encoding="utf-8")
 
     q.freeze_coder_model("t-001", "claude", "opus")
-
-    import json
 
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "claude"
@@ -170,8 +160,6 @@ def test_freeze_coder_model_creates_meta_if_missing(tmp_path: Path) -> None:
     task_dir.mkdir(parents=True)
 
     q.freeze_coder_model("t-002", "agy", "GPT-OSS 120B")
-
-    import json
 
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "agy"
@@ -189,8 +177,6 @@ def test_freeze_coder_model_overwrites_prior_values(tmp_path: Path) -> None:
 
     q.freeze_coder_model("t-003", "claude", "sonnet")
 
-    import json
-
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "claude"
     assert meta["model"] == "sonnet"
@@ -206,8 +192,6 @@ def test_set_overrides_writes_only_provided_fields(tmp_path: Path) -> None:
     )
 
     q.set_overrides("t-ovr-1", coder="agy")
-
-    import json
 
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["coder"] == "agy"
@@ -234,8 +218,6 @@ def test_set_overrides_creates_meta_if_missing(tmp_path: Path) -> None:
 
     q.set_overrides("t-ovr-3", coder="claude", model="opus")
 
-    import json
-
     meta = json.loads((tmp_path / "tasks" / "t-ovr-3" / "task.json").read_text())
     assert meta["coder"] == "claude"
     assert meta["model"] == "opus"
@@ -250,9 +232,11 @@ def test_beads_error_raised_on_nonzero_bd_exit(tmp_path: Path) -> None:
         stdout="",
         stderr="issue not found",
     )
-    with patch("fleet.beads.client.subprocess.run", return_value=failed):
-        with pytest.raises(BeadsError, match="issue not found"):
-            q._bd("show", "nonexistent")
+    with (
+        patch("fleet.beads.client.subprocess.run", return_value=failed),
+        pytest.raises(BeadsError, match="issue not found"),
+    ):
+        q._bd("show", "nonexistent")
 
 
 def test_write_meta_atomic_leaves_no_tmp_file(tmp_path: Path) -> None:
@@ -262,7 +246,6 @@ def test_write_meta_atomic_leaves_no_tmp_file(tmp_path: Path) -> None:
     q.set_cwd("t-001", "/abs/project")
 
     task_dir = tmp_path / "tasks" / "t-001"
-    import json
 
     assert json.loads((task_dir / "task.json").read_text())["cwd"] == "/abs/project"
     assert [p.name for p in task_dir.iterdir()] == ["task.json"]
@@ -280,8 +263,6 @@ def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
 
     q.set_cwd("t-001", "/abs/project")
 
-    import json
-
     meta = json.loads((task_dir / "task.json").read_text())
     assert meta["cwd"] == "/abs/project"
     assert meta["coder"] == "opencode"
@@ -290,7 +271,6 @@ def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
 
 def test_set_bd_fields_writes_title_and_preserves_fleet_fields(tmp_path: Path) -> None:
     """set_bd_fields snapshots title/description from a bd body, keeping cwd/coder/model."""
-    import json
 
     q = BeadsQueue(repo_root=tmp_path)
     q.set_cwd("t-bdf-1", "/repo")

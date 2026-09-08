@@ -14,6 +14,7 @@ The chain itself is read from ~/.fleet/chain.txt on every tick (falls back to
 the built-in CHAIN list), so appending bead ids to that file extends a running
 chain without a restart.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 CHAIN = [
@@ -90,17 +91,21 @@ def load_chain() -> list[str]:
 
 
 def log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     with LOG.open("a", encoding="utf-8") as f:
         f.write(f"{ts} {msg}\n")
 
 
 def run(*argv: str, timeout: int = 120) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=REPO)
+    return subprocess.run(
+        argv, capture_output=True, text=True, timeout=timeout, cwd=REPO, check=False
+    )
 
 
 def bd(*argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["bd", *argv], capture_output=True, text=True, timeout=60, cwd=HOME)
+    return subprocess.run(
+        ["bd", *argv], capture_output=True, text=True, timeout=60, cwd=HOME, check=False
+    )
 
 
 def bead(bead_id: str) -> dict:

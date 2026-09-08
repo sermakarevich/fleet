@@ -117,12 +117,8 @@ def test_lease_stale_boundary() -> None:
     assert not lease_is_stale(now, now)
     assert not lease_is_stale(now + timedelta(seconds=10), now)
     assert not lease_is_stale(None, now)
-    assert lease_is_stale(
-        now - timedelta(seconds=HEARTBEAT_SEC + 1), now
-    )
-    assert not lease_is_stale(
-        now - timedelta(seconds=HEARTBEAT_SEC - 1), now
-    )
+    assert lease_is_stale(now - timedelta(seconds=HEARTBEAT_SEC + 1), now)
+    assert not lease_is_stale(now - timedelta(seconds=HEARTBEAT_SEC - 1), now)
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +130,7 @@ def test_fresh_lease_no_action(tmp_path: Path) -> None:
     task = _task("t-lease-fresh")
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
-    task_dir = _setup_attempt(
-        tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=300)
-    )
+    task_dir = _setup_attempt(tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=300))
     reconcile_leases(s.state)
     assert queue.released == []
     assert _end_lines(task_dir) == []
@@ -146,9 +140,7 @@ def test_stale_lease_dead_pid_released_once(tmp_path: Path) -> None:
     task = _task("t-lease-dead")
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
-    task_dir = _setup_attempt(
-        tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300)
-    )
+    task_dir = _setup_attempt(tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300))
     reconcile_leases(s.state)
     assert len(queue.released) == 1
     assert queue.released[0][0] == "t-lease-dead"
@@ -191,19 +183,14 @@ def test_human_claimed_bead_without_task_dir_untouched(tmp_path: Path) -> None:
     # No task dir at all: claimed by a human via `bd update --claim`.
     reconcile_leases(s.state)
     assert queue.released == []
-    assert any(
-        evt in ("lease_no_attempt_dir", "lease_no_run_json")
-        for _, evt, _ in log.events
-    )
+    assert any(evt in ("lease_no_attempt_dir", "lease_no_run_json") for _, evt, _ in log.events)
 
 
 def test_running_set_membership_untouched(tmp_path: Path) -> None:
     task = _task("t-lease-running")
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
-    _setup_attempt(
-        tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300)
-    )
+    _setup_attempt(tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300))
     s.state.running["t-lease-running"] = make_running_worker("t-lease-running", tmp_path)
     try:
         reconcile_leases(s.state)

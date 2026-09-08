@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.status_log import StatusLog, fleet_log_context
 from fleet.orchestrator.supervisor import Supervisor
+from fleet.state import attempts as attempts_mod
 from fleet.state.journal import setup_supervisor_logger
 from tests.conftest import make_running_worker, make_supervisor
 
@@ -72,7 +75,6 @@ def _make_supervisor(
 
 def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
     """Fold one outcome through reap, opening a fresh attempt like spawn does."""
-    from fleet.state import attempts as attempts_mod
 
     n = attempts_mod.record_start(
         s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
@@ -95,13 +97,11 @@ def _read_fleet_log(log_root: Path) -> list[dict]:
 
 
 def test_runtime_config_has_status_log_interval_default() -> None:
-    from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 
     assert STATUS_LOG_INTERVAL_SEC == 30
 
 
 def test_runtime_config_status_log_interval_override() -> None:
-    from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 
     assert STATUS_LOG_INTERVAL_SEC == 30  # constant, cannot override per-instance
 
@@ -192,10 +192,8 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
         # Wait long enough for two heartbeats to fire
         await asyncio.sleep(0.25)
         s.state.shutting_down = True
-        try:
+        with suppress(asyncio.CancelledError, Exception):
             await asyncio.wait_for(serve_task, timeout=2.0)
-        except (asyncio.CancelledError, Exception):
-            pass
 
     asyncio.run(_run())
 
@@ -260,9 +258,7 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
     _handle(
         s,
         Task(id="t-001", title="X", description=None, status="in_progress"),
-        TaskOutcomeRecord(
-            outcome=TaskOutcome.RATE_LIMIT, exit_code=None, resets_at=None
-        ),
+        TaskOutcomeRecord(outcome=TaskOutcome.RATE_LIMIT, exit_code=None, resets_at=None),
     )
 
     records = _read_fleet_log(log_root)

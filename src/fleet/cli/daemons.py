@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import uvicorn
 from rich.console import Console
 
 import fleet
@@ -34,13 +35,15 @@ from fleet.state.paths import fleet_home
 
 DEFAULT_SERVE_PORT = 7890
 DEFAULT_SERVE_HOST = "0.0.0.0"  # all interfaces (LAN, Tailscale); use 127.0.0.1 for local only
-_HOST_HELP = "Interface to bind (0.0.0.0 = all interfaces incl. LAN/Tailscale; 127.0.0.1 = local only)."
+_HOST_HELP = (
+    "Interface to bind (0.0.0.0 = all interfaces incl. LAN/Tailscale; 127.0.0.1 = local only)."
+)
 
 _console = Console()
 
 
 def _repo_root() -> Path:
-    """Repo root containing the Makefile (editable install: <repo>/src/fleet → <repo>)."""
+    """Repo root containing the justfile (editable install: <repo>/src/fleet → <repo>)."""
     return Path(fleet.__file__).resolve().parents[2]
 
 
@@ -88,15 +91,11 @@ def _report_start(daemon: Daemon, result: StartResult, label: str) -> None:
         _console.print(f"[red]{label} failed to start[/] — process exited immediately.")
         _tail_logfile(daemon.spec.logfile)
         raise typer.Exit(1)
-    _console.print(
-        f"[green]{label} started[/] (pid {result.pid}). Logs: {daemon.spec.logfile}"
-    )
+    _console.print(f"[green]{label} started[/] (pid {result.pid}). Logs: {daemon.spec.logfile}")
 
 
 def _report_status(daemon: Daemon, label: str) -> None:
     """Echo daemon status. Exits nonzero when stopped (so scripts can branch)."""
-    from fleet.observability.daemon import code_fingerprint
-
     st = daemon.status()
     if not st.running:
         _console.print(f"{label}: [red]stopped[/]")
@@ -119,32 +118,34 @@ def _report_status(daemon: Daemon, label: str) -> None:
             f"[bold yellow]⚠  {label} is running stale code[/] — "
             f"run [bold]{_restart_cmd}[/] to pick up changes."
         )
-    del code_fingerprint  # imported for symmetry with restart's staleness check above
 
 
 def _build_ui() -> None:
-    """Run `make ui-build` from the repo root. Raises typer.Exit on failure.
+    """Run `just ui-build` from the repo root. Raises typer.Exit on failure.
 
     Called as the restart pre-step for `serve`, BEFORE the running server is
     stopped — so a failed/flaky build leaves the current server untouched.
-    Skipped with a warning when there is no Makefile (non-source install).
+    Skipped with a warning when there is no justfile (non-source install).
     """
     repo_root = _repo_root()
-    if not (repo_root / "Makefile").exists():
+    if not (repo_root / "justfile").exists():
         _console.print(
-            f"[yellow]Skipping UI build:[/] no Makefile at {repo_root} "
-            "(not a source checkout)."
+            f"[yellow]Skipping UI build:[/] no justfile at {repo_root} (not a source checkout)."
         )
         return
-    _console.print("Building UI ([bold]make ui-build[/])…")
-    result = subprocess.run(["make", "ui-build"], cwd=str(repo_root))
+    _console.print("Building UI ([bold]just ui-build[/])…")
+    try:
+        result = subprocess.run(["just", "ui-build"], cwd=str(repo_root), check=False)
+    except FileNotFoundError:
+        _console.print("[yellow]Skipping UI build:[/] `just` is not installed.")
+        return
     if result.returncode != 0:
         _console.print("[red]UI build failed[/] — leaving the running server untouched.")
         raise typer.Exit(result.returncode)
     _console.print("[green]UI build complete.[/]")
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
     run_app = typer.Typer(
         no_args_is_help=True,
         help="Run the fleet supervisor (background daemon: start/stop/restart/status).",
@@ -240,17 +241,20 @@ def register(app: typer.Typer) -> None:
 
     @serve_app.command("foreground")
     def serve_foreground(
-        port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
+        port: Annotated[
+            int, typer.Option("--port", help="Port to listen on.")
+        ] = DEFAULT_SERVE_PORT,
         host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
     ) -> None:
         """Run the UI server in the foreground (blocks). This is what `start` execs."""
-        import uvicorn
 
         uvicorn.run("fleet.serve.app:create_app", host=host, port=port, factory=True)
 
     @serve_app.command("start")
     def serve_start(
-        port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_SERVE_PORT,
+        port: Annotated[
+            int, typer.Option("--port", help="Port to listen on.")
+        ] = DEFAULT_SERVE_PORT,
         host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
     ) -> None:
         """Start the UI server as a background daemon (FR-48, FR-49)."""
@@ -275,10 +279,10 @@ def register(app: typer.Typer) -> None:
             typer.Option("--host", help=_HOST_HELP + " Default: reuse the running host."),
         ] = None,
         no_build: Annotated[
-            bool, typer.Option("--no-build", help="Skip `make ui-build` before restarting.")
+            bool, typer.Option("--no-build", help="Skip `just ui-build` before restarting.")
         ] = False,
     ) -> None:
-        """Rebuild the UI (`make ui-build`) and restart the server daemon.
+        """Rebuild the UI (`just ui-build`) and restart the server daemon.
 
         The build runs BEFORE the old server is stopped, so a failed build leaves
         the current server running. Pass --no-build to restart without rebuilding.
@@ -296,4 +300,6 @@ def register(app: typer.Typer) -> None:
     @serve_app.command("status")
     def serve_status() -> None:
         """Show whether the UI server daemon is running."""
-        _report_status(Daemon(serve_spec(fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)), "serve")
+        _report_status(
+            Daemon(serve_spec(fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)), "serve"
+        )

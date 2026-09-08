@@ -15,14 +15,22 @@ def test_local_port_parses_loopback_and_rejects_remote():
 
 
 def test_ensure_skips_non_loopback(monkeypatch):
-    monkeypatch.setattr(ot.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ssh must not run")))
+    monkeypatch.setattr(
+        ot.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ssh must not run")),
+    )
     res = ot.ensure_tunnel("http://rtx:11434/v1")
     assert res.status == "skipped" and res.ok
 
 
 def test_ensure_noop_when_already_up(monkeypatch):
     monkeypatch.setattr(ot, "tunnel_is_up", lambda port, timeout=2.0: True)
-    monkeypatch.setattr(ot.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ssh must not run")))
+    monkeypatch.setattr(
+        ot.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ssh must not run")),
+    )
     res = ot.ensure_tunnel("http://127.0.0.1:11435/v1")
     assert res.status == "up" and res.local_port == 11435
 
@@ -49,8 +57,11 @@ def test_ensure_starts_ssh_when_down(monkeypatch):
 def test_ensure_reports_ssh_failure(monkeypatch):
     monkeypatch.setattr(ot, "tunnel_is_up", lambda port, timeout=2.0: False)
     monkeypatch.setattr(
-        ot.subprocess, "run",
-        lambda argv, **k: subprocess.CompletedProcess(argv, 255, "", "Permission denied (publickey)"),
+        ot.subprocess,
+        "run",
+        lambda argv, **k: subprocess.CompletedProcess(
+            argv, 255, "", "Permission denied (publickey)"
+        ),
     )
     res = ot.ensure_tunnel("http://127.0.0.1:11435/v1")
     assert res.status == "failed" and not res.ok

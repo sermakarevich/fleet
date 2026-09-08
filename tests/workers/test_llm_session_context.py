@@ -31,9 +31,7 @@ class StubCoder:
         self.model = "stub-model"
 
     @classmethod
-    def context_limit_for(
-        cls, model: str | None, overrides: dict[str, int] | None = None
-    ) -> int:
+    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
         return cls.context_limit
 
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:

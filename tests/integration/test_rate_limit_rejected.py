@@ -1,9 +1,11 @@
 """FR-21: Hard rate-limit rejection terminates subprocess and pauses spawning."""
+
 from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC
+import time as _time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -83,7 +85,6 @@ def test_rate_limit_rejected_sets_paused_until(tmp_path: Path) -> None:
 
 def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
     """resetsAt from 429 response is used to set paused_until. (FR-21)"""
-    import time as _time
 
     queue = MemoryQueue()
     queue.add_task(_task())
@@ -110,7 +111,9 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
     assert sup.state.paused_until.timestamp() >= future_ts
 
 
-def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rate_limit_rejected_fallback_no_resets_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Without resetsAt, supervisor falls back to rate_limit_default_sleep_sec. (FR-21)"""
     sleep_sec = 45
     monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", sleep_sec)
@@ -134,9 +137,5 @@ def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: 
 
     assert sup.state.paused_until is not None
     # paused_until should be at least ~sleep_sec seconds in the future
-    import time as _time
-    from datetime import datetime
-    expected_min = datetime.fromtimestamp(
-        _time.time() + sleep_sec - 2, tz=UTC
-    )
+    expected_min = datetime.fromtimestamp(_time.time() + sleep_sec - 2, tz=UTC)
     assert sup.state.paused_until >= expected_min

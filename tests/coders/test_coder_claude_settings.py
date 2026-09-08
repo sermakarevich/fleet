@@ -1,4 +1,5 @@
 """Tests for ClaudeCoder.write_runtime_config (test-after)."""
+
 import json
 import stat
 from pathlib import Path
@@ -7,9 +8,7 @@ import pytest
 
 from fleet.coders.claude import ClaudeCoder
 
-EXPECTED_SETTINGS = (
-    Path(__file__).parent.parent / "fixtures" / "expected_settings.json"
-)
+EXPECTED_SETTINGS = Path(__file__).parent.parent / "fixtures" / "expected_settings.json"
 
 
 @pytest.fixture
@@ -136,7 +135,6 @@ class TestIdempotency:
         settings = json.loads((project / ".claude" / "settings.json").read_text())
         for event_type in ("PreCompact", "PreToolUse"):
             fleet_entries = [
-                e for e in settings["hooks"].get(event_type, [])
-                if e.get("_fleet_managed")
+                e for e in settings["hooks"].get(event_type, []) if e.get("_fleet_managed")
             ]
             assert len(fleet_entries) == 1, f"{event_type} has duplicated fleet entries"

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import structlog
 
+import fleet.workers.llm_session as llm_session_mod
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
@@ -84,9 +85,7 @@ def _make_session(
     config: RuntimeConfig | None = None,
     context_limit: int = 200_000,
 ) -> tuple[LlmSession, StepContext, StubRateGauge]:
-    task = Task(
-        id=task_id, title="Test task", description="Do the thing.", status=task_status
-    )
+    task = Task(id=task_id, title="Test task", description="Do the thing.", status=task_status)
     gauge = StubRateGauge()
     ctx = _make_ctx(
         tmp_path,
@@ -248,9 +247,7 @@ _LEGACY_CP_SCRIPT = (
 def test_legacy_context_pressure_marker_is_ignored(tmp_path: Path) -> None:
     """The old marker file no longer drives outcomes; CONTEXT_PRESSURE now
     comes from usage counters and CLI overflow errors only."""
-    session, ctx, _ = _make_session(
-        tmp_path, argv=[sys.executable, "-c", _LEGACY_CP_SCRIPT]
-    )
+    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", _LEGACY_CP_SCRIPT])
 
     result = _run(session, ctx)
 
@@ -265,10 +262,7 @@ def test_legacy_context_pressure_marker_is_ignored(tmp_path: Path) -> None:
 
 def test_nonzero_rc_returns_failure(tmp_path: Path) -> None:
     script = (
-        "import sys\n"
-        "sys.stderr.write('something went wrong\\n')\n"
-        "sys.stderr.flush()\n"
-        "sys.exit(1)\n"
+        "import sys\nsys.stderr.write('something went wrong\\n')\nsys.stderr.flush()\nsys.exit(1)\n"
     )
     session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
@@ -280,10 +274,7 @@ def test_nonzero_rc_returns_failure(tmp_path: Path) -> None:
 
 def test_nonzero_rc_populates_stderr_tail(tmp_path: Path) -> None:
     script = (
-        "import sys\n"
-        "sys.stderr.write('something went wrong\\n')\n"
-        "sys.stderr.flush()\n"
-        "sys.exit(1)\n"
+        "import sys\nsys.stderr.write('something went wrong\\n')\nsys.stderr.flush()\nsys.exit(1)\n"
     )
     session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
@@ -299,11 +290,7 @@ def test_nonzero_rc_populates_stderr_tail(tmp_path: Path) -> None:
 
 
 def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
-    script = (
-        "import signal, time\n"
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-        "time.sleep(60)\n"
-    )
+    script = "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n"
     session, ctx, _ = _make_session(
         tmp_path,
         argv=[sys.executable, "-c", script],
@@ -323,11 +310,7 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
 
 
 def test_kill_returns_killed_with_reason(tmp_path: Path) -> None:
-    script = (
-        "import signal, time\n"
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-        "time.sleep(60)\n"
-    )
+    script = "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n"
     session, ctx, _ = _make_session(
         tmp_path,
         argv=[sys.executable, "-c", script],
@@ -358,8 +341,7 @@ def test_beads_dir_injected_into_subprocess(tmp_path: Path, monkeypatch) -> None
     monkeypatch.delenv("BEADS_DIR", raising=False)
     beads_dir = str(tmp_path / ".beads")
     script = (
-        "import os, sys\n"
-        f"sys.exit(0 if os.environ.get('BEADS_DIR','') == {beads_dir!r} else 3)\n"
+        f"import os, sys\nsys.exit(0 if os.environ.get('BEADS_DIR','') == {beads_dir!r} else 3)\n"
     )
     session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
@@ -381,8 +363,7 @@ class _BeadsDirCoder(StubCoder):
 def test_subprocess_sees_coder_provided_beads_dir(tmp_path: Path) -> None:
     """When coder provides BEADS_DIR, LlmSession must not override it."""
     script = (
-        "import os, sys\n"
-        "sys.exit(0 if os.environ.get('BEADS_DIR') == '/custom/.beads' else 3)\n"
+        "import os, sys\nsys.exit(0 if os.environ.get('BEADS_DIR') == '/custom/.beads' else 3)\n"
     )
     task = Task(id="t-002", title="Test task", description=None, status="in_progress")
     coder = _BeadsDirCoder(argv=[sys.executable, "-c", script])
@@ -526,11 +507,9 @@ def test_context_usage_bucket_logging(tmp_path: Path) -> None:
 
     assert result.outcome == TaskOutcome.SUCCESS
     log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
-    log_records = [
-        json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
-    ]
+    log_records = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
     context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
-    # The first usage at 101 (pct=10.1 -> bucket=1) logs, the second at 201 (pct=20.1 -> bucket=2) logs.
+    # The first usage at 101 (bucket 1) logs, as does the second at 201 (bucket 2).
     assert len(context_usage_events) >= 2
 
 
@@ -568,9 +547,7 @@ def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
 
     assert result.outcome == TaskOutcome.SUCCESS
     log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
-    log_records = [
-        json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
-    ]
+    log_records = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
     context_usage_events = [r for r in log_records if r.get("event") == "context_usage"]
     # Both are in 10-19% range (bucket=1), so only one log line.
     assert len(context_usage_events) == 1
@@ -631,7 +608,6 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
     """A silent subprocess (no stdout) is probed periodically; once probe_health
     reports a provider error, the runner kills the process group and returns
     that outcome instead of waiting for the process to exit on its own."""
-    import fleet.workers.llm_session as llm_session_mod
 
     monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
     monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)
@@ -675,9 +651,7 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
                 resets_at=1234567890,
             )
 
-    task = Task(
-        id="t-probe", title="Test task", description="Do the thing.", status="in_progress"
-    )
+    task = Task(id="t-probe", title="Test task", description="Do the thing.", status="in_progress")
     coder = FakeProbeCoder(argv=[sys.executable, "-c", "pass"])
     ctx = _make_ctx(tmp_path, task, coder)
 
@@ -702,7 +676,6 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
     RATE_LIMIT but the session has been silent for less than
     RATE_LIMIT_PROBE_SILENCE_SEC, the step keeps waiting and the session is
     allowed to recover and finish on its own."""
-    import fleet.workers.llm_session as llm_session_mod
 
     monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
     monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)

@@ -23,17 +23,13 @@ def test_entries_have_command_args_env(tmp_path: Path):
 
 def test_ask_human_runs_fleet_server_module(tmp_path: Path):
     entry = fleet_mcp_servers(tmp_path)["ask_human"]
-    assert entry["args"][-1] == ASK_HUMAN_SERVER_MODULE == (
-        "fleet.integrations.ask_human.server"
-    )
+    assert entry["args"][-1] == ASK_HUMAN_SERVER_MODULE == ("fleet.integrations.ask_human.server")
     assert "python" in entry["args"] and "-m" in entry["args"]
 
 
 def test_web_fetch_runs_fleet_server_module(tmp_path: Path):
     entry = fleet_mcp_servers(tmp_path)["web_fetch"]
-    assert entry["args"][-1] == WEB_FETCH_SERVER_MODULE == (
-        "fleet.integrations.web_fetch.server"
-    )
+    assert entry["args"][-1] == WEB_FETCH_SERVER_MODULE == ("fleet.integrations.web_fetch.server")
 
 
 def test_ask_human_db_lives_under_home(tmp_path: Path):

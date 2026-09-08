@@ -1,4 +1,5 @@
 """Tests for the pure deterministic compaction fallback (no model, no I/O)."""
+
 from fleet.core.compaction_fallback import (
     STATE_MAX_BYTES,
     compact_fallback,

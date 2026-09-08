@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import time
@@ -173,7 +174,6 @@ opencode_default_model = "qwen3.6:latest"
 
 def test_deprecated_context_keys_are_ignored_with_warning(tmp_path, caplog):
     """Old single-number keys no longer exist; they warn and fall back to defaults."""
-    import logging
 
     cfg_path = tmp_path / "runtime.toml"
     cfg_path.write_text(

@@ -13,9 +13,7 @@ _TEMPLATES_DIR = Path(__file__).parent.parent.parent / "src" / "fleet" / "templa
 
 
 def _stub(task_id: str) -> str:
-    return (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8").format(
-        task_id=task_id
-    )
+    return (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8").format(task_id=task_id)
 
 
 def _seed_state(task_dir: Path, task_id: str) -> None:
@@ -109,7 +107,7 @@ def test_before_n_selects_the_attempt_strictly_before_it(tmp_path: Path) -> None
 
 
 def test_malformed_result_snapshot_counts_as_missing(tmp_path: Path) -> None:
-    """"missing" means "no *parseable* RESULT.json" — malformed content counts too."""
+    """ "missing" means "no *parseable* RESULT.json" — malformed content counts too."""
     task_dir = make_task_dir(tmp_path, "t-8")
     _seed_state(task_dir, "t-8")
     attempt_dir = make_attempt(task_dir, 1, outcome="failure", reason="crash")

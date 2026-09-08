@@ -5,15 +5,52 @@ from fleet.coders import get_coder, list_coders
 from fleet.coders.base import Coder
 from fleet.coders.opencode import OpencodeCoder
 from fleet.core.task import Task
+from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.state.paths import fleet_home
 
 # Real event lines captured from the live end-to-end probe (events.jsonl)
-_STEP_START = '{"type":"step_start","timestamp":1781181263432,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad2e41001rLoEveqAPkh9KB","messageID":"msg_eb6ad0f32001Bv5NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-start"}}'
-_TOOL_COMPLETED = '{"type":"tool_use","timestamp":1781181264224,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad31440017I2D03Fe31LaMa","messageID":"msg_eb6ad0f32001Bv5NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"tool","tool":"write","callID":"call_cqjai8qz","state":{"status":"completed","input":{"filePath":"/tmp/probe.txt","content":"tunnel works."},"output":"Wrote file successfully."}}}'
-_STEP_FINISH_TOOL_CALLS = '{"type":"step_finish","timestamp":1781181264225,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad315d001k6lnYIigM3F02u","reason":"tool-calls","messageID":"msg_eb6ad0f32001Bv5NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":10520,"input":10385,"output":135,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
-_TEXT = '{"type":"text","timestamp":1781181264469,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad324d001rlcct26AoaSGNK","messageID":"msg_eb6ad3164001I77nTRvr5Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"text","text":"DONE","time":{"start":1781181264468,"end":1781181264468}}}'
-_STEP_FINISH_STOP = '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_eb6ad3255001219bWTz4Hcu2jt","reason":"stop","messageID":"msg_eb6ad3164001I77nTRvr5Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":10466,"input":10461,"output":5,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
-_TOOL_ERROR = '{"type":"tool_use","timestamp":1234,"sessionID":"ses_test","part":{"type":"tool","tool":"write","callID":"call_abc","state":{"status":"error"}}}'
-_STEP_FINISH_LENGTH = '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_xxx","reason":"length","messageID":"msg_xxx","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":131072,"input":131000,"output":72,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
+_STEP_START = (
+    '{"type":"step_start","timestamp":1781181263432,"sessionID":"ses_14952f145ffe6i6cC5sr4'
+    'MneT7","part":{"id":"prt_eb6ad2e41001rLoEveqAPkh9KB","messageID":"msg_eb6ad0f32001Bv5'
+    'NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"step-start"}}'
+)
+_TOOL_COMPLETED = (
+    '{"type":"tool_use","timestamp":1781181264224,"sessionID":"ses_14952f145ffe6i6cC5sr4Mn'
+    'eT7","part":{"id":"prt_eb6ad31440017I2D03Fe31LaMa","messageID":"msg_eb6ad0f32001Bv5Nb'
+    'G4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"tool","tool":"write",'
+    '"callID":"call_cqjai8qz","state":{"status":"completed","input":{"filePath":"/tmp/prob'
+    'e.txt","content":"tunnel works."},"output":"Wrote file successfully."}}}'
+)
+_STEP_FINISH_TOOL_CALLS = (
+    '{"type":"step_finish","timestamp":1781181264225,"sessionID":"ses_14952f145ffe6i6cC5sr'
+    '4MneT7","part":{"id":"prt_eb6ad315d001k6lnYIigM3F02u","reason":"tool-calls","messageI'
+    'D":"msg_eb6ad0f32001Bv5NbG4qKIw7aq","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","typ'
+    'e":"step-finish","tokens":{"total":10520,"input":10385,"output":135,"reasoning":0,"ca'
+    'che":{"write":0,"read":0}},"cost":0}}'
+)
+_TEXT = (
+    '{"type":"text","timestamp":1781181264469,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7"'
+    ',"part":{"id":"prt_eb6ad324d001rlcct26AoaSGNK","messageID":"msg_eb6ad3164001I77nTRvr5'
+    'Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"text","text":"DONE","time'
+    '":{"start":1781181264468,"end":1781181264468}}}'
+)
+_STEP_FINISH_STOP = (
+    '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr'
+    '4MneT7","part":{"id":"prt_eb6ad3255001219bWTz4Hcu2jt","reason":"stop","messageID":"ms'
+    'g_eb6ad3164001I77nTRvr5Dm23h","sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","type":"st'
+    'ep-finish","tokens":{"total":10466,"input":10461,"output":5,"reasoning":0,"cache":{"w'
+    'rite":0,"read":0}},"cost":0}}'
+)
+_TOOL_ERROR = (
+    '{"type":"tool_use","timestamp":1234,"sessionID":"ses_test","part":{"type":"tool","too'
+    'l":"write","callID":"call_abc","state":{"status":"error"}}}'
+)
+_STEP_FINISH_LENGTH = (
+    '{"type":"step_finish","timestamp":1781181264472,"sessionID":"ses_14952f145ffe6i6cC5sr'
+    '4MneT7","part":{"id":"prt_xxx","reason":"length","messageID":"msg_xxx","sessionID":"s'
+    'es_14952f145ffe6i6cC5sr4MneT7","type":"step-finish","tokens":{"total":131072,"input":'
+    '131000,"output":72,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}'
+)
 
 _SESSION_ID = "ses_14952f145ffe6i6cC5sr4MneT7"
 
@@ -71,9 +108,9 @@ def test_build_argv_default_model_custom_resolves_sonet():
 
 def test_build_argv_default_model_custom_used_directly():
     # When default_model is a full provider model, it's used as-is
-    argv = OpencodeCoder(
-        model="qwen3.6:latest", default_model="qwen3.6:latest"
-    ).build_argv(_task(), Path("/tmp"))
+    argv = OpencodeCoder(model="qwen3.6:latest", default_model="qwen3.6:latest").build_argv(
+        _task(), Path("/tmp")
+    )
     idx = argv.index("--model")
     assert argv[idx + 1] == "ollama-rtx/qwen3.6:latest"
 
@@ -115,9 +152,7 @@ def test_build_argv_uses_custom_model(tmp_path: Path):
 
 
 def test_build_argv_full_provider_model_passed_verbatim(tmp_path: Path):
-    argv = OpencodeCoder(model="ollama-rtx/deepseek-r1:32b").build_argv(
-        _task(), tmp_path
-    )
+    argv = OpencodeCoder(model="ollama-rtx/deepseek-r1:32b").build_argv(_task(), tmp_path)
     idx = argv.index("--model")
     assert argv[idx + 1] == "ollama-rtx/deepseek-r1:32b"
 
@@ -335,7 +370,11 @@ def test_normalize_step_finish_tool_calls_is_assistant_text_with_usage():
 
 def test_normalize_step_finish_tool_calls_no_tokens_returns_none():
     # step_finish with a non-stop reason but no tokens payload → None
-    line = '{"type":"step_finish","timestamp":1781181264225,"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7","part":{"id":"prt_xxx","reason":"tool-calls","type":"step-finish"}}'
+    line = (
+        '{"type":"step_finish","timestamp":1781181264225,'
+        '"sessionID":"ses_14952f145ffe6i6cC5sr4MneT7",'
+        '"part":{"id":"prt_xxx","reason":"tool-calls","type":"step-finish"}}'
+    )
     assert _coder().normalize_event(line) is None
 
 
@@ -409,10 +448,7 @@ def test_build_config_provider_entry_structure():
 def test_build_config_ollama_url_constructor():
     coder = OpencodeCoder(ollama_url="http://127.0.0.1:12345/v1")
     cfg = coder._build_config()
-    assert (
-        cfg["provider"]["ollama-rtx"]["options"]["baseURL"]
-        == "http://127.0.0.1:12345/v1"
-    )
+    assert cfg["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
 
 
 def test_build_config_permission_block():
@@ -422,8 +458,6 @@ def test_build_config_permission_block():
 
 def test_build_config_mcp_matches_shared_definitions():
     """The ask-human/web_fetch entries must come from integrations.mcp_servers."""
-    from fleet.integrations.mcp_servers import fleet_mcp_servers
-    from fleet.state.paths import fleet_home
 
     shared = fleet_mcp_servers(fleet_home())
     cfg = _coder()._build_config()
@@ -499,9 +533,9 @@ def test_build_argv_sonnet_with_gpt_oss_default_resolves_correctly():
 
 
 def test_build_argv_explicit_model_ignores_default():
-    argv = OpencodeCoder(
-        model="deepseek-r1:32b", default_model="gpt-oss:20b"
-    ).build_argv(_task(), Path("/tmp"))
+    argv = OpencodeCoder(model="deepseek-r1:32b", default_model="gpt-oss:20b").build_argv(
+        _task(), Path("/tmp")
+    )
     idx = argv.index("--model")
     assert argv[idx + 1] == "ollama-rtx/deepseek-r1:32b"
 
@@ -567,9 +601,7 @@ def test_bedrock_params_default_values():
 
 
 def test_bedrock_model_is_bedrock_true_and_context_limit():
-    coder = OpencodeCoder(
-        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    coder = OpencodeCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     assert coder.is_bedrock is True
     assert coder.context_limit == 200_000
 
@@ -584,9 +616,7 @@ def test_bedrock_model_with_custom_context_limit():
 
 
 def test_build_config_bedrock_model_has_bedrock_provider():
-    coder = OpencodeCoder(
-        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    coder = OpencodeCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     cfg = coder._build_config()
     bedrock_entry = cfg["provider"]["amazon-bedrock"]
     assert bedrock_entry["name"] == "Amazon Bedrock"
@@ -603,9 +633,7 @@ def test_build_config_bedrock_not_added_for_ollama_model():
 
 
 def test_build_config_bedrock_preserves_mcp_and_permission():
-    coder = OpencodeCoder(
-        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    coder = OpencodeCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     cfg = coder._build_config()
     assert "ask-human" in cfg["mcp"]
     assert cfg["permission"]["external_directory"] == "allow"
@@ -623,23 +651,21 @@ def test_ollama_model_is_bedrock_false():
 
 
 def test_build_argv_bedrock_model_passed_verbatim(tmp_path: Path):
-    coder = OpencodeCoder(
-        model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    coder = OpencodeCoder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
     argv = coder.build_argv(_task(), tmp_path)
     idx = argv.index("--model")
-    assert (
-        argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    assert argv[idx + 1] == "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 # ------ tests for context_limit_for classmethod ------
 
+
 def test_context_limit_for_bedrock_model():
     assert (
-        OpencodeCoder.context_limit_for("amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
-        
- == 200_000
+        OpencodeCoder.context_limit_for(
+            "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        )
+        == 200_000
     )
 
 
@@ -652,8 +678,6 @@ def test_context_limit_for_none_model():
 
 
 def _isolated_task_dir(tmp_path: Path, task_id: str, worktree: Path) -> Path:
-    import json
-
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
     (task_dir / "task.json").write_text(
@@ -665,8 +689,6 @@ def _isolated_task_dir(tmp_path: Path, task_id: str, worktree: Path) -> Path:
 def test_build_argv_dir_flag_follows_the_isolated_worktree(tmp_path: Path) -> None:
     """Regression (fleet-o5xr2): `--dir` pointed at the original repo while the
     process ran in the worktree, so resumed attempts edited the shared tree."""
-    from fleet.coders.opencode import OpencodeCoder
-
     worktree = tmp_path / "worktrees" / "repo-t-iso"
     task = Task(id="t-iso", title="t", description="d", status="open", cwd="/repo/main")
     task_dir = _isolated_task_dir(tmp_path, task.id, worktree)
@@ -681,8 +703,6 @@ def test_build_argv_dir_flag_follows_the_isolated_worktree(tmp_path: Path) -> No
 
 
 def test_build_argv_dir_flag_uses_cwd_when_not_isolated(tmp_path: Path) -> None:
-    from fleet.coders.opencode import OpencodeCoder
-
     task = Task(id="t-plain", title="t", description="d", status="open", cwd="/repo/main")
     task_dir = tmp_path / "tasks" / task.id
     task_dir.mkdir(parents=True)

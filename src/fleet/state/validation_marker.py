@@ -1,4 +1,5 @@
 """The .needs_validation marker: set when an isolated task needs a merge check."""
+
 from __future__ import annotations
 
 from pathlib import Path

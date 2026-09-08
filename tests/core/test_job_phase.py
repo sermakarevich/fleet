@@ -28,25 +28,16 @@ def test_tasks_without_approval_is_gate() -> None:
 
 
 def test_approved_without_children_is_spawn() -> None:
-    assert (
-        phase(_snap(has_research=True, has_tasks=True, approved=True)) == "spawn"
-    )
+    assert phase(_snap(has_research=True, has_tasks=True, approved=True)) == "spawn"
 
 
 def test_gate_off_without_children_is_spawn() -> None:
-    assert (
-        phase(_snap(has_research=True, has_tasks=True, gate_enabled=False))
-        == "spawn"
-    )
+    assert phase(_snap(has_research=True, has_tasks=True, gate_enabled=False)) == "spawn"
 
 
 def test_children_exist_is_observe() -> None:
     assert (
-        phase(
-            _snap(
-                has_research=True, has_tasks=True, approved=True, has_children=True
-            )
-        )
+        phase(_snap(has_research=True, has_tasks=True, approved=True, has_children=True))
         == "observe"
     )
 
@@ -54,10 +45,7 @@ def test_children_exist_is_observe() -> None:
 def test_children_win_over_pending_gate() -> None:
     # A crashed spawn that already created children resumes in observe,
     # never back in the gate.
-    assert (
-        phase(_snap(has_research=True, has_tasks=True, has_children=True))
-        == "observe"
-    )
+    assert phase(_snap(has_research=True, has_tasks=True, has_children=True)) == "observe"
 
 
 def test_phase_attempts_counts_phase_workers_only() -> None:

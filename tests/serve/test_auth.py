@@ -21,9 +21,7 @@ def _get(path: str, app, headers: dict | None = None) -> httpx.Response:
     return asyncio.run(_run())
 
 
-def test_no_token_env_means_open(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_token_env_means_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Token env unset -> GET /api/tasks returns 200."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     monkeypatch.delenv("FLEET_API_TOKEN", raising=False)

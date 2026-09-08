@@ -11,11 +11,13 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from fleet.serve import stats as stats_mod
+from fleet.serve.analytics import records as records_mod
 from fleet.serve.app import create_app
 
 
 def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monkey-patch get_beads_status_map to return None (skip beads in tests, per spec: 'bd unavailable → raw statuses used')."""
+    """Monkey-patch get_beads_status_map to return None (bd unavailable in tests)."""
     monkeypatch.setattr(
         "fleet.beads.cache.get_beads_status_map",
         MagicMock(return_value=None),
@@ -24,8 +26,6 @@ def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _reset_analytics_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear the owner-held EventScanCache objects that persist across tests."""
-    from fleet.serve.analytics import records as records_mod
-    from fleet.serve import stats as stats_mod
 
     records_mod._events_cache.clear()
     stats_mod._events_cache.clear()
@@ -110,9 +110,7 @@ class TestSummaryDefaultDays:
         window = _make_window_day(1)
 
         # Task 1: closed success with session_ids and output_tokens (within window)
-        td1 = make_task_dir(
-            tasks_root, "task-1", status="closed", cwd="/proj-a", created_at=window
-        )
+        td1 = make_task_dir(tasks_root, "task-1", status="closed", cwd="/proj-a", created_at=window)
         write_events(
             td1,
             [
@@ -198,9 +196,7 @@ class TestSummaryDefaultDays:
         )
 
         # Task 6: rate limited completed task
-        td6 = make_task_dir(
-            tasks_root, "task-6", status="closed", cwd="/proj-b", created_at=window
-        )
+        td6 = make_task_dir(tasks_root, "task-6", status="closed", cwd="/proj-b", created_at=window)
         write_events(
             td6,
             [
@@ -244,7 +240,7 @@ class TestSummaryDefaultDays:
         # queued: none (no "open" or "ready" statuses)
         assert kpis["queued"] == 0
 
-        # total_output_tokens: 100 (task-1) + 200 (task-2) + 0 (task-3) + 50 (task-5) + 300 (task-6) = 650
+        # total_output_tokens: 100 + 200 + 0 + 50 + 300 = 650
         assert kpis["total_output_tokens"] == 650
 
         # avg_segments: (2 + 1 + 1 + 1 + 1) / 5 = 6 / 5 = 1.2
@@ -457,9 +453,7 @@ class TestSummaryModelAndProjectBreakdowns:
         sonnet_row = by_model_map["claude"]["sonnet"]
         assert sonnet_row["total"] == 2
         assert sonnet_row["success_rate"] == pytest.approx(0.5, abs=0.01)
-        assert (
-            sonnet_row["output_tokens"] == 300
-        )  # task-mm1 only (task-mm2 has no usage)
+        assert sonnet_row["output_tokens"] == 300  # task-mm1 only (task-mm2 has no usage)
 
         # claude + opus: total=1, success_rate=1.0
         opus_row = by_model_map["claude"]["opus"]
@@ -536,9 +530,7 @@ class TestSummaryThroughputBuckets:
 class TestSummaryDaysClamping:
     """Test 5: days clamping — 9999 → 365, window_days echoes."""
 
-    def test_days_clamping(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_days_clamping(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("FLEET_HOME", str(tmp_path))
         tasks_root = tmp_path / "tasks"
 
@@ -647,9 +639,7 @@ class TestSummaryExtras:
         # peak = 50000, limit = 200_000 (unknown coder) -> ratio = 25% -> 25-50 bucket is [25, 50)
         # Actually 25% -> 25-50 bucket: ratio >= 25 -> yes
         # Let's pick peak = 30000 -> ratio = 15% -> 0-25 bucket
-        td1 = make_task_dir(
-            tasks_root, "task-hist1", status="closed", coder="", model="", cwd="/p"
-        )
+        td1 = make_task_dir(tasks_root, "task-hist1", status="closed", coder="", model="", cwd="/p")
         write_events(
             td1,
             [
@@ -663,9 +653,7 @@ class TestSummaryExtras:
         )
 
         # Task with peak_context_tokens = 150_000 out of 200_000 -> 75% -> 75-100 bucket
-        td2 = make_task_dir(
-            tasks_root, "task-hist2", status="closed", coder="", model="", cwd="/p"
-        )
+        td2 = make_task_dir(tasks_root, "task-hist2", status="closed", coder="", model="", cwd="/p")
         write_events(
             td2,
             [
@@ -967,9 +955,7 @@ class TestSummaryTokenStats:
         tasks_root = tmp_path / "tasks"
         window = _make_window_day(1)
 
-        td = make_task_dir(
-            tasks_root, "task-tok", status="closed", cwd="/p", created_at=window
-        )
+        td = make_task_dir(tasks_root, "task-tok", status="closed", cwd="/p", created_at=window)
         write_events(
             td,
             [

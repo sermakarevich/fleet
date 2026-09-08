@@ -102,7 +102,10 @@ def test_normalize_event_plain_text():
 
 def test_normalize_event_json_assistant():
     coder = _coder()
-    raw = '{"type": "assistant", "session_id": "sess_123", "message": {"usage": {"input_tokens": 100}}}'
+    raw = (
+        '{"type": "assistant", "session_id": "sess_123", '
+        '"message": {"usage": {"input_tokens": 100}}}'
+    )
     evt = coder.normalize_event(raw)
     assert evt is not None
     assert evt.kind == "assistant_text"

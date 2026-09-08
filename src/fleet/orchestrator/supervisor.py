@@ -27,8 +27,8 @@ class Supervisor:
     ) -> None:
         self.state = state
         self._services: list[Service] = sorted(services, key=lambda s: s.order)
-        self._checks: Sequence[StartupCheck] = list(checks) if checks is not None else list(
-            DEFAULT_CHECKS
+        self._checks: Sequence[StartupCheck] = (
+            list(checks) if checks is not None else list(DEFAULT_CHECKS)
         )
         self.shutdown_grace_sec = (
             float(shutdown_grace_sec)
@@ -115,12 +115,10 @@ class Supervisor:
                     None,
                 )
                 if task_id is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.state.queue.release(
                             task_id, reason="supervisor shutdown: forced release"
                         )
-                    except Exception:
-                        pass
 
         self.state.log.info("supervisor_shutdown_complete")
         self._done.set()  # created lazily above; always present here

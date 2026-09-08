@@ -1,4 +1,5 @@
 """Tests for FileWatcher event streaming pipeline (FR-03, FR-06, FR-10)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -116,15 +117,18 @@ def test_file_watcher_skips_invalid_json(tmp_path: Path) -> None:
         with events_file.open("a") as f:
             f.write("not valid json\n")
             f.write(
-                json.dumps({
-                    "kind": "assistant_text",
-                    "ts": "2026-05-25T12:00:00+00:00",
-                    "session_id": None,
-                    "tool_name": None,
-                    "usage": None,
-                    "rate_info": None,
-                    "raw": {},
-                }) + "\n"
+                json.dumps(
+                    {
+                        "kind": "assistant_text",
+                        "ts": "2026-05-25T12:00:00+00:00",
+                        "session_id": None,
+                        "tool_name": None,
+                        "usage": None,
+                        "rate_info": None,
+                        "raw": {},
+                    }
+                )
+                + "\n"
             )
         await watcher._tail_one(task_dir, task_id, events_file)
 
@@ -140,9 +144,7 @@ def test_file_watcher_enriches_session_ended(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
 
-    (task_dir / "task.json").write_text(
-        json.dumps({"id": task_id, "title": "My finishing task"})
-    )
+    (task_dir / "task.json").write_text(json.dumps({"id": task_id, "title": "My finishing task"}))
 
     attempt_dir = task_dir / "attempts" / "1"
     attempt_dir.mkdir(parents=True)
@@ -260,9 +262,13 @@ def test_replay_recent_events_for_in_progress_task(tmp_path: Path) -> None:
     events_file = attempt_dir / "events.jsonl"
     existing_events = [
         {
-            "kind": "tool_use", "ts": f"2026-01-01T00:00:{i:02d}+00:00",
-            "tool_name": "Read", "session_id": None,
-            "usage": None, "rate_info": None, "raw": {},
+            "kind": "tool_use",
+            "ts": f"2026-01-01T00:00:{i:02d}+00:00",
+            "tool_name": "Read",
+            "session_id": None,
+            "usage": None,
+            "rate_info": None,
+            "raw": {},
         }
         for i in range(3)
     ]
@@ -293,11 +299,18 @@ def test_no_replay_for_non_in_progress_task(tmp_path: Path) -> None:
     attempt_dir.mkdir(parents=True)
     events_file = attempt_dir / "events.jsonl"
     events_file.write_text(
-        json.dumps({
-            "kind": "tool_use", "ts": "2026-01-01T00:00:00+00:00",
-            "tool_name": "Read", "session_id": None,
-            "usage": None, "rate_info": None, "raw": {},
-        }) + "\n"
+        json.dumps(
+            {
+                "kind": "tool_use",
+                "ts": "2026-01-01T00:00:00+00:00",
+                "tool_name": "Read",
+                "session_id": None,
+                "usage": None,
+                "rate_info": None,
+                "raw": {},
+            }
+        )
+        + "\n"
     )
 
     mgr = MagicMock()
@@ -326,8 +339,11 @@ def test_replay_capped_at_50_lines(tmp_path: Path) -> None:
             evt = {
                 "kind": "tool_use",
                 "ts": f"2026-01-01T00:00:{i % 60:02d}+00:00",
-                "tool_name": "Read", "session_id": None,
-                "usage": None, "rate_info": None, "raw": {"seq": i},
+                "tool_name": "Read",
+                "session_id": None,
+                "usage": None,
+                "rate_info": None,
+                "raw": {"seq": i},
             }
             f.write(json.dumps(evt) + "\n")
 

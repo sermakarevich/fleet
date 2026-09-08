@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fleet.core.task import Event
 
 
 def _ts() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def test_event_required_fields():
@@ -44,9 +44,17 @@ def test_event_with_all_fields():
 
 def test_all_event_kinds_are_valid():
     valid_kinds = [
-        "assistant_text", "tool_use", "tool_result", "thinking",
-        "rate_limit", "rate_limit_info", "context_pressure",
-        "session_started", "session_ended", "error", "result",
+        "assistant_text",
+        "tool_use",
+        "tool_result",
+        "thinking",
+        "rate_limit",
+        "rate_limit_info",
+        "context_pressure",
+        "session_started",
+        "session_ended",
+        "error",
+        "result",
     ]
     for kind in valid_kinds:
         e = Event(kind=kind, raw={}, ts=_ts())

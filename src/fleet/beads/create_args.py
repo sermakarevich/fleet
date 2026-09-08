@@ -42,9 +42,7 @@ def _extract_flag(args: list[str], flag: str) -> tuple[list[str], str | None]:
     return out, value
 
 
-def rewrite_create_argv(
-    argv: list[str], cwd: str
-) -> tuple[list[str], dict[str, str | None]]:
+def rewrite_create_argv(argv: list[str], cwd: str) -> tuple[list[str], dict[str, str | None]]:
     """Rewrite a `bd create`/`bd new` argv tail, extracting --coder/--model/--cwd.
 
     `--cwd` overrides *cwd* (normally the shell's cwd at invocation time) as
@@ -66,13 +64,9 @@ def rewrite_create_argv(
     if coder is not None:
         get_coder(coder)  # raises ValueError on an unknown coder name
     if isolation is not None and isolation not in ("worktree", "none"):
-        raise ValueError(
-            f"Unknown isolation mode {isolation!r}: expected 'worktree' or 'none'"
-        )
+        raise ValueError(f"Unknown isolation mode {isolation!r}: expected 'worktree' or 'none'")
     if job_gate is not None and job_gate not in ("on", "off"):
-        raise ValueError(
-            f"Unknown job-gate mode {job_gate!r}: expected 'on' or 'off'"
-        )
+        raise ValueError(f"Unknown job-gate mode {job_gate!r}: expected 'on' or 'off'")
 
     resolved_cwd = cwd_override if cwd_override is not None else cwd
 

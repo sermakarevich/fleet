@@ -1,4 +1,5 @@
 """Tests for `fleet config show` and `fleet config set` (FR-24)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -36,7 +37,7 @@ def test_config_show_displays_default_values(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
         result = runner.invoke(app, ["config", "show"])
     assert result.exit_code == 0
-    assert "3" in result.output   # default max_concurrent
+    assert "3" in result.output  # default max_concurrent
 
 
 def test_config_show_raw_cats_toml(tmp_path: Path) -> None:
@@ -86,7 +87,9 @@ def test_config_set_atomicity_bad_value_leaves_file_unchanged(tmp_path: Path) ->
     config_path.write_text("max_concurrent = 4\n", encoding="utf-8")
 
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=2", "stall_warning_minutes=garbage"])
+        result = runner.invoke(
+            app, ["config", "set", "max_concurrent=2", "stall_warning_minutes=garbage"]
+        )
 
     assert result.exit_code != 0
     content = config_path.read_text(encoding="utf-8")
@@ -109,7 +112,9 @@ def test_config_set_unknown_key_message_contains_unknown(tmp_path: Path) -> None
 
 def test_config_set_multiple_keys(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
-        result = runner.invoke(app, ["config", "set", "max_concurrent=4", "stall_warning_minutes=85"])
+        result = runner.invoke(
+            app, ["config", "set", "max_concurrent=4", "stall_warning_minutes=85"]
+        )
     assert result.exit_code == 0
     toml_path = tmp_path / "runtime.toml"
     content = toml_path.read_text(encoding="utf-8")

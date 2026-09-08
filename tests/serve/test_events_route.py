@@ -118,7 +118,7 @@ def _mixed_events() -> list[str]:
 def test_default_returns_tail_in_file_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Default call returns the tail (all events, no offset), malformed line skipped, total correct."""
+    """Default call returns the tail; malformed lines skipped; total correct."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task(tasks_root, "task-ev1")
@@ -147,9 +147,7 @@ def test_default_returns_tail_in_file_order(
     assert data["events"][-1]["kind"] == "assistant_text"
 
 
-def test_offset_and_limit_paging(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_offset_and_limit_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """offset+limit paging returns the expected slice."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -212,9 +210,7 @@ def test_kind_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["events"][0]["summary"].startswith("Edit")
 
 
-def test_events_have_summary_and_raw(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_events_have_summary_and_raw(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each event has summary and raw fields populated."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -276,9 +272,7 @@ def test_events_have_summary_and_raw(
     assert "oops" in data["events"][2]["summary"]
 
 
-def test_unknown_task_id_returns_404(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unknown_task_id_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Unknown task id → 404."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
@@ -293,9 +287,7 @@ def test_unknown_task_id_returns_404(
     assert resp.status_code == 404
 
 
-def test_kind_filter_multi_kind(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_kind_filter_multi_kind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """kind=tool_use,tool_result filters to both kinds."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
@@ -327,9 +319,7 @@ def test_kind_filter_multi_kind(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.get(
-                "/api/tasks/task-ev5/events?kind=tool_use,tool_result"
-            )
+            return await client.get("/api/tasks/task-ev5/events?kind=tool_use,tool_result")
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200
@@ -339,9 +329,7 @@ def test_kind_filter_multi_kind(
     assert data["events"][1]["kind"] == "tool_result"
 
 
-def test_no_events_jsonl_returns_empty(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_no_events_jsonl_returns_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Missing events.jsonl returns empty list."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"

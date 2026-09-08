@@ -1,3 +1,4 @@
+import contextlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,8 +23,8 @@ def _count_starts(task_dir: Path) -> int:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return 0
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         try:
@@ -45,8 +46,8 @@ def _current_n(task_dir: Path) -> int:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return 0
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         try:
@@ -58,8 +59,7 @@ def _current_n(task_dir: Path) -> int:
                 n = int(obj.get("n", 0))
             except (TypeError, ValueError):
                 continue
-            if n > current:
-                current = n
+            current = max(current, n)
     return current
 
 
@@ -73,8 +73,8 @@ def _max_n(task_dir: Path) -> int:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return 0
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         try:
@@ -86,8 +86,7 @@ def _max_n(task_dir: Path) -> int:
                 n = int(obj.get("n", 0))
             except (TypeError, ValueError):
                 continue
-            if n > current:
-                current = n
+            current = max(current, n)
     return current
 
 
@@ -211,21 +210,18 @@ def set_worker(task_dir: Path, n: int, worker: str) -> None:
         return
     changed = False
     out_lines: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
         try:
             obj = json.loads(stripped) if stripped else None
         except (ValueError, json.JSONDecodeError):
             obj = None
-        if (
-            isinstance(obj, dict)
-            and obj.get("event") == "start"
-            and obj.get("n") == n
-        ):
+        if isinstance(obj, dict) and obj.get("event") == "start" and obj.get("n") == n:
             obj["worker"] = worker
-            line = json.dumps(obj)
+            out_lines.append(json.dumps(obj))
             changed = True
-        out_lines.append(line)
+        else:
+            out_lines.append(raw_line)
     if not changed:
         return
     tmp = path.with_name(path.name + ".tmp")
@@ -233,10 +229,8 @@ def set_worker(task_dir: Path, n: int, worker: str) -> None:
         tmp.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
         tmp.replace(path)
     except OSError:
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def record_unblock(task_dir: Path, note: str | None = None) -> int:
@@ -282,8 +276,8 @@ def load_attempts(task_dir: Path) -> list[dict]:
     except OSError:
         return []
     by_n: dict[int, dict] = {}
-    for line in text.splitlines():
-        line = line.strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         try:
@@ -294,7 +288,7 @@ def load_attempts(task_dir: Path) -> list[dict]:
             continue
         event = obj.get("event")
         try:
-            n = int(obj.get("n"))
+            n = int(obj.get("n"))  # type: ignore[arg-type]  # untyped attempts.jsonl row; bead 18 types AttemptRow
         except (TypeError, ValueError):
             continue
         entry = by_n.setdefault(n, {"n": n})

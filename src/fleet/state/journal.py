@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -33,6 +34,7 @@ def _rotate_if_needed(events_path: Path) -> None:
             src.replace(events_path.with_name(f"{events_path.name}.{n + 1}"))
     events_path.replace(events_path.with_name(f"{events_path.name}.1"))
 
+
 _JSON_PROCESSORS: list = [
     structlog.contextvars.merge_contextvars,
     structlog.processors.TimeStamper(fmt="iso"),
@@ -53,13 +55,16 @@ class _DualSink:
         self._console_ts = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
 
     def __call__(self, logger, method_name, event_dict):
+        # structlog processors are untyped; bead 2 owns journal.
         json_line = self._json_renderer(logger, method_name, dict(event_dict))
         console_ed = dict(event_dict)
         console_ed.pop("timestamp", None)
-        console_ed = self._console_ts(logger, method_name, console_ed)
+        console_ed = self._console_ts(logger, method_name, console_ed)  # type: ignore[assignment]
         console_line = self._console_renderer(logger, method_name, console_ed)
-        self._json_file.write(json_line + "\n")
+        # JSONRenderer returns str with default settings.
+        self._json_file.write(json_line + "\n")  # type: ignore[arg-type, operator]
         self._json_file.flush()
+        # ConsoleRenderer returns str when colors=False.
         self._console_file.write(console_line + "\n")
         self._console_file.flush()
         return ""
@@ -119,7 +124,7 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
         _DualSink(fleet_file, sys.stderr),
     ]
     structlog.configure(
-        processors=processors,
+        processors=processors,  # type: ignore[arg-type]  # _DualSink is untyped; bead 2 owns journal
         wrapper_class=structlog.BoundLogger,
         context_class=dict,
         logger_factory=lambda *args, **kwargs: _NullLogger(),
@@ -168,10 +173,8 @@ def append_event(attempt_dir: Path, evt: Event) -> None:
     payload = redact(payload)
     attempt_dir.mkdir(parents=True, exist_ok=True)
     events_path = attempt_dir / "events.jsonl"
-    try:
+    with contextlib.suppress(OSError):
         _rotate_if_needed(events_path)
-    except OSError:
-        pass
     with events_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(payload) + "\n")
         f.flush()

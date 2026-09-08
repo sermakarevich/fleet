@@ -59,9 +59,7 @@ def test_failure_retries_then_blocks() -> None:
     d2 = decide(rec, _hist(("failure", "boom")), "in_progress", cfg)
     assert d2.action == Action.RELEASE
     assert 300 <= (d2.wait_sec or 0) <= 330
-    d3 = decide(
-        rec, _hist(("failure", "boom"), ("failure", "boom")), "in_progress", cfg
-    )
+    d3 = decide(rec, _hist(("failure", "boom"), ("failure", "boom")), "in_progress", cfg)
     assert d3.action == Action.BLOCK
 
 
@@ -145,14 +143,22 @@ def test_success_close_vs_noclose() -> None:
 
 def test_blocked_by_agent_and_terminal_always_block() -> None:
     cfg = RuntimeConfig()
-    assert decide(_record(TaskOutcome.BLOCKED_BY_AGENT, reason="creds"), [], "open", cfg).action == Action.BLOCK
-    assert decide(_record(TaskOutcome.TERMINAL, reason="terminal: bad coder"), [], "open", cfg).action == Action.BLOCK
+    assert (
+        decide(_record(TaskOutcome.BLOCKED_BY_AGENT, reason="creds"), [], "open", cfg).action
+        == Action.BLOCK
+    )
+    assert (
+        decide(_record(TaskOutcome.TERMINAL, reason="terminal: bad coder"), [], "open", cfg).action
+        == Action.BLOCK
+    )
 
 
 def test_noop_when_bead_not_in_progress() -> None:
     cfg = RuntimeConfig()
     assert decide(_record(TaskOutcome.SUCCESS), [], "closed", cfg).action == Action.NOOP
-    assert decide(_record(TaskOutcome.FAILURE, exit_code=1), [], "closed", cfg).action == Action.NOOP
+    assert (
+        decide(_record(TaskOutcome.FAILURE, exit_code=1), [], "closed", cfg).action == Action.NOOP
+    )
 
 
 def test_rounds_for_history_counts_trailing_streaks() -> None:
@@ -160,7 +166,12 @@ def test_rounds_for_history_counts_trailing_streaks() -> None:
     rounds = rounds_for_history(history)
     assert rounds["noclose"] == 1
     assert rounds["failure"] == 0
-    assert decide(_record(TaskOutcome.FAILURE, exit_code=1), history, "in_progress", RuntimeConfig()).action == Action.RELEASE
+    assert (
+        decide(
+            _record(TaskOutcome.FAILURE, exit_code=1), history, "in_progress", RuntimeConfig()
+        ).action
+        == Action.RELEASE
+    )
 
 
 def test_unhandled_outcome_raises() -> None:

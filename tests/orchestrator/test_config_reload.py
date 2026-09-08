@@ -28,9 +28,7 @@ class _Recorder(Service):
         self.calls.append((old, new))
 
 
-def _state_with(
-    tmp_path: Path, reloader: ConfigReload, recorder: _Recorder
-) -> SupervisorState:
+def _state_with(tmp_path: Path, reloader: ConfigReload, recorder: _Recorder) -> SupervisorState:
     sup = make_supervisor(tmp_path, services=[], checks=[])
     st = sup.state
     st.services = [reloader, recorder]

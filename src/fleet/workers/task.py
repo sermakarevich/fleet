@@ -107,9 +107,7 @@ class PrepareContinue:
 
 FreshTask = Worker("task.fresh", (PrepareArtifacts(), LlmSession()))
 ContinueTask = Worker("task.continue", (PrepareContinue(), LlmSession()))
-ContinueLargeTask = Worker(
-    "task.continue_large", (Compact(), PrepareContinue(), LlmSession())
-)
+ContinueLargeTask = Worker("task.continue_large", (Compact(), PrepareContinue(), LlmSession()))
 
 
 def plan_task(ctx: StepContext) -> Worker:

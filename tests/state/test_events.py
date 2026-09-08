@@ -106,7 +106,11 @@ def test_scan_rate_limit_events(tmp_path: Path) -> None:
             _event(
                 ts="2025-01-01T00:00:00Z",
                 kind="rate_limit",
-                rate_info={"status": "rejected", "provider": "anthropic", "resets_at": 1735689660.0},
+                rate_info={
+                    "status": "rejected",
+                    "provider": "anthropic",
+                    "resets_at": 1735689660.0,
+                },
             ),
             _event(
                 ts="2025-01-01T00:00:00Z",

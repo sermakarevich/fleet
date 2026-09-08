@@ -16,8 +16,6 @@ def create_analytics_router() -> APIRouter:
 
     @router.get("/summary")
     async def get_summary(days: int = 7) -> JSONResponse:
-        return JSONResponse(
-            await asyncio.to_thread(compute_summary, get_fleet_home(), days)
-        )
+        return JSONResponse(await asyncio.to_thread(compute_summary, get_fleet_home(), days))
 
     return router

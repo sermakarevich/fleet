@@ -8,6 +8,7 @@ skipped. Failures block the bead with a reason instead of closing it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +29,7 @@ def finish_validation(st: SupervisorState, task_dir: Path, task_id: str) -> None
     clear_needs_validation(task_dir)
     (task_dir / ".worktree").unlink(missing_ok=True)
     try:
-        st.queue.clear_isolation_info(task_id)
+        st.queue.clear_isolation_info(task_id)  # type: ignore[attr-defined]  # BeadsQueue-only method; bead 4 makes the Queue interface honest
     except AttributeError:
         pass
     except Exception:
@@ -61,9 +62,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         return
 
     if worktree.is_repo_dirty(repo_root):
-        await asyncio.to_thread(
-            st.queue.set_blocked, task_id, "base repo dirty; merge manually"
-        )
+        await asyncio.to_thread(st.queue.set_blocked, task_id, "base repo dirty; merge manually")
         st.log.warning("task.validation_dirty_base", task_id=task_id)
         clear_needs_validation(task_dir)
         return
@@ -94,17 +93,13 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
 
     post_cmd = getattr(st.config, "post_merge_command", "") or ""
     if post_cmd.strip():
-        ok, tail = await asyncio.to_thread(
-            worktree.run_post_merge_command, post_cmd, repo_root
-        )
+        ok, tail = await asyncio.to_thread(worktree.run_post_merge_command, post_cmd, repo_root)
         if not ok:
             await asyncio.to_thread(
                 st.queue.set_blocked, task_id, f"post-merge command failed:\n{tail}"
             )
             st.log.warning("task.post_merge_failed", task_id=task_id)
-            worktree.cleanup_worktree(
-                repo_root, task_id, wt_path, fleet_home=st.project_root
-            )
+            worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
             finish_validation(st, task_dir, task_id)
             return
 
@@ -113,10 +108,8 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
     )
     st.log.info("task.validated", task_id=task_id)
     worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
-    try:
+    with contextlib.suppress(Exception):
         await asyncio.to_thread(worktree.delete_branch, repo_root, task_id)
-    except Exception:
-        pass
     finish_validation(st, task_dir, task_id)
 
 
@@ -142,9 +135,7 @@ class MergeValidation(PeriodicService):
     name = "merge_validation"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(
-            interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
-        )
+        super().__init__(interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC)
 
     async def tick(self, st: SupervisorState) -> None:
         """Merge one pending validation, if any."""

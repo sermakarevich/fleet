@@ -14,6 +14,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
@@ -50,7 +51,7 @@ def tunnel_is_up(port: int, timeout: float = 2.0) -> bool:
     """True if an Ollama server answers on ``127.0.0.1:<port>``."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/tags", timeout=timeout) as resp:
-            return 200 <= resp.status < 300
+            return HTTPStatus.OK <= resp.status < HTTPStatus.MULTIPLE_CHOICES
     except (urllib.error.URLError, OSError, ValueError):
         return False
 
@@ -60,17 +61,23 @@ def ssh_argv(port: int, host: str, remote_port: int = DEFAULT_REMOTE_PORT) -> li
         "ssh",
         "-f",  # go to background once the forward is established
         "-N",  # no remote command
-        "-o", "BatchMode=yes",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", "ConnectTimeout=10",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
-        "-L", f"127.0.0.1:{port}:127.0.0.1:{remote_port}",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-L",
+        f"127.0.0.1:{port}:127.0.0.1:{remote_port}",
         host,
     ]
 
 
-def ensure_tunnel(
+def ensure_tunnel(  # noqa: PLR0911  # ADR 0006 bead 11
     url: str = DEFAULT_OLLAMA_URL,
     *,
     host: str | None = None,
@@ -106,4 +113,6 @@ def ensure_tunnel(
         return TunnelResult(
             "failed", port, f"ssh forward to {host} established but ollama did not answer on {port}"
         )
-    return TunnelResult("started", port, f"tunnel established 127.0.0.1:{port} -> {host}:{remote_port}")
+    return TunnelResult(
+        "started", port, f"tunnel established 127.0.0.1:{port} -> {host}:{remote_port}"
+    )

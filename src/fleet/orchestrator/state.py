@@ -44,7 +44,9 @@ class SupervisorState:
     log: structlog.BoundLogger
     rate_gauge: RateGauge
     coder_pin: Coder | None = None  # tests only
-    running: dict[str, RunningWorker] = field(default_factory=dict)  # writer: Claim adds, Reap removes (beads 3-4)
+    running: dict[str, RunningWorker] = field(
+        default_factory=dict
+    )  # writer: Claim adds, Reap removes (beads 3-4)
     paused_until: datetime | None = None  # writer: Reap sets, Claim clears
     shutting_down: bool = False  # writer: Supervisor
     # Writer: Supervisor runner fills this before on_start so services

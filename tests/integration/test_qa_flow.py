@@ -1,12 +1,17 @@
 """FR-16 / FR-17 / FR-18: Agent-blocked Q&A flow with real beads."""
+
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
 
+from fleet.core.retry_policy import rounds_for_history
+from fleet.state.attempts import load_attempts
 from tests.integration.conftest import (
     FakeClaudeCoder,
     beads_functional,
@@ -15,10 +20,12 @@ from tests.integration.conftest import (
     make_supervisor,
 )
 
-pytestmark = pytest.mark.skipif(not beads_functional(), reason="bd not functional in fresh git repo")
+pytestmark = pytest.mark.skipif(
+    not beads_functional(), reason="bd not functional in fresh git repo"
+)
 
 
-def test_qa_block_and_resume(tmp_path: Path) -> None:
+def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 0006 bead 29
     """Agent blocks task with Q&A, human answers, task completes. (FR-16/17)"""
     queue = init_beads_queue(tmp_path)
     task = queue.create_task(
@@ -60,10 +67,8 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
                 await asyncio.wait_for(sup_task, timeout=5.0)
             except TimeoutError:
                 sup_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_phase1())
 
@@ -109,10 +114,8 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
                 await asyncio.wait_for(sup_task, timeout=5.0)
             except TimeoutError:
                 sup_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     # Need a fresh supervisor (can't reuse after shutdown)
     sup2 = make_supervisor(tmp_path, queue, coder=coder, config=config)
@@ -136,23 +139,18 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
                 await asyncio.wait_for(sup_task, timeout=5.0)
             except TimeoutError:
                 sup_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_phase3_with_sup2())
 
     assert closed_event.is_set(), "task should be closed after read_qa_and_close scenario"
 
     # events.jsonl should have records from both runs (append-only across runs)
-    import json
     events_path = task_dir / "events.jsonl"
     assert events_path.exists()
     lines = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
-    assert len(lines) >= 2, (
-        f"events from both runs should be appended; got {len(lines)} records"
-    )
+    assert len(lines) >= 2, f"events from both runs should be appended; got {len(lines)} records"
 
 
 def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
@@ -190,17 +188,13 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
                 await asyncio.wait_for(sup_task, timeout=5.0)
             except TimeoutError:
                 sup_task.cancel()
-                try:
+                with suppress(asyncio.CancelledError, Exception):
                     await sup_task
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 
     assert done.is_set()
     task_dir = tmp_path / "tasks" / task_id
-    from fleet.core.retry_policy import rounds_for_history
-    from fleet.state.attempts import load_attempts
 
     assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, (
         "BLOCKED_BY_AGENT must not burn retries"

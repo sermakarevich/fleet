@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,9 +53,7 @@ def _parse_log_line(line: str) -> LogEntry | None:
     level = row.get("level") or "info"
     message = row.get("event") or row.get("message") or ""
     extra = {
-        k: v
-        for k, v in row.items()
-        if k not in ("timestamp", "ts", "level", "event", "message")
+        k: v for k, v in row.items() if k not in ("timestamp", "ts", "level", "event", "message")
     }
     return LogEntry(ts=str(ts), level=str(level), message=str(message), extra=extra)
 
@@ -112,9 +111,7 @@ def _get_beads_task_info(task_id: str, home: Path) -> dict | None:
         if not isinstance(body, dict):
             return None
         depends_on = [
-            d["id"]
-            for d in (body.get("dependencies") or [])
-            if isinstance(d, dict) and d.get("id")
+            d["id"] for d in (body.get("dependencies") or []) if isinstance(d, dict) and d.get("id")
         ]
         return {
             "status": body.get("status"),
@@ -142,7 +139,7 @@ def _supervisor_alive(home: Path) -> bool:
         return False
 
 
-def create_tasks_router() -> APIRouter:
+def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
     router = APIRouter(prefix="/api")
 
     def _recency_key(data: dict) -> str:
@@ -176,11 +173,12 @@ def create_tasks_router() -> APIRouter:
         # Falls back to raw task.json status if beads is unavailable.
         beads_map = await asyncio.to_thread(get_beads_status_map, home)
         reconciled: list[dict] = []
-        for data in task_jsons:
-            task_id = data.get("id", "")
+        for raw_data in task_jsons:
+            task_id = raw_data.get("id", "")
+            task_data = raw_data
             if beads_map is not None and task_id:
-                data = merge_status(data, beads_map.get(task_id))
-            reconciled.append(data)
+                task_data = merge_status(raw_data, beads_map.get(task_id))
+            reconciled.append(task_data)
 
         closed_limit = max(0, min(closed_limit, 2000))
 
@@ -336,7 +334,9 @@ def create_tasks_router() -> APIRouter:
         return JSONResponse({"content": f.read_text(encoding="utf-8")})
 
     @router.post("/tasks/{task_id}/kill")
-    async def kill_task(task_id: str, request: Request) -> JSONResponse:
+    async def kill_task(  # noqa: PLR0911  # ADR 0006 bead 9
+        task_id: str, request: Request
+    ) -> JSONResponse:
         home = get_fleet_home()
         task_dir = _task_dir(home, task_id)
         if not (task_dir / "task.json").exists():
@@ -399,10 +399,8 @@ def create_tasks_router() -> APIRouter:
         except (OSError, ValueError):
             pass
         clear_needs_validation(task_dir)
-        try:
+        with contextlib.suppress(OSError):
             record_unblock(task_dir, note)
-        except OSError:
-            pass
         return JSONResponse({"ok": True})
 
     @router.post("/tasks/{task_id}/unignore")

@@ -255,7 +255,7 @@ RETRY_TABLE: list[RetryRule] = [
 ]
 
 
-def _category_of(
+def _category_of(  # noqa: PLR0911  # ADR 0006 bead 5
     outcome: str | None,
     reason: str | None,
     close_reason: bool = False,

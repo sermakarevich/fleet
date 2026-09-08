@@ -3,11 +3,12 @@
 Every filename constant defined in `state/paths.py` has to appear in the
 contract block, so the doc and the code cannot drift apart silently.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import fleet.state.paths as paths
+from fleet.state import paths
 
 ARCHITECTURE_MD = Path(__file__).resolve().parents[2] / "docs" / "ARCHITECTURE.md"
 

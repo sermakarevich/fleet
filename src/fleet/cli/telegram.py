@@ -17,17 +17,18 @@ from fleet.integrations.telegram import setup as telegram_setup
 from fleet.state.paths import fleet_home
 
 _TELE_W = 26  # key column width for telegram output
+_TOKEN_PREFIX_LEN = 6  # how many leading token chars may appear in masked output
 
 
 def _mask_token(token: str) -> str:
     """Return '12345...:***' — never exposes the secret part of the token."""
     if ":" not in token:
-        return (token[:6] + "...") if len(token) > 6 else "***"
+        return (token[:_TOKEN_PREFIX_LEN] + "...") if len(token) > _TOKEN_PREFIX_LEN else "***"
     bot_id, _ = token.split(":", 1)
     return f"{bot_id}...:***"
 
 
-def register(app: typer.Typer) -> None:
+def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
     telegram_app = typer.Typer(no_args_is_help=True, help="Telegram integration diagnostics.")
     app.add_typer(telegram_app, name="telegram", help="Telegram integration diagnostics.")
 
@@ -59,12 +60,8 @@ def register(app: typer.Typer) -> None:
 
         typer.echo("")
         typer.echo(f"{'telegram_chat_id':<{_TELE_W}} {cfg.telegram_chat_id or '(not set)'}")
-        typer.echo(
-            f"{'telegram_allowed_ids':<{_TELE_W}} {cfg.telegram_allowed_ids or '(not set)'}"
-        )
-        typer.echo(
-            f"{'telegram_default_cwd':<{_TELE_W}} {cfg.telegram_default_cwd or '(not set)'}"
-        )
+        typer.echo(f"{'telegram_allowed_ids':<{_TELE_W}} {cfg.telegram_allowed_ids or '(not set)'}")
+        typer.echo(f"{'telegram_default_cwd':<{_TELE_W}} {cfg.telegram_default_cwd or '(not set)'}")
 
         outbound_ok = bot_ok and bool(cfg.telegram_chat_id)
         inbound_ok = bot_ok and bool(cfg.telegram_allowed_ids)
@@ -74,9 +71,7 @@ def register(app: typer.Typer) -> None:
             "ok" if outbound_ok else "NOT configured — need valid token + telegram_chat_id"
         )
         in_verdict = (
-            "ok"
-            if inbound_ok
-            else "NOT configured — need valid token + telegram_allowed_ids"
+            "ok" if inbound_ok else "NOT configured — need valid token + telegram_allowed_ids"
         )
         typer.echo(f"{'outbound notifications':<{_TELE_W}} {out_verdict}")
         typer.echo(f"{'inbound /task creation':<{_TELE_W}} {in_verdict}")
@@ -110,10 +105,10 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"Message sent to {cfg.telegram_chat_id}.")
         except Exception as exc:
             typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     @telegram_app.command("setup")
-    def telegram_setup_cmd(
+    def telegram_setup_cmd(  # noqa: PLR0912, PLR0915  # ADR 0006 bead 12
         chat_id: Annotated[
             str | None,
             typer.Option(
@@ -125,14 +120,14 @@ def register(app: typer.Typer) -> None:
             str | None,
             typer.Option(
                 "--allowed-ids",
-                help="Comma-separated Telegram user IDs allowed for inbound tasks (skip discovery).",
+                help=(
+                    "Comma-separated Telegram user IDs allowed for inbound tasks (skip discovery)."
+                ),
             ),
         ] = None,
         default_cwd: Annotated[
             str | None,
-            typer.Option(
-                "--default-cwd", help="Default working directory for inbound tasks."
-            ),
+            typer.Option("--default-cwd", help="Default working directory for inbound tasks."),
         ] = None,
         no_test: Annotated[
             bool, typer.Option("--no-test", help="Skip sending a test message after setup.")
@@ -166,8 +161,7 @@ def register(app: typer.Typer) -> None:
         if not token:
             if yes:
                 typer.echo(
-                    "Error: TELEGRAM_BOT_TOKEN is not set. "
-                    "Export it before running with --yes.",
+                    "Error: TELEGRAM_BOT_TOKEN is not set. Export it before running with --yes.",
                     err=True,
                 )
                 raise typer.Exit(1)
@@ -178,7 +172,7 @@ def register(app: typer.Typer) -> None:
             bot = telegram_setup.validate_token(token)
         except Exception as exc:
             typer.echo(f"failed\nError: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
         bot_username = bot.get("username", "?")
         typer.echo(f"ok — @{bot_username}")
@@ -203,7 +197,7 @@ def register(app: typer.Typer) -> None:
                 chat_list, offset = telegram_setup.discover_chats(token)
             except Exception as exc:
                 typer.echo(f"\nNetwork error while polling: {exc}", err=True)
-                raise typer.Exit(1)
+                raise typer.Exit(1) from exc
             typer.echo()  # newline after dots
 
             if not chat_list:
@@ -229,12 +223,10 @@ def register(app: typer.Typer) -> None:
                     chosen = chat_list[idx]
                 except ValueError:
                     typer.echo("Invalid choice.", err=True)
-                    raise typer.Exit(1)
+                    raise typer.Exit(1) from None
 
             chosen_chat_id = chosen["id"]
-            typer.echo(
-                f"Selected: [{chosen['type']}] {chosen['title']}  (id: {chosen_chat_id})"
-            )
+            typer.echo(f"Selected: [{chosen['type']}] {chosen['title']}  (id: {chosen_chat_id})")
         else:
             chosen_chat_id = chat_id
             offset = None
@@ -244,7 +236,7 @@ def register(app: typer.Typer) -> None:
             written_keys["telegram_chat_id"] = chosen_chat_id
         except Exception as exc:
             typer.echo(f"Error writing config: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
         # ── (c) Inbound (optional) ──────────────────────────────────────────────
         allowed_ids_value: str = ""
@@ -269,7 +261,7 @@ def register(app: typer.Typer) -> None:
                 seen_users, offset = telegram_setup.discover_users(token, offset)
             except Exception as exc:
                 typer.echo(f"\nNetwork error while polling: {exc}", err=True)
-                raise typer.Exit(1)
+                raise typer.Exit(1) from exc
             typer.echo()
 
             if not seen_users:
@@ -295,13 +287,15 @@ def register(app: typer.Typer) -> None:
                 written_keys["telegram_default_cwd"] = default_cwd_value
             except Exception as exc:
                 typer.echo(f"Error writing config: {exc}", err=True)
-                raise typer.Exit(1)
+                raise typer.Exit(1) from exc
 
         # ── (d) Finish — test message ──────────────────────────────────────────
         if not no_test:
             typer.echo("\nSending test message... ", nl=False)
             try:
-                telegram_setup.send_test_message(token, chosen_chat_id, "fleet: telegram configured")
+                telegram_setup.send_test_message(
+                    token, chosen_chat_id, "fleet: telegram configured"
+                )
                 typer.echo("ok")
             except Exception as exc:
                 typer.echo(f"warning: {exc}")

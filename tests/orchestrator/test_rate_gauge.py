@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
 from fleet.core.task import Event
-from fleet.orchestrator.rate_gauge import RateGauge, _RESET_GRACE_SEC, _FALLBACK_DECAY_SEC
+from fleet.orchestrator.rate_gauge import _FALLBACK_DECAY_SEC, _RESET_GRACE_SEC, RateGauge
 
 
 def _gauge() -> RateGauge:
@@ -13,10 +13,16 @@ def _gauge() -> RateGauge:
 
 
 def _ts() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
-def _make_event(kind: str, *, usage_pct: float | None = None, resets_at: int | None = None, status: str | None = None) -> Event:
+def _make_event(
+    kind: str,
+    *,
+    usage_pct: float | None = None,
+    resets_at: int | None = None,
+    status: str | None = None,
+) -> Event:
     rate_info: dict = {}
     if usage_pct is not None:
         rate_info["usage_pct"] = usage_pct
@@ -30,6 +36,7 @@ def _make_event(kind: str, *, usage_pct: float | None = None, resets_at: int | N
 # ---------------------------------------------------------------------------
 # update populates fields
 # ---------------------------------------------------------------------------
+
 
 def test_update_sets_current_usage_pct() -> None:
     g = _gauge()
@@ -75,11 +82,12 @@ def test_update_ignores_event_with_no_rate_info() -> None:
 # auto-reset past resets_at + grace
 # ---------------------------------------------------------------------------
 
+
 def test_auto_reset_past_grace_returns_zero() -> None:
     g = _gauge()
     resets_at = 1_000
     g.update(_make_event("rate_limit_info", usage_pct=92.0, resets_at=resets_at))
-    past = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC + 1, tz=timezone.utc)
+    past = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC + 1, tz=UTC)
     assert g.current_pct(now=past) == 0.0
 
 
@@ -87,7 +95,7 @@ def test_auto_reset_clears_resets_at() -> None:
     g = _gauge()
     resets_at = 1_000
     g.update(_make_event("rate_limit_info", usage_pct=92.0, resets_at=resets_at))
-    past = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC + 1, tz=timezone.utc)
+    past = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC + 1, tz=UTC)
     g.current_pct(now=past)
     assert g.resets_at is None
 
@@ -96,7 +104,7 @@ def test_no_reset_before_grace_expires() -> None:
     g = _gauge()
     resets_at = 1_000
     g.update(_make_event("rate_limit_info", usage_pct=92.0, resets_at=resets_at))
-    just_before = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC - 1, tz=timezone.utc)
+    just_before = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC - 1, tz=UTC)
     assert g.current_pct(now=just_before) == 92.0
 
 
@@ -105,13 +113,14 @@ def test_no_reset_at_exact_grace_boundary() -> None:
     g = _gauge()
     resets_at = 1_000
     g.update(_make_event("rate_limit_info", usage_pct=75.0, resets_at=resets_at))
-    at_boundary_minus_one = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC - 0.001, tz=timezone.utc)
+    at_boundary_minus_one = datetime.fromtimestamp(resets_at + _RESET_GRACE_SEC - 0.001, tz=UTC)
     assert g.current_pct(now=at_boundary_minus_one) == 75.0
 
 
 # ---------------------------------------------------------------------------
 # update without usage_pct preserves prior value
 # ---------------------------------------------------------------------------
+
 
 def test_update_no_usage_pct_preserves_prior_value() -> None:
     g = _gauge()
@@ -133,6 +142,7 @@ def test_update_no_usage_pct_records_last_updated() -> None:
 # snapshot
 # ---------------------------------------------------------------------------
 
+
 def test_snapshot_returns_expected_keys() -> None:
     g = _gauge()
     g.update(_make_event("rate_limit_info", usage_pct=42.0, resets_at=9_000))
@@ -148,12 +158,13 @@ def test_snapshot_returns_expected_keys() -> None:
 # Fallback decay when resets_at is None (edge case: API omitted resetsAt)
 # ---------------------------------------------------------------------------
 
+
 def test_fallback_decay_when_no_resets_at_and_stale() -> None:
     g = _gauge()
     g.update(_make_event("rate_limit_info", usage_pct=92.0))  # no resets_at
     lu = g.last_updated
     assert lu is not None
-    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=UTC)
     assert g.current_pct(now=stale) == 0.0
 
 
@@ -162,7 +173,7 @@ def test_no_fallback_decay_when_not_yet_stale() -> None:
     g.update(_make_event("rate_limit_info", usage_pct=92.0))
     lu = g.last_updated
     assert lu is not None
-    not_stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC - 1, tz=timezone.utc)
+    not_stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC - 1, tz=UTC)
     assert g.current_pct(now=not_stale) == 92.0
 
 
@@ -173,12 +184,12 @@ def test_fallback_decay_not_triggered_when_resets_at_set() -> None:
     g.update(_make_event("rate_limit_info", usage_pct=92.0, resets_at=far_future))
     lu = g.last_updated
     assert lu is not None
-    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    stale = datetime.fromtimestamp(lu.timestamp() + _FALLBACK_DECAY_SEC + 1, tz=UTC)
     assert g.current_pct(now=stale) == 92.0
 
 
 def test_fallback_decay_not_triggered_without_prior_update() -> None:
     # No update at all — gauge starts at 0.0 and last_updated is None.
     g = _gauge()
-    stale = datetime.fromtimestamp(1_000_000 + _FALLBACK_DECAY_SEC + 1, tz=timezone.utc)
+    stale = datetime.fromtimestamp(1_000_000 + _FALLBACK_DECAY_SEC + 1, tz=UTC)
     assert g.current_pct(now=stale) == 0.0

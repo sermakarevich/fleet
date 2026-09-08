@@ -40,9 +40,7 @@ def test_fleet_log_context_keys(tmp_path: Path) -> None:
 
 def test_fleet_log_context_in_flight_and_tokens(tmp_path: Path) -> None:
     """In-flight ids are sorted and each gets a context_tokens entry."""
-    sup = make_supervisor(
-        tmp_path, services=[], checks=[], config=RuntimeConfig(max_concurrent=5)
-    )
+    sup = make_supervisor(tmp_path, services=[], checks=[], config=RuntimeConfig(max_concurrent=5))
     sup.state.running["t-z"] = make_running_worker("t-z", tmp_path)
     sup.state.running["t-a"] = make_running_worker("t-a", tmp_path)
     ctx = fleet_log_context(sup.state)

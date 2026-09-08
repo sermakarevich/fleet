@@ -62,10 +62,7 @@ def get_updates(token: str, offset: int | None = None, timeout: int = 5) -> list
     params: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
     if offset is not None:
         params["offset"] = offset
-    url = (
-        f"https://api.telegram.org/bot{token}/getUpdates"
-        f"?{urllib.parse.urlencode(params)}"
-    )
+    url = f"https://api.telegram.org/bot{token}/getUpdates?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout + 10) as resp:
@@ -225,7 +222,7 @@ def _parse_new_task_command(text: str) -> tuple[str, str | None] | None:
     text = text.strip()
     if not text.startswith("/new_task"):
         return None
-    remainder = text[len("/new_task"):]
+    remainder = text[len("/new_task") :]
     # Allow /new_task@botname variant
     if remainder and remainder[0] == "@":
         space = remainder.find(" ")
@@ -233,7 +230,7 @@ def _parse_new_task_command(text: str) -> tuple[str, str | None] | None:
         candidates = [i for i in (space, newline) if i != -1]
         if not candidates:
             return None
-        remainder = remainder[min(candidates):]
+        remainder = remainder[min(candidates) :]
     elif remainder and remainder[0] not in (" ", "\n", "\r", "\t"):
         return None
     remainder = remainder.lstrip(" \t")
@@ -293,7 +290,9 @@ async def _handle_answer(token: str, chat_id: str, qid: str, raw_text: str) -> N
         await send_message(token, chat_id, "Unknown or expired question")
 
 
-async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None = None) -> None:
+async def inbound_listener(  # noqa: PLR0912, PLR0915  # ADR 0006 bead 11
+    app: Any, offset_path: Path, qmsg_path: Path | None = None
+) -> None:
     """Long-poll Telegram getUpdates; create tasks and answer ask_human questions.
 
     Security: if telegram_allowed_ids is empty the loop polls nothing.
@@ -359,7 +358,11 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                                     default_cwd,
                                 )
                                 reply = f"Created task {task.id}: {task.title}"
-                                _log.info("telegram.inbound: created task", task_id=task.id, title=task.title)
+                                _log.info(
+                                    "telegram.inbound: created task",
+                                    task_id=task.id,
+                                    title=task.title,
+                                )
                             except Exception as exc:
                                 reply = f"Error creating task: {exc}"
                                 _log.error("telegram.inbound: create_task failed", error=str(exc))
@@ -374,7 +377,9 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                     elif cmd == "/tasks":
                         if chat_id:
                             try:
-                                in_progress = await asyncio.to_thread(app.state.queue.list_in_progress)
+                                in_progress = await asyncio.to_thread(
+                                    app.state.queue.list_in_progress
+                                )
                                 ready = await asyncio.to_thread(app.state.queue.list_ready)
                             except Exception as exc:
                                 _log.warning("telegram.inbound: /tasks failed", error=str(exc))
@@ -382,7 +387,10 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                             else:
                                 _TASKS_CAP = 15
                                 sections: list[str] = []
-                                for label, tasks in (("In progress", in_progress), ("Ready", ready)):
+                                for label, tasks in (
+                                    ("In progress", in_progress),
+                                    ("Ready", ready),
+                                ):
                                     if not tasks:
                                         continue
                                     lines = [f"- {t.id} {t.title}" for t in tasks[:_TASKS_CAP]]
@@ -398,7 +406,9 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                             if task_id:
                                 try:
                                     task = await asyncio.to_thread(app.state.queue.get, task_id)
-                                    header = f"ID: {task.id}\nStatus: {task.status}\nTitle: {task.title}"
+                                    header = (
+                                        f"ID: {task.id}\nStatus: {task.status}\nTitle: {task.title}"
+                                    )
                                     if task.description:
                                         max_desc = _MAX_TEXT - len(header) - 2
                                         desc = task.description[:max_desc]
@@ -411,15 +421,19 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                                         task_id=task_id,
                                         error=str(exc),
                                     )
-                                    reply = f"No task {task_id}. To create a task use /new_task <title>"
+                                    reply = (
+                                        f"No task {task_id}. To create a task use /new_task <title>"
+                                    )
                                 await send_message(token, chat_id, reply)
                             else:
                                 await send_message(
                                     token,
                                     chat_id,
-                                    "Usage: /task <id> - show task details; /tasks - list open tasks; /new_task <title> - create a task",
+                                    "Usage: /task <id> - show task details; "
+                                    "/tasks - list open tasks; "
+                                    "/new_task <title> - create a task",
                                 )
-                    elif cmd == "/help" or cmd == "/start":
+                    elif cmd in {"/help", "/start"}:
                         if chat_id:
                             await send_message(token, chat_id, HELP_TEXT)
                     # else: unknown slash command → silently ignore
@@ -446,7 +460,8 @@ async def inbound_listener(app: Any, offset_path: Path, qmsg_path: Path | None =
                             await send_message(
                                 token,
                                 chat_id,
-                                f"{pending} questions pending - reply directly to the specific question message to answer it",
+                                f"{pending} questions pending - reply directly "
+                                "to the specific question message to answer it",
                             )
 
                 if offset is None or next_offset > offset:

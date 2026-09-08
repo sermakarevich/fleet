@@ -1,13 +1,14 @@
 """FR-06: Graceful shutdown releases all tasks; stubborn child gets SIGKILL."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import subprocess
 import time
 from pathlib import Path
 
 from fleet.core.task import Task
-
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -33,9 +34,7 @@ def _no_orphans(tag: str, timeout: float = 2.0) -> bool:
     deadline = time.monotonic() + timeout
     while True:
         result = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True,
+            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
         )
         if result.returncode != 0:  # pgrep exits 1 when no match
             return True
@@ -75,12 +74,10 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
             await sup._shutdown()
             await asyncio.wait_for(sup_task, timeout=8.0)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await sup_task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
@@ -92,9 +89,7 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
 
     # No orphan subprocesses (scoped to this test's tmp_path to avoid
     # cross-test contamination within the same pytest run).
-    assert _no_orphans(str(tmp_path)), (
-        "no fake_claude.py processes should remain after shutdown"
-    )
+    assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should remain after shutdown"
 
 
 def test_shutdown_all_tasks_back_to_open(tmp_path: Path) -> None:
@@ -113,12 +108,10 @@ def test_shutdown_all_tasks_back_to_open(tmp_path: Path) -> None:
             await _wait_in_flight(sup, 3, timeout=8.0)
             await sup._shutdown()
             await asyncio.wait_for(sup_task, timeout=8.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await sup_task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
@@ -156,22 +149,16 @@ def test_shutdown_stubborn_child_gets_sigkill(tmp_path: Path) -> None:
             await sup._shutdown()
             # Allow enough time: grace (2s) + SIGKILL wait + cleanup
             await asyncio.wait_for(sup_task, timeout=10.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sup_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await sup_task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     asyncio.run(_run())
 
     released_ids = {tid for tid, _ in queue.released}
-    assert "t-stubborn" in released_ids, (
-        "stubborn task should be released after SIGKILL"
-    )
-    assert _no_orphans(str(tmp_path)), (
-        "no fake_claude.py processes should survive shutdown"
-    )
+    assert "t-stubborn" in released_ids, "stubborn task should be released after SIGKILL"
+    assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should survive shutdown"
 
 
 def test_shutdown_exit_code_zero(tmp_path: Path) -> None:
@@ -189,7 +176,7 @@ def test_shutdown_exit_code_zero(tmp_path: Path) -> None:
         await sup._shutdown()
         try:
             rc = await asyncio.wait_for(sup_task, timeout=8.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             sup_task.cancel()
             rc = -1
         return rc

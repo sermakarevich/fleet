@@ -1,4 +1,5 @@
 """FR-15 / FR-22: Context-pressure flag causes release without burning retries."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +7,7 @@ from pathlib import Path
 
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import Task
+from fleet.state.attempts import load_attempts
 from fleet.state.events import iter_events
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -45,9 +47,10 @@ def test_context_pressure_release_no_failure(tmp_path: Path) -> None:
     release_reasons = [r for _, r in queue.released]
     assert any("context_pressure" in r for r in release_reasons)
 
-    from fleet.state.attempts import load_attempts
     task_dir = tmp_path / "tasks" / "t-001"
-    assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, "context_pressure must not burn retries"
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, (
+        "context_pressure must not burn retries"
+    )
 
 
 def test_context_pressure_uses_no_marker_file(tmp_path: Path) -> None:
@@ -75,7 +78,6 @@ def test_context_pressure_uses_no_marker_file(tmp_path: Path) -> None:
     assert not (task_dir / ".context_pressure").exists(), (
         "no .context_pressure marker file should ever be written"
     )
-    from fleet.state.attempts import load_attempts
 
     outcomes = [e.get("outcome") for e in load_attempts(task_dir) if e.get("outcome")]
     assert "context_pressure" in outcomes
@@ -111,9 +113,6 @@ def test_context_pressure_then_success_events_append_only(tmp_path: Path) -> Non
     # aggregates across all of them in order, so this still checks that
     # both runs' events survive (no attempt overwrites another's file).
     lines = list(iter_events(task_dir))
-    assert len(lines) >= 2, (
-        f"events from both runs should be appended; got {len(lines)} records"
-    )
+    assert len(lines) >= 2, f"events from both runs should be appended; got {len(lines)} records"
 
-    from fleet.state.attempts import load_attempts
     assert rounds_for_history(load_attempts(task_dir))["failure"] == 0

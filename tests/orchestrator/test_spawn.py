@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import types
 from pathlib import Path
 
+from fleet.coders.opencode import OpencodeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.orchestrator import spawn as spawn_mod
@@ -111,10 +113,8 @@ def test_spawn_returns_record_with_attempt_n(tmp_path: Path) -> None:
         finally:
             if worker is not None:
                 worker.future.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await worker.future
-                except (asyncio.CancelledError, Exception):
-                    pass
 
     asyncio.run(_run())
 
@@ -138,10 +138,8 @@ def test_spawn_registers_nothing_on_second_attempt(tmp_path: Path) -> None:
             for worker in (first, second):
                 if worker is not None:
                     worker.future.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
                         await worker.future
-                    except (asyncio.CancelledError, Exception):
-                        pass
 
     asyncio.run(_run())
 
@@ -174,9 +172,7 @@ def test_spawn_bad_cwd_blocks_and_returns_none(tmp_path: Path) -> None:
     assert "t-cwd" not in st.running
 
 
-def test_spawn_unknown_worker_blocks_and_returns_none(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_spawn_unknown_worker_blocks_and_returns_none(tmp_path: Path, monkeypatch) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     queue = StubQueue()
@@ -207,7 +203,6 @@ def test_resolve_coder_prefers_pin(tmp_path: Path) -> None:
 
 def test_resolve_coder_opencode_passes_default_model_not_limits(tmp_path: Path):
     """When coder_name == 'opencode', resolve_coder passes routing kwargs only."""
-    from fleet.coders.opencode import OpencodeCoder
 
     queue = StubQueue()
     st = _make_state(tmp_path, queue, pinned=False)
@@ -230,9 +225,7 @@ def test_block_terminal_journals_blocks_comments(tmp_path: Path) -> None:
     assert queue.blocked == [("t-t", "terminal: no such coder")]
     assert len(queue.comments) == 1
     outcomes = [
-        e.get("outcome")
-        for e in attempts.load_attempts(st.task_dir_for("t-t"))
-        if e.get("outcome")
+        e.get("outcome") for e in attempts.load_attempts(st.task_dir_for("t-t")) if e.get("outcome")
     ]
     assert outcomes == ["terminal"]
 

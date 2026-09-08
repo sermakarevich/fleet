@@ -66,9 +66,7 @@ class TestTaskRecordFull:
                 },
             ),
             _event(ts="2025-01-02T15:00:00Z", kind="error"),
-            _event(
-                ts="malformed-ts", kind="error"
-            ),  # ts not parseable but event still counts
+            _event(ts="malformed-ts", kind="error"),  # ts not parseable but event still counts
             "THIS IS NOT JSON",  # malformed line — should be skipped
         ]
         _write_events(td, evs)
@@ -107,9 +105,7 @@ class TestRateLimit:
         (td / "attempts.jsonl").write_text(
             "\n".join(
                 [
-                    json.dumps(
-                        {"event": "start", "n": 1, "ts": "2025-03-05T08:00:00+00:00"}
-                    ),
+                    json.dumps({"event": "start", "n": 1, "ts": "2025-03-05T08:00:00+00:00"}),
                     json.dumps(
                         {
                             "event": "end",
@@ -248,12 +244,8 @@ class TestCache:
         # Append a line (changes file size)
         evs = "\n".join(
             [
-                _event(
-                    ts="2025-06-01T10:00:00Z", kind="session_started", session_id="a"
-                ),
-                _event(
-                    ts="2025-06-01T11:00:00Z", kind="session_started", session_id="b"
-                ),
+                _event(ts="2025-06-01T10:00:00Z", kind="session_started", session_id="a"),
+                _event(ts="2025-06-01T11:00:00Z", kind="session_started", session_id="b"),
             ]
         )
         (td / "attempts" / "1" / "events.jsonl").write_text(evs + "\n", "utf-8")

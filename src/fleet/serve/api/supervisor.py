@@ -1,4 +1,5 @@
 """Supervisor status and pause/resume REST routes (FR-42)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -66,17 +67,19 @@ def create_supervisor_router() -> APIRouter:
         max_concurrent = cfg.max_concurrent
         current_fp = code_fingerprint()
         stale = stored_fp is not None and stored_fp != current_fp
-        return JSONResponse({
-            "pid": pid,
-            "started_at": started_at,
-            "running": running,
-            "max_concurrent": max_concurrent,
-            "active_count": active_count,
-            "free_slots": max(0, max_concurrent - active_count),
-            "paused": paused,
-            "version_fingerprint": stored_fp,
-            "stale": stale,
-        })
+        return JSONResponse(
+            {
+                "pid": pid,
+                "started_at": started_at,
+                "running": running,
+                "max_concurrent": max_concurrent,
+                "active_count": active_count,
+                "free_slots": max(0, max_concurrent - active_count),
+                "paused": paused,
+                "version_fingerprint": stored_fp,
+                "stale": stale,
+            }
+        )
 
     @router.post("/pause")
     async def pause_supervisor() -> JSONResponse:
@@ -98,10 +101,12 @@ def create_supervisor_router() -> APIRouter:
         daemon = Daemon(supervisor_spec(home))
         result = await asyncio.to_thread(daemon.restart)
         pid_data = daemon.read_pidfile() or {}
-        return JSONResponse({
-            "pid": result.pid,
-            "alive": result.alive,
-            "started_at": pid_data.get("started_at"),
-        })
+        return JSONResponse(
+            {
+                "pid": result.pid,
+                "alive": result.alive,
+                "started_at": pid_data.get("started_at"),
+            }
+        )
 
     return router

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from typing import Annotated
 
 import typer
+
+from fleet.integrations.ask_human.server import main as _serve_main
 
 _ASK_HUMAN_HELP = "ask_human MCP server — the backend of the fleet chat tab."
 
@@ -18,7 +21,6 @@ def register(app: typer.Typer) -> None:
     @ask_human_app.command("serve")
     def ask_human_serve() -> None:
         """Run the ask_human MCP server on stdio (the target for `claude mcp add`)."""
-        from fleet.integrations.ask_human.server import main as _serve_main
 
         _serve_main()
 
@@ -30,7 +32,6 @@ def register(app: typer.Typer) -> None:
         ] = "user",
     ) -> None:
         """Register the vendored MCP server with Claude Code (`claude mcp add ask_human`)."""
-        import shutil
 
         claude = shutil.which("claude")
         if not claude:
@@ -42,6 +43,7 @@ def register(app: typer.Typer) -> None:
             [claude, "mcp", "remove", "ask_human", "--scope", scope],
             capture_output=True,
             text=True,
+            check=False,
         )
         result = subprocess.run(
             [
@@ -58,6 +60,7 @@ def register(app: typer.Typer) -> None:
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode != 0:
             typer.echo(f"Error: claude mcp add failed: {result.stderr.strip()}", err=True)

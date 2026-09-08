@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
+from fleet.beads.client import BeadsError
 from fleet.cli.main import app
 from fleet.core.task import Task
 
@@ -34,12 +36,8 @@ def _run_job(tmp_path, task, children=None, pending=None):
     store.fetch_pending_for_task.return_value = pending or []
     with (
         patch("fleet.cli.tasks.BeadsQueue", return_value=queue),
-        patch(
-            "fleet.integrations.ask_human.store.QuestionStore", return_value=store
-        ),
+        patch("fleet.cli.tasks.QuestionStore", return_value=store),
     ):
-        import os
-
         old = os.environ.get("FLEET_HOME")
         os.environ["FLEET_HOME"] = str(tmp_path)
         try:
@@ -76,13 +74,10 @@ def test_job_prints_children_and_gate(tmp_path) -> None:
 
 
 def test_job_missing_bead_exits_nonzero(tmp_path) -> None:
-    from fleet.beads.client import BeadsError
 
     queue = MagicMock()
     queue.get.side_effect = BeadsError("no such bead")
     with patch("fleet.cli.tasks.BeadsQueue", return_value=queue):
-        import os
-
         old = os.environ.get("FLEET_HOME")
         os.environ["FLEET_HOME"] = str(tmp_path)
         try:

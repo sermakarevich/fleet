@@ -11,12 +11,12 @@ from fleet.core.launch import ArtifactSnapshot, LaunchLimits, LaunchPlan, plan_l
 
 
 def _stub_snapshot(**overrides) -> ArtifactSnapshot:
-    defaults = dict(
-        state_text="",
-        state_is_stub=True,
-        latest_result=None,
-        latest_result_is_missing=False,
-    )
+    defaults = {
+        "state_text": "",
+        "state_is_stub": True,
+        "latest_result": None,
+        "latest_result_is_missing": False,
+    }
     defaults.update(overrides)
     return ArtifactSnapshot(**defaults)
 

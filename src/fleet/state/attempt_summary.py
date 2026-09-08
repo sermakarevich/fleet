@@ -171,16 +171,13 @@ def render_markdown(summary: AttemptSummary) -> str:
     )
     if summary.result is not None:
         lines.append(
-            f"- declared result: {summary.result.get('status')}: "
-            f"{summary.result.get('summary')}"
+            f"- declared result: {summary.result.get('status')}: {summary.result.get('summary')}"
         )
     lines.append("")
     lines.append("## Files touched")
     if summary.files_touched:
         for path, counts in sorted(summary.files_touched.items()):
-            lines.append(
-                f"- {path}: read={counts.read} edit={counts.edit} write={counts.write}"
-            )
+            lines.append(f"- {path}: read={counts.read} edit={counts.edit} write={counts.write}")
     else:
         lines.append("(none)")
     lines.append("")
@@ -199,9 +196,7 @@ def render_markdown(summary: AttemptSummary) -> str:
     lines.append("")
     lines.append("## Last error event")
     lines.append(
-        json.dumps(summary.last_error)[:_LAST_TEXT_MAX_CHARS]
-        if summary.last_error
-        else "(none)"
+        json.dumps(summary.last_error)[:_LAST_TEXT_MAX_CHARS] if summary.last_error else "(none)"
     )
     lines.append("")
     lines.append(f"## Last {_STDERR_TAIL_LINES} lines of log.stderr")

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from fleet.orchestrator import worktree
+from fleet.orchestrator.worktree import has_uncommitted_changes
 
 
 def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
@@ -18,8 +19,12 @@ def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _git_init(path: Path, branch: str = "main") -> None:
     subprocess.run(["git", "init", "-b", branch], cwd=path, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "test"], cwd=path, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True, check=False
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "test"], cwd=path, capture_output=True, check=False
+    )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
         cwd=path,
@@ -97,6 +102,7 @@ class TestCreateWorktree:
             ["git", "-C", str(wt), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
+            check=False,
         )
         assert out.stdout.strip() == "fleet/t-2"
 
@@ -181,6 +187,7 @@ class TestMergeFastForward:
             ["git", "-C", str(git_repo), "status", "--porcelain"],
             capture_output=True,
             text=True,
+            check=False,
         )
         assert status.stdout.strip() == ""
 
@@ -227,6 +234,7 @@ class TestRemoveAndBranch:
             subprocess.run(
                 ["git", "-C", str(git_repo), "rev-parse", "--verify", "fleet/r-1"],
                 capture_output=True,
+                check=False,
             ).returncode
             != 0
         )
@@ -236,10 +244,6 @@ class TestRemoveAndBranch:
 
 
 def test_has_uncommitted_changes_tracks_real_git_state(tmp_path):
-    import subprocess
-
-    from fleet.orchestrator.worktree import has_uncommitted_changes
-
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)

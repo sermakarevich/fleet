@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -491,9 +492,7 @@ def test_claim_tick_skips_task_already_running(tmp_path: Path, monkeypatch) -> N
     s = _make_supervisor(tmp_path, queue)
     s.state.running["t-dup"] = make_running_worker("t-dup", tmp_path)
     spawned: list[str] = []
-    monkeypatch.setattr(
-        claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id)
-    )
+    monkeypatch.setattr(claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id))
 
     asyncio.run(Claim(interval_sec=0.01).tick(s.state))
 
@@ -582,7 +581,6 @@ def test_timeout_killed_shares_stall_ladder(tmp_path: Path) -> None:
 
 def test_failure_release_writes_attempt_end_line(tmp_path: Path) -> None:
     """After a FAILURE outcome that releases, attempts.jsonl has an end line."""
-    import json
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)

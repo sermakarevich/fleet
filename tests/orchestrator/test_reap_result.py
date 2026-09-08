@@ -6,6 +6,7 @@ from pathlib import Path
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
+from fleet.state import attempts as attempts_mod
 from fleet.state.paths import task_dir as _task_dir
 from tests.conftest import make_running_worker, make_supervisor
 
@@ -64,9 +65,10 @@ def _make_supervisor(tmp_path: Path, queue: StubQueue) -> Supervisor:
     return make_supervisor(tmp_path, queue=queue, services=[], checks=[])
 
 
-def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord, attempt_n: int | None = None) -> None:
+def _handle(
+    s: Supervisor, task: Task, record: TaskOutcomeRecord, attempt_n: int | None = None
+) -> None:
     """Fold one outcome through reap, opening a fresh attempt like spawn does."""
-    from fleet.state import attempts as attempts_mod
 
     if attempt_n is None:
         attempt_n = attempts_mod.record_start(
@@ -174,12 +176,11 @@ def test_no_result_json_releases_with_noclose_comment(tmp_path: Path) -> None:
 
 
 def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
-    _write_result(
-        tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "reached halfway"}
-    )
+    _write_result(tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "reached halfway"})
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    _handle(s, 
+    _handle(
+        s,
         _task(),
         TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, exit_code=1, reason="rc=1"),
     )
@@ -193,7 +194,6 @@ def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
 
 
 def test_reap_snapshots_state_and_result_then_unlinks(tmp_path: Path) -> None:
-    from fleet.state import attempts as attempts_mod
 
     task_dir = _task_dir(tmp_path, "t-001")
     task_dir.mkdir(parents=True, exist_ok=True)
@@ -207,6 +207,9 @@ def test_reap_snapshots_state_and_result_then_unlinks(tmp_path: Path) -> None:
 
     attempt_dir = task_dir / "attempts" / "1"
     assert (attempt_dir / "STATE.md").read_text(encoding="utf-8") == "## Next\n- keep going\n"
-    assert json.loads((attempt_dir / "RESULT.json").read_text(encoding="utf-8"))["summary"] == "shipped"
+    assert (
+        json.loads((attempt_dir / "RESULT.json").read_text(encoding="utf-8"))["summary"]
+        == "shipped"
+    )
     assert not (task_dir / "RESULT.json").exists()
     assert queue.closed == [("t-001", "shipped")]

@@ -20,14 +20,20 @@ from pathlib import Path
 from fleet.coders.base import Coder, render_prompt, workdir_for
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
+from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.state.attempts import latest_attempt_dir
+from fleet.state.paths import fleet_home
+from fleet.state.paths import task_dir as _resolve_task_dir
 
-_TOOL_ITEM_TYPES = frozenset({
-    "command_execution",
-    "file_change",
-    "mcp_tool_call",
-    "web_search",
-    "collab_tool_call",
-})
+_TOOL_ITEM_TYPES = frozenset(
+    {
+        "command_execution",
+        "file_change",
+        "mcp_tool_call",
+        "web_search",
+        "collab_tool_call",
+    }
+)
 
 CODEX_HOME_DIRNAME = "codex_home"
 CODEX_CONFIG_FILENAME = "config.toml"
@@ -41,7 +47,6 @@ def _toml_str(value: str) -> str:
 def _codex_home_path(task_dir: Path) -> Path:
     """Per-attempt CODEX_HOME: the current attempt's dir when one is recorded,
     else the task dir itself (unit tests, ad-hoc runs)."""
-    from fleet.state.attempts import latest_attempt_dir
 
     attempt_dir = latest_attempt_dir(task_dir)
     return (attempt_dir or task_dir) / CODEX_HOME_DIRNAME
@@ -53,7 +58,6 @@ def _render_codex_config(home: Path) -> str:
     *home* is FLEET_HOME. One ``[mcp_servers.<name>]`` table per server from
     ``integrations.mcp_servers.fleet_mcp_servers``.
     """
-    from fleet.integrations.mcp_servers import fleet_mcp_servers
 
     lines = [
         "# Fleet-managed codex config: MCP servers every worker must have.",
@@ -67,8 +71,7 @@ def _render_codex_config(home: Path) -> str:
         lines.append(f"args = [{args}]")
         if entry["env"]:
             env_pairs = ", ".join(
-                f"{_toml_str(k)} = {_toml_str(v)}"
-                for k, v in sorted(entry["env"].items())
+                f"{_toml_str(k)} = {_toml_str(v)}" for k, v in sorted(entry["env"].items())
             )
             lines.append(f"env = {{ {env_pairs} }}")
         lines.append("")
@@ -91,16 +94,15 @@ class CodexCoder(Coder):
     def __init__(self, model: str = "o4-mini") -> None:
         self.model = model
 
-    def build_argv(
-        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
-    ) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         prompt = render_prompt(task, task_dir, plan)
         argv = [
             "codex",
             "exec",
             "--json",
             "--dangerously-bypass-approvals-and-sandbox",
-            "--model", self.model,
+            "--model",
+            self.model,
         ]
         workdir = workdir_for(task, task_dir)
         if workdir:
@@ -126,13 +128,8 @@ class CodexCoder(Coder):
         two agree within one attempt.
         """
         try:
-            from fleet.state.paths import fleet_home
-            from fleet.state.paths import task_dir as _resolve_task_dir
-
             home = fleet_home()
-            _write_codex_config(
-                _codex_home_path(_resolve_task_dir(home, task.id)), home
-            )
+            _write_codex_config(_codex_home_path(_resolve_task_dir(home, task.id)), home)
         except OSError:
             pass
 

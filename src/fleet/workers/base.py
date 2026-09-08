@@ -68,7 +68,7 @@ class Step(Protocol):
         ``llm_session`` is the step that overrides this to signal the
         process group; steps with no subprocess have nothing to interrupt.
         """
-        return None
+        return
 
 
 @dataclass(frozen=True)

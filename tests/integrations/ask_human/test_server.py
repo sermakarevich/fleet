@@ -119,9 +119,7 @@ def test_await_answer_does_not_block_event_loop(tmp_path: Path):
     assert ticks >= 3  # the loop kept making progress while we waited
 
 
-def test_default_agent_id_from_fleet_task_dir(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
+def test_default_agent_id_from_fleet_task_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """When FLEET_TASK_DIR is set, _default_agent_id extracts the last path segment as agent_id."""
     task_dir = tmp_path / ".fleet" / "tasks" / "fleet-abcd123"
     task_dir.mkdir(parents=True)
@@ -160,8 +158,6 @@ def test_ask_human_question_uses_env_default_agent_id(
 
     s = _store(tmp_path)
     # Simulate what ask_human_question does: effective_agent_id = agent_id or _default_agent_id()
-    from fleet.integrations.ask_human.server import _default_agent_id
-
     effective = None or _default_agent_id()
     qid = s.create("hello", agent_id=effective)
     q = s.get(qid)
@@ -177,7 +173,6 @@ def test_ask_human_question_explicit_agent_id_wins_over_env(
     monkeypatch.setenv("FLEET_TASK_DIR", str(task_dir))
 
     s = _store(tmp_path)
-    from fleet.integrations.ask_human.server import _default_agent_id
 
     # When explicitly passed, agent_id wins over env default
     explicit = "fleet-abc123"

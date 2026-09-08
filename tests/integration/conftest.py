@@ -1,17 +1,21 @@
 """Shared fixtures and utilities for fleet integration tests."""
+
 from __future__ import annotations
 
 import asyncio
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
 import structlog
 
-from fleet.beads.queue import Queue
+from fleet.beads.client import BeadsError
+from fleet.beads.queue import BeadsQueue, Queue
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig, load, write_atomic
 from fleet.core.task import Task
@@ -161,7 +165,6 @@ class MemoryQueue(Queue):
 
     def get(self, task_id: str) -> Task:
         if task_id not in self._tasks:
-            from fleet.beads.client import BeadsError
             raise BeadsError(f"Task {task_id} not found")
         return self._tasks[task_id]
 
@@ -200,7 +203,15 @@ class MemoryQueue(Queue):
         model: str | None = None,
     ) -> Task:
         task_id = f"mem-{len(self._tasks):03d}"
-        task = Task(id=task_id, title=title, description=description, status="open", cwd=cwd, coder=coder, model=model)
+        task = Task(
+            id=task_id,
+            title=title,
+            description=description,
+            status="open",
+            cwd=cwd,
+            coder=coder,
+            model=model,
+        )
         self._tasks[task_id] = task
         return task
 
@@ -214,8 +225,17 @@ def _git_init(path: Path) -> None:
     """Create a minimal git repo at path (needed by beads)."""
     subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, check=True)
     subprocess.run(
-        ["git", "-c", "user.email=test@test.com", "-c", "user.name=test",
-         "commit", "--allow-empty", "-m", "init"],
+        [
+            "git",
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
         cwd=path,
         capture_output=True,
         check=True,
@@ -224,10 +244,9 @@ def _git_init(path: Path) -> None:
 
 def init_beads_queue(tmp_path: Path):  # type: ignore[return]
     """Initialize a git repo + beads workspace in tmp_path and return a BeadsQueue."""
-    from fleet.beads.queue import BeadsQueue
 
     _git_init(tmp_path)
-    result = subprocess.run(["bd", "init"], cwd=tmp_path, capture_output=True)
+    result = subprocess.run(["bd", "init"], cwd=tmp_path, capture_output=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"bd init failed: {result.stderr.decode()}")
     return BeadsQueue(tmp_path)
@@ -237,18 +256,17 @@ def beads_functional() -> bool:
     """Return True if bd can initialize and run basic commands in a fresh git repo."""
     if not BD_AVAILABLE:
         return False
-    import tempfile
 
     with tempfile.TemporaryDirectory() as d:
         path = Path(d)
         try:
             _git_init(path)
-            r = subprocess.run(["bd", "init"], cwd=path, capture_output=True)
+            r = subprocess.run(["bd", "init"], cwd=path, capture_output=True, check=False)
             if r.returncode != 0:
                 return False
             # Verify a basic bd command works
             r2 = subprocess.run(
-                ["bd", "ready", "--json"], cwd=path, capture_output=True
+                ["bd", "ready", "--json"], cwd=path, capture_output=True, check=False
             )
             return r2.returncode == 0
         except Exception:
@@ -286,9 +304,7 @@ def make_supervisor(
     )
     services = default_services()
     for svc in services:
-        if getattr(svc, "name", "") in ("claim", "config_reload") and hasattr(
-            svc, "interval_sec"
-        ):
+        if getattr(svc, "name", "") in ("claim", "config_reload") and hasattr(svc, "interval_sec"):
             svc.interval_sec = 1
     return Supervisor(state=state, services=services, shutdown_grace_sec=3)
 
@@ -315,10 +331,8 @@ async def run_until(
             await asyncio.wait_for(sup_task, timeout=5.0)
         except TimeoutError:
             sup_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await sup_task
-            except (asyncio.CancelledError, Exception):
-                pass
 
 
 @pytest.fixture(autouse=True)

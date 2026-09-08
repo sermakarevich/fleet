@@ -19,14 +19,11 @@ def fleet_log_context(st: SupervisorState) -> dict:
         "in_flight": len(st.running),
         "cap": st.config.max_concurrent,
         "usage_pct": usage_pct,
-        "paused_until": (
-            st.paused_until.isoformat() if st.paused_until is not None else None
-        ),
+        "paused_until": (st.paused_until.isoformat() if st.paused_until is not None else None),
         "rate_limit_resets_at": st.rate_gauge.resets_at,
         "task_ids": sorted(st.running.keys()),
         "context_tokens": {
-            tid: (scan(st.task_dir_for(tid)).peak_context_tokens or 0)
-            for tid in st.running
+            tid: (scan(st.task_dir_for(tid)).peak_context_tokens or 0) for tid in st.running
         },
     }
 
