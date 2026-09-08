@@ -535,8 +535,9 @@ def test_tasks_list_cache_hit_skips_rescan(
     (task_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
 
     from fleet.state import events as events_mod
+    from fleet.serve import stats as stats_mod
 
-    monkeypatch.setattr(events_mod, "_cache", {})
+    stats_mod._events_cache.clear()
 
     scan_count = 0
     _orig = events_mod.scan
@@ -576,8 +577,9 @@ def test_tasks_list_cache_invalidated_on_events_change(
     (attempt_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
 
     from fleet.state import events as events_mod
+    from fleet.serve import stats as stats_mod
 
-    monkeypatch.setattr(events_mod, "_cache", {})
+    stats_mod._events_cache.clear()
 
     app = create_app()
 

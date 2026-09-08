@@ -21,7 +21,7 @@ from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir, record_unblock
-from fleet.state.events import iter_events, scan_cached
+from fleet.state.events import EventScanCache, iter_events, scan_cached
 from fleet.state.legacy import attempt_state_snapshot, legacy_state_text
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
@@ -30,6 +30,9 @@ from fleet.state.task_summary import build_task_summary, read_result
 from fleet.state.validation_marker import (
     clear_needs_validation,
 )
+
+# Owner of cached event scans for the files/events endpoints below.
+_events_cache = EventScanCache()
 
 
 @dataclass
@@ -624,7 +627,7 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/files")
     async def get_task_files(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        counts = scan_cached(_task_dir(home, task_id)).files_touched
+        counts = scan_cached(_task_dir(home, task_id), _events_cache).files_touched
         files = [
             {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
             for path, fc in sorted(counts.items())

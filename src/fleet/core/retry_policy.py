@@ -1,37 +1,41 @@
-"""One retry-policy table, readable at a glance. Pure: no I/O.
+"""Retry policy as a data table. Pure: no I/O.
 
 Rounds per outcome are COUNTED from attempt history (consecutive
 same-outcome attempts, reset when an attempt ends differently), so no
 counter files are needed. Callers pass ``history =
 state.attempts.load_attempts(task_dir)`` (prior attempts; the current
 attempt has a start line but no end line yet).
+
+``decide`` finds the first row of ``RETRY_TABLE`` matching the current
+record and applies it. Round caps live in ``core/limits.py``.
 """
 
 from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
 from fleet.core.config import RuntimeConfig
-from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
+from fleet.core.limits import (
+    CONTEXT_MAX_ROUNDS,
+    FAILURE_MAX_ROUNDS,
+    NOCLOSE_MAX_ROUNDS,
+    PARTIAL_MAX_ROUNDS,
+    RATE_LIMIT_DEFAULT_SLEEP_SEC,
+    STALL_MAX_ROUNDS,
+)
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 
-# Retry table. "max rounds" counts the current attempt too: round n means
-# this outcome has ended n times in a row (trailing streak in history + 1).
-FAILURE_MAX_ROUNDS = 3
 # A FAILURE carrying this reason is not the worker's fault: the supervisor
 # stopped (restart, deploy). It is re-queued at once and never counts as a
 # round, nor breaks a streak, so a redeploy cannot push a task into BLOCK.
 SHUTDOWN_REASON = "supervisor_shutdown"
 FAILURE_WAIT_SEC = (60, 300, 900)
 FAILURE_JITTER_SEC = 30
-STALL_MAX_ROUNDS = 2
-CONTEXT_MAX_ROUNDS = 3
-PARTIAL_MAX_ROUNDS = 5
-NOCLOSE_MAX_ROUNDS = 3
 # WAITING releases carry a short delay so a not-yet-ready epic does not
 # hot-loop through claim (still no bead comment, no round counting).
 WAITING_WAIT_SEC = 60
@@ -53,6 +57,202 @@ class Decision:
     # `retry_after`; claim_next skips tasks whose retry_after is in the
     # future). None/0 means "right away".
     wait_sec: int | None = None
+
+
+# How a rule matches a record's reason: None matches any reason, a string
+# matches it exactly, a tuple matches membership, a callable is a predicate
+# over the whole record (for fields like close_reason or resets_at).
+ReasonMatch = str | tuple[str, ...] | Callable[[TaskOutcomeRecord], bool] | None
+
+
+@dataclass(frozen=True)
+class RetryRule:
+    """One row of the retry table, evaluated top to bottom, first match wins."""
+
+    outcome: TaskOutcome | None
+    reason_match: ReasonMatch = None
+    max_rounds: int | None = None
+    action: Action = Action.RELEASE
+    block_reason_tmpl: str = ""
+    # Extra knobs the five core fields cannot express:
+    # release_reason_tmpl renders the RELEASE/NOOP/CLOSE reason, wait_for
+    # computes RELEASE wait_sec from (record, rounds), bead_open restricts
+    # the row to open (True) or already-closed (False) beads, and
+    # default_reason fills {reason} when the record carries none.
+    release_reason_tmpl: str = ""
+    wait_for: Callable[[TaskOutcomeRecord, int], int | None] | None = None
+    bead_open: bool | None = None
+    default_reason: str = ""
+
+
+def _has_close_reason(record: TaskOutcomeRecord) -> bool:
+    """True when the worker reported done and asked to close the bead."""
+    return record.close_reason is not None
+
+
+def _no_close_reason(record: TaskOutcomeRecord) -> bool:
+    """True when a SUCCESS carries no close request (counts as a no-close round)."""
+    return record.close_reason is None
+
+
+def _is_stall_reason(record: TaskOutcomeRecord) -> bool:
+    """True when a KILLED record means stalled/timed-out (shares one ladder)."""
+    return record.reason in ("stalled", "timeout")
+
+
+def _not_stall_reason(record: TaskOutcomeRecord) -> bool:
+    """True when a KILLED record is a manual interrupt, not a stall."""
+    return record.reason not in ("stalled", "timeout")
+
+
+def _has_reason(record: TaskOutcomeRecord) -> bool:
+    """True when the record carries its own release reason text."""
+    return bool(record.reason)
+
+
+def _no_reason(record: TaskOutcomeRecord) -> bool:
+    """True when the release reason must fall back to the round counter text."""
+    return not record.reason
+
+
+def _has_resets_at(record: TaskOutcomeRecord) -> bool:
+    """True when a rate-limit record names the quota reset timestamp."""
+    return record.resets_at is not None
+
+
+def _no_resets_at(record: TaskOutcomeRecord) -> bool:
+    """True when a rate-limit record names no reset timestamp."""
+    return record.resets_at is None
+
+
+def _wait_const(n: int) -> Callable[[TaskOutcomeRecord, int], int | None]:
+    """Build a wait_for returning a fixed delay."""
+    return lambda _record, _rounds: n
+
+
+# Evaluation order is the policy: terminal states first, then the
+# any-bead releases (stall, rate limit, waiting, shutdown), then the
+# closed-bead catch-all, then the open-bead streak ladders.
+RETRY_TABLE: list[RetryRule] = [
+    RetryRule(
+        TaskOutcome.TERMINAL,
+        action=Action.BLOCK,
+        block_reason_tmpl="{reason}",
+        default_reason="terminal setup error",
+    ),
+    RetryRule(
+        TaskOutcome.BLOCKED_BY_AGENT,
+        action=Action.BLOCK,
+        block_reason_tmpl="{reason}",
+        default_reason="agent set task to blocked",
+    ),
+    RetryRule(
+        TaskOutcome.KILLED,
+        reason_match=("stalled", "timeout"),
+        max_rounds=STALL_MAX_ROUNDS,
+        action=Action.RELEASE,
+        block_reason_tmpl="stalled {rounds} times; needs human review",
+        release_reason_tmpl="stalled; killed and re-queued #{rounds}/{max}",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        TaskOutcome.RATE_LIMIT,
+        reason_match=_has_resets_at,
+        action=Action.RELEASE,
+        release_reason_tmpl="rate_limit, sleep until {resets_at}",
+        wait_for=lambda record, _rounds: _rate_limit_wait(record.resets_at),
+    ),
+    RetryRule(
+        TaskOutcome.RATE_LIMIT,
+        reason_match=_no_resets_at,
+        action=Action.RELEASE,
+        release_reason_tmpl="rate_limit",
+        wait_for=lambda record, _rounds: _rate_limit_wait(record.resets_at),
+    ),
+    RetryRule(
+        TaskOutcome.WAITING,
+        action=Action.RELEASE,
+        release_reason_tmpl="{reason}",
+        default_reason="waiting on child beads",
+        wait_for=_wait_const(WAITING_WAIT_SEC),
+    ),
+    RetryRule(
+        TaskOutcome.FAILURE,
+        reason_match=SHUTDOWN_REASON,
+        bead_open=True,
+        action=Action.RELEASE,
+        release_reason_tmpl="supervisor shutdown; re-queued",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        None,
+        bead_open=False,
+        action=Action.NOOP,
+        release_reason_tmpl="already closed on exit",
+    ),
+    RetryRule(
+        TaskOutcome.SUCCESS,
+        reason_match=_has_close_reason,
+        bead_open=True,
+        action=Action.CLOSE,
+        release_reason_tmpl="{close_reason}",
+    ),
+    RetryRule(
+        TaskOutcome.SUCCESS,
+        reason_match=_no_close_reason,
+        max_rounds=NOCLOSE_MAX_ROUNDS,
+        bead_open=True,
+        action=Action.RELEASE,
+        block_reason_tmpl="no-close limit exhausted ({rounds}/{max}); needs human review",
+        release_reason_tmpl="re-queueing (success without close; #{rounds}/{max})",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        TaskOutcome.PARTIAL,
+        reason_match=_has_reason,
+        max_rounds=PARTIAL_MAX_ROUNDS,
+        bead_open=True,
+        action=Action.RELEASE,
+        block_reason_tmpl="partial limit exhausted ({rounds}/{max}); needs human review",
+        release_reason_tmpl="{reason}",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        TaskOutcome.PARTIAL,
+        reason_match=_no_reason,
+        max_rounds=PARTIAL_MAX_ROUNDS,
+        bead_open=True,
+        action=Action.RELEASE,
+        block_reason_tmpl="partial limit exhausted ({rounds}/{max}); needs human review",
+        release_reason_tmpl="partial progress; re-queueing (#{rounds}/{max})",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        TaskOutcome.CONTEXT_PRESSURE,
+        max_rounds=CONTEXT_MAX_ROUNDS,
+        bead_open=True,
+        action=Action.RELEASE,
+        block_reason_tmpl="too large for one worker; split it",
+        release_reason_tmpl="context_pressure; resume on next claim",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        TaskOutcome.KILLED,
+        reason_match=_not_stall_reason,
+        bead_open=True,
+        action=Action.BLOCK,
+        block_reason_tmpl="manually interrupted",
+    ),
+    RetryRule(
+        TaskOutcome.FAILURE,
+        max_rounds=FAILURE_MAX_ROUNDS,
+        bead_open=True,
+        action=Action.RELEASE,
+        block_reason_tmpl="retry limit ({max}) exhausted; last failure: {reason}",
+        release_reason_tmpl="subprocess failure rc={exit_code}; will retry",
+        wait_for=lambda _record, rounds: _failure_wait(rounds),
+    ),
+]
 
 
 def _category_of(
@@ -119,6 +319,14 @@ def _trailing_streak(history: list[dict], category: str) -> int:
     return count
 
 
+def streak_of(history: list[dict], outcome: TaskOutcome, reason: str) -> int:
+    """Count the trailing streak in history for the current record's category."""
+    category = _category_of(outcome.value if isinstance(outcome, TaskOutcome) else outcome, reason)
+    if category is None:
+        return 0
+    return _trailing_streak(history, category)
+
+
 def rounds_for_history(history: list[dict]) -> dict[str, int]:
     """Return trailing-streak rounds per category for UI/API summaries."""
     return {
@@ -147,132 +355,68 @@ def _rate_limit_wait(resets_at: int | None) -> int:
     return max(base, RATE_LIMIT_DEFAULT_SLEEP_SEC)
 
 
+def _reason_matches(match: ReasonMatch, record: TaskOutcomeRecord) -> bool:
+    """True when *record* satisfies a rule's reason_match clause."""
+    if match is None:
+        return True
+    if callable(match):
+        return bool(match(record))
+    if isinstance(match, str):
+        return record.reason == match
+    return record.reason in match
+
+
+def _rule_matches(rule: RetryRule, record: TaskOutcomeRecord, bead_status: str | None) -> bool:
+    """True when *rule* is a candidate for *record* on a bead with *bead_status*."""
+    if rule.outcome is not None and record.outcome != rule.outcome:
+        return False
+    if rule.bead_open is True and bead_status != "in_progress":
+        return False
+    if rule.bead_open is False and bead_status == "in_progress":
+        return False
+    return _reason_matches(rule.reason_match, record)
+
+
+def _render(tmpl: str, rule: RetryRule, record: TaskOutcomeRecord, rounds: int) -> str:
+    """Fill a reason template from the rule, record, and current round."""
+    return tmpl.format(
+        reason=record.reason or rule.default_reason,
+        rounds=rounds,
+        max=rule.max_rounds,
+        exit_code=record.exit_code,
+        resets_at=record.resets_at,
+        close_reason=record.close_reason,
+    )
+
+
+def _apply_rule(rule: RetryRule, record: TaskOutcomeRecord, history: list[dict]) -> Decision:
+    """Turn the first matching rule into a Decision, counting rounds once."""
+    if rule.max_rounds is None:
+        if rule.action is Action.BLOCK:
+            return Decision(Action.BLOCK, reason=_render(rule.block_reason_tmpl, rule, record, 0))
+        wait = rule.wait_for(record, 0) if rule.wait_for is not None else None
+        return Decision(
+            rule.action, reason=_render(rule.release_reason_tmpl, rule, record, 0), wait_sec=wait
+        )
+    rounds = streak_of(history, record.outcome, record.reason) + 1
+    if rounds >= rule.max_rounds:
+        return Decision(Action.BLOCK, reason=_render(rule.block_reason_tmpl, rule, record, rounds))
+    wait = rule.wait_for(record, rounds) if rule.wait_for is not None else None
+    return Decision(
+        Action.RELEASE,
+        reason=_render(rule.release_reason_tmpl, rule, record, rounds),
+        wait_sec=wait,
+    )
+
+
 def decide(
     record: TaskOutcomeRecord,
     history: list[dict],
     bead_status: str | None,
     cfg: RuntimeConfig,
 ) -> Decision:
-    """Apply the retry table to *record* given prior *history*."""
-    match record.outcome:
-        case TaskOutcome.TERMINAL:
-            return Decision(Action.BLOCK, reason=record.reason or "terminal setup error")
-
-        case TaskOutcome.BLOCKED_BY_AGENT:
-            return Decision(
-                Action.BLOCK, reason=record.reason or "agent set task to blocked"
-            )
-
-        case TaskOutcome.SUCCESS:
-            if bead_status != "in_progress":
-                return Decision(Action.NOOP, reason="already closed on exit")
-            if record.close_reason is not None:
-                return Decision(Action.CLOSE, reason=record.close_reason)
-            rounds = _trailing_streak(history, "noclose") + 1
-            if rounds >= NOCLOSE_MAX_ROUNDS:
-                return Decision(
-                    Action.BLOCK,
-                    reason=(
-                        f"no-close limit exhausted ({rounds}/{NOCLOSE_MAX_ROUNDS}); "
-                        "needs human review"
-                    ),
-                )
-            return Decision(
-                Action.RELEASE,
-                reason=f"re-queueing (success without close; #{rounds}/{NOCLOSE_MAX_ROUNDS})",
-                wait_sec=0,
-            )
-
-        case TaskOutcome.PARTIAL:
-            if bead_status != "in_progress":
-                return Decision(Action.NOOP, reason="already closed on exit")
-            rounds = _trailing_streak(history, "partial") + 1
-            if rounds >= PARTIAL_MAX_ROUNDS:
-                return Decision(
-                    Action.BLOCK,
-                    reason=(
-                        f"partial limit exhausted ({rounds}/{PARTIAL_MAX_ROUNDS}); "
-                        "needs human review"
-                    ),
-                )
-            reason = record.reason or f"partial progress; re-queueing (#{rounds}/{PARTIAL_MAX_ROUNDS})"
-            return Decision(Action.RELEASE, reason=reason, wait_sec=0)
-
-        case TaskOutcome.CONTEXT_PRESSURE:
-            if bead_status != "in_progress":
-                return Decision(Action.NOOP, reason="already closed on exit")
-            rounds = _trailing_streak(history, "context") + 1
-            if rounds >= CONTEXT_MAX_ROUNDS:
-                return Decision(
-                    Action.BLOCK,
-                    reason="too large for one worker; split it",
-                )
-            return Decision(
-                Action.RELEASE,
-                reason="context_pressure; resume on next claim",
-                wait_sec=0,
-            )
-
-        case TaskOutcome.RATE_LIMIT:
-            return Decision(
-                Action.RELEASE,
-                reason=(
-                    f"rate_limit, sleep until {record.resets_at}"
-                    if record.resets_at is not None
-                    else "rate_limit"
-                ),
-                wait_sec=_rate_limit_wait(record.resets_at),
-            )
-
-        case TaskOutcome.WAITING:
-            # The observer woke before its epic's children were terminal:
-            # release at once (short delay against hot-looping), never
-            # counted, never commented — reap skips the bead comment.
-            return Decision(
-                Action.RELEASE,
-                reason=record.reason or "waiting on child beads",
-                wait_sec=WAITING_WAIT_SEC,
-            )
-
-        case TaskOutcome.KILLED:
-            if record.reason in ("stalled", "timeout"):
-                rounds = _trailing_streak(history, "stall") + 1
-                if rounds >= STALL_MAX_ROUNDS:
-                    return Decision(
-                        Action.BLOCK,
-                        reason=(
-                            f"stalled {rounds} times; needs human review"
-                        ),
-                    )
-                return Decision(
-                    Action.RELEASE,
-                    reason=f"stalled; killed and re-queued #{rounds}/{STALL_MAX_ROUNDS}",
-                    wait_sec=0,
-                )
-            if bead_status != "in_progress":
-                return Decision(Action.NOOP, reason="already closed on exit")
-            return Decision(Action.BLOCK, reason="manually interrupted")
-
-        case TaskOutcome.FAILURE:
-            if bead_status != "in_progress":
-                return Decision(Action.NOOP, reason="already closed on exit")
-            if record.reason == SHUTDOWN_REASON:
-                return Decision(
-                    Action.RELEASE, reason="supervisor shutdown; re-queued", wait_sec=0
-                )
-            rounds = _trailing_streak(history, "failure") + 1
-            if rounds >= FAILURE_MAX_ROUNDS:
-                return Decision(
-                    Action.BLOCK,
-                    reason=(
-                        f"retry limit ({FAILURE_MAX_ROUNDS}) exhausted; "
-                        f"last failure: {record.reason}"
-                    ),
-                )
-            return Decision(
-                Action.RELEASE,
-                reason=f"subprocess failure rc={record.exit_code}; will retry",
-                wait_sec=_failure_wait(rounds),
-            )
-
+    """Apply the first matching RETRY_TABLE row to *record* given *history*."""
+    for rule in RETRY_TABLE:
+        if _rule_matches(rule, record, bead_status):
+            return _apply_rule(rule, record, history)
     raise ValueError(f"unhandled outcome: {record.outcome!r}")

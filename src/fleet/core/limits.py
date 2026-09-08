@@ -20,4 +20,13 @@ PROBE_SILENCE_SEC: int = 60
 # opencode retries provider rate limits itself with growing back-off; streaks
 # almost always clear within ~90 s. Only give up on a rate-limited session after
 # this much silence, otherwise the probe kills sessions that were about to recover.
+# Retry-table rounds (consumed by core/retry_policy.py and core/triage_policy.py).
+# "Max rounds" counts the current attempt too: round n means this outcome
+# has ended n times in a row (trailing streak in history + 1).
+FAILURE_MAX_ROUNDS: int = 3
+STALL_MAX_ROUNDS: int = 2
+CONTEXT_MAX_ROUNDS: int = 3
+PARTIAL_MAX_ROUNDS: int = 5
+NOCLOSE_MAX_ROUNDS: int = 3
+
 RATE_LIMIT_PROBE_SILENCE_SEC: int = 300

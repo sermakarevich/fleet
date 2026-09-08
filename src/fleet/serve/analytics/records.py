@@ -10,7 +10,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from fleet.state.events import scan_cached
+from fleet.state.events import EventScanCache, scan_cached
+
+# Owner of cached event scans for the analytics record builder below.
+_events_cache = EventScanCache()
 
 
 def _str_to_iso(dt: datetime | None) -> str | None:
@@ -40,7 +43,7 @@ def _build_record(tdir: Path) -> dict:
         pass
 
     id_ = tdir.name or ""
-    stats = scan_cached(tdir)
+    stats = scan_cached(tdir, _events_cache)
 
     try:
         from fleet.state.attempts import load_attempts

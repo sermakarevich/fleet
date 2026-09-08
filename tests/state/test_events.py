@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fleet.state.events import iter_events, parse_iso, safe_int, scan, scan_cached
+from fleet.state.events import EventScanCache, iter_events, parse_iso, safe_int, scan, scan_cached
 
 
 def _event(**kw) -> str:
@@ -133,14 +133,25 @@ def test_scan_empty_dir(tmp_path: Path) -> None:
 def test_scan_cached_reuses_until_file_changes(tmp_path: Path) -> None:
     d = tmp_path / "task-4"
     _write_events(d, [_event(ts="2025-01-01T00:00:00Z", kind="session_started")])
+    cache = EventScanCache()
 
-    s1 = scan_cached(d)
-    s2 = scan_cached(d)
+    s1 = scan_cached(d, cache)
+    s2 = scan_cached(d, cache)
     assert s1 is s2
 
     with (d / "attempts" / "1" / "events.jsonl").open("a") as fh:
         fh.write(_event(ts="2025-01-01T00:00:01Z", kind="session_started") + "\n")
 
-    s3 = scan_cached(d)
+    s3 = scan_cached(d, cache)
     assert s3 is not s1
     assert s3.event_count == 2
+
+
+def test_scan_cached_without_cache_always_rescans(tmp_path: Path) -> None:
+    d = tmp_path / "task-5"
+    _write_events(d, [_event(ts="2025-01-01T00:00:00Z", kind="session_started")])
+
+    s1 = scan_cached(d)
+    s2 = scan_cached(d)
+    assert s1 is not s2
+    assert s1.event_count == s2.event_count == 1

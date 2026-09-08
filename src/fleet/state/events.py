@@ -1,18 +1,21 @@
 """The one events.jsonl reader, plus the derived stats every caller needs.
 
-``iter_events`` is the single tolerant line-by-line reader. ``scan``/
-``scan_cached`` compute everything downstream code has historically
-recomputed by hand: counts, timestamps, token totals, per-file touch
-counts, tool usage, and rate-limit events.
+``iter_events`` is the single tolerant line-by-line reader. ``scan_rows``
+feeds every row through one small visitor per concern (see ``VISITORS``)
+and assembles their fragments into an ``EventStats``. ``scan`` runs that
+over all attempts; ``scan_cached`` reuses an ``EventScanCache`` owned and
+passed in by the caller, so this module holds no shared state.
 """
 
 from __future__ import annotations
 
 import json
+from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit": "edit"}
 
@@ -132,6 +135,313 @@ class EventStats:
         return len(self.files_touched)
 
 
+class EventVisitor(ABC):
+    """One per-row accumulator behind scan_rows; subclass per concern."""
+
+    @abstractmethod
+    def visit(self, row: dict) -> None:
+        """Fold one event row into this visitor's running state."""
+
+    @abstractmethod
+    def result(self) -> Any:
+        """Return this visitor's fragment of the final EventStats."""
+
+
+@dataclass(frozen=True)
+class TimingResult:
+    first_ts: datetime | None
+    last_ts: datetime | None
+    hour_hist: dict[str, int]
+
+
+class CountVisitor(EventVisitor):
+    """Counts every row, with or without a timestamp."""
+
+    def __init__(self) -> None:
+        self._count = 0
+
+    def visit(self, row: dict) -> None:
+        """Count one row."""
+        self._count += 1
+
+    def result(self) -> int:
+        """Return the row count."""
+        return self._count
+
+
+class TimingVisitor(EventVisitor):
+    """Tracks first/last timestamps plus a weekday-hour histogram."""
+
+    def __init__(self) -> None:
+        self._first: datetime | None = None
+        self._last: datetime | None = None
+        self._hour_hist: dict[str, int] = {}
+
+    def visit(self, row: dict) -> None:
+        """Fold one row's timestamp into the range and histogram."""
+        ts_str = row.get("ts")
+        if not isinstance(ts_str, str):
+            return
+        ts_dt = parse_iso(ts_str)
+        if ts_dt is None:
+            return
+        if self._first is None or ts_dt < self._first:
+            self._first = ts_dt
+        if self._last is None or ts_dt > self._last:
+            self._last = ts_dt
+        key = f"{ts_dt.weekday()}-{ts_dt.hour}"
+        self._hour_hist[key] = self._hour_hist.get(key, 0) + 1
+
+    def result(self) -> TimingResult:
+        """Return the time range and histogram."""
+        return TimingResult(self._first, self._last, self._hour_hist)
+
+
+@dataclass(frozen=True)
+class LastEvent:
+    kind: str | None
+    detail: str | None
+
+
+class LastEventVisitor(EventVisitor):
+    """Remembers the last row's kind and tool name."""
+
+    def __init__(self) -> None:
+        self._kind: str | None = None
+        self._detail: str | None = None
+
+    def visit(self, row: dict) -> None:
+        """Remember one row's kind and tool name."""
+        kind = row.get("kind")
+        if not kind:
+            return
+        self._kind = kind
+        extra = row.get("extra") or {}
+        tool = row.get("tool_name") or extra.get("tool_name")
+        self._detail = str(tool) if tool else None
+
+    def result(self) -> LastEvent:
+        """Return the last seen kind and tool detail."""
+        return LastEvent(self._kind, self._detail)
+
+
+@dataclass(frozen=True)
+class SessionResult:
+    steps: int
+    segments: int
+
+
+class SessionVisitor(EventVisitor):
+    """Counts session starts and distinct session ids."""
+
+    def __init__(self) -> None:
+        self._steps = 0
+        self._segments: set[str] = set()
+
+    def visit(self, row: dict) -> None:
+        """Fold one row's session fields into the session counts."""
+        if row.get("kind") == "session_started":
+            self._steps += 1
+        sid = row.get("session_id")
+        if sid is not None:
+            self._segments.add(sid)
+
+    def result(self) -> SessionResult:
+        """Return the step and segment counts."""
+        return SessionResult(self._steps, len(self._segments))
+
+
+class ErrorVisitor(EventVisitor):
+    """Counts rows with kind "error"."""
+
+    def __init__(self) -> None:
+        self._errors = 0
+
+    def visit(self, row: dict) -> None:
+        """Count one row when it is an error."""
+        if row.get("kind") == "error":
+            self._errors += 1
+
+    def result(self) -> int:
+        """Return the error count."""
+        return self._errors
+
+
+@dataclass
+class ToolCallResult:
+    tool_counts: dict[str, int]
+    files_touched: dict[str, FileCounts]
+
+
+class ToolCallVisitor(EventVisitor):
+    """Counts tool calls (results preferred over uses) and files touched."""
+
+    def __init__(self) -> None:
+        self._tool_result_counts: dict[str, int] = {}
+        self._tool_use_counts: dict[str, int] = {}
+        self._files_touched: dict[str, FileCounts] = {}
+
+    def visit(self, row: dict) -> None:
+        """Fold one row's tool usage and file touches into the counts."""
+        kind = row.get("kind")
+        if kind == "tool_result":
+            tn = row.get("tool_name")
+            if tn is not None:
+                self._tool_result_counts[tn] = self._tool_result_counts.get(tn, 0) + 1
+        elif kind == "tool_use":
+            tn = row.get("tool_name")
+            if tn is not None:
+                self._tool_use_counts[tn] = self._tool_use_counts.get(tn, 0) + 1
+            op = _TOUCH_TOOLS.get(tn or "")
+            if op:
+                raw_data = row.get("raw") or {}
+                inp = raw_data.get("input") or {}
+                fpath = inp.get("file_path") or inp.get("path")
+                if fpath:
+                    fpath = str(fpath)
+                    counts = self._files_touched.setdefault(fpath, FileCounts())
+                    if op == "read":
+                        counts.read += 1
+                    elif op == "edit":
+                        counts.edit += 1
+                    elif op == "write":
+                        counts.write += 1
+
+    def result(self) -> ToolCallResult:
+        """Return tool counts (results win over uses) and files touched."""
+        counts = self._tool_result_counts if self._tool_result_counts else self._tool_use_counts
+        return ToolCallResult(counts, self._files_touched)
+
+
+@dataclass(frozen=True)
+class UsageResult:
+    output_tokens: int
+    input_tokens: int
+    cache_creation_tokens: int
+    cache_read_tokens: int
+    peak_context_tokens: int | None
+    current_context_tokens: int | None
+
+
+class UsageVisitor(EventVisitor):
+    """Sums token usage and tracks peak/current context size."""
+
+    def __init__(self) -> None:
+        self._output = 0
+        self._input = 0
+        self._cache_creation = 0
+        self._cache_read = 0
+        self._peak: int | None = None
+        self._current: int | None = None
+
+    def visit(self, row: dict) -> None:
+        """Fold one row's usage block into the token totals."""
+        if row.get("kind") == "session_ended":
+            return
+        usage = row.get("usage")
+        if not isinstance(usage, dict):
+            return
+        self._output += safe_int(usage.get("output_tokens"))
+        self._input += safe_int(usage.get("input_tokens"))
+        self._cache_creation += safe_int(usage.get("cache_creation_input_tokens"))
+        self._cache_read += safe_int(usage.get("cache_read_input_tokens"))
+        ctx = (
+            safe_int(usage.get("input_tokens"))
+            + safe_int(usage.get("cache_creation_input_tokens"))
+            + safe_int(usage.get("cache_read_input_tokens"))
+        )
+        if ctx > 0:
+            self._current = ctx
+            self._peak = ctx if self._peak is None else max(self._peak, ctx)
+
+    def result(self) -> UsageResult:
+        """Return the token totals and context sizes."""
+        return UsageResult(
+            self._output,
+            self._input,
+            self._cache_creation,
+            self._cache_read,
+            self._peak,
+            self._current,
+        )
+
+
+@dataclass(frozen=True)
+class RateLimitResult:
+    limited: int
+    events: list[dict]
+
+
+class RateLimitVisitor(EventVisitor):
+    """Collects rejected rate-limit events and their wait durations."""
+
+    def __init__(self) -> None:
+        self._limited = 0
+        self._events: list[dict] = []
+
+    def visit(self, row: dict) -> None:
+        """Fold one row's rejected rate-limit info into the event list."""
+        rate_info = row.get("rate_info")
+        if row.get("kind") not in ("rate_limit", "rate_limit_info"):
+            return
+        if not isinstance(rate_info, dict) or rate_info.get("status") != "rejected":
+            return
+        self._limited += 1
+        ts_dt: datetime | None = None
+        ts_str = row.get("ts")
+        if isinstance(ts_str, str):
+            ts_dt = parse_iso(ts_str)
+        resets_at = rate_info.get("resets_at")
+        duration_sec: float | None = None
+        if resets_at is not None and ts_dt is not None:
+            try:
+                duration_sec = float(resets_at) - ts_dt.timestamp()
+            except (TypeError, ValueError):
+                duration_sec = None
+        self._events.append(
+            {
+                "ts": ts_str,
+                "provider": rate_info.get("provider") or "unknown",
+                "duration_sec": duration_sec,
+            }
+        )
+
+    def result(self) -> RateLimitResult:
+        """Return the rejected count and event list."""
+        return RateLimitResult(self._limited, self._events)
+
+
+class ContextPressureVisitor(EventVisitor):
+    """Records whether any row reported context pressure."""
+
+    def __init__(self) -> None:
+        self._pressure = False
+
+    def visit(self, row: dict) -> None:
+        """Latch once a context_pressure row is seen."""
+        if row.get("kind") == "context_pressure":
+            self._pressure = True
+
+    def result(self) -> bool:
+        """Return whether context pressure was reported."""
+        return self._pressure
+
+
+# Every concern scan_rows covers, in visit order. scan_rows instantiates
+# one of each per call, so visitors never share state between scans.
+VISITORS: tuple[type[EventVisitor], ...] = (
+    CountVisitor,
+    TimingVisitor,
+    LastEventVisitor,
+    SessionVisitor,
+    ErrorVisitor,
+    ToolCallVisitor,
+    UsageVisitor,
+    RateLimitVisitor,
+    ContextPressureVisitor,
+)
+
+
 def scan_rows(rows: Iterator[dict]) -> EventStats:
     """Single-pass scan of any row iterator into an EventStats.
 
@@ -139,113 +449,39 @@ def scan_rows(rows: Iterator[dict]) -> EventStats:
     (one attempt via `iter_attempt_events`), so the FileCounts/tool-count
     logic exists exactly once.
     """
-    stats = EventStats()
-    tool_result_counts: dict[str, int] = {}
-    tool_use_counts: dict[str, int] = {}
-    segments_set: set[str] = set()
-
+    visitors = [visitor_cls() for visitor_cls in VISITORS]
     for row in rows:
-        stats.event_count += 1
-
-        ts_str = row.get("ts")
-        ts_dt: datetime | None = None
-        if isinstance(ts_str, str):
-            ts_dt = parse_iso(ts_str)
-        if ts_dt is not None:
-            if stats.first_ts is None or ts_dt < stats.first_ts:
-                stats.first_ts = ts_dt
-            if stats.last_ts is None or ts_dt > stats.last_ts:
-                stats.last_ts = ts_dt
-            key = f"{ts_dt.weekday()}-{ts_dt.hour}"
-            stats.hour_hist[key] = stats.hour_hist.get(key, 0) + 1
-
-        kind = row.get("kind")
-        if kind:
-            stats.last_kind = kind
-            extra = row.get("extra") or {}
-            tool = row.get("tool_name") or extra.get("tool_name")
-            stats.last_detail = str(tool) if tool else None
-
-        if kind == "session_started":
-            stats.steps += 1
-
-        sid = row.get("session_id")
-        if sid is not None:
-            segments_set.add(sid)
-
-        if kind == "error":
-            stats.errors += 1
-
-        if kind == "tool_result":
-            tn = row.get("tool_name")
-            if tn is not None:
-                tool_result_counts[tn] = tool_result_counts.get(tn, 0) + 1
-        elif kind == "tool_use":
-            tn = row.get("tool_name")
-            if tn is not None:
-                tool_use_counts[tn] = tool_use_counts.get(tn, 0) + 1
-
-        if kind == "tool_use":
-            tool_name = row.get("tool_name") or ""
-            op = _TOUCH_TOOLS.get(tool_name)
-            if op:
-                raw_data = row.get("raw") or {}
-                inp = raw_data.get("input") or {}
-                fpath = inp.get("file_path") or inp.get("path")
-                if fpath:
-                    fpath = str(fpath)
-                    counts = stats.files_touched.setdefault(fpath, FileCounts())
-                    setattr(counts, op, getattr(counts, op) + 1)
-
-        if kind != "session_ended":
-            usage = row.get("usage")
-            if isinstance(usage, dict):
-                stats.output_tokens += safe_int(usage.get("output_tokens"))
-                stats.input_tokens += safe_int(usage.get("input_tokens"))
-                stats.cache_creation_tokens += safe_int(
-                    usage.get("cache_creation_input_tokens")
-                )
-                stats.cache_read_tokens += safe_int(
-                    usage.get("cache_read_input_tokens")
-                )
-                ctx = (
-                    safe_int(usage.get("input_tokens"))
-                    + safe_int(usage.get("cache_creation_input_tokens"))
-                    + safe_int(usage.get("cache_read_input_tokens"))
-                )
-                if ctx > 0:
-                    stats.current_context_tokens = ctx
-                    stats.peak_context_tokens = (
-                        ctx
-                        if stats.peak_context_tokens is None
-                        else max(stats.peak_context_tokens, ctx)
-                    )
-
-        rate_info = row.get("rate_info")
-        if kind in ("rate_limit", "rate_limit_info") and isinstance(rate_info, dict):
-            if rate_info.get("status") == "rejected":
-                stats.rate_limited += 1
-                resets_at = rate_info.get("resets_at")
-                duration_sec: float | None = None
-                if resets_at is not None and ts_dt is not None:
-                    try:
-                        duration_sec = float(resets_at) - ts_dt.timestamp()
-                    except (TypeError, ValueError):
-                        duration_sec = None
-                stats.rate_limit_events.append(
-                    {
-                        "ts": ts_str,
-                        "provider": rate_info.get("provider") or "unknown",
-                        "duration_sec": duration_sec,
-                    }
-                )
-
-        if kind == "context_pressure":
-            stats.context_pressure = True
-
-    stats.segments = len(segments_set)
-    stats.tool_counts = tool_result_counts if tool_result_counts else tool_use_counts
-    return stats
+        for visitor in visitors:
+            visitor.visit(row)
+    parts = {type(visitor): visitor.result() for visitor in visitors}
+    timing: TimingResult = parts[TimingVisitor]
+    last: LastEvent = parts[LastEventVisitor]
+    session: SessionResult = parts[SessionVisitor]
+    tools: ToolCallResult = parts[ToolCallVisitor]
+    usage: UsageResult = parts[UsageVisitor]
+    rate: RateLimitResult = parts[RateLimitVisitor]
+    return EventStats(
+        event_count=parts[CountVisitor],
+        first_ts=timing.first_ts,
+        last_ts=timing.last_ts,
+        last_kind=last.kind,
+        last_detail=last.detail,
+        peak_context_tokens=usage.peak_context_tokens,
+        current_context_tokens=usage.current_context_tokens,
+        steps=session.steps,
+        segments=session.segments,
+        errors=parts[ErrorVisitor],
+        tool_counts=tools.tool_counts,
+        output_tokens=usage.output_tokens,
+        input_tokens=usage.input_tokens,
+        cache_creation_tokens=usage.cache_creation_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        files_touched=tools.files_touched,
+        hour_hist=timing.hour_hist,
+        context_pressure=parts[ContextPressureVisitor],
+        rate_limited=rate.limited,
+        rate_limit_events=rate.events,
+    )
 
 
 def scan(task_dir: Path) -> EventStats:
@@ -262,31 +498,51 @@ def _latest_events_file(task_dir: Path) -> Path:
     return dirs[-1] / "events.jsonl"
 
 
-# cache: tdir_str -> (latest attempt's events.jsonl mtime, size, EventStats)
-# (-1.0, -1) sentinel when no attempt/events.jsonl exists; safe because a real
-# mtime is large+positive.
-_cache: dict[str, tuple[float, int, EventStats]] = {}
+class EventScanCache:
+    """Named owner of cached EventStats, keyed by task directory.
+
+    Created by the caller that wants caching (serve stats helpers, the API
+    files endpoint, analytics records) and passed to ``scan_cached``; this
+    module itself holds no shared state. Entries are keyed by the latest
+    attempt's events.jsonl mtime+size, with a (-1.0, -1) sentinel when no
+    attempt/events.jsonl exists (safe because a real mtime is
+    large+positive). A new attempt (new file) also busts the cache since a
+    freshly-created events.jsonl has a different mtime/size.
+    """
+
+    def __init__(self) -> None:
+        """Start with an empty cache."""
+        self._entries: dict[str, tuple[float, int, EventStats]] = {}
+
+    def scan(self, task_dir: Path) -> EventStats:
+        """Return cached stats, re-scanning only when the events file changed."""
+        events_file = _latest_events_file(task_dir)
+        cache_key = str(task_dir)
+        try:
+            st = events_file.stat()
+            file_mtime: float = st.st_mtime
+            file_size: int = st.st_size
+        except OSError:
+            file_mtime, file_size = -1.0, -1
+        entry = self._entries.get(cache_key)
+        if entry is not None and entry[0] == file_mtime and entry[1] == file_size:
+            return entry[2]
+        result = scan(task_dir)
+        self._entries[cache_key] = (file_mtime, file_size, result)
+        return result
+
+    def clear(self) -> None:
+        """Drop every cached entry."""
+        self._entries.clear()
 
 
-def scan_cached(task_dir: Path) -> EventStats:
-    """Same as scan(), re-scanning only when the latest attempt's events.jsonl
-    mtime/size changed. A new attempt (new file) also busts the cache since a
-    freshly-created events.jsonl has a different mtime/size than the previous
-    attempt's file."""
-    events_file = _latest_events_file(task_dir)
-    cache_key = str(task_dir)
+def scan_cached(task_dir: Path, cache: EventScanCache | None = None) -> EventStats:
+    """Scan a task dir, reusing *cache* when one is passed in.
 
-    try:
-        st = events_file.stat()
-        file_mtime: float = st.st_mtime
-        file_size: int = st.st_size
-    except OSError:
-        file_mtime, file_size = -1.0, -1
-
-    entry = _cache.get(cache_key)
-    if entry is not None and entry[0] == file_mtime and entry[1] == file_size:
-        return entry[2]
-
-    result = scan(task_dir)
-    _cache[cache_key] = (file_mtime, file_size, result)
-    return result
+    With no cache this is a plain ``scan`` (always correct, never stored);
+    owners that serve repeated reads create one ``EventScanCache`` and pass
+    it here.
+    """
+    if cache is None:
+        return scan(task_dir)
+    return cache.scan(task_dir)

@@ -23,10 +23,12 @@ def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _reset_analytics_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reset the state.events mtime+size cache that persists across tests."""
-    import fleet.state.events as events_mod
+    """Clear the owner-held EventScanCache objects that persist across tests."""
+    from fleet.serve.analytics import records as records_mod
+    from fleet.serve import stats as stats_mod
 
-    monkeypatch.setattr(events_mod, "_cache", {})
+    records_mod._events_cache.clear()
+    stats_mod._events_cache.clear()
 
 
 def make_task_dir(
