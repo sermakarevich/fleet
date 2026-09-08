@@ -1,5 +1,7 @@
 # fleet — Python supervisor for running coding agents in parallel
 
+New here? Read [docs/OVERVIEW.md](docs/OVERVIEW.md) first.
+
 <p align="center">
   <img src="assets/fleet_mini.png" alt="fleet logo">
 </p>
@@ -31,6 +33,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
 
 ## Contents
 
+- [docs/OVERVIEW.md](docs/OVERVIEW.md) — a short plain-language overview
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [How it works (centralized model)](#how-it-works-centralized-model)
