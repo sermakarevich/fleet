@@ -26,6 +26,9 @@ class Task:
     # Isolation opt-out (bd metadata fleet_isolation). "none" disables the
     # worktree even when config.isolation="worktree"; None means "no override".
     isolation: str | None = None
+    # Triage ignore: ISO timestamp or "forever" (task.json `ignore_until`).
+    # While active the supervisor's triage loop skips this bead.
+    ignore_until: str | None = None
     # Git isolation info, mirrored from task.json (queue.set_isolation_info).
     # None when the task is not isolated (non-git cwd or opted out).
     repo_root: str | None = None

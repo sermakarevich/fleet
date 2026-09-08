@@ -30,6 +30,15 @@ class StallMixin:
                     self.reconcile_leases()
                 except Exception as exc:  # noqa: BLE001 - lease sweep must not kill the loop
                     self._log.warning("lease_reconcile_failed", error=str(exc))
+            # Triage is scheduled from this same status loop (ADR 0003: a
+            # loop over all blocked beads, not a per-bead worker). The mixin
+            # no-ops when the queue lacks list_blocked or the interval is 0.
+            tick = getattr(self, "triage_tick_if_due", None)
+            if tick is not None:
+                try:
+                    tick()
+                except Exception as exc:  # noqa: BLE001 - triage must not kill the loop
+                    self._log.warning("triage_tick_failed", error=str(exc))
 
     def _log_status_snapshot(self) -> None:
         self._log.info("supervisor_status", **self._fleet_log_context())

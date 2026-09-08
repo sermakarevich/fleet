@@ -22,6 +22,7 @@ from .rate_gauge import RateGauge
 from .reap import ReapMixin
 from .spawn import SpawnMixin
 from .stall import StallMixin
+from .triage import TriageMixin
 
 
 def check_ask_human_server(log) -> bool:
@@ -44,7 +45,7 @@ def check_ask_human_server(log) -> bool:
     return True
 
 
-class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin):
+class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, TriageMixin):
     def __init__(
         self,
         queue: Queue,

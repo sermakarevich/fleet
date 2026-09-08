@@ -177,6 +177,20 @@ Attempt history and block reasons only start accumulating from the first
 worker spawn after you upgrade to a fleet version with this feature —
 older tasks won't have retroactive history.
 
+### Triage of blocked tasks
+
+Every `triage_interval_minutes` (15 by default, 0 disables) the supervisor
+scans fleet-blocked beads and posts one non-blocking question per bead to
+the ask_human store (visible in the Chat tab / Telegram) with a rule-based
+fix proposal: rate limits suggest switching coder/model, repeated stalls
+suggest a stronger model, exhausted context retries suggest splitting the
+task, and worker-reported blocks quote the report verbatim. Answering
+applies the fix (retry, retry with `claude/opus`, append your note to the
+task and retry, close as won't-do, or ignore 24h / forever). Ignored tasks
+show an "ignored" badge in the Tasks table with an Unignore button
+(`POST /api/tasks/{id}/unignore`, `fleet tasks --ignored` lists them);
+unblocking or re-blocking a bead clears the ignore.
+
 ---
 
 ## First-run setup

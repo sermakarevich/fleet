@@ -38,6 +38,8 @@ export interface TaskSummary {
   last_event_detail: string | null;
   blocked_reason: string | null;
   blocked_at: string | null;
+  ignore_until: string | null;
+  ignored: boolean;
   rounds: TaskRounds;
   restarts: number;
   context_rounds: number;

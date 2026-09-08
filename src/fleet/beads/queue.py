@@ -37,6 +37,15 @@ class Queue(ABC):
     def list_in_progress(self, limit: int = 50) -> list[Task]: ...
 
     @abstractmethod
+    def list_blocked(self, limit: int = 100) -> list[Task]: ...
+
+    @abstractmethod
+    def set_ignore(self, task_id: str, ignore_until: str) -> None: ...
+
+    @abstractmethod
+    def clear_ignore(self, task_id: str) -> None: ...
+
+    @abstractmethod
     def set_bd_fields(self, task_id: str, body: dict) -> None: ...
 
     @abstractmethod
@@ -180,6 +189,30 @@ class BeadsQueue(Queue):
             pass
         return None
 
+    def set_ignore(self, task_id: str, ignore_until: str) -> None:
+        """Suppress triage for a blocked task until an ISO time or "forever"."""
+        meta = self._load_meta(task_id) or {"id": task_id}
+        meta["ignore_until"] = ignore_until
+        self._write_meta(task_id, meta)
+
+    def clear_ignore(self, task_id: str) -> None:
+        """Lift a triage ignore so the next tick asks again."""
+        meta = self._load_meta(task_id) or {"id": task_id}
+        if "ignore_until" in meta:
+            del meta["ignore_until"]
+            self._write_meta(task_id, meta)
+
+    def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
+        """Blocked tasks whose task.json ignore_until is still active."""
+        from fleet.core.triage_policy import ignore_active
+
+        out: list[tuple[Task, str]] = []
+        for task in self.list_blocked(limit=limit):
+            raw = self._load_meta(task.id).get("ignore_until")
+            if isinstance(raw, str) and ignore_active(raw):
+                out.append((task, raw))
+        return out
+
     def set_bd_fields(self, task_id: str, body: dict) -> None:
         """Persist title/description/status/priority from a bd body into task.json.
 
@@ -241,6 +274,7 @@ class BeadsQueue(Queue):
         for key in (
             "retry_after",
             "max_attempt_minutes",
+            "ignore_until",
             "isolation",
             "repo_root",
             "base_ref",
@@ -297,6 +331,7 @@ class BeadsQueue(Queue):
             worker=meta.get("worker") or bd_meta.get("fleet_worker"),
             max_attempt_minutes=max_minutes,
             retry_after=meta.get("retry_after"),
+            ignore_until=meta.get("ignore_until"),
             isolation=meta.get("isolation") or bd_meta.get("fleet_isolation"),
             repo_root=meta.get("repo_root"),
             base_ref=meta.get("base_ref"),
@@ -360,6 +395,7 @@ class BeadsQueue(Queue):
         meta["status"] = "open"
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
+        meta.pop("ignore_until", None)
         if wait_sec and wait_sec > 0:
             meta["retry_after"] = (
                 datetime.now(tz=UTC) + timedelta(seconds=int(wait_sec))
@@ -383,6 +419,7 @@ class BeadsQueue(Queue):
         meta["blocked_reason"] = reason
         meta["blocked_at"] = datetime.now(tz=UTC).isoformat()
         meta.pop("retry_after", None)
+        meta.pop("ignore_until", None)
         self._write_meta(task_id, meta)
 
     def close(self, task_id: str, reason: str = "completed") -> None:
@@ -392,6 +429,7 @@ class BeadsQueue(Queue):
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
         meta.pop("retry_after", None)
+        meta.pop("ignore_until", None)
         self._write_meta(task_id, meta)
 
     def delete(self, task_id: str) -> None:
@@ -431,6 +469,17 @@ class BeadsQueue(Queue):
         return [
             self._task_from_dict(item, status_override="in_progress") for item in items
         ]
+
+    def list_blocked(self, limit: int = 100) -> list[Task]:
+        """Beads with status blocked (fleet-blocked and human-blocked alike).
+
+        Triage filters these further by task.json blocked_reason/ignore_until.
+        """
+        data = self._bd("list", "--status", "blocked", "--json", "--limit", str(limit))
+        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+        if not isinstance(items, list):
+            items = []
+        return [self._task_from_dict(item, status_override="blocked") for item in items]
 
     def create_task(
         self,

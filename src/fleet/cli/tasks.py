@@ -224,10 +224,27 @@ def register(app: typer.Typer) -> None:
         limit: Annotated[
             int, typer.Option("--limit", "-n", help="Maximum tasks to list.")
         ] = 50,
+        ignored: Annotated[
+            bool,
+            typer.Option("--ignored", help="List triage-ignored blocked tasks."),
+        ] = False,
     ) -> None:
         """List currently running tasks with start time, elapsed, idle, context usage, events."""
         home = fleet_home()
         q = BeadsQueue(home)
+        if ignored:
+            try:
+                rows = q.list_ignored(limit=limit)
+            except BeadsError as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(1) from exc
+            if not rows:
+                typer.echo("No ignored tasks.")
+                return
+            width = max(len(t.id) for t, _ in rows) + 2
+            for t, until in rows:
+                typer.echo(f"{t.id:<{width}}{t.title}  [ignored until {until}]")
+            return
         try:
             tasks = q.list_in_progress(limit=limit)
         except BeadsError as exc:
