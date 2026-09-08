@@ -482,3 +482,35 @@ def test_no_anthropic_import_in_coder_module():
         assert "claude-agent-sdk" not in src, (
             f"agent-sdk import found in {mod.__file__}"
         )
+
+
+# ---------------------------------------------------------------------------
+# MCP config — fleet-ml2s9: explicit ask_human/web_fetch via --mcp-config
+# ---------------------------------------------------------------------------
+
+
+def test_build_argv_includes_mcp_config_pointing_at_file_with_ask_human(
+    tmp_path: Path,
+):
+    argv = _coder().build_argv(_task(), tmp_path)
+    assert "--mcp-config" in argv
+    assert "--strict-mcp-config" in argv
+    cfg_path = Path(argv[argv.index("--mcp-config") + 1])
+    assert cfg_path.exists()
+    payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert "ask_human" in payload["mcpServers"]
+    assert "web_fetch" in payload["mcpServers"]
+
+
+def test_write_mcp_config_matches_shared_definitions(tmp_path: Path):
+    from fleet.coders.claude import _write_mcp_config
+    from fleet.integrations.mcp_servers import fleet_mcp_servers
+
+    home = tmp_path / "home"
+    cfg_path = _write_mcp_config(tmp_path / "mcp.json", home)
+    payload = json.loads(cfg_path.read_text(encoding="utf-8"))
+    shared = fleet_mcp_servers(home)
+    for name, entry in shared.items():
+        assert payload["mcpServers"][name]["command"] == entry["command"]
+        assert payload["mcpServers"][name]["args"] == entry["args"]
+        assert payload["mcpServers"][name]["env"] == entry["env"]

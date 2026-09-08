@@ -360,3 +360,27 @@ def test_normalize_todo_list_returns_none():
         "item": {"id": "item_6", "type": "todo_list"},
     })
     assert coder.normalize_event(raw) is None
+
+
+# ---------------------------------------------------------------------------
+# MCP config — fleet-ml2s9: per-attempt CODEX_HOME with fleet servers
+# ---------------------------------------------------------------------------
+
+
+def test_env_points_codex_home_at_attempt_dir(tmp_path: Path):
+    from fleet.coders.codex import CODEX_HOME_DIRNAME
+
+    e = _coder().env(_task(), tmp_path)
+    assert e["CODEX_HOME"] == str(tmp_path / CODEX_HOME_DIRNAME)
+
+
+def test_write_codex_config_lists_fleet_servers(tmp_path: Path):
+    from fleet.coders.codex import _write_codex_config
+
+    home = tmp_path / "fleet_home"
+    cfg_path = _write_codex_config(tmp_path / "codex_home", home)
+    text = cfg_path.read_text(encoding="utf-8")
+    assert "[mcp_servers.ask_human]" in text
+    assert "[mcp_servers.web_fetch]" in text
+    assert "fleet.integrations.ask_human.server" in text
+    assert str(home / "ask_human" / "questions.db") in text

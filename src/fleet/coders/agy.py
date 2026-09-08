@@ -11,6 +11,12 @@ class AgyCoder(Coder):
     name = "agy"
     context_limit = 128_000
     default_model = "GPT-OSS 120B"
+    # TODO(fleet-ml2s9): hand the fleet MCP servers
+    # (integrations.mcp_servers.fleet_mcp_servers: ask_human, web_fetch) to
+    # agy workers explicitly, the way claude (--mcp-config), codex
+    # (CODEX_HOME) and opencode (OPENCODE_CONFIG_CONTENT) already do. The agy
+    # CLI's MCP config mechanism is still unknown — check `agy --help` on a
+    # machine with it installed, then mirror the per-coder adaptation here.
 
     def __init__(self, model: str = "GPT-OSS 120B") -> None:
         # NOTE: the `agy` CLI binary does not accept a model flag; it reads

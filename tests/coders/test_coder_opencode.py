@@ -1,9 +1,8 @@
 import json
 from pathlib import Path
 
-
-from fleet.coders.base import Coder
 from fleet.coders import get_coder, list_coders
+from fleet.coders.base import Coder
 from fleet.coders.opencode import OpencodeCoder
 from fleet.core.task import Task
 
@@ -422,6 +421,20 @@ def test_build_config_ollama_url_constructor():
 def test_build_config_permission_block():
     cfg = _coder()._build_config()
     assert cfg["permission"] == {"external_directory": "allow"}
+
+
+def test_build_config_mcp_matches_shared_definitions():
+    """The ask-human/web_fetch entries must come from integrations.mcp_servers."""
+    from fleet.integrations.mcp_servers import fleet_mcp_servers
+    from fleet.state.paths import fleet_home
+
+    shared = fleet_mcp_servers(fleet_home())
+    cfg = _coder()._build_config()
+    ask_entry = cfg["mcp"]["ask-human"]
+    assert ask_entry["command"] == [shared["ask_human"]["command"], *shared["ask_human"]["args"]]
+    assert shared["ask_human"]["env"]["ASK_HUMAN_DB"] in repr(ask_entry)
+    web_entry = cfg["mcp"]["web_fetch"]
+    assert web_entry["command"] == [shared["web_fetch"]["command"], *shared["web_fetch"]["args"]]
 
 
 def test_build_config_mcp_ask_human():

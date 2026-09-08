@@ -24,6 +24,26 @@ from .spawn import SpawnMixin
 from .stall import StallMixin
 
 
+def check_ask_human_server(log) -> bool:
+    """Warn at startup when the bundled ask_human MCP server is unimportable.
+
+    Every worker prompt names the ``ask_human`` MCP tool, and each coder is
+    handed the server explicitly — but if the module itself cannot be
+    imported the spawned server would crash on launch. Returns True when the
+    server module resolves, False (after logging a warning) otherwise.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("fleet.integrations.ask_human.server") is None:
+        log.warning(
+            "ask_human_unavailable",
+            reason="fleet.integrations.ask_human.server cannot be imported; "
+            "workers told to call the ask_human MCP tool will fail",
+        )
+        return False
+    return True
+
+
 class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin):
     def __init__(
         self,
@@ -71,6 +91,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin):
         loop = asyncio.get_running_loop()
         self._install_signal_handlers(loop)
 
+        check_ask_human_server(self._log)
         self._sweep_orphan_worktrees()
         self.reconcile_leases()
 

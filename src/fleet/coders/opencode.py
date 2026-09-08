@@ -230,35 +230,26 @@ class OpencodeCoder(Coder):
                 "models": bedrock_models,
             }
 
-        fleet_root = Path(__file__).parent.parent.parent.parent
+        from fleet.integrations.mcp_servers import fleet_mcp_servers
+        from fleet.state.paths import fleet_home
+
+        shared = fleet_mcp_servers(fleet_home())
+        ask_human = shared["ask_human"]
         ask_human_entry = {
             "type": "local",
-            "command": [
-                "uv",
-                "--directory",
-                str(fleet_root),
-                "run",
-                "python",
-                "-m",
-                "fleet.integrations.ask_human.server",
-            ],
+            "command": [ask_human["command"], *ask_human["args"]],
+            "environment": dict(ask_human["env"]),
             "enabled": True,
         }
         mcp: dict = {}
         mcp["ask-human"] = ask_human_entry
 
+        web_fetch = shared["web_fetch"]
         web_fetch_entry = {
             "type": "local",
-            "command": [
-                "uv",
-                "--directory",
-                str(fleet_root),
-                "run",
-                "python",
-                "-m",
-                "fleet.integrations.web_fetch.server",
-            ],
+            "command": [web_fetch["command"], *web_fetch["args"]],
             "environment": {
+                **web_fetch["env"],
                 "FLEET_WEBFETCH_MODEL": local_key,
                 "FLEET_WEBFETCH_OLLAMA_URL": base_url,
             },

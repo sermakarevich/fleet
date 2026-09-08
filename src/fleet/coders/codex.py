@@ -1,3 +1,18 @@
+"""The codex coder: `codex exec --json` sessions.
+
+MCP wiring: codex reads MCP servers from ``~/.codex/config.toml``. To keep
+workers isolated (never touching the operator's personal config) fleet writes
+a per-attempt ``CODEX_HOME`` directory holding a ``config.toml`` with the
+fleet servers (``integrations.mcp_servers.fleet_mcp_servers``) and points the
+worker at it via the ``CODEX_HOME`` env var. This file-based route was chosen
+over ``-c mcp_servers.*`` CLI overrides because the codex binary is not
+installed in every fleet environment (``codex --help`` cannot be checked
+here), so a ``-c`` incantation could not be verified; if ``-c`` TOML
+overrides are confirmed on the installed CLI later, build_argv is the place
+to layer them on top. Values written are paths and module names, never
+secrets.
+"""
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +28,59 @@ _TOOL_ITEM_TYPES = frozenset({
     "web_search",
     "collab_tool_call",
 })
+
+CODEX_HOME_DIRNAME = "codex_home"
+CODEX_CONFIG_FILENAME = "config.toml"
+
+
+def _toml_str(value: str) -> str:
+    """Quote *value* as a TOML basic string (JSON quoting is compatible)."""
+    return json.dumps(value)
+
+
+def _codex_home_path(task_dir: Path) -> Path:
+    """Per-attempt CODEX_HOME: the current attempt's dir when one is recorded,
+    else the task dir itself (unit tests, ad-hoc runs)."""
+    from fleet.state.attempts import latest_attempt_dir
+
+    attempt_dir = latest_attempt_dir(task_dir)
+    return (attempt_dir or task_dir) / CODEX_HOME_DIRNAME
+
+
+def _render_codex_config(home: Path) -> str:
+    """Render a codex ``config.toml`` with the fleet MCP servers.
+
+    *home* is FLEET_HOME. One ``[mcp_servers.<name>]`` table per server from
+    ``integrations.mcp_servers.fleet_mcp_servers``.
+    """
+    from fleet.integrations.mcp_servers import fleet_mcp_servers
+
+    lines = [
+        "# Fleet-managed codex config: MCP servers every worker must have.",
+        "# Regenerated before each spawn; do not edit by hand.",
+        "",
+    ]
+    for name, entry in fleet_mcp_servers(home).items():
+        args = ", ".join(_toml_str(a) for a in entry["args"])
+        lines.append(f"[mcp_servers.{name}]")
+        lines.append(f"command = {_toml_str(entry['command'])}")
+        lines.append(f"args = [{args}]")
+        if entry["env"]:
+            env_pairs = ", ".join(
+                f"{_toml_str(k)} = {_toml_str(v)}"
+                for k, v in sorted(entry["env"].items())
+            )
+            lines.append(f"env = {{ {env_pairs} }}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _write_codex_config(codex_home: Path, home: Path) -> Path:
+    """Write ``config.toml`` into *codex_home* and return its path."""
+    codex_home.mkdir(parents=True, exist_ok=True)
+    path = codex_home / CODEX_CONFIG_FILENAME
+    path.write_text(_render_codex_config(home), encoding="utf-8")
+    return path
 
 
 class CodexCoder(Coder):
@@ -44,7 +112,29 @@ class CodexCoder(Coder):
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
             "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
+            # Isolate the worker from the operator's ~/.codex/config.toml:
+            # codex resolves its config under $CODEX_HOME.
+            "CODEX_HOME": str(_codex_home_path(task_dir)),
         }
+
+    def write_runtime_config(self, project: Path, task: Task) -> None:
+        """Write the per-attempt CODEX_HOME/config.toml (fleet MCP servers).
+
+        The task directory is resolved best-effort from FLEET_HOME + task id
+        (this hook only receives the project root); resolution failures skip
+        the write instead of crashing. env() points at the same path, so the
+        two agree within one attempt.
+        """
+        try:
+            from fleet.state.paths import fleet_home
+            from fleet.state.paths import task_dir as _resolve_task_dir
+
+            home = fleet_home()
+            _write_codex_config(
+                _codex_home_path(_resolve_task_dir(home, task.id)), home
+            )
+        except OSError:
+            pass
 
     def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
         if not raw_line.strip():

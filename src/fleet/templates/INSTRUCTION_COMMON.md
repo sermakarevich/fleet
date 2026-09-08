@@ -40,4 +40,4 @@ Update `HANDOFF.md` before exiting, whatever the outcome. Exit 0 unless somethin
 
 `AskUserQuestion` is denied by a PreToolUse hook; use this instead.
 
-Call the `mcp__ask_human__ask_human_question` MCP tool with your question. Describe briefly and clearly the problem you are working on and ask clear question.
+Call the `mcp__ask_human__ask_human_question` MCP tool with your question. Describe briefly and clearly the problem you are working on and ask clear question. The tool is always available in fleet workers.

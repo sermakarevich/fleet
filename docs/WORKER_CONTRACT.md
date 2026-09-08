@@ -29,6 +29,22 @@ file instead of re-describing the contract.
   attempt starts, so a stale file can't be mistaken for this attempt's
   outcome.
 
+## Tools available to the worker
+
+Every worker is handed fleet's MCP (Model Context Protocol) servers
+explicitly — never via the operator's personal CLI config — so the tools the
+prompt names exist on any machine. Definitions live once in
+`integrations/mcp_servers.py::fleet_mcp_servers`; each coder adapts them to
+its native config format.
+
+| tool | what it does | opencode | claude | codex | agy |
+|---|---|---|---|---|---|
+| `ask_human` | ask the operator a question mid-task; blocks until answered (SQLite store under `FLEET_HOME`) | `OPENCODE_CONFIG_CONTENT` `mcp.ask-human` | `<attempt>/mcp.json` via `--mcp-config` + `--strict-mcp-config` | per-attempt `CODEX_HOME/config.toml` `[mcp_servers.ask_human]` | TODO: mechanism unknown |
+| `web_fetch` | fetch a URL and get a distilled answer | `OPENCODE_CONFIG_CONTENT` `mcp.web_fetch` (+ `FLEET_WEBFETCH_*` model vars) | same `mcp.json` | same `config.toml` | TODO: same gap |
+
+The supervisor logs a startup warning (`ask_human_unavailable`) when the
+bundled ask_human server module cannot be imported.
+
 ## What the worker must produce
 
 Before exiting, on every attempt, write `artifacts/RESULT.json`:
