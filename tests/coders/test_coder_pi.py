@@ -834,12 +834,12 @@ def test_default_model_constructor_value():
 
 def test_default_context_limit_constructor():
     coder = PiCoder()
-    assert coder.context_limit == 128_000
+    assert coder.context_limit == 65_000
 
 
 def test_build_argv_context_limit_default():
     coder = PiCoder()
-    assert coder.context_limit == 128_000
+    assert coder.context_limit == 65_000
 
 
 def test_build_argv_context_limit_custom():
@@ -858,14 +858,17 @@ def test_bedrock_params_stored_on_instance():
     )
     assert coder.bedrock_region == "us-east-1"
     assert coder.bedrock_profile == "dev"
-    assert coder.bedrock_context_limit == 150_000
+    # Default model is not a Bedrock model, so the bedrock compat kwarg is
+    # inert: the window resolves for the actual model.
+    assert coder.context_limit == 65_000
 
 
 def test_bedrock_params_default_values():
     coder = PiCoder()
     assert coder.bedrock_region == ""
     assert coder.bedrock_profile == ""
-    assert coder.bedrock_context_limit == 200_000
+    # Default model is ollama qwen: resolved per-model window, not bedrock's.
+    assert coder.context_limit == 65_000
 
 
 def test_bedrock_model_is_bedrock_true_and_context_limit():
@@ -886,7 +889,7 @@ def test_bedrock_model_with_custom_context_limit():
 def test_non_bedrock_model_is_bedrock_false():
     coder = PiCoder(model="qwen3.6:latest")
     assert coder.is_bedrock is False
-    assert coder.context_limit == 128_000
+    assert coder.context_limit == 65_000
 
 
 def test_ollama_prefixed_model_is_bedrock_false():
@@ -904,11 +907,11 @@ def test_context_limit_for_bedrock_model():
 
 
 def test_context_limit_for_ollama_model():
-    assert PiCoder.context_limit_for("qwen3.6:latest") == 128_000
+    assert PiCoder.context_limit_for("qwen3.6:latest") == 65_000
 
 
 def test_context_limit_for_ollama_prefixed_model():
-    assert PiCoder.context_limit_for("ollama/qwen3.6:latest") == 128_000
+    assert PiCoder.context_limit_for("ollama/qwen3.6:latest") == 65_000
 
 
 def test_context_limit_for_none_model():

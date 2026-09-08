@@ -25,11 +25,40 @@ from fleet.state.events import iter_attempt_events, scan_rows
 _HANDOFF_EXCERPT_MAX = 2048
 
 
-def coder_context_limit(coder_name: str | None, model: str | None = None) -> int:
+def context_overrides_for_home(home: Path) -> dict[str, int]:
+    """Parse ``context_windows`` from ``<home>/runtime.toml`` into ``{model: tokens}``.
+
+    Missing file, missing key, or malformed value all yield {} (built-in
+    table only) — the summary display must never crash on config drift.
+    Never creates the file: plain ``tomllib`` read, no ``core.config.load``.
+    """
+    import tomllib
+
+    from fleet.core.context_window import parse_context_windows
+
+    try:
+        with (home / "runtime.toml").open("rb") as fh:
+            raw = tomllib.load(fh).get("context_windows", "")
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, str):
+        return {}
+    try:
+        return parse_context_windows(raw)
+    except ValueError:
+        return {}
+
+
+def coder_context_limit(
+    coder_name: str | None,
+    model: str | None = None,
+    overrides: dict[str, int] | None = None,
+) -> int:
+    """Resolved context window for a coder/model pair (one denominator for UI + supervisor)."""
     if not coder_name:
         return 200_000
     try:
-        return get_coder(coder_name).context_limit_for(model)
+        return get_coder(coder_name).context_limit_for(model, overrides)
     except ValueError:
         return 200_000
 
@@ -69,10 +98,15 @@ def _read_json_file(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _build_attempts_summary(task_dir: Path, coder_name: str | None, model: str | None) -> list[dict]:
+def _build_attempts_summary(
+    task_dir: Path,
+    coder_name: str | None,
+    model: str | None,
+    overrides: dict[str, int] | None = None,
+) -> list[dict]:
     """Per-attempt summary rows for the attempts timeline (newest last)."""
     rows: list[dict] = []
-    limit = coder_context_limit(coder_name, model)
+    limit = coder_context_limit(coder_name, model, overrides)
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
         adir = _attempt_dir_path(task_dir, n)
@@ -140,8 +174,9 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     )
     context_tokens = info.context_tokens
     context_pct: float | None = None
+    overrides = context_overrides_for_home(home)
+    limit = coder_context_limit(data.get("coder"), data.get("model"), overrides)
     if context_tokens is not None:
-        limit = coder_context_limit(data.get("coder"), data.get("model"))
         context_pct = context_tokens / limit * 100
 
     status = data.get("status", "")
@@ -160,7 +195,9 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     worker, steps = _read_run_info(task_dir)
     history = attempts.load_attempts(task_dir)
     rounds = rounds_for_history(history)
-    attempt_rows = _build_attempts_summary(task_dir, data.get("coder"), data.get("model"))
+    attempt_rows = _build_attempts_summary(
+        task_dir, data.get("coder"), data.get("model"), overrides
+    )
     compactions = sum(1 for h in history if h.get("kind") == "compact")
     latest_peak_context_pct = attempt_rows[-1]["peak_context_pct"] if attempt_rows else None
 
@@ -182,6 +219,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "events": info.events,
         "context_tokens": context_tokens,
         "context_pct": context_pct,
+        "context_limit": limit,
         "last_event_kind": info.last_event_kind,
         "last_event_detail": info.last_event_detail,
         "blocked_reason": blocked_reason,

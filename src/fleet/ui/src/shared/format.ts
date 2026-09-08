@@ -50,6 +50,19 @@ export function fmtTokens(tokens: number | null, pct: number | null = null): str
   return String(tokens);
 }
 
+/** Tooltip for the context cell: "142k / 1,048k" (used tokens / resolved window). */
+export function fmtContextTitle(tokens: number | null, limit: number | null): string | undefined {
+  if (tokens == null || limit == null) return undefined;
+  return `${fmtCompact(tokens)} / ${fmtCompact(limit)}`;
+}
+
+/** Compact token count without a percent: "142k", "1,048k", "2.0M". */
+function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000).toLocaleString('en-US')}k`;
+  return String(n);
+}
+
 /** "42%" from a 0..1 fraction, or "—" for null. */
 export function fmtPct(x: number | null): string {
   if (x == null) return '—';

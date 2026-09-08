@@ -543,14 +543,17 @@ def test_bedrock_params_stored_on_instance():
     )
     assert coder.bedrock_region == "us-east-1"
     assert coder.bedrock_profile == "dev"
-    assert coder.bedrock_context_limit == 150_000
+    # Default model is not a Bedrock model, so the bedrock compat kwarg is
+    # inert: the window resolves for the actual model.
+    assert coder.context_limit == 128_000
 
 
 def test_bedrock_params_default_values():
     coder = OpencodeCoder()
     assert coder.bedrock_region == ""
     assert coder.bedrock_profile == ""
-    assert coder.bedrock_context_limit == 200_000
+    # Default model is ollama gpt-oss: resolved per-model window, not bedrock's.
+    assert coder.context_limit == 128_000
 
 
 def test_bedrock_model_is_bedrock_true_and_context_limit():
@@ -601,7 +604,7 @@ def test_build_config_bedrock_preserves_mcp_and_permission():
 def test_non_bedrock_model_is_bedrock_false():
     coder = OpencodeCoder(model="qwen3.6:latest")
     assert coder.is_bedrock is False
-    assert coder.context_limit == 128_000
+    assert coder.context_limit == 65_000
 
 
 def test_ollama_model_is_bedrock_false():
@@ -631,7 +634,7 @@ def test_context_limit_for_bedrock_model():
 
 
 def test_context_limit_for_ollama_model():
-    assert OpencodeCoder.context_limit_for("qwen3.6:latest") == 128_000
+    assert OpencodeCoder.context_limit_for("qwen3.6:latest") == 65_000
 
 
 def test_context_limit_for_none_model():

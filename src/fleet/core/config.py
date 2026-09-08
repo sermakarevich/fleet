@@ -1,8 +1,11 @@
+import logging
 import os
 import tempfile
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -15,11 +18,10 @@ class RuntimeConfig:
     telegram_default_cwd: str = ""
     opencode_ollama_url: str = "http://127.0.0.1:11435/v1"
     max_concurrent_overrides: str = ""
-    opencode_context_limit: int = 128000
+    context_windows: str = ""
     opencode_default_model: str = "qwen3.6:latest"
     opencode_bedrock_region: str = ""
     opencode_bedrock_profile: str = ""
-    opencode_bedrock_context_limit: int = 200000
     stall_warning_minutes: int = 15
     stall_action: str = "kill"
     stall_block_after: int = 2
@@ -77,8 +79,27 @@ def _write_toml_str(data: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Removed keys, kept only to warn on migration: use `context_windows`
+# ("model:tokens,model:tokens", e.g. "muse-spark-1.3-contributor:1048576")
+# instead of one global number per backend.
+_DEPRECATED_CONTEXT_KEYS = frozenset(
+    {"opencode_context_limit", "opencode_bedrock_context_limit"}
+)
+
+
+def _warn_deprecated(data: dict) -> None:
+    found = sorted(_DEPRECATED_CONTEXT_KEYS & set(data))
+    if found:
+        logger.warning(
+            "Deprecated runtime.toml key(s) %s ignored; use "
+            "context_windows=\"model:tokens,model:tokens\" instead.",
+            ", ".join(found),
+        )
+
+
 def _parse(data: dict) -> RuntimeConfig:
     """Overlay TOML data onto defaults; ignore unknown keys."""
+    _warn_deprecated(data)
     merged = _defaults()
     for k, v in data.items():
         if k in _KEY_TYPES:

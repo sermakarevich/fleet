@@ -138,28 +138,28 @@ def test_write_atomic_valid_coder_round_trips(tmp_path):
     assert load(cfg_path).coder == "codex"
 
 
-def test_write_atomic_opencode_keys_round_trip(tmp_path):
+def test_write_atomic_context_windows_round_trips(tmp_path):
     cfg_path = tmp_path / "runtime.toml"
     load(cfg_path)
 
     result = write_atomic(
         cfg_path,
         {
-            "opencode_context_limit": "256000",
+            "context_windows": "muse-spark-1.3-contributor:1048576",
             "opencode_default_model": "qwen3.6:latest",
         },
     )
-    assert result.opencode_context_limit == 256_000
+    assert result.context_windows == "muse-spark-1.3-contributor:1048576"
     assert result.opencode_default_model == "qwen3.6:latest"
     reloaded = load(cfg_path)
-    assert reloaded.opencode_context_limit == 256_000
+    assert reloaded.context_windows == "muse-spark-1.3-contributor:1048576"
     assert reloaded.opencode_default_model == "qwen3.6:latest"
 
 
-def test_load_picks_up_opencode_keys_from_toml(tmp_path):
+def test_load_picks_up_context_windows_from_toml(tmp_path):
     cfg_path = tmp_path / "runtime.toml"
     cfg_path.write_text(
-        """opencode_context_limit = 64000
+        """context_windows = "muse-spark-1.3-contributor:1048576"
 opencode_default_model = "qwen3.6:latest"
 """,
         encoding="utf-8",
@@ -167,12 +167,31 @@ opencode_default_model = "qwen3.6:latest"
 
     cfg = load(cfg_path)
 
-    assert cfg.opencode_context_limit == 64_000
+    assert cfg.context_windows == "muse-spark-1.3-contributor:1048576"
     assert cfg.opencode_default_model == "qwen3.6:latest"
+
+
+def test_deprecated_context_keys_are_ignored_with_warning(tmp_path, caplog):
+    """Old single-number keys no longer exist; they warn and fall back to defaults."""
+    import logging
+
+    cfg_path = tmp_path / "runtime.toml"
+    cfg_path.write_text(
+        """opencode_context_limit = 64000
+opencode_bedrock_context_limit = 300000
+""",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="fleet.core.config"):
+        cfg = load(cfg_path)
+
+    assert cfg.context_windows == ""
+    assert any("opencode_context_limit" in r.message for r in caplog.records)
 
 
 def test_bedrock_config_defaults():
     cfg = RuntimeConfig()
     assert cfg.opencode_bedrock_region == ""
     assert cfg.opencode_bedrock_profile == ""
-    assert cfg.opencode_bedrock_context_limit == 200_000
+    assert cfg.context_windows == ""

@@ -25,6 +25,7 @@ export interface TaskSummary {
   events: number;
   context_tokens: number | null;
   context_pct: number | null;
+  context_limit: number | null;
   last_event_kind: string | null;
   last_event_detail: string | null;
   blocked_reason: string | null;

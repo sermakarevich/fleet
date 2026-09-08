@@ -50,20 +50,37 @@ _CONTEXT_ERROR_PATTERNS = (
 )
 
 
-def context_limit_of(coder) -> int:
+def context_limit_of(coder, overrides: dict[str, int] | None = None) -> int:
     """Effective context window for this coder/model pair.
 
-    Prefers the ``context_limit_for(model)`` classmethod (per-model limits);
-    falls back to the ``context_limit`` attribute for test doubles.
+    Prefers the ``context_limit_for(model, overrides)`` classmethod
+    (per-model table from ``core.context_window``); falls back to the
+    ``context_limit`` attribute for test doubles. *overrides* is the parsed
+    ``context_windows`` config (``{model: tokens}``); None means built-ins.
     """
     try:
-        return int(coder.context_limit_for(getattr(coder, "model", None)))
+        return int(coder.context_limit_for(getattr(coder, "model", None), overrides))
     except (AttributeError, TypeError, ValueError):
         pass
     try:
         return int(coder.context_limit)
     except (AttributeError, TypeError, ValueError):
         return 200_000
+
+
+def overrides_of(config) -> dict[str, int]:
+    """Parse ``config.context_windows`` into ``{model: tokens}``.
+
+    A malformed value must never kill a session: it parses to {} (built-in
+    table only) so the checkpoint/kill thresholds keep a sane denominator.
+    """
+    from fleet.core.context_window import parse_context_windows
+
+    raw = getattr(config, "context_windows", "") or ""
+    try:
+        return parse_context_windows(raw)
+    except ValueError:
+        return {}
 
 
 def is_context_error_text(text: str) -> bool:
@@ -230,7 +247,7 @@ class LlmSession:
             peak_context_tokens: int = 0
             last_logged_bucket: int = -1
             _logged_session_started = False
-            context_limit = context_limit_of(coder)
+            context_limit = context_limit_of(coder, overrides_of(ctx.config))
             checkpoint_pct = ctx.config.context_checkpoint_pct
             kill_pct = ctx.config.context_kill_pct
             checkpoint_file = attempt_dir / CHECKPOINT_REQUESTED_MARKER

@@ -1,6 +1,6 @@
 import { useUnblockTask } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
-import { fmtTs, fmtTokens } from '../../shared/format';
+import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
 import { chipFor } from './statusChip';
 import { styles } from './itemStyles';
 
@@ -52,7 +52,7 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
           ? coderModelStr
           : <span style={styles.dim}>(default)</span>}
       </span>
-      <span style={styles.contextCell}>{fmtTokens(task.context_tokens, task.context_pct)}</span>
+      <span style={styles.contextCell} title={fmtContextTitle(task.context_tokens, task.context_limit)}>{fmtTokens(task.context_tokens, task.context_pct)}</span>
       <span style={styles.runsCell}>
         {task.restarts > 0 ? (
           <span style={styles.runsChip} title={runsTitle(task)}>{task.restarts + 1}</span>

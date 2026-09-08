@@ -14,6 +14,9 @@ from fleet.state.events import parse_iso
 
 def compute_summary(home: Path, days: int) -> dict:
     """Compute the /summary analytics endpoint data."""
+    from fleet.state.task_summary import context_overrides_for_home
+
+    _context_overrides = context_overrides_for_home(home)
     # Clamp days
     if days <= 0:
         clamped = 0
@@ -385,7 +388,7 @@ def compute_summary(home: Path, days: int) -> dict:
             continue
         coder = r.get("coder") or ""
         try:
-            limit = get_coder(coder).context_limit_for(r.get("model"))
+            limit = get_coder(coder).context_limit_for(r.get("model"), _context_overrides)
         except (ValueError, TypeError, IndexError):
             limit = 200_000
         if limit <= 0:

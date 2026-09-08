@@ -3,7 +3,7 @@ import type { RuntimeConfig, TaskDetail } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 import { useUnblockTask } from '../../shared/hooks/useApi';
 import { statusColor, statusLabel } from '../../shared/status';
-import { fmtTs } from '../../shared/format';
+import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
 
 interface Props {
   task: TaskDetail;
@@ -104,6 +104,10 @@ export function Header({ task, config }: Props) {
       )}
       <div style={styles.meta}>
         <CoderModel task={task} config={config} />
+        <span style={styles.metaSep}>·</span>
+        <span style={styles.metaItem} title={fmtContextTitle(task.context_tokens, task.context_limit)}>
+          ctx: {fmtTokens(task.context_tokens, task.context_pct)}
+        </span>
         <span style={styles.metaSep}>·</span>
         <span style={styles.metaItem}>started: {fmtTs(task.started_at)}</span>
         {task.ended_at && (

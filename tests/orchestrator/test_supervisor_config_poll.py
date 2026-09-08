@@ -278,14 +278,17 @@ def test_config_poll_loop_detects_file_change(tmp_path: Path, monkeypatch) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_coder_opencode_passes_context_limit_and_default_model(tmp_path: Path):
-    """When coder_name == 'opencode', _resolve_coder passes context_limit and default_model."""
+def test_resolve_coder_opencode_passes_default_model_not_limits(tmp_path: Path):
+    """When coder_name == 'opencode', _resolve_coder passes routing kwargs only.
+
+    Context windows are per-model now (``context_windows`` + resolve_window):
+    the coder resolves its own window, so no limit kwargs are passed.
+    """
     queue = TrackingQueue()
     runtime_toml = tmp_path / "runtime.toml"
     write_atomic(
         runtime_toml,
         {
-            "opencode_context_limit": "256000",
             "opencode_default_model": "qwen3.6:latest",
         },
     )
@@ -302,7 +305,6 @@ def test_resolve_coder_opencode_passes_context_limit_and_default_model(tmp_path:
     )
     s.config = RuntimeConfig(
         coder="opencode",
-        opencode_context_limit=256_000,
         opencode_default_model="qwen3.6:latest",
     )
 
@@ -317,6 +319,8 @@ def test_resolve_coder_opencode_passes_context_limit_and_default_model(tmp_path:
 
     assert coder_name == "opencode"
     assert isinstance(coder, OpencodeCoder)
-    assert coder.context_limit == 256_000
     assert coder.default_model == "qwen3.6:latest"
     assert coder.model == "sonnet"  # falls back to RuntimeConfig.model
+    # "sonnet" resolves through the built-in per-model table (200k), not a
+    # single global number.
+    assert coder.context_limit == 200_000

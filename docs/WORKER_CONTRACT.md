@@ -180,9 +180,18 @@ the compacted artifacts and `LlmSession` launches in `continue` mode as usual
 
 ## Context limits
 
-`workers/llm_session.py` tracks `peak_context_tokens` against
-`coder.context_limit_for(model)` on every usage event. Two thresholds
-(`context_checkpoint_pct`, default 75; `context_kill_pct`, default 90):
+`workers/llm_session.py` tracks `peak_context_tokens` against the resolved
+per-model window on every usage event: `core.context_window.resolve_window`
+(built-in `DEFAULT_WINDOWS` table plus the `context_windows`
+`"model:tokens,model:tokens"` runtime.toml overrides) with the coder's
+`context_limit` class default as fallback. Every coder's
+`context_limit_for(model, overrides)` resolves through the same function, and
+`state/task_summary.py` uses it for the `context_pct` / `peak_context_pct`
+the UI shows — supervisor and UI always divide by the same number. The old
+single-number `opencode_context_limit` / `opencode_bedrock_context_limit`
+keys are gone; if present in runtime.toml they are ignored with a warning
+naming `context_windows`. Two thresholds (`context_checkpoint_pct`,
+default 75; `context_kill_pct`, default 90):
 
 - At or past the **checkpoint** threshold the runner touches
   `attempts/<n>/.checkpoint_requested` once. The claude-only

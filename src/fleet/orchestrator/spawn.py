@@ -36,16 +36,9 @@ class SpawnMixin:
             kwargs["default_model"] = self.config.opencode_default_model
             kwargs["bedrock_region"] = self.config.opencode_bedrock_region
             kwargs["bedrock_profile"] = self.config.opencode_bedrock_profile
-            # Per-backend limits are being replaced by per-model windows
-            # (``context_windows``); when the keys are gone the coder resolves
-            # the window itself, so only pass them if the config still has them.
-            for key, attr in (
-                ("context_limit", "opencode_context_limit"),
-                ("bedrock_context_limit", "opencode_bedrock_context_limit"),
-            ):
-                value = getattr(self.config, attr, None)
-                if value is not None:
-                    kwargs[key] = value
+            # Context windows are per-model now (``context_windows`` +
+            # ``core.context_window.resolve_window``); the coder resolves the
+            # window for its model itself, so no limit kwargs are passed.
         return coder_cls(model=model, **kwargs), coder_name, model
 
     def _block_terminal(self, task: Task, reason: str) -> None:

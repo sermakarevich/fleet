@@ -62,9 +62,19 @@ class Coder(ABC):
     default_model: str = ""
 
     @classmethod
-    def context_limit_for(cls, model: str | None) -> int:
-        """Context limit for the given model string; defaults to the class limit."""
-        return cls.context_limit
+    def context_limit_for(
+        cls, model: str | None, overrides: dict[str, int] | None = None
+    ) -> int:
+        """Context window for the given model string.
+
+        Resolves through ``core.context_window.resolve_window`` with the
+        class ``context_limit`` as the fallback, so supervisor and UI share
+        one denominator. *overrides* is the parsed ``context_windows``
+        config (``{model: tokens}``); None means the built-in table only.
+        """
+        from fleet.core.context_window import resolve_window
+
+        return resolve_window(model, overrides, cls.context_limit)
 
     @abstractmethod
     def build_argv(

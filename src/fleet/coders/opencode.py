@@ -98,40 +98,46 @@ def _resolve_model(model: str, default: str) -> tuple[str, str]:
 class OpencodeCoder(Coder):
     name = "opencode"
     context_limit = 128_000
-    bedrock_context_limit = 200_000
     default_model = "gpt-oss:20b"
 
     @classmethod
-    def context_limit_for(cls, model: str | None) -> int:
-        """Return the context limit for the given model string.
+    def context_limit_for(
+        cls, model: str | None, overrides: dict[str, int] | None = None
+    ) -> int:
+        """Context window for the given model string.
 
-        Bedrock models get the bedrock_context_limit (200k).
-        Class-level defaults are intentional here -- serve-side display
-        does not read runtime.toml overrides.
+        Resolves through ``core.context_window.resolve_window`` (per-model
+        table, Bedrock ids included) with the class ``context_limit`` as
+        the fallback, so supervisor and UI share one denominator.
         """
-        if model and model.split("/", 1)[0] == _BEDROCK_PROVIDER_ID:
-            return cls.bedrock_context_limit
-        return cls.context_limit
+        from fleet.core.context_window import resolve_window
+
+        return resolve_window(model, overrides, cls.context_limit)
 
     def __init__(
         self,
         model: str = "gpt-oss:20b",
         ollama_url: str = _DEFAULT_OLLAMA_URL,
-        context_limit: int = 128_000,
+        context_limit: int | None = None,
         default_model: str = "gpt-oss:20b",
         bedrock_region: str = "",
         bedrock_profile: str = "",
-        bedrock_context_limit: int = 200_000,
+        bedrock_context_limit: int | None = None,
     ) -> None:
         self.model = model
         self.ollama_url = ollama_url
-        self.context_limit = context_limit
         self.default_model = default_model
         self.bedrock_region = bedrock_region
         self.bedrock_profile = bedrock_profile
-        self.bedrock_context_limit = bedrock_context_limit
+        resolved = type(self).context_limit_for(model)
         if self.is_bedrock:
-            self.context_limit = self.bedrock_context_limit
+            self.context_limit = (
+                bedrock_context_limit if bedrock_context_limit is not None else resolved
+            )
+        else:
+            self.context_limit = (
+                context_limit if context_limit is not None else resolved
+            )
 
     @property
     def is_bedrock(self) -> bool:

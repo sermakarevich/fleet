@@ -551,6 +551,7 @@ directly in the file.
 | `compaction_model` | `haiku` | Model used for the cheap compaction model call. |
 | `context_checkpoint_pct` | `75` | Peak-context percent at which the runner writes `.checkpoint_requested` so the model wraps up early. |
 | `context_kill_pct` | `90` | Peak-context percent at which the runner kills the session and reports `CONTEXT_PRESSURE`. |
+| `context_windows` | `""` | Per-model context windows as comma-separated `model:tokens` pairs, e.g. `muse-spark-1.3-contributor:1048576`. The one denominator for the context-usage display and the checkpoint/kill thresholds, shared by supervisor and UI. Empty string uses the built-in table in `core/context_window.py`. |
 
 ---
 
@@ -953,7 +954,7 @@ Region: `fleet config set opencode_bedrock_region=us-east-1` or inherit `AWS_REG
 |---|---|---|
 | `opencode_bedrock_region` | `""` (inherit from environment) | AWS region for Bedrock. |
 | `opencode_bedrock_profile` | `""` (inherit from environment) | AWS profile name for credentials. |
-| `opencode_bedrock_context_limit` | `200000` | Context window size; drives opencode autocompaction and the context-usage display. |
+| `context_windows` | `""` | Per-model context windows as `model:tokens,…` (built-in table covers Bedrock Claude at 200000). |
 
 > **Bedrock usage costs real money per token** (unlike local Ollama).
 > Missing or invalid AWS credentials surface as error events on the task —
