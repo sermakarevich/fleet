@@ -748,7 +748,40 @@ def test_task_plan_missing_file_errors(tmp_path, monkeypatch) -> None:
     _seed_task_dir(tmp_path, "t-001")
     result = runner.invoke(app, ["task", "t-001", "plan"])
     assert result.exit_code != 0
-    assert "PLAN_AND_STATUS" in result.output
+    assert "PLAN.md" in result.output
+
+
+def test_task_plan_falls_back_to_plan_and_status(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _seed_task_dir(tmp_path, "t-001")
+    body = "# t-001 — old plan\n\nstuff\n"
+    (task_dir / "artifacts" / "PLAN_AND_STATUS.md").write_text(body, encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "t-001", "plan"])
+    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert result.output == body
+
+
+def test_task_handoff_prints_handoff_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _seed_task_dir(tmp_path, "t-001")
+    body = "# t-001 — HANDOFF\n\n## Next\ndo the thing\n"
+    (task_dir / "artifacts" / "HANDOFF.md").write_text(body, encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "t-001", "handoff"])
+    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert result.output == body
+
+
+def test_task_result_prints_result_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _seed_task_dir(tmp_path, "t-001")
+    body = '{"schema": 1, "status": "done", "summary": "shipped"}'
+    (task_dir / "artifacts" / "RESULT.json").write_text(body, encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "t-001", "result"])
+    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert result.output == body
 
 
 def test_task_log_missing_file_errors(tmp_path, monkeypatch) -> None:

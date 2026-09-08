@@ -47,20 +47,32 @@ def _input_tokens(usage: dict) -> int:
 
 
 def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
-    """Create PLAN_AND_STATUS.md and KNOWLEDGE.md stubs if missing.
+    """Create PLAN.md, HANDOFF.md, KNOWLEDGE.md stubs and outputs/ if missing.
 
     Never overwrites existing content — agents own these files after the
     first run.
     """
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    plan_and_status = artifacts_dir / "PLAN_AND_STATUS.md"
-    if not plan_and_status.exists():
-        tmpl = (_TEMPLATES_DIR / "PLAN_AND_STATUS.md.tmpl").read_text(encoding="utf-8")
-        plan_and_status.write_text(tmpl.format(task_id=task_id))
-    knowledge = artifacts_dir / "KNOWLEDGE.md"
-    if not knowledge.exists():
-        tmpl = (_TEMPLATES_DIR / "KNOWLEDGE.md.tmpl").read_text(encoding="utf-8")
-        knowledge.write_text(tmpl.format(task_id=task_id))
+    (artifacts_dir / "outputs").mkdir(parents=True, exist_ok=True)
+    for name in ("PLAN.md", "HANDOFF.md", "KNOWLEDGE.md"):
+        target = artifacts_dir / name
+        if target.exists():
+            continue
+        tmpl = (_TEMPLATES_DIR / f"{name}.tmpl").read_text(encoding="utf-8")
+        target.write_text(tmpl.format(task_id=task_id))
+
+
+def _rotate_result(artifacts_dir: Path) -> None:
+    """Move a previous attempt's RESULT.json aside before spawning a new one.
+
+    Spec 2 will move RESULT.json into per-attempt folders; for now the
+    previous attempt's declaration is kept at RESULT.prev.json so it does
+    not leak into the next attempt's outcome.
+    """
+    result_file = artifacts_dir / "RESULT.json"
+    if not result_file.exists():
+        return
+    result_file.replace(artifacts_dir / "RESULT.prev.json")
 
 
 class RateGauge(Protocol):
@@ -104,6 +116,7 @@ class TaskRunner:
         artifacts_dir = task_dir / "artifacts"
         task_dir.mkdir(parents=True, exist_ok=True)
         _ensure_artifact_stubs(artifacts_dir, task.id)
+        _rotate_result(artifacts_dir)
         self._coder.write_runtime_config(self._project_root, task)
 
         with open_task_log(task_dir, task.id) as task_log:

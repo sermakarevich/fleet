@@ -27,7 +27,9 @@ from fleet.state.tail import read_new_bytes
 class TaskAction(StrEnum):
     log = "log"
     plan = "plan"
+    handoff = "handoff"
     knowledge = "knowledge"
+    result = "result"
 
 
 def _resolve_log_dir() -> Path:
@@ -263,19 +265,27 @@ def register(app: typer.Typer) -> None:
         task_id: Annotated[str, typer.Argument(help="Task ID.")],
         action: Annotated[
             TaskAction,
-            typer.Argument(help="What to print: log | plan | knowledge."),
+            typer.Argument(help="What to print: log | plan | handoff | knowledge | result."),
         ],
     ) -> None:
-        """Print a task's log, PLAN_AND_STATUS, or KNOWLEDGE artifact."""
+        """Print a task's log, PLAN, HANDOFF, KNOWLEDGE, or RESULT artifact."""
         task_dir = _task_dir(fleet_home(), task_id)
         if not task_dir.exists():
             typer.echo(f"No task directory at {task_dir}", err=True)
             raise typer.Exit(1)
 
         if action is TaskAction.plan:
+            plan_path = task_dir / "artifacts" / "PLAN.md"
+            if not plan_path.exists():
+                # Fall back to the pre-worker-1 combined file for old tasks.
+                plan_path = task_dir / "artifacts" / "PLAN_AND_STATUS.md"
+            _print_file_or_exit(plan_path, f"No PLAN.md for task {task_id}")
+            return
+
+        if action is TaskAction.handoff:
             _print_file_or_exit(
-                task_dir / "artifacts" / "PLAN_AND_STATUS.md",
-                f"No PLAN_AND_STATUS.md for task {task_id}",
+                task_dir / "artifacts" / "HANDOFF.md",
+                f"No HANDOFF.md for task {task_id}",
             )
             return
 
@@ -283,6 +293,13 @@ def register(app: typer.Typer) -> None:
             _print_file_or_exit(
                 task_dir / "artifacts" / "KNOWLEDGE.md",
                 f"No KNOWLEDGE.md for task {task_id}",
+            )
+            return
+
+        if action is TaskAction.result:
+            _print_file_or_exit(
+                task_dir / "artifacts" / "RESULT.json",
+                f"No RESULT.json for task {task_id}",
             )
             return
 

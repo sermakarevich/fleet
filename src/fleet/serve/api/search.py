@@ -69,9 +69,9 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
             ))
 
         artifact_sources: list[tuple[str, str]] = [
-            ("Q&A.md", "qa"),
             ("KNOWLEDGE.md", "knowledge"),
-            ("PLAN_AND_STATUS.md", "plan"),
+            ("HANDOFF.md", "handoff"),
+            ("PLAN.md", "plan"),
         ]
         for filename, source_label in artifact_sources:
             f = task_dir / "artifacts" / filename

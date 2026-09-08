@@ -8,6 +8,7 @@ from pathlib import Path
 from fleet.core import outcome_policy
 from fleet.core.limits import NOCLOSE_LIMIT, RETRY_LIMIT
 from fleet.core.outcome_policy import Action, Counters, Decision
+from fleet.core.result import Result, parse_result
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts
 from fleet.state.counters import (
@@ -77,6 +78,43 @@ class ReapMixin:
         except Exception:
             return None
 
+    def _read_declared_result(self, task_dir: Path) -> Result | None:
+        """Parse artifacts/RESULT.json, the worker's declared outcome, if present."""
+        result_file = task_dir / "artifacts" / "RESULT.json"
+        try:
+            text = result_file.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return parse_result(text)
+
+    def _fold_declared_result(
+        self, record: TaskOutcomeRecord, result: Result
+    ) -> TaskOutcomeRecord:
+        """Fold a declared RESULT.json into the rc=0 outcome record.
+
+        Only called for rc=0 exits: a nonzero exit code is always FAILURE
+        regardless of what RESULT.json says.
+        """
+        if result.status == "done":
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.SUCCESS,
+                exit_code=record.exit_code,
+                reason=result.summary,
+                close_reason=result.summary or "completed",
+            )
+        if result.status == "partial":
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.PARTIAL,
+                exit_code=record.exit_code,
+                reason=result.next_step or result.summary,
+            )
+        # status == "blocked"
+        return TaskOutcomeRecord(
+            outcome=TaskOutcome.BLOCKED_BY_AGENT,
+            exit_code=record.exit_code,
+            reason=result.blocked_reason or result.summary,
+        )
+
     def _counters_for(self, task_dir: Path) -> Counters:
         return Counters(
             failures=failure_count(task_dir),
@@ -120,6 +158,8 @@ class ReapMixin:
         record: TaskOutcomeRecord,
         decision: Decision,
         fleet_ctx: dict,
+        bead_status: str | None = None,
+        result: Result | None = None,
     ) -> None:
         outcome = record.outcome
 
@@ -138,14 +178,22 @@ class ReapMixin:
                 )
             return
 
+        if outcome == TaskOutcome.SUCCESS and decision.action == Action.CLOSE:
+            self._queue.close(task.id, reason=decision.reason)
+            reset_noclose(task_dir)
+            reset_stall(task_dir)
+            self._log.info("task_closed_by_fleet", task_id=task.id, **fleet_ctx)
+            return
+
         if outcome == TaskOutcome.SUCCESS:
+            # No RESULT.json (or fleet would have taken the CLOSE branch above).
             count = increment_noclose(task_dir)
             if decision.action == Action.BLOCK:
                 self._queue.set_blocked(task.id, decision.reason)
                 self._queue.comment(
                     task.id,
-                    f"[fleet] no-close limit exhausted: {count} successful exits "
-                    f"without `fleet bd close`. Blocked for human review.",
+                    f"[fleet] no-close limit exhausted: {count} successful exits, "
+                    f"worker exited without RESULT.json. Blocked for human review.",
                 )
                 self._log.warning(
                     "task_noclose_exhausted", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
@@ -154,11 +202,35 @@ class ReapMixin:
                 self._queue.release(task.id, reason=decision.reason)
                 self._queue.comment(
                     task.id,
-                    f"[fleet] success #{count}/{NOCLOSE_LIMIT}: rc=0 with the bead still open. "
+                    f"[fleet] success #{count}/{NOCLOSE_LIMIT}: rc=0, "
+                    f"worker exited without RESULT.json. "
                     f"At {NOCLOSE_LIMIT} the task will be blocked for human review.",
                 )
                 self._log.warning(
                     "task_success_noclose", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
+                )
+            return
+
+        if outcome == TaskOutcome.PARTIAL:
+            count = increment_noclose(task_dir)
+            if decision.action == Action.BLOCK:
+                self._queue.set_blocked(task.id, decision.reason)
+                self._queue.comment(
+                    task.id,
+                    f"[fleet] no-close limit exhausted: {count} partial exits. "
+                    f"Blocked for human review.",
+                )
+                self._log.warning(
+                    "task_partial_exhausted", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
+                )
+            else:  # RELEASE
+                self._queue.release(task.id, reason=decision.reason)
+                self._queue.comment(
+                    task.id,
+                    f"[fleet] partial progress #{count}/{NOCLOSE_LIMIT}: {decision.reason}",
+                )
+                self._log.info(
+                    "task_partial_release", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
                 )
             return
 
@@ -187,7 +259,11 @@ class ReapMixin:
             return
 
         if outcome == TaskOutcome.BLOCKED_BY_AGENT:
-            # The agent already blocked its own bead; nothing to call.
+            if bead_status != "blocked":
+                # Declared via RESULT.json (status=blocked): the bead itself
+                # is still in_progress, so fleet has to block it.
+                self._queue.set_blocked(task.id, decision.reason)
+            # else: the agent already called `fleet bd block` itself.
             self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
             return
 
@@ -209,6 +285,7 @@ class ReapMixin:
 
         if outcome == TaskOutcome.FAILURE:
             count = increment_failure(task_dir)
+            result_note = f" Worker summary: {result.summary}" if result and result.summary else ""
             if decision.action == Action.BLOCK:
                 self._queue.set_blocked(task.id, reason=decision.reason)
                 self._queue.comment(
@@ -216,7 +293,7 @@ class ReapMixin:
                     (
                         f"[fleet] retry limit exhausted after {count} failures. "
                         f"Last exit code={record.exit_code}. "
-                        f"stderr_tail: {record.stderr_tail}"
+                        f"stderr_tail: {record.stderr_tail}.{result_note}"
                     ),
                 )
                 self._log.error(
@@ -230,7 +307,8 @@ class ReapMixin:
                 self._queue.release(task.id, reason=decision.reason)
                 self._queue.comment(
                     task.id,
-                    f"[fleet] failure {count} (rc={record.exit_code}). Releasing for retry.",
+                    f"[fleet] failure {count} (rc={record.exit_code}). "
+                    f"Releasing for retry.{result_note}",
                 )
                 self._log.warning(
                     "task_failure_release",
@@ -246,6 +324,8 @@ class ReapMixin:
         fleet_ctx = self._fleet_log_context()
         bead_status = self._bead_status(task.id)
 
+        result = self._read_declared_result(task_dir)
+
         handled = self._maybe_handle_isolated_success(task, task_dir, outcome, bead_status)
         if not handled:
             record = outcome
@@ -255,9 +335,13 @@ class ReapMixin:
                     exit_code=record.exit_code,
                     reason="agent set task to blocked",
                 )
+            elif record.outcome == TaskOutcome.SUCCESS and result is not None:
+                record = self._fold_declared_result(record, result)
             counters = self._counters_for(task_dir)
             decision = outcome_policy.decide(record, counters, bead_status, self.config)
-            self._apply_decision(task, task_dir, record, decision, fleet_ctx)
+            self._apply_decision(
+                task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
+            )
 
         try:
             raw = (task_dir / "task.json").read_text(encoding="utf-8")

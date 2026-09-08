@@ -239,7 +239,7 @@ def test_artifact_plan_returns_content(
     task_dir = _make_task_dir(tmp_path / "tasks", "task-plan")
     artifacts = task_dir / "artifacts"
     artifacts.mkdir()
-    (artifacts / "PLAN_AND_STATUS.md").write_text("# Plan\ncontent here")
+    (artifacts / "PLAN.md").write_text("# Plan\ncontent here")
 
     app = create_app()
 
@@ -254,6 +254,29 @@ def test_artifact_plan_returns_content(
     data = resp.json()
     assert data["content"] == "# Plan\ncontent here"
     assert isinstance(data["mtime"], float)
+
+
+def test_artifact_plan_falls_back_to_plan_and_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Old tasks with no PLAN.md fall back to PLAN_AND_STATUS.md."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-old-plan")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "PLAN_AND_STATUS.md").write_text("# Old plan\ncontent here")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-old-plan/artifacts/plan")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "# Old plan\ncontent here"
 
 
 def test_artifact_plan_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -298,15 +321,15 @@ def test_artifact_knowledge_returns_content(
     assert isinstance(data["mtime"], float)
 
 
-def test_artifact_qa_returns_content(
+def test_artifact_handoff_returns_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/tasks/{id}/artifacts/qa returns Q&A.md content (FR-16)."""
+    """GET /api/tasks/{id}/artifacts/handoff returns HANDOFF.md content."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    task_dir = _make_task_dir(tmp_path / "tasks", "task-qa")
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-handoff")
     artifacts = task_dir / "artifacts"
     artifacts.mkdir()
-    (artifacts / "Q&A.md").write_text("## Q: What?\n## A: This.")
+    (artifacts / "HANDOFF.md").write_text("## Next\ndo the thing")
 
     app = create_app()
 
@@ -314,13 +337,54 @@ def test_artifact_qa_returns_content(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.get("/api/tasks/task-qa/artifacts/qa")
+            return await client.get("/api/tasks/task-handoff/artifacts/handoff")
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200
     data = resp.json()
-    assert "## Q: What?" in data["content"]
+    assert "do the thing" in data["content"]
     assert isinstance(data["mtime"], float)
+
+
+def test_artifact_result_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks/{id}/artifacts/result returns RESULT.json content."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-result")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "RESULT.json").write_text('{"schema": 1, "status": "done", "summary": "ok"}')
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-result/artifacts/result")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert '"status": "done"' in data["content"]
+
+
+def test_artifact_result_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/result returns 404 when file missing."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _make_task_dir(tmp_path / "tasks", "task-noresult")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-noresult/artifacts/result")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 404
 
 
 def test_logs_returns_parsed_lines(

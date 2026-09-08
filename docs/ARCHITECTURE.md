@@ -161,10 +161,20 @@ $FLEET_HOME/tasks/<id>/
   attempts.jsonl     # start/end per worker attempt, append-only
   log.jsonl  log.stderr
   .failures .noclose .stalls .needs_validation .kill .worktree .context_pressure
+  artifacts/
+    RESULT.json      # worker's declared outcome for the last attempt
+    RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
+    PLAN.md          # restatement + plan; written once, updated rarely
+    HANDOFF.md       # overwritten every attempt, hard cap 2 KB
+    KNOWLEDGE.md     # curated durable facts, rewritten when stale (~4 KB cap)
+    outputs/         # real deliverables (reports, data) referenced from RESULT.json
 ```
 
 Everyone else calls `TaskDir(home, id).read_meta()`, `.mark_kill()`, and
 so on. Grep for `"tasks" /` outside `state/` should return nothing.
+The RESULT.json schema and what fleet does with each `status` value are
+documented once in `docs/WORKER_CONTRACT.md`; cite that file rather than
+duplicating the contract elsewhere.
 
 ## Testing layout
 

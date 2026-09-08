@@ -7,14 +7,18 @@ same numbers for the same task.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.beads.cache import get_beads_status_map
 from fleet.coders import get_coder
+from fleet.core.result import parse_result
 from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
 from fleet.state.counters import failure_count, noclose_count, stall_count
+
+_HANDOFF_EXCERPT_MAX = 2048
 
 
 def coder_context_limit(coder_name: str | None, model: str | None = None) -> int:
@@ -24,6 +28,27 @@ def coder_context_limit(coder_name: str | None, model: str | None = None) -> int
         return get_coder(coder_name).context_limit_for(model)
     except ValueError:
         return 200_000
+
+
+def _read_result(task_dir: Path) -> dict | None:
+    """Read and parse artifacts/RESULT.json, if present."""
+    result_file = task_dir / "artifacts" / "RESULT.json"
+    try:
+        text = result_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    result = parse_result(text)
+    return asdict(result) if result is not None else None
+
+
+def _read_handoff_excerpt(task_dir: Path) -> str | None:
+    """Read artifacts/HANDOFF.md, truncated to the hard cap fleet enforces."""
+    handoff_file = task_dir / "artifacts" / "HANDOFF.md"
+    try:
+        text = handoff_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return text[:_HANDOFF_EXCERPT_MAX]
 
 
 def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
@@ -91,4 +116,6 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "last_outcome": last_attempt.get("outcome") if last_attempt else None,
         "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
         "last_action": last_attempt.get("action") if last_attempt else None,
+        "result": _read_result(task_dir),
+        "handoff_excerpt": _read_handoff_excerpt(task_dir),
     }

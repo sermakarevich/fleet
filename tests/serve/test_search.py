@@ -18,7 +18,7 @@ def _make_task(
     title: str = "Task",
     description: str = "",
     *,
-    qa: str = "",
+    handoff: str = "",
     knowledge: str = "",
     plan: str = "",
 ) -> Path:
@@ -28,12 +28,12 @@ def _make_task(
     (task_dir / "task.json").write_text(json.dumps(data))
     artifacts = task_dir / "artifacts"
     artifacts.mkdir()
-    if qa:
-        (artifacts / "Q&A.md").write_text(qa)
+    if handoff:
+        (artifacts / "HANDOFF.md").write_text(handoff)
     if knowledge:
         (artifacts / "KNOWLEDGE.md").write_text(knowledge)
     if plan:
-        (artifacts / "PLAN_AND_STATUS.md").write_text(plan)
+        (artifacts / "PLAN.md").write_text(plan)
     return task_dir
 
 
@@ -68,19 +68,19 @@ def test_search_tasks_knowledge_match(tmp_path: Path) -> None:
     assert results[0].task_id == "t1"
 
 
-def test_search_tasks_qa_match(tmp_path: Path) -> None:
-    """Searching Q&A.md content returns result with source=qa."""
+def test_search_tasks_handoff_match(tmp_path: Path) -> None:
+    """Searching HANDOFF.md content returns result with source=handoff."""
     tasks_root = tmp_path / "tasks"
-    _make_task(tasks_root, "t1", title="task one", qa="## Q: auth question\nneeds auth fix")
+    _make_task(tasks_root, "t1", title="task one", handoff="## Next\nneeds auth fix")
 
     results = search_tasks(tmp_path, "auth")
-    assert any(r.source == "qa" for r in results)
+    assert any(r.source == "handoff" for r in results)
 
 
 def test_search_tasks_plan_match(tmp_path: Path) -> None:
-    """Searching PLAN_AND_STATUS.md content returns result with source=plan."""
+    """Searching PLAN.md content returns result with source=plan."""
     tasks_root = tmp_path / "tasks"
-    _make_task(tasks_root, "t1", title="task one", plan="## Status\nin_progress\n## auth notes")
+    _make_task(tasks_root, "t1", title="task one", plan="## Plan\n## auth notes")
 
     results = search_tasks(tmp_path, "auth")
     assert any(r.source == "plan" for r in results)

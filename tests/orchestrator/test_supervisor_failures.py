@@ -428,17 +428,25 @@ def test_success_with_bead_closed_resets_noclose_counter(
 
 
 # ---------------------------------------------------------------------------
-# BLOCKED_BY_AGENT outcome → no bd writes, no failure increment
+# BLOCKED_BY_AGENT outcome → no bd writes when the bead is already blocked
+# (the agent called `fleet bd block` itself); no failure increment either way
 # ---------------------------------------------------------------------------
 
 
-def test_blocked_by_agent_no_queue_writes(tmp_path: Path) -> None:
-    queue = StubQueue()
+def test_blocked_by_agent_already_blocked_no_queue_writes(tmp_path: Path) -> None:
+    queue = StubQueue(status="blocked")
     s = _make_supervisor(tmp_path, queue)
     s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
     assert len(queue.released) == 0
     assert len(queue.blocked) == 0
     assert len(queue.comments) == 0
+
+
+def test_blocked_by_agent_still_open_calls_set_blocked(tmp_path: Path) -> None:
+    queue = StubQueue(status="open")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT, reason="need creds"))
+    assert queue.blocked == [("t-001", "need creds")]
 
 
 def test_blocked_by_agent_no_failure_increment(tmp_path: Path) -> None:

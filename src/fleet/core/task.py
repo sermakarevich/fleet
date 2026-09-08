@@ -51,6 +51,7 @@ class TaskOutcome(Enum):
     CONTEXT_PRESSURE = "context_pressure"
     BLOCKED_BY_AGENT = "blocked_by_agent"
     KILLED = "killed"
+    PARTIAL = "partial"
 
 
 @dataclass
@@ -60,3 +61,7 @@ class TaskOutcomeRecord:
     reason: str = ""
     resets_at: int | None = None
     stderr_tail: str | None = None
+    # Set when RESULT.json declared status=done: the worker's own summary,
+    # telling outcome_policy to close the bead itself rather than count
+    # towards the no-close limit.
+    close_reason: str | None = None

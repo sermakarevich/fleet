@@ -199,3 +199,80 @@ def test_killed_stall_at_block_after_blocks() -> None:
     )
     assert decision.action == Action.BLOCK
     assert decision.increment == "stall"
+
+
+# ---------------------------------------------------------------------------
+# SUCCESS with a declared RESULT.json (status=done) -> CLOSE
+# ---------------------------------------------------------------------------
+
+
+def test_success_with_close_reason_closes() -> None:
+    decision = decide(
+        _record(TaskOutcome.SUCCESS, close_reason="did the thing"),
+        _counters(),
+        "in_progress",
+        RuntimeConfig(),
+    )
+    assert decision.action == Action.CLOSE
+    assert decision.reason == "did the thing"
+
+
+def test_success_with_close_reason_bead_already_closed_is_noop() -> None:
+    decision = decide(
+        _record(TaskOutcome.SUCCESS, close_reason="did the thing"),
+        _counters(),
+        "closed",
+        RuntimeConfig(),
+    )
+    assert decision.action == Action.NOOP
+
+
+# ---------------------------------------------------------------------------
+# PARTIAL (RESULT.json status=partial) -> RELEASE, reusing the noclose counter
+# ---------------------------------------------------------------------------
+
+
+def test_partial_bead_already_closed_is_noop() -> None:
+    decision = decide(
+        _record(TaskOutcome.PARTIAL), _counters(), "closed", RuntimeConfig()
+    )
+    assert decision.action == Action.NOOP
+
+
+def test_partial_below_limit_releases_and_increments_noclose() -> None:
+    decision = decide(
+        _record(TaskOutcome.PARTIAL, reason="run the tests next"),
+        _counters(noclose=NOCLOSE_LIMIT - 2),
+        "in_progress",
+        RuntimeConfig(),
+    )
+    assert decision.action == Action.RELEASE
+    assert decision.increment == "noclose"
+    assert decision.reason == "run the tests next"
+
+
+def test_partial_at_noclose_limit_blocks() -> None:
+    decision = decide(
+        _record(TaskOutcome.PARTIAL),
+        _counters(noclose=NOCLOSE_LIMIT - 1),
+        "in_progress",
+        RuntimeConfig(),
+    )
+    assert decision.action == Action.BLOCK
+    assert decision.increment == "noclose"
+
+
+# ---------------------------------------------------------------------------
+# BLOCKED_BY_AGENT with a declared reason (RESULT.json status=blocked)
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_by_agent_uses_declared_reason() -> None:
+    decision = decide(
+        _record(TaskOutcome.BLOCKED_BY_AGENT, reason="need credentials"),
+        _counters(),
+        "in_progress",
+        RuntimeConfig(),
+    )
+    assert decision.action == Action.BLOCK
+    assert decision.reason == "need credentials"

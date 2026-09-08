@@ -172,8 +172,16 @@ export const api = {
     return request(`/api/tasks/${id}/artifacts/plan`);
   },
 
+  getArtifactHandoff(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/handoff`);
+  },
+
   getArtifactKnowledge(id: string): Promise<{ content: string; mtime: number; path: string }> {
     return request(`/api/tasks/${id}/artifacts/knowledge`);
+  },
+
+  getArtifactResult(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/result`);
   },
 
   getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {

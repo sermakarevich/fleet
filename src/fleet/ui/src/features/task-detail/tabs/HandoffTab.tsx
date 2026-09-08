@@ -2,30 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../../shared/api';
-import type { TaskResult } from '../../../shared/types';
 
 interface Props {
   taskId: string;
-  result?: TaskResult | null;
 }
 
-const RESULT_BADGE_COLOR: Record<TaskResult['status'], string> = {
-  done: '#22c55e',
-  partial: '#eab308',
-  blocked: '#ef4444',
-};
-
-function ResultBadge({ result }: { result: TaskResult }) {
-  return (
-    <div style={styles.resultBadge}>
-      <span style={{ ...styles.resultDot, background: RESULT_BADGE_COLOR[result.status] }} />
-      <span style={styles.resultStatus}>{result.status}</span>
-      {result.summary && <span style={styles.resultSummary}>{result.summary}</span>}
-    </div>
-  );
-}
-
-export function PlanTab({ taskId, result }: Props) {
+export function HandoffTab({ taskId }: Props) {
   const [content, setContent] = useState<string | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,14 +15,14 @@ export function PlanTab({ taskId, result }: Props) {
 
   const load = useCallback(async (checkMtime = false) => {
     try {
-      const data = await api.getArtifactPlan(taskId);
+      const data = await api.getArtifactHandoff(taskId);
       if (checkMtime && mtimeRef.current === data.mtime) return;
       mtimeRef.current = data.mtime;
       setContent(data.content);
       setFilePath(data.path);
       setError(null);
     } catch {
-      if (!checkMtime) setError('Plan not available');
+      if (!checkMtime) setError('Handoff not available');
     }
   }, [taskId]);
 
@@ -61,7 +43,6 @@ export function PlanTab({ taskId, result }: Props) {
   return (
     <div style={styles.container}>
       <div style={styles.toolbar}>
-        {result && <ResultBadge result={result} />}
         {filePath && (
           <a
             href={`vscode://file/${filePath}`}
@@ -90,39 +71,12 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid #27272a',
     background: '#18181b',
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.75rem',
+    justifyContent: 'flex-end',
   },
   editorLink: {
     fontSize: '0.75rem',
     color: '#60a5fa',
     textDecoration: 'none',
-  },
-  resultBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.75rem',
-    color: '#a1a1aa',
-    overflow: 'hidden',
-  },
-  resultDot: {
-    width: '0.5rem',
-    height: '0.5rem',
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  resultStatus: {
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    color: '#e4e4e7',
-    flexShrink: 0,
-  },
-  resultSummary: {
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
   },
   markdown: {
     flex: 1,

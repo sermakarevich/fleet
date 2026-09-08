@@ -52,6 +52,8 @@ def decide(
         case TaskOutcome.SUCCESS:
             if bead_status != "in_progress":
                 return Decision(Action.NOOP, reason="already closed on exit")
+            if record.close_reason is not None:
+                return Decision(Action.CLOSE, reason=record.close_reason)
             count = counters.noclose + 1
             if count >= NOCLOSE_LIMIT:
                 reason = (
@@ -60,6 +62,19 @@ def decide(
                 )
                 return Decision(Action.BLOCK, reason=reason, increment="noclose")
             reason = f"re-queueing (success without close; #{count}/{NOCLOSE_LIMIT})"
+            return Decision(Action.RELEASE, reason=reason, increment="noclose")
+
+        case TaskOutcome.PARTIAL:
+            if bead_status != "in_progress":
+                return Decision(Action.NOOP, reason="already closed on exit")
+            count = counters.noclose + 1
+            if count >= NOCLOSE_LIMIT:
+                reason = (
+                    f"no-close limit exhausted ({count}/{NOCLOSE_LIMIT}) on partial "
+                    "progress; needs human review"
+                )
+                return Decision(Action.BLOCK, reason=reason, increment="noclose")
+            reason = record.reason or f"partial progress; re-queueing (#{count}/{NOCLOSE_LIMIT})"
             return Decision(Action.RELEASE, reason=reason, increment="noclose")
 
         case TaskOutcome.CONTEXT_PRESSURE:
@@ -91,7 +106,9 @@ def decide(
             )
 
         case TaskOutcome.BLOCKED_BY_AGENT:
-            return Decision(Action.BLOCK, reason="agent set task to blocked")
+            return Decision(
+                Action.BLOCK, reason=record.reason or "agent set task to blocked"
+            )
 
         case TaskOutcome.KILLED:
             if record.reason == "stalled":

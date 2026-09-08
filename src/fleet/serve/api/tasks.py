@@ -357,12 +357,7 @@ def create_tasks_router() -> APIRouter:
     def _artifact_path(task_id: str, filename: str, home: Path) -> Path:
         return _task_dir(home, task_id) / "artifacts" / filename
 
-    @router.get("/tasks/{task_id}/artifacts/plan")
-    async def get_artifact_plan(task_id: str) -> JSONResponse:
-        home = get_fleet_home()
-        f = _artifact_path(task_id, "PLAN_AND_STATUS.md", home)
-        if not f.exists():
-            return JSONResponse({"error": "not found"}, status_code=404)
+    def _artifact_file_response(f: Path) -> JSONResponse:
         return JSONResponse(
             {
                 "content": f.read_text(encoding="utf-8"),
@@ -370,6 +365,25 @@ def create_tasks_router() -> APIRouter:
                 "path": str(f.resolve()),
             }
         )
+
+    @router.get("/tasks/{task_id}/artifacts/plan")
+    async def get_artifact_plan(task_id: str) -> JSONResponse:
+        home = get_fleet_home()
+        f = _artifact_path(task_id, "PLAN.md", home)
+        if not f.exists():
+            # Fall back to the pre-worker-1 combined file for old tasks.
+            f = _artifact_path(task_id, "PLAN_AND_STATUS.md", home)
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return _artifact_file_response(f)
+
+    @router.get("/tasks/{task_id}/artifacts/handoff")
+    async def get_artifact_handoff(task_id: str) -> JSONResponse:
+        home = get_fleet_home()
+        f = _artifact_path(task_id, "HANDOFF.md", home)
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return _artifact_file_response(f)
 
     @router.get("/tasks/{task_id}/artifacts/knowledge")
     async def get_artifact_knowledge(task_id: str) -> JSONResponse:
@@ -377,23 +391,15 @@ def create_tasks_router() -> APIRouter:
         f = _artifact_path(task_id, "KNOWLEDGE.md", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse(
-            {
-                "content": f.read_text(encoding="utf-8"),
-                "mtime": f.stat().st_mtime,
-                "path": str(f.resolve()),
-            }
-        )
+        return _artifact_file_response(f)
 
-    @router.get("/tasks/{task_id}/artifacts/qa")
-    async def get_artifact_qa(task_id: str) -> JSONResponse:
+    @router.get("/tasks/{task_id}/artifacts/result")
+    async def get_artifact_result(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        f = _artifact_path(task_id, "Q&A.md", home)
+        f = _artifact_path(task_id, "RESULT.json", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse(
-            {"content": f.read_text(encoding="utf-8"), "mtime": f.stat().st_mtime}
-        )
+        return _artifact_file_response(f)
 
     @router.get("/tasks/{task_id}/logs")
     async def get_task_logs(task_id: str, level: str | None = None) -> JSONResponse:

@@ -27,6 +27,20 @@ export interface TaskSummary {
   last_outcome: string | null;
   last_outcome_reason: string | null;
   last_action: string | null;
+  result: TaskResult | null;
+  handoff_excerpt: string | null;
+}
+
+// The worker's declared outcome, parsed from artifacts/RESULT.json.
+export interface TaskResult {
+  schema: number;
+  status: 'done' | 'partial' | 'blocked';
+  summary: string;
+  commits: string[];
+  tests: Record<string, unknown> | null;
+  open_questions: string[];
+  next_step: string;
+  blocked_reason: string;
 }
 
 export interface TaskAttempt {
