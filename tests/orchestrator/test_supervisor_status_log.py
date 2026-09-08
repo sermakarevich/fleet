@@ -9,11 +9,11 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.status_log import StatusLog, fleet_log_context
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.journal import setup_supervisor_logger
-from tests.conftest import make_running_worker
-from tests.helpers.task_dir import make_attempt
+from tests.conftest import make_running_worker, make_supervisor
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -64,16 +64,21 @@ def _make_supervisor(
     log: structlog.BoundLogger | None = None,
     config: RuntimeConfig | None = None,
 ) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=StubQueue(),
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=log or structlog.get_logger(),
+    sup = make_supervisor(tmp_path, queue=StubQueue(), config=config, services=[], checks=[])  # type: ignore[arg-type]
+    if log is not None:
+        sup.state.log = log
+    return sup
+
+
+def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
+    """Fold one outcome through reap, opening a fresh attempt like spawn does."""
+    from fleet.state import attempts as attempts_mod
+
+    n = attempts_mod.record_start(
+        s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
     )
-    if config is not None:
-        s.config = config
-    return s
+    worker = make_running_worker(task.id, None, task=task, attempt_n=n)
+    handle_outcome(s.state, worker, record)
 
 
 def _read_fleet_log(log_root: Path) -> list[dict]:
@@ -117,7 +122,7 @@ def test_fleet_log_context_includes_in_flight_count(tmp_path: Path) -> None:
 
 def test_fleet_log_context_includes_usage_pct(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path)
-    s.rate_gauge.update(
+    s.state.rate_gauge.update(
         Event(
             kind="rate_limit_info",
             raw={},
@@ -152,7 +157,7 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log, config=RuntimeConfig(max_concurrent=3))
-    s.rate_gauge.update(
+    s.state.rate_gauge.update(
         Event(
             kind="rate_limit_info",
             raw={},
@@ -224,7 +229,7 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
-    s.rate_gauge.update(
+    s.state.rate_gauge.update(
         Event(
             kind="rate_limit_info",
             raw={},
@@ -232,8 +237,9 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
             rate_info={"usage_pct": 55.0},
         )
     )
-    s._queue = StubQueue(status="closed")
-    s._handle_outcome(
+    s.state.queue = StubQueue(status="closed")
+    _handle(
+        s,
         Task(id="t-001", title="X", description=None, status="closed"),
         TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0),
     )
@@ -251,7 +257,8 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
 
-    s._handle_outcome(
+    _handle(
+        s,
         Task(id="t-001", title="X", description=None, status="in_progress"),
         TaskOutcomeRecord(
             outcome=TaskOutcome.RATE_LIMIT, exit_code=None, resets_at=None
@@ -278,83 +285,3 @@ def test_fleet_log_context_includes_context_tokens_key(tmp_path: Path) -> None:
     assert "t-001" in ctx["context_tokens"]
     # When no events.jsonl exists the value should be 0.
     assert ctx["context_tokens"]["t-001"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Stall kill-and-retry ladder: warn vs kill actions
-# ---------------------------------------------------------------------------
-
-
-def _create_stale_events_file(tmp_path: Path, task_id: str, age_sec: float = 3600) -> None:
-    import os
-    import time
-
-    task_dir = tmp_path / "tasks" / task_id
-    attempt_dir = make_attempt(task_dir, 1)
-    events_file = attempt_dir / "events.jsonl"
-    events_file.touch()
-    old_time = time.time() - age_sec
-    os.utime(events_file, (old_time, old_time))
-
-
-def test_stall_warn_action_never_kills(tmp_path: Path) -> None:
-    """Default stall_action="warn" only warns; _stall_killed stays empty."""
-    s = _make_supervisor(
-        tmp_path,
-        config=RuntimeConfig(stall_warning_minutes=1, stall_action="warn"),
-    )
-    _create_stale_events_file(tmp_path, "t-warn")
-
-    class FakeRunner:
-        def __init__(self) -> None:
-            self.kill_calls = 0
-
-        async def kill(self, reason: str = "manual_kill") -> None:
-            self.kill_calls += 1
-
-    fake = FakeRunner()
-    s.state.running["t-warn"] = make_running_worker("t-warn", tmp_path, run=fake)
-
-    s._log_status_snapshot()
-
-    assert "t-warn" in s._stall_warned
-    assert "t-warn" not in s._stall_killed
-    assert len(s._stall_killed) == 0
-    assert fake.kill_calls == 0
-    structlog.reset_defaults()
-
-
-def test_stall_kill_action_schedules_runner_kill(tmp_path: Path) -> None:
-    """stall_action="kill" records the task and schedules runner.kill()."""
-    s_holder: dict = {}
-
-    async def _run() -> None:
-        import structlog as _structlog
-
-        s = _make_supervisor(
-            tmp_path,
-            config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
-        )
-        _create_stale_events_file(tmp_path, "t-kill")
-
-        class FakeRunner:
-            def __init__(self) -> None:
-                self.kill_calls = 0
-
-            async def kill(self, reason: str = "manual_kill") -> None:
-                self.kill_calls += 1
-
-        fake = FakeRunner()
-        s.state.running["t-kill"] = make_running_worker("t-kill", tmp_path, run=fake)
-
-        s._log_status_snapshot()
-        # Let the scheduled kill() coroutine execute.
-        await asyncio.sleep(0.2)
-        s_holder["s"] = s
-        s_holder["fake"] = fake
-        _structlog.reset_defaults()
-
-    asyncio.run(_run())
-
-    assert "t-kill" in s_holder["s"]._stall_killed
-    assert s_holder["fake"].kill_calls == 1

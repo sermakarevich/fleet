@@ -1,80 +1,91 @@
+"""Stall watchdog: warn about quiet workers and kill them when configured.
+
+A worker is stalled when its latest attempt has written no events for
+longer than `stall_warning_minutes`. The first quiet tick logs
+`task_stalled` once; with `stall_action="kill"` the runner is killed once
+as well. Both scratch sets are cleared in `on_worker_finished`, so no id
+ever outlives its worker.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from fleet.core.limits import LEASE_RECONCILE_INTERVAL_SEC, STATUS_LOG_INTERVAL_SEC
+from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
+from fleet.core.task import TaskOutcomeRecord
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import task_dir as _task_dir
+
+from .service import PeriodicService, ServiceOrder
+
+if TYPE_CHECKING:
+    from .state import RunningWorker, SupervisorState
 
 
-class StallMixin:
-    async def _status_log_loop(self) -> None:
-        """Periodically emit a heartbeat with in-flight count and rate-limit usage.
+class StallWatch(PeriodicService):
+    """Watch event silence per worker; warn once, kill once when configured."""
 
-        Every LEASE_RECONCILE_INTERVAL_SEC the same tick also runs
-        reconcile_leases(), so beads orphaned by a runner that died
-        without reaping are re-queued while the supervisor keeps running.
-        """
-        while not self._shutting_down:
-            await asyncio.sleep(STATUS_LOG_INTERVAL_SEC)
-            if self._shutting_down:
-                break
-            self._log_status_snapshot()
-            now = time.monotonic()
-            last = getattr(self, "_last_lease_reconcile", None)
-            if last is None or now - last >= LEASE_RECONCILE_INTERVAL_SEC:
-                self._last_lease_reconcile = now
-                try:
-                    self.reconcile_leases()
-                except Exception as exc:  # noqa: BLE001 - lease sweep must not kill the loop
-                    self._log.warning("lease_reconcile_failed", error=str(exc))
-            # Triage is scheduled from this same status loop (ADR 0003: a
-            # loop over all blocked beads, not a per-bead worker). The mixin
-            # no-ops when the queue lacks list_blocked or the interval is 0.
-            tick = getattr(self, "triage_tick_if_due", None)
-            if tick is not None:
-                try:
-                    tick()
-                except Exception as exc:  # noqa: BLE001 - triage must not kill the loop
-                    self._log.warning("triage_tick_failed", error=str(exc))
+    order = ServiceOrder.Stall
+    name = "stall_watch"
 
-    def _log_status_snapshot(self) -> None:
-        if self.config.stall_warning_minutes <= 0:
+    def __init__(self, interval_sec: float | None = None) -> None:
+        super().__init__(interval_sec if interval_sec is not None else STATUS_LOG_INTERVAL_SEC)
+        self._warned: set[str] = set()
+        self._killed: set[str] = set()
+
+    async def on_worker_finished(
+        self, st: SupervisorState, worker: RunningWorker, outcome: TaskOutcomeRecord
+    ) -> None:
+        """Forget a finished worker so no id outlives its attempt."""
+        _ = (st, outcome)
+        self._warned.discard(worker.task.id)
+        self._killed.discard(worker.task.id)
+
+    async def tick(self, st: SupervisorState) -> None:
+        """Warn about (and maybe kill) workers quiet past the stall threshold."""
+        if st.config.stall_warning_minutes <= 0:
             return
         now = datetime.now(tz=UTC).timestamp()
-        for task_id in list(self.state.running):
-            task_dir = _task_dir(self._project_root, task_id)
-            attempt_dir = latest_attempt_dir(task_dir)
+        for task_id in list(st.running):
+            attempt_dir = latest_attempt_dir(st.task_dir_for(task_id))
             if attempt_dir is None:
                 continue
-            events_path = attempt_dir / "events.jsonl"
             try:
-                mtime = events_path.stat().st_mtime
+                mtime = (attempt_dir / "events.jsonl").stat().st_mtime
             except FileNotFoundError:
                 continue
             idle = now - mtime
-            if idle > self.config.stall_warning_minutes * 60:
-                if task_id not in self._stall_warned:
-                    self._log.warning(
-                        "task_stalled",
-                        task_id=task_id,
-                        idle_seconds=int(idle),
-                        stall_warning_minutes=self.config.stall_warning_minutes,
-                    )
-                    self._stall_warned.add(task_id)
-                    if self.config.stall_action == "kill" and task_id not in self._stall_killed:
-                        worker = self.state.running.get(task_id)
-                        runner = worker.run if worker is not None else None
-                        if runner is not None:
-                            self._stall_killed.add(task_id)
-                            self._log.warning("task_stall_kill", task_id=task_id, idle_seconds=int(idle))
-                            try:
-                                loop = asyncio.get_running_loop()
-                            except RuntimeError:
-                                loop = None
-                            if loop is not None:
-                                loop.create_task(runner.kill(reason="stalled"))
+            if idle > st.config.stall_warning_minutes * 60:
+                self._warn_once(st, task_id, idle)
             else:
-                self._stall_warned.discard(task_id)
+                self._warned.discard(task_id)
+
+    def _warn_once(self, st: SupervisorState, task_id: str, idle: float) -> None:
+        """Log the first quiet sighting of a task and kill it when configured."""
+        if task_id in self._warned:
+            return
+        st.log.warning(
+            "task_stalled",
+            task_id=task_id,
+            idle_seconds=int(idle),
+            stall_warning_minutes=st.config.stall_warning_minutes,
+        )
+        self._warned.add(task_id)
+        if st.config.stall_action == "kill" and task_id not in self._killed:
+            self._kill_once(st, task_id, idle)
+
+    def _kill_once(self, st: SupervisorState, task_id: str, idle: float) -> None:
+        """Schedule one runner kill for a stalled task that is still in flight."""
+        worker = st.running.get(task_id)
+        runner = worker.run if worker is not None else None
+        if runner is None:
+            return
+        self._killed.add(task_id)
+        st.log.warning("task_stall_kill", task_id=task_id, idle_seconds=int(idle))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(runner.kill(reason="stalled"))

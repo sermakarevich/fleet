@@ -11,14 +11,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.retry_policy import WAITING_WAIT_SEC, Action, decide
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
+from tests.conftest import make_running_worker, make_supervisor
 
 
 class StubQueue:
@@ -68,13 +68,16 @@ class StubCoder:
 
 
 def _supervisor(tmp_path: Path, queue: StubQueue) -> Supervisor:
-    return Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+    return make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+
+
+def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
+    """Fold one outcome through reap, opening a fresh attempt like spawn does."""
+    n = attempts.record_start(
+        s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
     )
+    worker = make_running_worker(task.id, None, task=task, attempt_n=n)
+    handle_outcome(s.state, worker, record)
 
 
 def _task(task_id: str = "t-001", **kw) -> Task:
@@ -115,7 +118,7 @@ def test_waiting_reap_releases_silently(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
     record = TaskOutcomeRecord(outcome=TaskOutcome.WAITING, reason="1 of 2 children still running")
-    s._handle_outcome(_task(), record)
+    _handle(s, _task(), record)
     assert queue.blocked == []
     assert queue.closed == []
     assert queue.comments == []
@@ -153,7 +156,7 @@ def test_observer_partial_below_cap_releases(tmp_path: Path) -> None:
     )
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
-    s._handle_outcome(_task(type="epic"), _rc0())
+    _handle(s, _task(type="epic"), _rc0())
     assert queue.blocked == []
     assert len(queue.released) == 1
 
@@ -165,7 +168,7 @@ def test_observer_partial_at_cap_blocks(tmp_path: Path) -> None:
     _seed_partial_observer_rounds(tmp_path, "t-001", 2)
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
-    s._handle_outcome(_task(type="epic"), _rc0())
+    _handle(s, _task(type="epic"), _rc0())
     assert queue.released == []
     assert queue.blocked == [("t-001", "observer exhausted; needs human review")]
 
@@ -184,6 +187,6 @@ def test_task_partial_at_same_history_still_releases(tmp_path: Path) -> None:
         )
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)
-    s._handle_outcome(_task(type="task"), _rc0())
+    _handle(s, _task(type="task"), _rc0())
     assert queue.blocked == []
     assert len(queue.released) == 1

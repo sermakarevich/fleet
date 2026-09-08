@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import structlog
-
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.paths import task_dir as _task_dir
+from tests.conftest import make_running_worker, make_supervisor
 
 # ---------------------------------------------------------------------------
 # Test doubles (mirrors tests/orchestrator/test_supervisor_failures.py)
@@ -61,13 +61,19 @@ class StubQueue:
 
 
 def _make_supervisor(tmp_path: Path, queue: StubQueue) -> Supervisor:
-    return Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
-    )
+    return make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+
+
+def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord, attempt_n: int | None = None) -> None:
+    """Fold one outcome through reap, opening a fresh attempt like spawn does."""
+    from fleet.state import attempts as attempts_mod
+
+    if attempt_n is None:
+        attempt_n = attempts_mod.record_start(
+            s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
+        )
+    worker = make_running_worker(task.id, None, task=task, attempt_n=attempt_n)
+    handle_outcome(s.state, worker, record)
 
 
 def _task(task_id: str = "t-001") -> Task:
@@ -93,7 +99,7 @@ def test_status_done_closes_bead(tmp_path: Path) -> None:
     _write_result(tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "shipped"})
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0())
+    _handle(s, _task(), _rc0())
     assert queue.closed == [("t-001", "shipped")]
     assert queue.released == []
     assert queue.blocked == []
@@ -103,7 +109,7 @@ def test_status_done_bead_already_closed_is_noop(tmp_path: Path) -> None:
     _write_result(tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "shipped"})
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0())
+    _handle(s, _task(), _rc0())
     assert queue.closed == []
     assert queue.released == []
     assert queue.blocked == []
@@ -122,7 +128,7 @@ def test_status_partial_releases_with_next_step(tmp_path: Path) -> None:
     )
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0())
+    _handle(s, _task(), _rc0())
     assert len(queue.released) == 1
     assert queue.released[0][1] == "run tests"
     assert queue.closed == []
@@ -142,7 +148,7 @@ def test_status_blocked_blocks_with_reason(tmp_path: Path) -> None:
     )
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0())
+    _handle(s, _task(), _rc0())
     assert queue.blocked == [("t-001", "need creds")]
     assert queue.closed == []
     assert queue.released == []
@@ -156,7 +162,7 @@ def test_status_blocked_blocks_with_reason(tmp_path: Path) -> None:
 def test_no_result_json_releases_with_noclose_comment(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0())
+    _handle(s, _task(), _rc0())
     assert len(queue.released) == 1
     assert queue.closed == []
     assert "RESULT.json" in queue.comments[0][1]
@@ -173,7 +179,7 @@ def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
     )
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(
+    _handle(s, 
         _task(),
         TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, exit_code=1, reason="rc=1"),
     )
@@ -197,7 +203,7 @@ def test_reap_snapshots_state_and_result_then_unlinks(tmp_path: Path) -> None:
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _rc0(), attempt_n=1)
+    _handle(s, _task(), _rc0(), attempt_n=1)
 
     attempt_dir = task_dir / "attempts" / "1"
     assert (attempt_dir / "STATE.md").read_text(encoding="utf-8") == "## Next\n- keep going\n"

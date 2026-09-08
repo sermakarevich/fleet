@@ -14,6 +14,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from fleet.orchestrator.leases import reconcile_leases
 from tests.helpers.task_dir import make_attempt
 from tests.orchestrator.test_leases import LeaseQueue
 from tests.orchestrator.test_supervisor_failures import (
@@ -34,7 +35,7 @@ def test_startup_reconcile_leaves_bead_without_attempt_dir(tmp_path: Path) -> No
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
     # No task dir written on purpose.
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
 
 
@@ -43,13 +44,13 @@ def test_startup_reconcile_leaves_run_without_heartbeat(tmp_path: Path) -> None:
     task = _task("t-orphan-2")
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
-    task_dir = s._task_dir_for(task)
+    task_dir = s.state.task_dir_for(task.id)
     attempt_dir = make_attempt(task_dir, 1)
     (attempt_dir / "run.json").write_text(
         json.dumps({"pid": _dead_pid(), "pgid": _dead_pid()}),
         encoding="utf-8",
     )
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
 
 
@@ -58,7 +59,7 @@ def test_startup_reconcile_leaves_ended_attempt(tmp_path: Path) -> None:
     task = _task("t-orphan-3")
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
-    task_dir = s._task_dir_for(task)
+    task_dir = s.state.task_dir_for(task.id)
     attempt_dir = make_attempt(
         task_dir, 1, outcome="failure", reason="rc=1", exit_code=1, action="release"
     )
@@ -73,5 +74,5 @@ def test_startup_reconcile_leaves_ended_attempt(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []

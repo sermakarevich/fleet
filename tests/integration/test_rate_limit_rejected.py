@@ -60,7 +60,7 @@ def test_rate_limit_rejected_terminates_subprocess(tmp_path: Path) -> None:
 
 
 def test_rate_limit_rejected_sets_paused_until(tmp_path: Path) -> None:
-    """After 429, supervisor _paused_until is set so no new spawns happen. (FR-21)"""
+    """After 429, state.paused_until is set so no new spawns happen. (FR-21)"""
     queue = MemoryQueue()
     queue.add_task(_task())
 
@@ -78,11 +78,11 @@ def test_rate_limit_rejected_sets_paused_until(tmp_path: Path) -> None:
 
     asyncio.run(run_until(sup, done, timeout=15.0))
 
-    assert sup._paused_until is not None, "_paused_until should be set after 429"
+    assert sup.state.paused_until is not None, "paused_until should be set after 429"
 
 
 def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
-    """resetsAt from 429 response is used to set _paused_until. (FR-21)"""
+    """resetsAt from 429 response is used to set paused_until. (FR-21)"""
     import time as _time
 
     queue = MemoryQueue()
@@ -106,8 +106,8 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
 
     asyncio.run(run_until(sup, done, timeout=15.0))
 
-    assert sup._paused_until is not None
-    assert sup._paused_until.timestamp() >= future_ts
+    assert sup.state.paused_until is not None
+    assert sup.state.paused_until.timestamp() >= future_ts
 
 
 def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,11 +132,11 @@ def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: 
 
     asyncio.run(run_until(sup, done, timeout=15.0))
 
-    assert sup._paused_until is not None
+    assert sup.state.paused_until is not None
     # paused_until should be at least ~sleep_sec seconds in the future
     import time as _time
     from datetime import datetime
     expected_min = datetime.fromtimestamp(
         _time.time() + sleep_sec - 2, tz=UTC
     )
-    assert sup._paused_until >= expected_min
+    assert sup.state.paused_until >= expected_min

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -7,10 +8,11 @@ from pathlib import Path
 import structlog
 
 from fleet.core.config import RuntimeConfig
+from fleet.orchestrator.stall import StallWatch
+from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.journal import setup_supervisor_logger
-from tests.conftest import make_running_worker
+from tests.conftest import make_running_worker, make_supervisor
 from tests.helpers.task_dir import make_attempt
-from tests.orchestrator.test_supervisor_status_log import _make_supervisor
 
 
 def _create_events_file(base: Path, task_id: str) -> Path:
@@ -21,7 +23,18 @@ def _create_events_file(base: Path, task_id: str) -> Path:
     return events_file
 
 
-# ------ Test 1: Stalled task enters _stall_warned; no duplicate on repeat ------
+def _make_supervisor(
+    tmp_path: Path,
+    log: structlog.BoundLogger | None = None,
+    config: RuntimeConfig | None = None,
+) -> Supervisor:
+    sup = make_supervisor(tmp_path, config=config, services=[], checks=[])
+    if log is not None:
+        sup.state.log = log
+    return sup
+
+
+# ------ Test 1: Stalled task enters _warned; no duplicate on repeat ------
 
 
 def test_stalled_task_enters_stall_warned_no_duplicate(tmp_path: Path) -> None:
@@ -30,8 +43,9 @@ def test_stalled_task_enters_stall_warned_no_duplicate(tmp_path: Path) -> None:
     s = _make_supervisor(
         tmp_path,
         log=log,
-        config=RuntimeConfig(stall_warning_minutes=1),
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="warn"),
     )
+    svc = StallWatch()
 
     events_file = _create_events_file(tmp_path, "t-stalled")
     old_time = time.time() - 120  # 2 minutes ago
@@ -39,14 +53,14 @@ def test_stalled_task_enters_stall_warned_no_duplicate(tmp_path: Path) -> None:
 
     s.state.running["t-stalled"] = make_running_worker("t-stalled", tmp_path)
 
-    s._log_status_snapshot()
+    asyncio.run(svc.tick(s.state))
 
-    assert "t-stalled" in s._stall_warned
+    assert "t-stalled" in svc._warned
 
     # Second call should not change set size
-    s._log_status_snapshot()
-    assert "t-stalled" in s._stall_warned
-    assert len(s._stall_warned) == 1
+    asyncio.run(svc.tick(s.state))
+    assert "t-stalled" in svc._warned
+    assert len(svc._warned) == 1
     structlog.reset_defaults()
 
 
@@ -56,8 +70,9 @@ def test_stalled_task_enters_stall_warned_no_duplicate(tmp_path: Path) -> None:
 def test_mtime_refresh_removes_from_stall_warned(tmp_path: Path) -> None:
     s = _make_supervisor(
         tmp_path,
-        config=RuntimeConfig(stall_warning_minutes=1),
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="warn"),
     )
+    svc = StallWatch()
 
     events_file = _create_events_file(tmp_path, "t-recover")
 
@@ -66,18 +81,18 @@ def test_mtime_refresh_removes_from_stall_warned(tmp_path: Path) -> None:
     # Age it first
     old_time = time.time() - 120
     os.utime(events_file, (old_time, old_time))
-    s._log_status_snapshot()
-    assert "t-recover" in s._stall_warned
+    asyncio.run(svc.tick(s.state))
+    assert "t-recover" in svc._warned
 
     # Refresh mtime to now
     os.utime(events_file, None)
-    s._log_status_snapshot()
-    assert "t-recover" not in s._stall_warned
+    asyncio.run(svc.tick(s.state))
+    assert "t-recover" not in svc._warned
 
     # Age it again -> should return
     os.utime(events_file, (old_time, old_time))
-    s._log_status_snapshot()
-    assert "t-recover" in s._stall_warned
+    asyncio.run(svc.tick(s.state))
+    assert "t-recover" in svc._warned
     structlog.reset_defaults()
 
 
@@ -89,6 +104,7 @@ def test_stall_warning_zero_disables_check(tmp_path: Path) -> None:
         tmp_path,
         config=RuntimeConfig(stall_warning_minutes=0),
     )
+    svc = StallWatch()
 
     events_file = _create_events_file(tmp_path, "t-disabled")
     old_time = time.time() - 600
@@ -96,9 +112,9 @@ def test_stall_warning_zero_disables_check(tmp_path: Path) -> None:
 
     s.state.running["t-disabled"] = make_running_worker("t-disabled", tmp_path)
 
-    s._log_status_snapshot()
-    assert len(s._stall_warned) == 0
-    assert "t-disabled" not in s._stall_warned
+    asyncio.run(svc.tick(s.state))
+    assert len(svc._warned) == 0
+    assert "t-disabled" not in svc._warned
     structlog.reset_defaults()
 
 
@@ -108,8 +124,9 @@ def test_stall_warning_zero_disables_check(tmp_path: Path) -> None:
 def test_missing_events_jsonl_no_exception(tmp_path: Path) -> None:
     s = _make_supervisor(
         tmp_path,
-        config=RuntimeConfig(stall_warning_minutes=1),
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="warn"),
     )
+    svc = StallWatch()
 
     # Create task dir with no events.jsonl
     task_dir = tmp_path / "tasks" / "t-no-events"
@@ -117,7 +134,7 @@ def test_missing_events_jsonl_no_exception(tmp_path: Path) -> None:
 
     s.state.running["t-no-events"] = make_running_worker("t-no-events", tmp_path)
 
-    s._log_status_snapshot()
-    assert "t-no-events" not in s._stall_warned
-    assert len(s._stall_warned) == 0
+    asyncio.run(svc.tick(s.state))
+    assert "t-no-events" not in svc._warned
+    assert len(svc._warned) == 0
     structlog.reset_defaults()

@@ -40,7 +40,7 @@ def _task(tid: str) -> Task:
 
 async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
     deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.in_flight) < count:
+    while len(sup.state.running) < count:
         await asyncio.sleep(0.1)
         if asyncio.get_event_loop().time() > deadline:
             raise TimeoutError(f"timed out waiting for {count} in-flight tasks")

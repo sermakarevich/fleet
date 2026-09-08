@@ -1,9 +1,17 @@
+"""Reap service: collect finished workers, apply the outcome, notify the rest.
+
+Reap is event-driven, not periodic: it waits for the first in-flight
+future to finish, removes its RunningWorker from the shared state, folds
+the outcome through the retry policy, and emits `on_worker_finished` so
+other services (StallWatch) can drop their per-task scratch data.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fleet.core import retry_policy
 from fleet.core.job_plan import observer_rounds
@@ -21,46 +29,14 @@ from fleet.state.paths import RESULT_JSON, STATE_MD
 from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
+from .claim import read_isolation_info
+from .service import Service, ServiceOrder, emit
 from .status_log import fleet_log_context
 
+if TYPE_CHECKING:
+    from .state import RunningWorker, SupervisorState
+
 _STALE_COUNTER_FILES = (".failures", ".noclose", ".stalls")
-
-
-def _read_isolation_info(task_dir: Path) -> dict | None:
-    """Read repo_root/base_ref/worktree_path from task.json, or None.
-
-    Falls back to the legacy `.worktree` marker (worktree path only) for
-    task dirs written before the task.json contract.
-    """
-    try:
-        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        meta = {}
-    if isinstance(meta, dict):
-        repo_root = meta.get("repo_root")
-        base_ref = meta.get("base_ref")
-        worktree_path = meta.get("worktree_path")
-        if repo_root and base_ref and worktree_path:
-            return {
-                "repo_root": repo_root,
-                "base_ref": base_ref,
-                "worktree_path": worktree_path,
-            }
-    try:
-        marker = task_dir / ".worktree"
-        if marker.exists():
-            text = marker.read_text(encoding="utf-8").strip()
-            if text:
-                meta_base = meta.get("base_ref") if isinstance(meta, dict) else None
-                meta_repo = meta.get("repo_root") if isinstance(meta, dict) else None
-                return {
-                    "repo_root": meta_repo or "",
-                    "base_ref": meta_base or "main",
-                    "worktree_path": text,
-                }
-    except OSError:
-        pass
-    return None
 
 
 def _drop_stale_counter_files(task_dir: Path) -> None:
@@ -72,450 +48,504 @@ def _drop_stale_counter_files(task_dir: Path) -> None:
             pass
 
 
-class ReapMixin:
-    async def _reap_loop(self) -> None:
-        while not self._shutting_down or self.state.running:
-            if not self.state.running:
+def pop_finished(st: SupervisorState, fut: asyncio.Task) -> RunningWorker | None:
+    """Remove and return the RunningWorker that owns `fut`, or None when unknown."""
+    task_id = next((tid for tid, rw in st.running.items() if rw.future is fut), None)
+    if task_id is None:
+        return None
+    return st.running.pop(task_id)
+
+
+def outcome_of(fut: asyncio.Task) -> TaskOutcomeRecord:
+    """Unwrap a finished future into its outcome record, or FAILURE when it raised."""
+    try:
+        return fut.result()
+    except Exception as exc:
+        return TaskOutcomeRecord(
+            outcome=TaskOutcome.FAILURE,
+            reason=f"unexpected exception: {exc}",
+        )
+
+
+def bead_status(st: SupervisorState, task_id: str) -> str | None:
+    """Current bead status, or None when the queue lookup fails."""
+    try:
+        return st.queue.get(task_id).status
+    except Exception:
+        return None
+
+
+def read_declared_result(task_dir: Path) -> Result | None:
+    """Parse the task-level RESULT.json, the worker's declared outcome, if present."""
+    try:
+        text = (task_dir / RESULT_JSON).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return parse_result(text)
+
+
+def fold_declared_result(record: TaskOutcomeRecord, result: Result) -> TaskOutcomeRecord:
+    """Fold a declared RESULT.json into an rc=0 outcome record."""
+    if result.status == "done":
+        return TaskOutcomeRecord(
+            outcome=TaskOutcome.SUCCESS,
+            exit_code=record.exit_code,
+            reason=result.summary,
+            close_reason=result.summary or "completed",
+        )
+    if result.status == "partial":
+        return TaskOutcomeRecord(
+            outcome=TaskOutcome.PARTIAL,
+            exit_code=record.exit_code,
+            reason=result.next_step or result.summary,
+        )
+    return TaskOutcomeRecord(
+        outcome=TaskOutcome.BLOCKED_BY_AGENT,
+        exit_code=record.exit_code,
+        reason=result.blocked_reason or result.summary,
+    )
+
+
+def maybe_handle_isolated_success(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    status: str | None,
+    result: Result | None = None,
+) -> Decision | None:
+    """Decide an isolated (worktree) SUCCESS exit, or None when it is not one."""
+    if record.outcome != TaskOutcome.SUCCESS or status != "in_progress":
+        return None
+    info = read_isolation_info(task_dir)
+    if info is None:
+        return None
+    if result is None or result.status != "done":
+        return None
+
+    wt_path = Path(info["worktree_path"])
+    base_ref = info.get("base_ref") or "main"
+    if worktree.is_committed_clean(wt_path, base_ref=base_ref):
+        set_needs_validation(task_dir)
+        st.log.info("task.needs_validation", task_id=task.id)
+        return Decision(Action.NOOP, reason="needs validation")
+
+    if not worktree.has_uncommitted_changes(wt_path):
+        st.log.info("task.isolated_no_repo_changes", task_id=task.id)
+        discard_isolation(st, task, task_dir, info)
+        return None
+
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "noclose") + 1
+    detail = f"uncommitted changes left in {wt_path}"
+    if rounds >= NOCLOSE_MAX_ROUNDS:
+        return Decision(
+            Action.BLOCK,
+            reason=(
+                f"isolated task exited without a clean commit ({detail}) "
+                f"({rounds}/{NOCLOSE_MAX_ROUNDS}); needs human review"
+            ),
+        )
+    return Decision(
+        Action.RELEASE,
+        reason=(
+            f"isolated task exited without a clean commit ({detail}) "
+            f"(#{rounds}/{NOCLOSE_MAX_ROUNDS}); commit or revert them"
+        ),
+        wait_sec=0,
+    )
+
+
+def discard_isolation(st: SupervisorState, task: Task, task_dir: Path, info: dict) -> None:
+    """Remove a worktree that carries no work and forget the isolation info."""
+    repo_root = info.get("repo_root") or ""
+    wt_path = Path(info["worktree_path"])
+    if repo_root:
+        worktree.cleanup_worktree(repo_root, task.id, wt_path, fleet_home=st.project_root)
+        try:
+            worktree.delete_branch(repo_root, task.id)
+        except Exception:  # noqa: BLE001
+            pass
+    (task_dir / ".worktree").unlink(missing_ok=True)
+    try:
+        st.queue.clear_isolation_info(task.id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def apply_noop(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    status: str | None = None,
+    result: Result | None = None,
+) -> None:
+    """Log a NOOP decision; no queue writes."""
+    _ = (task_dir, status, result)
+    st.log.info(
+        "task_noop_on_exit",
+        task_id=task.id,
+        outcome=record.outcome.name,
+        reason=decision.reason,
+        **fleet_ctx,
+    )
+
+
+def apply_close(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    status: str | None = None,
+    result: Result | None = None,
+) -> None:
+    """Close the bead; the worker's declared reason is the close reason."""
+    _ = (task_dir, record, status, result)
+    st.queue.close(task.id, reason=decision.reason)
+    st.log.info("task_closed_by_fleet", task_id=task.id, **fleet_ctx)
+
+
+def _log_block_outcome(
+    st: SupervisorState,
+    task: Task,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    result: Result | None,
+) -> None:
+    """Log which ladder rung blocked the bead."""
+    outcome = record.outcome
+    if outcome == TaskOutcome.FAILURE:
+        note = f" Worker summary: {result.summary}" if result and result.summary else ""
+        st.queue.comment(
+            task.id,
+            f"[fleet] {decision.reason} Last exit code={record.exit_code}. "
+            f"stderr_tail: {record.stderr_tail}.{note}",
+        )
+        st.log.error("task_retry_exhausted", task_id=task.id, **fleet_ctx)
+    elif outcome in (TaskOutcome.SUCCESS, TaskOutcome.PARTIAL):
+        st.queue.comment(task.id, f"[fleet] {decision.reason}")
+        st.log.warning("task_noclose_exhausted", task_id=task.id, **fleet_ctx)
+    elif outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
+        st.log.warning("task_stall_exhausted", task_id=task.id, **fleet_ctx)
+    elif outcome == TaskOutcome.TERMINAL:
+        st.queue.comment(task.id, f"[fleet] {decision.reason}")
+        st.log.error("task_terminal", task_id=task.id, **fleet_ctx)
+    elif outcome == TaskOutcome.KILLED:
+        st.queue.comment(task.id, f"[fleet] {decision.reason}.")
+        st.log.info("task_blocked", task_id=task.id, **fleet_ctx)
+    else:
+        st.log.info("task_blocked", task_id=task.id, **fleet_ctx)
+
+
+def apply_block(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    status: str | None = None,
+    result: Result | None = None,
+) -> None:
+    """Block the bead, unless the agent already blocked it itself."""
+    _ = task_dir
+    if record.outcome == TaskOutcome.BLOCKED_BY_AGENT and status == "blocked":
+        st.log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
+        return
+    st.queue.set_blocked(task.id, decision.reason)
+    _log_block_outcome(st, task, record, decision, fleet_ctx, result)
+
+
+def _release_waiting(st: SupervisorState, task: Task, decision: Decision, fleet_ctx: dict) -> None:
+    """Release a WAITING epic silently; the wait keeps it from hot-looping claim."""
+    st.queue.release(task.id, reason="", wait_sec=decision.wait_sec or 0)
+    st.log.info("worker_waiting", task_id=task.id, reason=decision.reason, **fleet_ctx)
+
+
+def _release_rate_limit(
+    st: SupervisorState, task: Task, record: TaskOutcomeRecord, decision: Decision, fleet_ctx: dict
+) -> None:
+    """Release a rate-limited task and pause claiming until the delay passes."""
+    wait_sec = decision.wait_sec or 0
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    sleep_until = datetime.now(tz=UTC) + timedelta(seconds=wait_sec)
+    if st.paused_until is None or sleep_until > st.paused_until:
+        st.paused_until = sleep_until
+    rate_ctx = {k: v for k, v in fleet_ctx.items() if k != "paused_until"}
+    st.log.warning(
+        "task_rate_limit_release",
+        task_id=task.id,
+        resets_at=record.resets_at,
+        paused_until=str(st.paused_until),
+        **rate_ctx,
+    )
+
+
+def _release_stall(st: SupervisorState, task: Task, task_dir: Path, decision: Decision) -> None:
+    """Release a stall-killed task for retry; the stall ladder counts the round."""
+    wait_sec = decision.wait_sec or 0
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "stall") + 1
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    st.log.warning("task_stall_handled", task_id=task.id, count=rounds)
+
+
+def _release_failure(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    result: Result | None,
+) -> None:
+    """Release a failed task for retry and comment the failure count."""
+    wait_sec = decision.wait_sec or 0
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "failure") + 1
+    note = f" Worker summary: {result.summary}" if result and result.summary else ""
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    st.queue.comment(
+        task.id,
+        f"[fleet] failure {rounds} (rc={record.exit_code}). Releasing for retry.{note}",
+    )
+    st.log.warning("task_failure_release", task_id=task.id, failures=rounds)
+
+
+def _release_partial(
+    st: SupervisorState, task: Task, task_dir: Path, decision: Decision
+) -> None:
+    """Release a partial task for retry and comment the progress count."""
+    wait_sec = decision.wait_sec or 0
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "partial") + 1
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    st.queue.comment(
+        task.id,
+        f"[fleet] partial progress #{rounds}/{PARTIAL_MAX_ROUNDS}: {decision.reason}",
+    )
+    st.log.info("task_partial_release", task_id=task.id, count=rounds)
+
+
+def _release_success(st: SupervisorState, task: Task, task_dir: Path, decision: Decision) -> None:
+    """Release an rc=0 task that declared nothing, warning about the missing RESULT."""
+    wait_sec = decision.wait_sec or 0
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "noclose") + 1
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    st.queue.comment(
+        task.id,
+        f"[fleet] success #{rounds}/{NOCLOSE_MAX_ROUNDS}: rc=0, "
+        f"worker exited without RESULT.json. "
+        f"At {NOCLOSE_MAX_ROUNDS} the task will be blocked for human review.",
+    )
+    st.log.warning("task_success_noclose", task_id=task.id, count=rounds)
+
+
+def _release_context(st: SupervisorState, task: Task, task_dir: Path, decision: Decision) -> None:
+    """Release a context-pressured task for a compacted retry."""
+    wait_sec = decision.wait_sec or 0
+    history = attempts.load_attempts(task_dir)
+    rounds = retry_policy._trailing_streak(history, "context") + 1
+    st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+    st.queue.comment(
+        task.id,
+        f"[fleet] context limit round {rounds}/{CONTEXT_MAX_ROUNDS}; compaction + continue",
+    )
+    st.log.info("task_context_release", task_id=task.id, count=rounds)
+
+
+def apply_release(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    status: str | None = None,
+    result: Result | None = None,
+) -> None:
+    """Release the bead back to the queue along the rung its outcome names."""
+    _ = status
+    wait_sec = decision.wait_sec or 0
+    outcome = record.outcome
+    if outcome == TaskOutcome.WAITING:
+        _release_waiting(st, task, decision, fleet_ctx)
+    elif outcome == TaskOutcome.RATE_LIMIT:
+        _release_rate_limit(st, task, record, decision, fleet_ctx)
+    elif outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
+        _release_stall(st, task, task_dir, decision)
+    elif outcome == TaskOutcome.FAILURE:
+        _release_failure(st, task, task_dir, record, decision, result)
+    elif outcome == TaskOutcome.PARTIAL:
+        _release_partial(st, task, task_dir, decision)
+    elif outcome == TaskOutcome.SUCCESS:
+        _release_success(st, task, task_dir, decision)
+    elif outcome == TaskOutcome.CONTEXT_PRESSURE:
+        _release_context(st, task, task_dir, decision)
+    else:
+        st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+        st.log.info("task_released", task_id=task.id, **fleet_ctx)
+
+
+_APPLY = {
+    Action.NOOP: apply_noop,
+    Action.CLOSE: apply_close,
+    Action.BLOCK: apply_block,
+    Action.RELEASE: apply_release,
+}
+
+
+def apply_decision(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    decision: Decision,
+    fleet_ctx: dict,
+    status: str | None = None,
+    result: Result | None = None,
+) -> None:
+    """Apply a retry-policy decision through the per-action function."""
+    _drop_stale_counter_files(task_dir)
+    _APPLY[decision.action](st, task, task_dir, record, decision, fleet_ctx, status, result)
+
+
+def snapshot_attempt_artifacts(
+    st: SupervisorState, task: Task, task_dir: Path, n: int
+) -> None:
+    """Copy this attempt's STATE.md/RESULT.json into attempts/<n>/ and unlink live RESULT."""
+    attempt_dir = attempts.attempt_dir(task_dir, n)
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+
+    state_src = task_dir / STATE_MD
+    if state_src.exists():
+        try:
+            (attempt_dir / STATE_MD).write_bytes(state_src.read_bytes())
+        except OSError as exc:
+            st.log.warning("attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc))
+
+    result_src = task_dir / RESULT_JSON
+    if result_src.exists():
+        try:
+            (attempt_dir / RESULT_JSON).write_bytes(result_src.read_bytes())
+        except OSError as exc:
+            st.log.warning(
+                "attempt_snapshot_failed", task_id=task.id, file=RESULT_JSON, error=str(exc)
+            )
+        try:
+            result_src.unlink(missing_ok=True)
+        except OSError as exc:
+            st.log.warning("attempt_result_unlink_failed", task_id=task.id, error=str(exc))
+
+
+def is_observer_run(task: Task, history: list[dict]) -> bool:
+    """True when this attempt ran the observer worker (epic validation)."""
+    if (task.type or "") == "epic":
+        return True
+    return bool(history and str(history[-1].get("worker") or "").startswith("observer"))
+
+
+def observer_cap_decision(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    history: list[dict],
+) -> Decision | None:
+    """BLOCK an epic past its observer follow-up rounds, else None."""
+    _ = task_dir
+    if record.outcome != TaskOutcome.PARTIAL:
+        return None
+    if not is_observer_run(task, history):
+        return None
+    max_rounds = getattr(st.config, "observer_max_rounds", 3)
+    if observer_rounds(history) + 1 >= max_rounds:
+        return Decision(Action.BLOCK, reason="observer exhausted; needs human review")
+    return None
+
+
+def handle_outcome(
+    st: SupervisorState, worker: RunningWorker, outcome: TaskOutcomeRecord
+) -> None:
+    """Fold one finished worker's outcome into queue state and the attempts journal."""
+    task = worker.task
+    task_dir = st.task_dir_for(task.id)
+    fleet_ctx = fleet_log_context(st)
+    status = bead_status(st, task.id)
+
+    result = read_declared_result(task_dir)
+    record = outcome
+
+    decision = maybe_handle_isolated_success(st, task, task_dir, record, status, result)
+    if decision is None:
+        if record.outcome == TaskOutcome.SUCCESS and status == "blocked":
+            record = TaskOutcomeRecord(
+                outcome=TaskOutcome.BLOCKED_BY_AGENT,
+                exit_code=record.exit_code,
+                reason="agent set task to blocked",
+            )
+        elif record.outcome == TaskOutcome.SUCCESS and result is not None:
+            record = fold_declared_result(record, result)
+        history = attempts.load_attempts(task_dir)
+        decision = observer_cap_decision(st, task, task_dir, record, history)
+        if decision is None:
+            decision = retry_policy.decide(record, history, status, st.config)
+    apply_decision(st, task, task_dir, record, decision, fleet_ctx, status, result)
+
+    try:
+        attempts.record_end(
+            task_dir,
+            outcome=record.outcome.value,
+            exit_code=record.exit_code,
+            reason=record.reason,
+            action=decision.action.value,
+            n=worker.attempt_n,
+        )
+    except OSError as exc:
+        st.log.warning("attempt_record_failed", task_id=task.id, error=str(exc))
+        return
+
+    n = worker.attempt_n or attempts.current_attempt_n(task_dir)
+    if n > 0:
+        snapshot_attempt_artifacts(st, task, task_dir, n)
+
+
+class Reap(Service):
+    """Collect finished workers and apply their outcomes, then notify services."""
+
+    order = ServiceOrder.Reap
+    name = "reap"
+
+    async def serve(self, st: SupervisorState) -> None:
+        """Wait for each future to finish and reap it until shutdown drains the set."""
+        while not st.shutting_down or st.running:
+            if not st.running:
                 await asyncio.sleep(0.1)
                 continue
-
             try:
                 done, _ = await asyncio.wait(
-                    [rw.future for rw in self.state.running.values()],
+                    [rw.future for rw in st.running.values()],
                     return_when=asyncio.FIRST_COMPLETED,
                     timeout=1.0,
                 )
             except (asyncio.CancelledError, ValueError):
                 break
-
-            for async_task in done:
-                task_id = next(
-                    (tid for tid, rw in self.state.running.items() if rw.future is async_task),
-                    None,
-                )
-                if task_id is None:
+            for fut in done:
+                worker = pop_finished(st, fut)
+                if worker is None:
                     continue
-
-                worker = self.state.running.pop(task_id)
-                bead_task = worker.task
-                attempt_n = worker.attempt_n
-                self._stall_warned.discard(task_id)
-                self._stall_killed.discard(task_id)
-
-                try:
-                    outcome: TaskOutcomeRecord = async_task.result()
-                except Exception as exc:
-                    self._log.error(
+                outcome = outcome_of(fut)
+                if outcome.reason.startswith("unexpected exception: "):
+                    st.log.error(
                         "runner_unexpected_exception",
-                        task_id=task_id,
-                        error=str(exc),
+                        task_id=worker.task.id,
+                        error=outcome.reason,
                     )
-                    outcome = TaskOutcomeRecord(
-                        outcome=TaskOutcome.FAILURE,
-                        reason=f"unexpected exception: {exc}",
-                    )
-
-                self._handle_outcome(bead_task, outcome, attempt_n=attempt_n)
-
-    def _bead_status(self, task_id: str) -> str | None:
-        try:
-            return self._queue.get(task_id).status
-        except Exception:
-            return None
-
-    def _read_declared_result(self, task_dir: Path) -> Result | None:
-        """Parse the task-level RESULT.json, the worker's declared outcome, if present."""
-        result_file = task_dir / RESULT_JSON
-        try:
-            text = result_file.read_text(encoding="utf-8")
-        except OSError:
-            return None
-        return parse_result(text)
-
-    def _fold_declared_result(
-        self, record: TaskOutcomeRecord, result: Result
-    ) -> TaskOutcomeRecord:
-        """Fold a declared RESULT.json into the rc=0 outcome record.
-
-        Only called for rc=0 exits: a nonzero exit code is always FAILURE
-        regardless of what RESULT.json says.
-        """
-        if result.status == "done":
-            return TaskOutcomeRecord(
-                outcome=TaskOutcome.SUCCESS,
-                exit_code=record.exit_code,
-                reason=result.summary,
-                close_reason=result.summary or "completed",
-            )
-        if result.status == "partial":
-            return TaskOutcomeRecord(
-                outcome=TaskOutcome.PARTIAL,
-                exit_code=record.exit_code,
-                reason=result.next_step or result.summary,
-            )
-        # status == "blocked"
-        return TaskOutcomeRecord(
-            outcome=TaskOutcome.BLOCKED_BY_AGENT,
-            exit_code=record.exit_code,
-            reason=result.blocked_reason or result.summary,
-        )
-
-    def _maybe_handle_isolated_success(
-        self,
-        task: Task,
-        task_dir: Path,
-        record: TaskOutcomeRecord,
-        bead_status: str | None,
-        result: Result | None = None,
-    ) -> Decision | None:
-        """Handle a SUCCESS exit for an isolated (worktree) task.
-
-        Requires reading git state, so it cannot live in the pure policy.
-        Returns a Decision when it handled the outcome, else None.
-
-        Isolated tasks need validation only when the worker declared
-        RESULT.json status=done AND the worktree is clean and ahead of base.
-        A clean worktree with no commits means the task changed nothing in
-        this repo (research, knowledge-base work, a no-op fix): a commit is
-        not required, the worktree is dropped and the task closes like a
-        non-isolated one. Only uncommitted changes left behind trigger the
-        "commit your work" retry rounds, because removing the worktree would
-        discard them. Anything else falls through to the normal retry policy.
-        """
-        if record.outcome != TaskOutcome.SUCCESS or bead_status != "in_progress":
-            return None
-        info = _read_isolation_info(task_dir)
-        if info is None:
-            return None
-        if result is None or result.status != "done":
-            return None
-
-        wt_path = Path(info["worktree_path"])
-        base_ref = info.get("base_ref") or "main"
-        if worktree.is_committed_clean(wt_path, base_ref=base_ref):
-            set_needs_validation(task_dir)
-            self._log.info("task.needs_validation", task_id=task.id)
-            return Decision(Action.NOOP, reason="needs validation")
-
-        if not worktree.has_uncommitted_changes(wt_path):
-            # Clean and not ahead of base: nothing to merge. Drop the
-            # worktree and let the declared "done" close the task.
-            self._log.info("task.isolated_no_repo_changes", task_id=task.id)
-            self._discard_isolation(task, task_dir, info)
-            return None
-
-        history = attempts.load_attempts(task_dir)
-        rounds = retry_policy._trailing_streak(history, "noclose") + 1
-        detail = f"uncommitted changes left in {wt_path}"
-        if rounds >= NOCLOSE_MAX_ROUNDS:
-            reason = (
-                f"isolated task exited without a clean commit ({detail}) "
-                f"({rounds}/{NOCLOSE_MAX_ROUNDS}); needs human review"
-            )
-            return Decision(Action.BLOCK, reason=reason)
-        return Decision(
-            Action.RELEASE,
-            reason=(
-                f"isolated task exited without a clean commit ({detail}) "
-                f"(#{rounds}/{NOCLOSE_MAX_ROUNDS}); commit or revert them"
-            ),
-            wait_sec=0,
-        )
-
-    def _discard_isolation(self, task: Task, task_dir: Path, info: dict) -> None:
-        """Remove a worktree that carries no work and forget the isolation info."""
-        repo_root = info.get("repo_root") or ""
-        wt_path = Path(info["worktree_path"])
-        if repo_root:
-            worktree.cleanup_worktree(
-                repo_root, task.id, wt_path, fleet_home=self._project_root
-            )
-            try:
-                worktree.delete_branch(repo_root, task.id)
-            except Exception:  # noqa: BLE001
-                pass
-        (task_dir / ".worktree").unlink(missing_ok=True)
-        try:
-            self._queue.clear_isolation_info(task.id)
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _apply_decision(
-        self,
-        task: Task,
-        task_dir: Path,
-        record: TaskOutcomeRecord,
-        decision: Decision,
-        fleet_ctx: dict,
-        bead_status: str | None = None,
-        result: Result | None = None,
-    ) -> None:
-        outcome = record.outcome
-        _drop_stale_counter_files(task_dir)
-
-        if decision.action == Action.NOOP:
-            self._log.info(
-                "task_noop_on_exit",
-                task_id=task.id,
-                outcome=outcome.name,
-                reason=decision.reason,
-                **fleet_ctx,
-            )
-            return
-
-        if decision.action == Action.CLOSE:
-            self._queue.close(task.id, reason=decision.reason)
-            self._log.info("task_closed_by_fleet", task_id=task.id, **fleet_ctx)
-            return
-
-        if decision.action == Action.BLOCK:
-            if outcome == TaskOutcome.BLOCKED_BY_AGENT and bead_status == "blocked":
-                # The agent already called `fleet bd block` itself; the bead
-                # is where it should be. No further queue writes.
-                self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
-                return
-            self._queue.set_blocked(task.id, decision.reason)
-            if outcome == TaskOutcome.FAILURE:
-                note = f" Worker summary: {result.summary}" if result and result.summary else ""
-                self._queue.comment(
-                    task.id,
-                    (
-                        f"[fleet] {decision.reason} "
-                        f"Last exit code={record.exit_code}. "
-                        f"stderr_tail: {record.stderr_tail}.{note}"
-                    ),
-                )
-                self._log.error("task_retry_exhausted", task_id=task.id, **fleet_ctx)
-            elif outcome in (TaskOutcome.SUCCESS, TaskOutcome.PARTIAL):
-                self._queue.comment(task.id, f"[fleet] {decision.reason}")
-                self._log.warning("task_noclose_exhausted", task_id=task.id, **fleet_ctx)
-            elif outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
-                self._stall_killed.discard(task.id)
-                self._log.warning("task_stall_exhausted", task_id=task.id, **fleet_ctx)
-            elif outcome == TaskOutcome.TERMINAL:
-                self._queue.comment(task.id, f"[fleet] {decision.reason}")
-                self._log.error("task_terminal", task_id=task.id, **fleet_ctx)
-            elif outcome == TaskOutcome.KILLED:
-                # Manual kill: journal the interruption on the bead.
-                self._queue.comment(task.id, f"[fleet] {decision.reason}.")
-                self._log.info("task_blocked", task_id=task.id, **fleet_ctx)
-            else:
-                self._log.info("task_blocked", task_id=task.id, **fleet_ctx)
-            return
-
-        # RELEASE (possibly with a wait_sec delay stored as task.json retry_after).
-        wait_sec = decision.wait_sec or 0
-        if outcome == TaskOutcome.WAITING:
-            # The observer woke early: release silently (no bead comment, no
-            # round counting — retry_policy skips waiting rows in streaks).
-            # The wait_sec delay keeps the epic from hot-looping through claim.
-            self._queue.release(task.id, reason="", wait_sec=wait_sec)
-            self._log.info(
-                "worker_waiting",
-                task_id=task.id,
-                reason=decision.reason,
-                **fleet_ctx,
-            )
-            return
-        if outcome == TaskOutcome.RATE_LIMIT:
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            now = datetime.now(tz=UTC)
-            sleep_until = now + timedelta(seconds=wait_sec)
-            if self._paused_until is None or sleep_until > self._paused_until:
-                self._paused_until = sleep_until
-            rate_ctx = {k: v for k, v in fleet_ctx.items() if k != "paused_until"}
-            self._log.warning(
-                "task_rate_limit_release",
-                task_id=task.id,
-                resets_at=record.resets_at,
-                paused_until=str(self._paused_until),
-                **rate_ctx,
-            )
-            return
-
-        if outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
-            self._stall_killed.discard(task.id)
-            history = attempts.load_attempts(task_dir)
-            rounds = retry_policy._trailing_streak(history, "stall") + 1
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            self._log.warning("task_stall_handled", task_id=task.id, count=rounds)
-            return
-
-        if outcome == TaskOutcome.FAILURE:
-            history = attempts.load_attempts(task_dir)
-            rounds = retry_policy._trailing_streak(history, "failure") + 1
-            note = f" Worker summary: {result.summary}" if result and result.summary else ""
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            self._queue.comment(
-                task.id,
-                f"[fleet] failure {rounds} (rc={record.exit_code}). "
-                f"Releasing for retry.{note}",
-            )
-            self._log.warning("task_failure_release", task_id=task.id, failures=rounds)
-            return
-
-        if outcome == TaskOutcome.PARTIAL:
-            history = attempts.load_attempts(task_dir)
-            rounds = retry_policy._trailing_streak(history, "partial") + 1
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            self._queue.comment(
-                task.id,
-                f"[fleet] partial progress #{rounds}/{PARTIAL_MAX_ROUNDS}: {decision.reason}",
-            )
-            self._log.info("task_partial_release", task_id=task.id, count=rounds)
-            return
-
-        if outcome == TaskOutcome.SUCCESS:
-            history = attempts.load_attempts(task_dir)
-            rounds = retry_policy._trailing_streak(history, "noclose") + 1
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            self._queue.comment(
-                task.id,
-                f"[fleet] success #{rounds}/{NOCLOSE_MAX_ROUNDS}: rc=0, "
-                f"worker exited without RESULT.json. "
-                f"At {NOCLOSE_MAX_ROUNDS} the task will be blocked for human review.",
-            )
-            self._log.warning("task_success_noclose", task_id=task.id, count=rounds)
-            return
-
-        if outcome == TaskOutcome.CONTEXT_PRESSURE:
-            history = attempts.load_attempts(task_dir)
-            rounds = retry_policy._trailing_streak(history, "context") + 1
-            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-            self._queue.comment(
-                task.id,
-                f"[fleet] context limit round {rounds}/{CONTEXT_MAX_ROUNDS}; "
-                f"compaction + continue",
-            )
-            self._log.info("task_context_release", task_id=task.id, count=rounds)
-            return
-
-        # Anything else: plain release.
-        self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
-        self._log.info("task_released", task_id=task.id, **fleet_ctx)
-
-    def _snapshot_attempt_artifacts(self, task: Task, task_dir: Path, n: int) -> None:
-        """Copy this attempt's STATE.md/RESULT.json into its attempts/<n>/
-        folder, then remove the task-level RESULT.json, so the attempts
-        timeline has a self-contained per-attempt record and a stale
-        declaration can never leak into the next attempt.
-        """
-        attempt_dir = attempts.attempt_dir(task_dir, n)
-        attempt_dir.mkdir(parents=True, exist_ok=True)
-
-        state_src = task_dir / STATE_MD
-        if state_src.exists():
-            try:
-                (attempt_dir / STATE_MD).write_bytes(state_src.read_bytes())
-            except OSError as exc:
-                self._log.warning(
-                    "attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc)
-                )
-
-        result_src = task_dir / RESULT_JSON
-        if result_src.exists():
-            try:
-                (attempt_dir / RESULT_JSON).write_bytes(result_src.read_bytes())
-            except OSError as exc:
-                self._log.warning(
-                    "attempt_snapshot_failed",
-                    task_id=task.id,
-                    file=RESULT_JSON,
-                    error=str(exc),
-                )
-            try:
-                result_src.unlink(missing_ok=True)
-            except OSError as exc:
-                self._log.warning(
-                    "attempt_result_unlink_failed", task_id=task.id, error=str(exc)
-                )
-
-    def _is_observer_run(self, task: Task, history: list[dict]) -> bool:
-        """True when this attempt ran the observer worker (epic validation).
-
-        Epic beads only ever run the observer family, so bead type decides;
-        otherwise the worker name spawn tagged onto the current attempt's
-        start line decides.
-        """
-        if (task.type or "") == "epic":
-            return True
-        if history and str(history[-1].get("worker") or "").startswith("observer"):
-            return True
-        return False
-
-    def _observer_cap_decision(
-        self,
-        task: Task,
-        task_dir: Path,
-        record: TaskOutcomeRecord,
-        history: list[dict],
-    ) -> Decision | None:
-        """BLOCK an epic past its observer follow-up rounds, else None.
-
-        *history* holds prior attempts (the current one has a start line but
-        no end line yet), so the attempt that just ended partial counts +1.
-        """
-        if record.outcome != TaskOutcome.PARTIAL:
-            return None
-        if not self._is_observer_run(task, history):
-            return None
-        max_rounds = getattr(self.config, "observer_max_rounds", 3)
-        rounds = observer_rounds(history) + 1
-        if rounds >= max_rounds:
-            return Decision(Action.BLOCK, reason="observer exhausted; needs human review")
-        return None
-
-    def _handle_outcome(
-        self, task: Task, outcome: TaskOutcomeRecord, attempt_n: int | None = None
-    ) -> None:
-        task_dir = self._task_dir_for(task)
-        fleet_ctx = fleet_log_context(self.state)
-        bead_status = self._bead_status(task.id)
-
-        result = self._read_declared_result(task_dir)
-
-        decision = self._maybe_handle_isolated_success(
-            task, task_dir, outcome, bead_status, result
-        )
-        record = outcome
-        if decision is None:
-            if record.outcome == TaskOutcome.SUCCESS and bead_status == "blocked":
-                record = TaskOutcomeRecord(
-                    outcome=TaskOutcome.BLOCKED_BY_AGENT,
-                    exit_code=record.exit_code,
-                    reason="agent set task to blocked",
-                )
-            elif record.outcome == TaskOutcome.SUCCESS and result is not None:
-                record = self._fold_declared_result(record, result)
-            history = attempts.load_attempts(task_dir)
-            decision = self._observer_cap_decision(task, task_dir, record, history)
-            if decision is None:
-                decision = retry_policy.decide(record, history, bead_status, self.config)
-            self._apply_decision(
-                task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
-            )
-        else:
-            # Isolated-success path already produced a Decision; apply it so
-            # queue state, comments, and the attempts.jsonl action all agree.
-            self._apply_decision(
-                task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
-            )
-
-        try:
-            attempts.record_end(
-                task_dir,
-                outcome=record.outcome.value,
-                exit_code=record.exit_code,
-                reason=record.reason,
-                action=decision.action.value,
-                n=attempt_n,
-            )
-        except OSError as exc:
-            self._log.warning(
-                "attempt_record_failed", task_id=task.id, error=str(exc)
-            )
-            return
-
-        n = attempt_n or attempts.current_attempt_n(task_dir)
-        if n > 0:
-            self._snapshot_attempt_artifacts(task, task_dir, n)
+                handle_outcome(st, worker, outcome)
+                await emit(st.services, "on_worker_finished", st, worker, outcome)

@@ -3,29 +3,14 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.supervisor import Supervisor
-from tests.conftest import make_running_worker
+from tests.conftest import make_running_worker, make_supervisor
 
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
-
-
-class StubCoder:
-    name = "stub"
-
-    def build_argv(self, task, artifact_dir, plan=None):
-        return ["echo"]
-
-    def env(self, task, artifact_dir):
-        return {}
-
-    def normalize_event(self, raw_line):
-        return None
 
 
 class StubQueue:
@@ -54,18 +39,12 @@ class StubQueue:
         return []
 
 
-def _make_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+def _make_supervisor(
+    tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
+) -> Supervisor:
+    return make_supervisor(  # type: ignore[arg-type]
+        tmp_path, queue=queue, config=config, services=[], checks=[]
     )
-    if config is not None:
-        s.config = config
-    s._done = asyncio.Event()  # pre-init so _shutdown can set it
-    return s
 
 
 class _FakeRun:
@@ -97,7 +76,6 @@ def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path, monkeypatch
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
 
         async def quick_task() -> TaskOutcomeRecord:
             await asyncio.sleep(0.05)
@@ -124,29 +102,29 @@ def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path, monkeypatch
     asyncio.run(_run())
 
 
-def test_shutdown_no_in_flight_sets_done(tmp_path: Path) -> None:
-    """Shutdown with no in-flight tasks completes and sets _done."""
+def test_shutdown_before_run_still_unblocks_run(tmp_path: Path) -> None:
+    """_shutdown() works before run(): the done event is created lazily."""
     queue = StubQueue()
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
-        await s._shutdown()
-        assert s._done.is_set()
+        await s._shutdown()  # never ran run(): must not raise
+        assert s.state.shutting_down
+        rc = await asyncio.wait_for(s.run(), timeout=5.0)
+        assert rc == 0
 
     asyncio.run(_run())
 
 
 def test_shutdown_sets_shutting_down_flag(tmp_path: Path) -> None:
-    """_shutdown sets _shutting_down = True."""
+    """_shutdown sets state.shutting_down = True."""
     queue = StubQueue()
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
-        assert not s._shutting_down
+        assert not s.state.shutting_down
         await s._shutdown()
-        assert s._shutting_down
+        assert s.state.shutting_down
 
     asyncio.run(_run())
 
@@ -163,7 +141,6 @@ def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path, monkeypatch) -
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
 
         async def stubborn_task() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)
@@ -196,7 +173,6 @@ def test_shutdown_force_releases_correct_task_id(tmp_path: Path, monkeypatch) ->
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
 
         async def stubborn() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)
@@ -227,7 +203,6 @@ def test_shutdown_idempotent(tmp_path: Path, monkeypatch) -> None:
 
     async def _run() -> None:
         s = _make_supervisor(tmp_path, queue)
-        s._done = asyncio.Event()
 
         async def stubborn() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)

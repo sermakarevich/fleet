@@ -4,17 +4,16 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.retry_policy import FAILURE_MAX_ROUNDS, NOCLOSE_MAX_ROUNDS
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator import claim as claim_mod
 from fleet.orchestrator.claim import Claim
+from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.spawn import spawn_worker
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts
-from tests.conftest import make_running_worker
+from tests.conftest import make_running_worker, make_supervisor
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -69,16 +68,16 @@ class StubQueue:
 def _make_supervisor(
     tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
 ) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+    return make_supervisor(tmp_path, queue=queue, config=config, services=[], checks=[])
+
+
+def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
+    """Fold one outcome through reap, opening a fresh attempt like spawn does."""
+    n = attempts.record_start(
+        s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
     )
-    if config is not None:
-        s.config = config
-    return s
+    worker = make_running_worker(task.id, None, task=task, attempt_n=n)
+    handle_outcome(s.state, worker, record)
 
 
 def _task(task_id: str = "t-001", status: str = "in_progress") -> Task:
@@ -117,7 +116,7 @@ def _history_outcomes(tmp_path: Path, task_id: str = "t-001") -> list[str]:
 def test_failure_under_limit_calls_release(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
     assert len(queue.released) == 1
     assert "rc=1" in queue.released[0][1]
 
@@ -125,14 +124,14 @@ def test_failure_under_limit_calls_release(tmp_path: Path) -> None:
 def test_failure_under_limit_calls_comment(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.comments) == 1
 
 
 def test_failure_under_limit_no_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 0
 
 
@@ -140,9 +139,9 @@ def test_failure_blocks_on_third_consecutive_round(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(FAILURE_MAX_ROUNDS - 1):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+        _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 0
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 1
 
 
@@ -150,7 +149,7 @@ def test_failure_third_round_no_release(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(FAILURE_MAX_ROUNDS):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+        _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.released) == FAILURE_MAX_ROUNDS - 1
 
 
@@ -158,14 +157,14 @@ def test_failure_exhausted_reason_in_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(FAILURE_MAX_ROUNDS):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash"))
+        _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash"))
     assert "retry limit" in queue.blocked[0][1]
 
 
 def test_failure_history_journaled(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert _history_outcomes(tmp_path) == ["failure"]
 
 
@@ -179,9 +178,9 @@ def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
     before = datetime.now(tz=UTC)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=None))
-    assert s._paused_until is not None
-    assert s._paused_until > before
+    _handle(s, _task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=None))
+    assert s.state.paused_until is not None
+    assert s.state.paused_until > before
 
 
 def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path, monkeypatch) -> None:
@@ -189,16 +188,16 @@ def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path, monke
     queue = StubQueue()
     far_future = int(datetime.now(tz=UTC).timestamp()) + 9999
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=far_future))
-    assert s._paused_until is not None
+    _handle(s, _task(), _outcome(TaskOutcome.RATE_LIMIT, resets_at=far_future))
+    assert s.state.paused_until is not None
     # paused_until should be >= far_future (resets_at wins)
-    assert s._paused_until.timestamp() >= far_future
+    assert s.state.paused_until.timestamp() >= far_future
 
 
 def test_rate_limit_releases_with_delay(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
+    _handle(s, _task(), _outcome(TaskOutcome.RATE_LIMIT))
     assert len(queue.released) == 1
     assert len(queue.blocked) == 0
 
@@ -208,9 +207,9 @@ def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -
     monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 300)
     queue = StubQueue()
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.RATE_LIMIT))
+    _handle(s, _task(), _outcome(TaskOutcome.RATE_LIMIT))
     # Confirm paused_until is in the future
-    assert s._paused_until > datetime.now(tz=UTC)
+    assert s.state.paused_until > datetime.now(tz=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +220,7 @@ def test_rate_limit_claim_loop_skips_while_paused(tmp_path: Path, monkeypatch) -
 def test_context_pressure_calls_release(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    _handle(s, _task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert len(queue.released) == 1
     assert "context_pressure" in queue.released[0][1]
 
@@ -230,7 +229,7 @@ def test_context_pressure_third_round_blocks_with_split_hint(tmp_path: Path) -> 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(3):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+        _handle(s, _task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert len(queue.blocked) == 1
     assert "split it" in queue.blocked[0][1]
 
@@ -243,14 +242,14 @@ def test_context_pressure_third_round_blocks_with_split_hint(tmp_path: Path) -> 
 def test_context_pressure_closed_bead_no_release(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    _handle(s, _task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert len(queue.released) == 0
 
 
 def test_context_pressure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
+    _handle(s, _task(), _outcome(TaskOutcome.CONTEXT_PRESSURE))
     assert len(queue.blocked) == 0
 
 
@@ -262,22 +261,22 @@ def test_context_pressure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
 def test_failure_closed_bead_no_release(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.released) == 0
 
 
 def test_failure_closed_bead_no_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
     assert len(queue.blocked) == 0
 
 
 def test_failure_closed_bead_no_counter_files(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
-    task_dir = s._task_dir_for(_task())
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1))
+    task_dir = s.state.task_dir_for(_task().id)
     assert not (task_dir / ".failures").exists()
     assert not (task_dir / ".noclose").exists()
     assert not (task_dir / ".stalls").exists()
@@ -291,14 +290,14 @@ def test_failure_closed_bead_no_counter_files(tmp_path: Path) -> None:
 def test_killed_closed_bead_no_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    _handle(s, _task(), _outcome(TaskOutcome.KILLED))
     assert len(queue.blocked) == 0
 
 
 def test_killed_closed_bead_no_comment(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.KILLED))
+    _handle(s, _task(), _outcome(TaskOutcome.KILLED))
     assert len(queue.comments) == 0
 
 
@@ -310,7 +309,7 @@ def test_killed_closed_bead_no_comment(tmp_path: Path) -> None:
 def test_success_task_still_in_progress_calls_release(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
     assert "#1/" in queue.released[0][1]
@@ -319,7 +318,7 @@ def test_success_task_still_in_progress_calls_release(tmp_path: Path) -> None:
 def test_success_task_already_closed_no_release(tmp_path: Path) -> None:
     queue = StubQueue(status="closed")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 0
 
 
@@ -332,10 +331,10 @@ def test_noclose_releases_below_limit_then_blocks(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(NOCLOSE_MAX_ROUNDS - 1):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+        _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == NOCLOSE_MAX_ROUNDS - 1
     assert len(queue.blocked) == 0
-    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+    _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
 
@@ -344,7 +343,7 @@ def test_noclose_exhausted_posts_comment(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(NOCLOSE_MAX_ROUNDS):
-        s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
+        _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
     assert len(queue.comments) >= 1
     assert any("exhausted" in c[1] for c in queue.comments)
 
@@ -352,8 +351,8 @@ def test_noclose_exhausted_posts_comment(tmp_path: Path) -> None:
 def test_no_counter_files_created(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.SUCCESS))
-    task_dir = s._task_dir_for(_task())
+    _handle(s, _task(), _outcome(TaskOutcome.SUCCESS))
+    task_dir = s.state.task_dir_for(_task().id)
     assert not (task_dir / ".noclose").exists()
     assert not (task_dir / ".failures").exists()
 
@@ -366,7 +365,7 @@ def test_no_counter_files_created(tmp_path: Path) -> None:
 def test_blocked_by_agent_already_blocked_no_queue_writes(tmp_path: Path) -> None:
     queue = StubQueue(status="blocked")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
+    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
     assert len(queue.released) == 0
     assert len(queue.blocked) == 0
     assert len(queue.comments) == 0
@@ -375,7 +374,7 @@ def test_blocked_by_agent_already_blocked_no_queue_writes(tmp_path: Path) -> Non
 def test_blocked_by_agent_still_open_calls_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="open")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT, reason="need creds"))
+    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT, reason="need creds"))
     assert queue.blocked == [("t-001", "need creds")]
 
 
@@ -385,15 +384,8 @@ def test_blocked_by_agent_still_open_calls_set_blocked(tmp_path: Path) -> None:
 
 
 def _unpinned_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig) -> Supervisor:
-    """Build a supervisor without a pinned coder so _resolve_coder runs the registry lookup."""
-    s = Supervisor(
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
-    )
-    s.config = config
-    return s
+    """Build a supervisor without a pinned coder so spawn runs the registry lookup."""
+    return make_supervisor(tmp_path, queue=queue, config=config, services=[], checks=[])
 
 
 def test_invalid_default_coder_blocks_task(tmp_path: Path) -> None:
@@ -566,16 +558,13 @@ def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
     task = _task("t-stall")
 
     # First stall-kill cycle: round 1 of 2 -> release for retry.
-    s._stall_killed.add(task.id)
-    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="stalled"))
+    _handle(s, task, _outcome(TaskOutcome.KILLED, reason="stalled"))
     assert len(queue.released) == 1
     assert len(queue.blocked) == 0
     assert "#1/2" in queue.released[0][1]
-    assert task.id not in s._stall_killed
 
     # Second stall-kill cycle: round 2 of 2 -> block for a human.
-    s._stall_killed.add(task.id)
-    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="stalled"))
+    _handle(s, task, _outcome(TaskOutcome.KILLED, reason="stalled"))
     assert len(queue.released) == 1
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
@@ -585,9 +574,9 @@ def test_timeout_killed_shares_stall_ladder(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task("t-timeout")
-    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="timeout"))
+    _handle(s, task, _outcome(TaskOutcome.KILLED, reason="timeout"))
     assert len(queue.released) == 1
-    s._handle_outcome(task, _outcome(TaskOutcome.KILLED, reason="timeout"))
+    _handle(s, task, _outcome(TaskOutcome.KILLED, reason="timeout"))
     assert len(queue.blocked) == 1
 
 
@@ -597,7 +586,7 @@ def test_failure_release_writes_attempt_end_line(tmp_path: Path) -> None:
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
+    _handle(s, _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
     assert len(queue.released) == 1
     attempts_path = tmp_path / "tasks" / "t-001" / "attempts.jsonl"
     assert attempts_path.exists()

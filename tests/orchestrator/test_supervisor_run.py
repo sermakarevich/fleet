@@ -59,20 +59,25 @@ def test_run_returns_zero_with_no_services(tmp_path) -> None:  # type: ignore[no
     assert asyncio.run(_run()) == 0
 
 
-def test_default_services_cover_six_legacy_loops(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """default_services() wires the services plus legacy adapters."""
-    sup = make_supervisor(tmp_path, checks=[])
-    names = sorted(svc.name for svc in sup.default_services())
+def test_default_services_cover_all_concerns(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """default_services() wires one service per concern, in non-decreasing order."""
+    from fleet.orchestrator import default_services
+
+    services = default_services()
+    names = sorted(svc.name for svc in services)
     assert names == sorted(
         [
             "config_reload",
-            "startup_sweeps",
+            "lease_reconcile",
             "claim",
             "merge_validation",
             "reap",
-            "legacy_stall_leases_triage",
+            "stall_watch",
             "kill_sentinel",
+            "triage",
             "retention_gc",
             "status_log",
         ]
     )
+    orders = [svc.order for svc in services]
+    assert orders == sorted(orders)

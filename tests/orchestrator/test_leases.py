@@ -18,7 +18,7 @@ from pathlib import Path
 
 from fleet.core.limits import HEARTBEAT_SEC
 from fleet.core.task import Task
-from fleet.orchestrator.leases import lease_is_stale
+from fleet.orchestrator.leases import lease_is_stale, reconcile_leases
 from fleet.state import attempts
 from tests.conftest import make_running_worker
 from tests.helpers.task_dir import make_attempt
@@ -85,7 +85,7 @@ def _write_run_json(attempt_dir: Path, payload: dict) -> None:
 
 def _setup_attempt(tmp_path: Path, s, task: Task, payload: dict) -> Path:
     """Create attempts.jsonl + attempts/1/run.json for *task*; return task dir."""
-    task_dir = s._task_dir_for(task)
+    task_dir = s.state.task_dir_for(task.id)
     attempt_dir = make_attempt(task_dir, 1)
     _write_run_json(attempt_dir, payload)
     return task_dir
@@ -137,7 +137,7 @@ def test_fresh_lease_no_action(tmp_path: Path) -> None:
     task_dir = _setup_attempt(
         tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=300)
     )
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
     assert _end_lines(task_dir) == []
 
@@ -149,7 +149,7 @@ def test_stale_lease_dead_pid_released_once(tmp_path: Path) -> None:
     task_dir = _setup_attempt(
         tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300)
     )
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert len(queue.released) == 1
     assert queue.released[0][0] == "t-lease-dead"
     assert "lease expired" in queue.released[0][1]
@@ -160,7 +160,7 @@ def test_stale_lease_dead_pid_released_once(tmp_path: Path) -> None:
     assert ended[0]["action"] == "release"
     # A second sweep must not release or journal again: the end line marks
     # the attempt closed, so the bead is the claim loop's business now.
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert len(queue.released) == 1
     assert len(_end_lines(task_dir)) == 1
 
@@ -170,14 +170,14 @@ def test_stale_lease_alive_pid_warns_only(tmp_path: Path) -> None:
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
     log = FakeLog()
-    s._log = log  # type: ignore[assignment]
+    s.state.log = log  # type: ignore[assignment]
     _setup_attempt(
         tmp_path,
         s,
         task,
         _lease_payload(os.getpid(), lease_offset_sec=-300),
     )
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
     assert len(log.warnings("lease_stale_pid_alive")) == 1
 
@@ -187,9 +187,9 @@ def test_human_claimed_bead_without_task_dir_untouched(tmp_path: Path) -> None:
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
     log = FakeLog()
-    s._log = log  # type: ignore[assignment]
+    s.state.log = log  # type: ignore[assignment]
     # No task dir at all: claimed by a human via `bd update --claim`.
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
     assert any(
         evt in ("lease_no_attempt_dir", "lease_no_run_json")
@@ -206,7 +206,7 @@ def test_running_set_membership_untouched(tmp_path: Path) -> None:
     )
     s.state.running["t-lease-running"] = make_running_worker("t-lease-running", tmp_path)
     try:
-        s.reconcile_leases()
+        reconcile_leases(s.state)
     finally:
         s.state.running.pop("t-lease-running", None)
     assert queue.released == []
@@ -218,7 +218,7 @@ def test_run_json_without_heartbeat_keys_untouched(tmp_path: Path) -> None:
     queue = LeaseQueue([task])
     s = _make_supervisor(tmp_path, queue)
     _setup_attempt(tmp_path, s, task, {"pid": _dead_pid()})
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert queue.released == []
 
 
@@ -230,7 +230,7 @@ def test_stale_lease_other_host_reclaimed(tmp_path: Path) -> None:
     payload = _lease_payload(os.getpid(), lease_offset_sec=-300)
     payload["host"] = "definitely-not-this-host"
     _setup_attempt(tmp_path, s, task, payload)
-    s.reconcile_leases()
+    reconcile_leases(s.state)
     assert len(queue.released) == 1
     assert queue.released[0][0] == "t-lease-remote"
 
@@ -241,4 +241,4 @@ def test_list_failure_never_raises(tmp_path: Path) -> None:
             raise RuntimeError("bd is down")
 
     s = _make_supervisor(tmp_path, _BoomQueue())
-    s.reconcile_leases()  # must not raise
+    reconcile_leases(s.state)  # must not raise

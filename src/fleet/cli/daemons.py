@@ -25,7 +25,9 @@ from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ollama_tunnel import ensure_tunnel
 from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervisor_spec
-from fleet.orchestrator.supervisor import Supervisor
+from fleet.orchestrator import Supervisor, SupervisorState, default_services
+from fleet.orchestrator.checks import DEFAULT_CHECKS
+from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.state.journal import setup_supervisor_logger
 from fleet.state.paths import fleet_home
 
@@ -177,10 +179,16 @@ def register(app: typer.Typer) -> None:
         else:
             log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
         supervisor = Supervisor(
-            queue=q,
-            runtime_toml_path=runtime_toml,
-            project_root=home,
-            log=log,
+            state=SupervisorState(
+                config=cfg,
+                project_root=home,
+                runtime_toml_path=runtime_toml,
+                queue=q,
+                log=log,
+                rate_gauge=RateGauge(log=log),
+            ),
+            services=default_services(),
+            checks=DEFAULT_CHECKS,
         )
         try:
             rc = asyncio.run(supervisor.run())

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 from fleet.core.task import Task
 from fleet.core.triage_policy import (
@@ -21,7 +20,8 @@ from fleet.core.triage_policy import (
     RETRY_SAME,
 )
 from fleet.integrations.ask_human.store import QuestionStore
-from fleet.orchestrator.triage import TriageMixin, apply_answer, collect_candidates
+from fleet.orchestrator.triage import Triage, apply_answer, collect_candidates, triage_tick
+from tests.conftest import make_supervisor
 
 
 class FakeQueue:
@@ -127,15 +127,10 @@ def test_reblock_new_blocked_at_gets_fresh_question(tmp_path: Path):
 # --- tick: ask + digest -----------------------------------------------------
 
 
-def _mixin(queue: FakeQueue, root: Path, store: QuestionStore) -> TriageMixin:
-    m = TriageMixin()
-    m._queue = queue  # type: ignore[attr-defined]
-    m._project_root = root  # type: ignore[attr-defined]
-    m._triage_store = store  # type: ignore[attr-defined]
-    m._log = SimpleNamespace(
-        info=lambda *a, **k: None, warning=lambda *a, **k: None
-    )  # type: ignore[attr-defined]
-    return m
+def _tick(queue: FakeQueue, root: Path, store: QuestionStore) -> dict:
+    """Run one triage pass against the fake queue; return its summary."""
+    sup = make_supervisor(root, queue=queue, services=[], checks=[])  # type: ignore[arg-type]
+    return triage_tick(sup.state, store)
 
 
 def test_tick_asks_per_task_and_digest(tmp_path: Path):
@@ -145,7 +140,7 @@ def test_tick_asks_per_task_and_digest(tmp_path: Path):
     for i in ids:
         _task(tmp_path, i, blocked_reason="r", blocked_at="ts")
     s = _store(tmp_path)
-    summary = _mixin(q, tmp_path, s).triage_tick()
+    summary = _tick(q, tmp_path, s)
     assert summary["candidates"] == 7
     assert summary["asked"] == 6  # 5 per-task + 1 digest
     per_task = [row for row in s.list_pending(100) if row["task_id"] is not None]
@@ -157,7 +152,7 @@ def test_tick_asks_per_task_and_digest(tmp_path: Path):
 
 def test_tick_no_candidates_asks_nothing(tmp_path: Path):
     s = _store(tmp_path)
-    summary = _mixin(FakeQueue(), tmp_path, s).triage_tick()
+    summary = _tick(FakeQueue(), tmp_path, s)
     assert summary == {"applied": 0, "asked": 0, "candidates": 0}
 
 
@@ -296,6 +291,28 @@ def test_tick_applies_answered_end_to_end(tmp_path: Path):
     s = _store(tmp_path)
     qid = s.ask("fix?", [RETRY_SAME, CLOSE], task_id="t", context="ts")
     s.answer(qid, RETRY_SAME, answered_by="op")
-    summary = _mixin(q, tmp_path, s).triage_tick()
+    summary = _tick(q, tmp_path, s)
     assert summary["applied"] == 1
     assert any(c[0] == "release" for c in q.calls)
+
+
+def test_triage_interval_zero_never_ticks(tmp_path: Path):
+    """With triage_interval_minutes=0 the service tick returns before asking."""
+    import asyncio
+
+    from fleet.core.config import RuntimeConfig
+
+    q = FakeQueue()
+    q.blocked = [_bead("t")]
+    _task(tmp_path, "t", blocked_reason="r", blocked_at="ts")
+    store = _store(tmp_path)
+    sup = make_supervisor(
+        tmp_path,
+        queue=q,  # type: ignore[arg-type]
+        config=RuntimeConfig(triage_interval_minutes=0),
+        services=[],
+        checks=[],
+    )
+    asyncio.run(Triage(store=store).tick(sup.state))
+    assert store.list_pending(100) == []
+    assert q.calls == []

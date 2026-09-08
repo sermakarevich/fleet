@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from unittest import mock
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
+from tests.conftest import make_running_worker, make_supervisor
 
 # ------ Test doubles (Mirror test_supervisor_failures.py) ------
 
@@ -62,16 +62,18 @@ class StubQueue:
 def _make_supervisor(
     tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
 ) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+    return make_supervisor(tmp_path, queue=queue, config=config, services=[], checks=[])
+
+
+def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
+    """Fold one outcome through reap, opening a fresh attempt like spawn does."""
+    from fleet.state import attempts as attempts_mod
+
+    n = attempts_mod.record_start(
+        s.state.task_dir_for(task.id), coder="c", model="m", worker="task.fresh"
     )
-    if config is not None:
-        s.config = config
-    return s
+    worker = make_running_worker(task.id, None, task=task, attempt_n=n)
+    handle_outcome(s.state, worker, record)
 
 
 def _task(task_id: str = "t-001", status: str = "in_progress") -> Task:
@@ -130,7 +132,7 @@ def test_isolated_clean_commit_sets_needs_validation(tmp_path: Path) -> None:
     _isolate(tmp_path, task)
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=True):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert (task_dir / ".needs_validation").exists()
@@ -148,7 +150,7 @@ def test_isolated_clean_commit_no_noclose_increment(tmp_path: Path) -> None:
     _isolate(tmp_path, task)
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=True):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".noclose").exists()
@@ -164,7 +166,7 @@ def test_isolated_clean_but_no_result_falls_through(tmp_path: Path) -> None:
     (tmp_path / "tasks" / task.id / "RESULT.json").unlink()
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=True):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".needs_validation").exists()
@@ -185,7 +187,7 @@ def test_isolated_dirty_no_needs_validation(tmp_path: Path) -> None:
     _isolate(tmp_path, task)
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".needs_validation").exists()
@@ -202,7 +204,7 @@ def test_isolated_dirty_journals_history(tmp_path: Path) -> None:
     _isolate(tmp_path, task)
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".noclose").exists()
@@ -222,9 +224,12 @@ def test_isolated_dirty_exhausts_noclose_limit(tmp_path: Path) -> None:
     _isolate(tmp_path, task)
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        # Each attempt re-declares RESULT.json; reap snapshots and unlinks it.
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
+        _isolate(tmp_path, task)
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
+        _isolate(tmp_path, task)
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     assert len(queue.blocked) >= 1
     assert "isolated task exited without a clean commit" in queue.blocked[-1][1]
@@ -242,7 +247,7 @@ def test_non_isolated_success_still_releases(tmp_path: Path) -> None:
     task = _task()
     # No task.json isolation info => non-isolated path
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
@@ -257,16 +262,16 @@ def test_non_isolated_behavior_unchanged(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path, queue)
     task = _task()
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
     assert "#1/3" in queue.released[0][1]
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 2
     assert len(queue.blocked) == 0
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 2
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
@@ -282,13 +287,13 @@ def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
     s = _make_supervisor(tmp_path, queue)
     task = _task()
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
     assert "#1/3" in queue.released[0][1]
 
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
+    _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     assert len(queue.released) == 2
     assert len(queue.blocked) == 1
@@ -318,7 +323,7 @@ def test_isolated_clean_without_commits_closes_without_requiring_commit(
         mock.patch("fleet.orchestrator.worktree.has_uncommitted_changes", return_value=False),
         mock.patch("fleet.orchestrator.worktree.cleanup_worktree") as cleanup,
     ):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
     assert queue.closed and queue.closed[0][0] == task.id
@@ -339,7 +344,7 @@ def test_isolated_uncommitted_changes_still_ask_for_a_commit(tmp_path: Path) -> 
         mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False),
         mock.patch("fleet.orchestrator.worktree.has_uncommitted_changes", return_value=True),
     ):
-        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+        _handle(s, task, _outcome(TaskOutcome.SUCCESS))
 
     assert queue.closed == []
     assert len(queue.released) == 1

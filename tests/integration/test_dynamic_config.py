@@ -22,7 +22,7 @@ def _task(tid: str) -> Task:
 async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
     """Wait until supervisor has `count` in-flight tasks."""
     deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.in_flight) < count:
+    while len(sup.state.running) < count:
         await asyncio.sleep(0.1)
         if asyncio.get_event_loop().time() > deadline:
             raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
@@ -44,8 +44,8 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
             # Wait for all 4 tasks to be claimed (4 poll cycles at 1s each)
             await _wait_in_flight(sup, 4, timeout=8.0)
 
-            assert len(sup.in_flight) == 4, "expected 4 in-flight tasks before config change"
-            in_flight_before = set(sup.in_flight.keys())
+            assert len(sup.state.running) == 4, "expected 4 in-flight tasks before config change"
+            in_flight_before = set(sup.state.running.keys())
 
             # Write new max_concurrent=2 to the runtime.toml
             runtime_toml = tmp_path / ".fleet" / "runtime.toml"
@@ -59,7 +59,7 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
             )
 
             # FR-26: in-flight tasks must NOT be killed by config change
-            still_in_flight = set(sup.in_flight.keys())
+            still_in_flight = set(sup.state.running.keys())
             assert still_in_flight == in_flight_before, (
                 "no in-flight tasks should be killed on config change"
             )
@@ -114,17 +114,17 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
             assert sup.config.max_concurrent == 2
 
             # Still 4 in-flight (no kills) — slow tasks (10s) haven't completed yet
-            assert len(sup.in_flight) == 4
+            assert len(sup.state.running) == 4
 
             # Poll until ≥2 slow tasks complete and in_flight drops to the new cap.
             # Slow tasks were claimed ~1s apart and each sleeps 10s, so the second
             # completion lands ~11s after the first claim; 15s gives ample margin.
             deadline = asyncio.get_event_loop().time() + 15.0
-            while len(sup.in_flight) > 2:
+            while len(sup.state.running) > 2:
                 await asyncio.sleep(0.2)
                 if asyncio.get_event_loop().time() > deadline:
                     raise TimeoutError(
-                        f"timed out waiting for in_flight <= 2; got {len(sup.in_flight)}"
+                        f"timed out waiting for in_flight <= 2; got {len(sup.state.running)}"
                     )
 
             # Stable window: allow any (unwanted) new claims to surface.
@@ -132,8 +132,8 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
             await asyncio.sleep(2.0)
 
             # Cap enforced: no new spawns while in_flight >= cap.
-            assert len(sup.in_flight) <= 2, (
-                f"in_flight should remain <=2 after cap enforced; got {len(sup.in_flight)}"
+            assert len(sup.state.running) <= 2, (
+                f"in_flight should remain <=2 after cap enforced; got {len(sup.state.running)}"
             )
 
         finally:

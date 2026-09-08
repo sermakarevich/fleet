@@ -1,10 +1,10 @@
 """Supervisor triage loop over blocked beads.
 
-Blocked tasks pile up silently; this scheduled loop (part of the status
-loop, every ``cfg.triage_interval_minutes``; 0 disables) posts one
-non-blocking ask_human question per blocked bead with a rule-based fix
-proposal (see core/triage_policy.py) and applies the operator's answer on
-the next tick.
+Blocked tasks pile up silently; this scheduled service (every
+``cfg.triage_interval_minutes``; 0 disables) posts one non-blocking
+ask_human question per blocked bead with a rule-based fix proposal (see
+core/triage_policy.py) and applies the operator's answer on the next
+tick.
 
 Applied answers change bead state (release/close/ignore), so an
 already-applied question no longer matches its bead's live blocked state
@@ -13,13 +13,15 @@ and is skipped naturally — no consumed-markers needed.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fleet.core import triage_policy
+from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.triage_policy import (
@@ -32,12 +34,16 @@ from fleet.core.triage_policy import (
     RETRY_OPUS,
     RETRY_SAME,
 )
+from fleet.orchestrator.service import Service, ServiceOrder
 from fleet.state import attempts as attempts_mod
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.legacy import legacy_result
 from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as _task_dir
+
+if TYPE_CHECKING:
+    from .state import SupervisorState
 
 # How many of the newest attempts count for "rate-limit history".
 _RATE_LIMIT_WINDOW = 5
@@ -219,81 +225,93 @@ def _apply_digest(queue: Any, question: dict, answer: str | None) -> str:
     return "ignored-all"
 
 
-class TriageMixin:
-    """Scheduled triage tick; mixed into Supervisor (orchestrator/supervisor.py)."""
+def triage_tick(st: SupervisorState, store: Any) -> dict:
+    """Run one triage pass: apply answered questions, then ask new ones."""
+    applied = 0
+    for question in store.fetch_answered_triage():
+        try:
+            outcome = apply_answer(st.queue, st.project_root, question)
+        except Exception as exc:  # noqa: BLE001 - one bad apply skips, rest continue
+            st.log.warning(
+                "triage_apply_failed",
+                question_id=question.get("id"),
+                error=str(exc),
+            )
+            continue
+        if outcome != "skipped":
+            applied += 1
 
-    _triage_store: Any = None
-    _last_triage_tick: float | None = None
+    candidates = collect_candidates(st.queue, st.project_root, store)
+    asked = 0
+    if len(candidates) > MAX_PER_TASK_QUESTIONS:
+        per_task = candidates[:MAX_PER_TASK_QUESTIONS]
+        rest = candidates[MAX_PER_TASK_QUESTIONS:]
+        store.ask(
+            triage_policy.digest_text(rest),
+            list(triage_policy.DIGEST_OPTIONS),
+            context="digest:" + ",".join(c["id"] for c in rest),
+        )
+        asked += 1
+    else:
+        per_task = candidates
+    for cand in per_task:
+        proposal = triage_policy.propose(
+            {"id": cand["id"], "title": cand["title"]},
+            cand["attempts"],
+            cand["result"],
+            cand["blocked_reason"],
+        )
+        store.ask(
+            proposal.text,
+            proposal.options,
+            task_id=cand["id"],
+            context=cand["blocked_at"],
+        )
+        asked += 1
+    return {"applied": applied, "asked": asked, "candidates": len(candidates)}
 
-    def _triage_question_store(self) -> Any:
+
+class Triage(Service):
+    """Ask the operator about blocked beads on a configurable cadence."""
+
+    order = ServiceOrder.Triage
+    name = "triage"
+
+    def __init__(self, store: Any = None) -> None:
+        self._store = store
+        self._last_tick: float | None = None
+
+    def _question_store(self) -> Any:
+        """Return the ask_human question store, creating the default one lazily."""
         from fleet.integrations.ask_human.store import QuestionStore
 
-        if self._triage_store is None:
-            self._triage_store = QuestionStore()
-        return self._triage_store
+        if self._store is None:
+            self._store = QuestionStore()
+        return self._store
 
-    def triage_tick_if_due(self) -> None:
+    async def tick(self, st: SupervisorState) -> None:
         """Run triage_tick() when the configured interval elapsed (0 disables)."""
-        interval_min = getattr(self.config, "triage_interval_minutes", 15)
+        interval_min = st.config.triage_interval_minutes
         if not interval_min or interval_min <= 0:
             return
-        # Queues without list_blocked (old test doubles) don't support triage.
-        if not hasattr(self._queue, "list_blocked"):
-            return
         now = time.monotonic()
-        last = self._last_triage_tick
-        if last is not None and now - last < interval_min * 60:
+        if self._last_tick is not None and now - self._last_tick < interval_min * 60:
             return
-        self._last_triage_tick = now
+        self._last_tick = now
         try:
-            summary = self.triage_tick()
+            summary = triage_tick(st, self._question_store())
         except Exception as exc:  # noqa: BLE001 - triage must not kill the loop
-            self._log.warning("triage_tick_failed", error=str(exc))
+            st.log.warning("triage_tick_failed", error=str(exc))
         else:
-            self._log.info("triage_tick", **summary)
+            st.log.info("triage_tick", **summary)
 
-    def triage_tick(self) -> dict:
-        """One triage pass: apply answered questions, then ask new ones."""
-        store = self._triage_question_store()
-        applied = 0
-        for question in store.fetch_answered_triage():
+    async def serve(self, st: SupervisorState) -> None:
+        """Check the triage cadence every STATUS_LOG_INTERVAL_SEC until shutdown."""
+        while not st.shutting_down:
+            await asyncio.sleep(STATUS_LOG_INTERVAL_SEC)
+            if st.shutting_down:
+                break
             try:
-                outcome = apply_answer(self._queue, self._project_root, question)
-            except Exception as exc:  # noqa: BLE001 - one bad apply skips, rest continue
-                self._log.warning(
-                    "triage_apply_failed",
-                    question_id=question.get("id"),
-                    error=str(exc),
-                )
-                continue
-            if outcome != "skipped":
-                applied += 1
-
-        candidates = collect_candidates(self._queue, self._project_root, store)
-        asked = 0
-        if len(candidates) > MAX_PER_TASK_QUESTIONS:
-            per_task = candidates[:MAX_PER_TASK_QUESTIONS]
-            rest = candidates[MAX_PER_TASK_QUESTIONS:]
-            store.ask(
-                triage_policy.digest_text(rest),
-                list(triage_policy.DIGEST_OPTIONS),
-                context="digest:" + ",".join(c["id"] for c in rest),
-            )
-            asked += 1
-        else:
-            per_task = candidates
-        for cand in per_task:
-            proposal = triage_policy.propose(
-                {"id": cand["id"], "title": cand["title"]},
-                cand["attempts"],
-                cand["result"],
-                cand["blocked_reason"],
-            )
-            store.ask(
-                proposal.text,
-                proposal.options,
-                task_id=cand["id"],
-                context=cand["blocked_at"],
-            )
-            asked += 1
-        return {"applied": applied, "asked": asked, "candidates": len(candidates)}
+                await self.tick(st)
+            except Exception as exc:  # noqa: BLE001 - triage must not kill the loop
+                st.log.warning("triage_tick_failed", error=str(exc))

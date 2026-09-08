@@ -8,14 +8,14 @@ coder subprocess lives, `workers/llm_session.py` rewrites
 `lease_until = now + 3 * HEARTBEAT_SEC`, plus the `pid`, `host`, and
 `supervisor_pid` that own it.
 
-`LeasesMixin.reconcile_leases` runs at supervisor startup and every
-`LEASE_RECONCILE_INTERVAL_SEC` from the status loop. It reclaims a bead
-only when ALL hold: the lease is past by more than one full heartbeat,
-the task is not in this supervisor's in-memory running set, and the
-recorded pid is dead (or the host differs from this one). A stale lease
-with a live pid only logs `lease_stale_pid_alive` — fleet never kills
-what it cannot prove is its own. Beads with no attempt dir / no run.json
-(human-claimed via `bd update --claim`) are never touched.
+`reconcile_leases` runs at supervisor startup (via `LeaseReconcile`) and
+on its own cadence. It reclaims a bead only when ALL hold: the lease is
+past by more than one full heartbeat, the task is not in this
+supervisor's in-memory running set, and the recorded pid is dead (or the
+host differs from this one). A stale lease with a live pid only logs
+`lease_stale_pid_alive` — fleet never kills what it cannot prove is its
+own. Beads with no attempt dir / no run.json (human-claimed via
+`bd update --claim`) are never touched.
 
 Reclaim journals `record_end(outcome="killed", reason="lease expired")`
 and releases through the normal queue path; the claim loop picks the
@@ -28,13 +28,20 @@ import json
 import os
 import socket
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from fleet.core.limits import HEARTBEAT_SEC
+from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.validation_marker import needs_validation
 
 from . import worktree
+from .service import PeriodicService, ServiceOrder
+
+if TYPE_CHECKING:
+    from fleet.core.task import Task
+
+    from .state import SupervisorState
 
 LEASE_EXPIRED_REASON = "lease expired"
 
@@ -132,172 +139,183 @@ def _task_names(tasks_root) -> list[str]:
     return []
 
 
-class LeasesMixin:
-    def _sweep_orphan_worktrees(self) -> None:
-        """Remove worktrees with no corresponding active task (startup sweep)."""
-        from pathlib import Path as _Path
+def sweep_orphan_worktrees(st: SupervisorState) -> None:
+    """Remove worktrees with no corresponding active task (startup sweep)."""
+    from pathlib import Path as _Path
 
-        from fleet.state.paths import tasks_root as _tasks_root
+    from fleet.state.paths import tasks_root as _tasks_root
 
-        worktrees_dir = worktree.worktrees_root(self._project_root)
-        if not worktrees_dir.is_dir():
-            return
-        tasks_root = _tasks_root(self._project_root)
-        names = _task_names(tasks_root)
+    worktrees_dir = worktree.worktrees_root(st.project_root)
+    if not worktrees_dir.is_dir():
+        return
+    tasks_root = _tasks_root(st.project_root)
+    names = _task_names(tasks_root)
 
-        # Worktree dirs still in use: every task.json worktree_path. Tasks
-        # awaiting validation keep their dirs via the same rule (their
-        # task.json still points at the worktree until the merge lands).
-        live: set[str] = set()
-        for task_dir in [tasks_root / n for n in names]:
-            try:
-                import json as _json
-
-                meta = _json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                meta = {}
-            wt = meta.get("worktree_path") if isinstance(meta, dict) else None
-            if wt:
-                try:
-                    live.add(str(_Path(wt).resolve()))
-                except OSError:
-                    pass
-
-        for worktree_dir in worktrees_dir.iterdir():
-            if not worktree_dir.is_dir():
-                continue
-            try:
-                resolved = str(worktree_dir.resolve())
-            except OSError:
-                continue
-            if resolved in live:
-                continue
-            # Name-based keep: legacy dirs named exactly <task_id>, and new
-            # <repo>-<task_id> dirs, survive while validating or in flight.
-            # The repo prefix is unknown here, so a "<repo>-<task>" dir
-            # matches task "<task>" by suffix.
-            task_id = worktree_dir.name
-            matched = [
-                n for n in names if task_id == n or task_id.endswith(f"-{n}")
-            ]
-            keep = any(
-                task_id == tid or task_id.endswith(f"-{tid}")
-                for tid in self.state.running
-            )
-            if not keep:
-                for cand in [task_id, *matched]:
-                    try:
-                        if needs_validation(_task_dir(self._project_root, cand)):
-                            keep = True
-                            break
-                    except OSError:
-                        continue
-            if keep:
-                continue
-            self._log.info("worktree.sweep.removed", task_id=task_id)
-            _remove_orphan_dir(worktree_dir)
-
-    def _log_lease_once(self, event: str, task_id: str, **fields) -> None:
-        """Log a recurring lease notice only the first time per task."""
-        logged = getattr(self, "_lease_logged", None)
-        if logged is None:
-            self._lease_logged = logged = set()
-        key = f"{event}:{task_id}"
-        if key in logged:
-            return
-        logged.add(key)
-        self._log.info(event, task_id=task_id, **fields)
-
-    def reconcile_leases(self) -> None:
-        """Release `in_progress` beads whose lease expired on a dead attempt.
-
-        Called once at supervisor startup and periodically from the status
-        loop. Never raises: per-task handling is guarded so one corrupt
-        task directory cannot stall reconciliation of the rest.
-        """
+    # Worktree dirs still in use: every task.json worktree_path. Tasks
+    # awaiting validation keep their dirs via the same rule (their
+    # task.json still points at the worktree until the merge lands).
+    live: set[str] = set()
+    for task_dir in [tasks_root / n for n in names]:
         try:
-            in_progress = self._queue.list_in_progress(limit=500)
-        except Exception as exc:
-            self._log.warning("reconcile_list_failed", error=str(exc))
-            return
-        for task in in_progress:
-            if task.id in self.state.running:
-                continue
-            try:
-                self._reconcile_one_lease(task)
-            except Exception as exc:  # noqa: BLE001 - one bad task must not stop the sweep
-                self._log.warning(
-                    "lease_reconcile_failed", task_id=task.id, error=str(exc)
-                )
+            import json as _json
 
-    def _reconcile_one_lease(self, task) -> None:
-        """Reclaim *task* iff its lease is stale on a provably dead attempt."""
-        task_dir = self._task_dir_for(task)
-        attempt_dir = latest_attempt_dir(task_dir)
-        if attempt_dir is None:
-            # Claimed by a human (`bd update --claim`) or never spawned:
-            # there is no attempt to own, so there is nothing to reclaim.
-            self._log_lease_once("lease_no_attempt_dir", task.id)
-            return
-        run_file = attempt_dir / "run.json"
-        try:
-            data = json.loads(run_file.read_text(encoding="utf-8"))
+            meta = _json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            self._log_lease_once("lease_no_run_json", task.id)
-            return
-        if not isinstance(data, dict):
-            self._log_lease_once("lease_no_run_json", task.id)
-            return
-        lease_until = _parse_ts(data.get("lease_until"))
-        if lease_until is None:
-            # No heartbeat was ever written (old attempt format): without
-            # lease keys we cannot prove anything, so never touch it.
-            self._log_lease_once("lease_no_heartbeat", task.id)
-            return
-        if not lease_is_stale(lease_until):
-            return
-        pid = data.get("pid")
-        if not isinstance(pid, int) or isinstance(pid, bool):
-            self._log.warning("lease_no_pid", task_id=task.id)
-            return
-        host = data.get("host")
-        if isinstance(host, str) and host and host != _host_name():
-            pid_dead = True
-        else:
-            pid_dead = not _pid_alive(pid)
-        if not pid_dead:
-            # Stale lease but the process is alive: it may be a slow host
-            # or a pid another supervisor owns. Never kill; just warn.
-            self._log.warning(
-                "lease_stale_pid_alive",
-                task_id=task.id,
-                pid=pid,
-                lease_until=lease_until.isoformat(),
-            )
-            return
-        history = load_attempts(task_dir)
-        if history and history[-1].get("ended_at") is not None:
-            # The attempt already journaled its end (reap ran and the queue
-            # path owns the bead now): reclaiming again would corrupt the
-            # recorded outcome and double-release.
-            return
+            meta = {}
+        wt = meta.get("worktree_path") if isinstance(meta, dict) else None
+        if wt:
+            try:
+                live.add(str(_Path(wt).resolve()))
+            except OSError:
+                pass
+
+    for worktree_dir in worktrees_dir.iterdir():
+        if not worktree_dir.is_dir():
+            continue
         try:
-            record_end(
-                task_dir,
-                outcome="killed",
-                exit_code=None,
-                reason=LEASE_EXPIRED_REASON,
-                action="release",
-            )
-        except OSError as exc:
-            self._log.warning("lease_record_failed", task_id=task.id, error=str(exc))
-            return
+            resolved = str(worktree_dir.resolve())
+        except OSError:
+            continue
+        if resolved in live:
+            continue
+        # Name-based keep: legacy dirs named exactly <task_id>, and new
+        # <repo>-<task_id> dirs, survive while validating or in flight.
+        # The repo prefix is unknown here, so a "<repo>-<task>" dir
+        # matches task "<task>" by suffix.
+        task_id = worktree_dir.name
+        matched = [n for n in names if task_id == n or task_id.endswith(f"-{n}")]
+        keep = any(task_id == tid or task_id.endswith(f"-{tid}") for tid in st.running)
+        if not keep:
+            for cand in [task_id, *matched]:
+                try:
+                    if needs_validation(_task_dir(st.project_root, cand)):
+                        keep = True
+                        break
+                except OSError:
+                    continue
+        if keep:
+            continue
+        st.log.info("worktree.sweep.removed", task_id=task_id)
+        _remove_orphan_dir(worktree_dir)
+
+
+def _log_lease_once(
+    seen: set[str], st: SupervisorState, event: str, task_id: str, **fields
+) -> None:
+    """Log a recurring lease notice only the first time per task."""
+    key = f"{event}:{task_id}"
+    if key in seen:
+        return
+    seen.add(key)
+    st.log.info(event, task_id=task_id, **fields)
+
+
+def reconcile_leases(st: SupervisorState, seen: set[str] | None = None) -> None:
+    """Release `in_progress` beads whose lease expired on a dead attempt.
+
+    Called once at supervisor startup and periodically by LeaseReconcile.
+    Never raises: per-task handling is guarded so one corrupt task
+    directory cannot stall reconciliation of the rest.
+    """
+    dedupe = seen if seen is not None else set()
+    try:
+        in_progress = st.queue.list_in_progress(limit=500)
+    except Exception as exc:
+        st.log.warning("reconcile_list_failed", error=str(exc))
+        return
+    for task in in_progress:
+        if task.id in st.running:
+            continue
         try:
-            self._queue.release(task.id, reason="lease expired; re-queued")
-            self._log.warning(
-                "lease_expired_released", task_id=task.id, pid=pid
-            )
-        except Exception as exc:
-            self._log.warning(
-                "lease_release_failed", task_id=task.id, error=str(exc)
-            )
+            _reconcile_one_lease(st, task, dedupe)
+        except Exception as exc:  # noqa: BLE001 - one bad task must not stop the sweep
+            st.log.warning("lease_reconcile_failed", task_id=task.id, error=str(exc))
+
+
+def _reconcile_one_lease(st: SupervisorState, task: Task, seen: set[str]) -> None:
+    """Reclaim *task* iff its lease is stale on a provably dead attempt."""
+    task_dir = st.task_dir_for(task.id)
+    attempt_dir = latest_attempt_dir(task_dir)
+    if attempt_dir is None:
+        # Claimed by a human (`bd update --claim`) or never spawned:
+        # there is no attempt to own, so there is nothing to reclaim.
+        _log_lease_once(seen, st, "lease_no_attempt_dir", task.id)
+        return
+    run_file = attempt_dir / "run.json"
+    try:
+        data = json.loads(run_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        _log_lease_once(seen, st, "lease_no_run_json", task.id)
+        return
+    if not isinstance(data, dict):
+        _log_lease_once(seen, st, "lease_no_run_json", task.id)
+        return
+    lease_until = _parse_ts(data.get("lease_until"))
+    if lease_until is None:
+        # No heartbeat was ever written (old attempt format): without
+        # lease keys we cannot prove anything, so never touch it.
+        _log_lease_once(seen, st, "lease_no_heartbeat", task.id)
+        return
+    if not lease_is_stale(lease_until):
+        return
+    pid = data.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        st.log.warning("lease_no_pid", task_id=task.id)
+        return
+    host = data.get("host")
+    if isinstance(host, str) and host and host != _host_name():
+        pid_dead = True
+    else:
+        pid_dead = not _pid_alive(pid)
+    if not pid_dead:
+        # Stale lease but the process is alive: it may be a slow host
+        # or a pid another supervisor owns. Never kill; just warn.
+        st.log.warning(
+            "lease_stale_pid_alive",
+            task_id=task.id,
+            pid=pid,
+            lease_until=lease_until.isoformat(),
+        )
+        return
+    history = load_attempts(task_dir)
+    if history and history[-1].get("ended_at") is not None:
+        # The attempt already journaled its end (reap ran and the queue
+        # path owns the bead now): reclaiming again would corrupt the
+        # recorded outcome and double-release.
+        return
+    try:
+        record_end(
+            task_dir,
+            outcome="killed",
+            exit_code=None,
+            reason=LEASE_EXPIRED_REASON,
+            action="release",
+        )
+    except OSError as exc:
+        st.log.warning("lease_record_failed", task_id=task.id, error=str(exc))
+        return
+    try:
+        st.queue.release(task.id, reason="lease expired; re-queued")
+        st.log.warning("lease_expired_released", task_id=task.id, pid=pid)
+    except Exception as exc:
+        st.log.warning("lease_release_failed", task_id=task.id, error=str(exc))
+
+
+class LeaseReconcile(PeriodicService):
+    """Reclaim dead leases on start and then on the lease cadence."""
+
+    order = ServiceOrder.Leases
+    name = "lease_reconcile"
+
+    def __init__(self, interval_sec: float | None = None) -> None:
+        super().__init__(interval_sec if interval_sec is not None else LEASE_RECONCILE_INTERVAL_SEC)
+        self._lease_logged: set[str] = set()
+
+    async def on_start(self, st: SupervisorState) -> None:
+        """Sweep orphan worktrees, then reclaim dead leases once."""
+        sweep_orphan_worktrees(st)
+        reconcile_leases(st, self._lease_logged)
+
+    async def tick(self, st: SupervisorState) -> None:
+        """Reclaim dead leases."""
+        reconcile_leases(st, self._lease_logged)

@@ -13,9 +13,10 @@ import structlog
 
 from fleet.beads.queue import Queue
 from fleet.coders.claude import ClaudeCoder
-from fleet.core.config import RuntimeConfig, write_atomic
+from fleet.core.config import RuntimeConfig, load, write_atomic
 from fleet.core.task import Task
-from fleet.orchestrator.supervisor import Supervisor
+from fleet.orchestrator import Supervisor, SupervisorState, default_services
+from fleet.orchestrator.rate_gauge import RateGauge
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -270,13 +271,20 @@ def make_supervisor(
     if config is not None:
         runtime_toml.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(runtime_toml, {k: str(v) for k, v in asdict(config).items()})
-    return Supervisor(
-        coder=coder or FakeClaudeCoder(),
-        queue=queue,
-        runtime_toml_path=runtime_toml,
+        cfg = config
+    else:
+        cfg = load(runtime_toml)
+    log = structlog.get_logger()
+    state = SupervisorState(
+        config=cfg,
         project_root=tmp_path,
-        log=structlog.get_logger(),
+        runtime_toml_path=runtime_toml,
+        queue=queue,
+        log=log,
+        rate_gauge=RateGauge(log=log),
+        coder_pin=coder or FakeClaudeCoder(),
     )
+    return Supervisor(state=state, services=default_services())
 
 
 # ---------------------------------------------------------------------------

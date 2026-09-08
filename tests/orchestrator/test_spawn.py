@@ -6,8 +6,6 @@ import asyncio
 import types
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.orchestrator import spawn as spawn_mod
@@ -17,7 +15,6 @@ from fleet.orchestrator.spawn import (
     should_isolate,
     spawn_worker,
 )
-from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts
 from tests.conftest import make_supervisor
 
@@ -76,12 +73,12 @@ class StubQueue:
 
 
 def _make_state(tmp_path: Path, queue: StubQueue, pinned: bool = True):
-    sup = Supervisor(
+    sup = make_supervisor(
+        tmp_path,
+        queue=queue,  # type: ignore[arg-type]
         coder=StubCoder() if pinned else None,
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+        services=[],
+        checks=[],
     )
     return sup.state
 

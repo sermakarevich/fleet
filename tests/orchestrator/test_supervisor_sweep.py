@@ -1,4 +1,4 @@
-"""Tests for ``Supervisor._sweep_orphan_worktrees``."""
+"""Tests for ``orchestrator.leases::sweep_orphan_worktrees``."""
 
 from __future__ import annotations
 
@@ -6,57 +6,14 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import structlog
-
+from fleet.orchestrator.leases import sweep_orphan_worktrees
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.validation_marker import set_needs_validation
-from tests.conftest import make_running_worker
-
-
-class StubQueue:
-    def claim_next(self, claimer_id):
-        return None
-
-    def release(self, task_id, reason="", wait_sec=0):
-        pass
-
-    def set_blocked(self, task_id, reason):
-        pass
-
-    def close(self, task_id, reason="completed"):
-        pass
-
-    def comment(self, task_id, body):
-        pass
-
-    def get(self, task_id):
-        pass
-
-    def list_ready(self, limit=50):
-        return []
-
-
-class StubCoder:
-    name = "stub"
-
-    def build_argv(self, task, artifact_dir, plan=None):
-        return ["echo"]
-
-    def env(self, task, artifact_dir):
-        return {}
-
-    def normalize_event(self, raw_line):
-        return None
+from tests.conftest import make_running_worker, make_supervisor
 
 
 def _make_supervisor(fleet_home: Path) -> Supervisor:
-    return Supervisor(
-        coder=StubCoder(),
-        queue=StubQueue(),
-        runtime_toml_path=fleet_home / "runtime.toml",
-        project_root=fleet_home,
-        log=structlog.get_logger(),
-    )
+    return make_supervisor(fleet_home, services=[], checks=[])
 
 
 def _fleet_home(tmp_path: Path) -> Path:
@@ -77,7 +34,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_called_once_with(orphan_dir)
 
     def test_skips_when_task_in_flight(self, tmp_path: Path) -> None:
@@ -90,7 +47,7 @@ class TestSweepOrphanWorktrees:
         s.state.running["t-active"] = make_running_worker("t-active", tmp_path)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_not_called()
 
     def test_skips_when_needs_validation_marker(self, tmp_path: Path) -> None:
@@ -105,7 +62,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_not_called()
 
     def test_skips_live_task_json_ref(self, tmp_path: Path) -> None:
@@ -125,7 +82,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_not_called()
 
     def test_skips_non_directories(self, tmp_path: Path) -> None:
@@ -136,7 +93,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_not_called()
 
     def test_noop_when_worktrees_dir_missing(self, tmp_path: Path) -> None:
@@ -146,7 +103,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             mock_remove.assert_not_called()
 
     def test_multiple_orphans_all_removed(self, tmp_path: Path) -> None:
@@ -158,7 +115,7 @@ class TestSweepOrphanWorktrees:
         s = _make_supervisor(fleet_home)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
-            s._sweep_orphan_worktrees()
+            sweep_orphan_worktrees(s.state)
             removed = {call[0][0].name for call in mock_remove.call_args_list}
             assert removed == {"repo-t-a", "repo-t-b", "repo-t-c"}
 

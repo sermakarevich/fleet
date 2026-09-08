@@ -4,13 +4,11 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.claim import can_claim
 from fleet.orchestrator.supervisor import Supervisor
-from tests.conftest import make_running_worker
+from tests.conftest import make_running_worker, make_supervisor
 
 
 def _can_spawn(s: Supervisor) -> bool:
@@ -67,16 +65,9 @@ class TrackingQueue:
 def _make_supervisor(
     tmp_path: Path, queue: TrackingQueue, config: RuntimeConfig | None = None
 ) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
+    return make_supervisor(  # type: ignore[arg-type]
+        tmp_path, queue=queue, config=config, services=[], checks=[]
     )
-    if config is not None:
-        s.config = config
-    return s
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +203,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
         initial_count = len(s.state.running)
 
         # Lower threshold below current gauge level
-        s.rate_gauge.update(
+        s.state.rate_gauge.update(
             Event(
                 kind="rate_limit_info",
                 raw={},

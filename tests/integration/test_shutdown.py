@@ -50,7 +50,7 @@ def _task(tid: str) -> Task:
 
 async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
     deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.in_flight) < count:
+    while len(sup.state.running) < count:
         await asyncio.sleep(0.1)
         if asyncio.get_event_loop().time() > deadline:
             raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
@@ -70,7 +70,7 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
             await _wait_in_flight(sup, 3, timeout=8.0)
-            assert len(sup.in_flight) == 3
+            assert len(sup.state.running) == 3
 
             await sup._shutdown()
             await asyncio.wait_for(sup_task, timeout=8.0)

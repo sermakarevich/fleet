@@ -50,13 +50,16 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
     )
 
     # Stop as soon as the task completes successfully.
-    original_handle = supervisor._handle_outcome
+    from fleet.orchestrator.service import Service, ServiceOrder
 
-    def _wrapped(t, outcome):  # type: ignore[no-untyped-def]
-        original_handle(t, outcome)
-        done.set()
+    class _DoneRecorder(Service):
+        order = ServiceOrder.Logging
+        name = "test_done_recorder"
 
-    supervisor._handle_outcome = _wrapped  # type: ignore[method-assign]
+        async def on_worker_finished(self, st, worker, outcome) -> None:  # type: ignore[no-untyped-def]
+            done.set()
+
+    supervisor.state.services.append(_DoneRecorder())
 
     asyncio.run(run_until(supervisor, done, timeout=20.0))
 

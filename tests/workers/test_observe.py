@@ -12,7 +12,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.job_ready import BeadSummary
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
-from fleet.orchestrator.supervisor import Supervisor
+from fleet.orchestrator.reap import handle_outcome
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers.base import StepContext
@@ -299,16 +299,13 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
         def normalize_event(self, raw_line):
             return None
 
+    from tests.conftest import make_running_worker, make_supervisor
+
     stub = StubQueue()
-    sup = Supervisor(
-        coder=StubCoder(),
-        queue=stub,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
-        log=structlog.get_logger(),
-    )
-    sup._handle_outcome(
-        ctx.task, TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0, reason="")
+    sup = make_supervisor(tmp_path, queue=stub, services=[], checks=[])
+    worker = make_running_worker(ctx.task.id, None, task=ctx.task)
+    handle_outcome(
+        sup.state, worker, TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0, reason="")
     )
     assert stub.blocked == [("epic-1", "needs creds")]
 

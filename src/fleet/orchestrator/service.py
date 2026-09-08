@@ -1,9 +1,9 @@
-"""Ordered services for the supervisor runner: hooks, ticks, adapters, emit."""
+"""Ordered services for the supervisor runner: hooks, ticks, emit."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
@@ -76,24 +76,6 @@ class PeriodicService(Service):
                 await self.tick(st)
             except Exception as exc:  # noqa: BLE001 - a bad tick must not kill the loop
                 st.log.warning(f"{self.name}_tick_failed", error=str(exc))
-
-
-class LegacyLoop(Service):
-    """Adapter for a not-yet-migrated mixin loop coroutine (deleted in bead 4)."""
-
-    def __init__(
-        self,
-        name: str,
-        order: ServiceOrder,
-        loop_factory: Callable[[], Awaitable[None]],
-    ) -> None:
-        self.name = name
-        self.order = order
-        self._loop_factory = loop_factory
-
-    async def serve(self, st: SupervisorState) -> None:
-        """Run the wrapped legacy loop coroutine."""
-        await self._loop_factory()
 
 
 async def emit(services: Sequence[Service], event: str, st: SupervisorState, *args) -> None:

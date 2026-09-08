@@ -1,10 +1,10 @@
-"""Tests for orchestrator/service.py: emit ordering, periodic ticks, legacy loop."""
+"""Tests for orchestrator/service.py: emit ordering and periodic ticks."""
 
 from __future__ import annotations
 
 import asyncio
 
-from fleet.orchestrator.service import LegacyLoop, PeriodicService, Service, ServiceOrder, emit
+from fleet.orchestrator.service import PeriodicService, Service, ServiceOrder, emit
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
 
@@ -114,16 +114,3 @@ def test_periodic_tick_exception_is_logged_not_raised(tmp_path) -> None:  # type
     asyncio.run(_run())
     assert svc.ticks >= 2
     assert any(event == "counter_tick_failed" for event, _ in log.warnings)
-
-
-def test_legacy_loop_runs_factory(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """LegacyLoop.serve awaits the wrapped legacy coroutine."""
-    st = _state(tmp_path)
-    ran: list = []
-
-    async def _legacy() -> None:
-        ran.append(True)
-
-    svc = LegacyLoop("old_loop", ServiceOrder.Reap, _legacy)
-    asyncio.run(svc.serve(st))
-    assert ran == [True]

@@ -6,12 +6,11 @@ import asyncio
 import subprocess
 from pathlib import Path
 
-import structlog
-
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.orchestrator.spawn import spawn_worker
 from fleet.orchestrator.supervisor import Supervisor
+from tests.conftest import make_supervisor
 
 
 class StubCoder:
@@ -70,16 +69,16 @@ class StubQueue:
 def _make_supervisor(
     tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
 ) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path / ".fleet",
-        log=structlog.get_logger(),
-    )
-    s.config = config or RuntimeConfig(coder="claude")
     (tmp_path / ".fleet").mkdir(parents=True, exist_ok=True)
-    return s
+    return make_supervisor(
+        tmp_path,
+        queue=queue,  # type: ignore[arg-type]
+        config=config or RuntimeConfig(coder="claude"),
+        coder=StubCoder(),  # type: ignore[arg-type]
+        project_root=tmp_path / ".fleet",
+        services=[],
+        checks=[],
+    )
 
 
 def _git_init(path: Path) -> None:
@@ -200,15 +199,15 @@ def test_invalid_coder_leaves_no_worktree(tmp_path: Path) -> None:
     repo.mkdir()
     _git_init(repo)
     queue = StubQueue(status="in_progress")
-    s = Supervisor(
-        coder=None,
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path / ".fleet",
-        log=structlog.get_logger(),
-    )
-    s.config = RuntimeConfig(coder="no-such-coder-xyz")
     (tmp_path / ".fleet").mkdir(parents=True, exist_ok=True)
+    s = make_supervisor(
+        tmp_path,
+        queue=queue,  # type: ignore[arg-type]
+        config=RuntimeConfig(coder="no-such-coder-xyz"),
+        project_root=tmp_path / ".fleet",
+        services=[],
+        checks=[],
+    )
     task = Task(
         id="t-wt-5", title="X", description=None, status="in_progress", cwd=str(repo)
     )
