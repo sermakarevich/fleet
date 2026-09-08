@@ -16,6 +16,7 @@ def test_no_overrides_passthrough_unchanged() -> None:
         "worker": None,
         "cwd": "/cwd",
         "isolation": None,
+        "job_gate": None,
     }
 
 
@@ -33,6 +34,7 @@ def test_extracts_coder_model_cwd_into_metadata() -> None:
         "worker": None,
         "cwd": "/custom",
         "isolation": None,
+        "job_gate": None,
     }
     idx = argv.index("--metadata")
     metadata = json.loads(argv[idx + 1])
@@ -87,3 +89,20 @@ def test_unknown_coder_raises_value_error() -> None:
 def test_unknown_isolation_raises_value_error() -> None:
     with pytest.raises(ValueError, match="isolation"):
         rewrite_create_argv(["create", "Title", "--isolation", "docker"], "/cwd")
+
+
+def test_extracts_job_gate_opt_out_into_metadata() -> None:
+    argv, meta = rewrite_create_argv(
+        ["create", "Title", "--job-gate", "off"],
+        "/cwd",
+    )
+    assert "--job-gate" not in argv
+    assert meta["job_gate"] == "off"
+    idx = argv.index("--metadata")
+    metadata = json.loads(argv[idx + 1])
+    assert metadata == {"fleet_job_gate": "off"}
+
+
+def test_unknown_job_gate_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="job-gate"):
+        rewrite_create_argv(["create", "Title", "--job-gate", "maybe"], "/cwd")

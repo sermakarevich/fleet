@@ -378,3 +378,59 @@ Outcome policy (`core/retry_policy.py`, applied in `orchestrator/reap.py`):
 `WaitChildren`/`CollectChildren`/`SpawnFollowups` take no concurrency
 slot; only `LlmSession` does. A waiting observer attempt exits in seconds,
 so it never holds a slot long.
+
+## Job worker
+
+Beads of type `epic` with metadata `fleet_worker=job` (`fleet bd create
+--worker job`) route to the job family (`workers/job.py::plan_job`), which
+reads the task directory into a `core/job_phase.py::JobSnapshot` and picks
+one phase worker per attempt — research, design, gate, spawn, observe —
+so the Attempts timeline shows the job's history. The job worker creates
+beads; it never runs workers.
+
+| Snapshot | Phase | Worker (steps) |
+|---|---|---|
+| no RESEARCH.md | research | `JobPrepare(research), LlmSession(mode="research")` |
+| RESEARCH.md, no tasks.json | design | `JobPrepare(design), LlmSession(mode="design")` |
+| tasks.json, gate on, no approval | gate | `AskApproval` |
+| tasks.json, approved (or gate off), no children | spawn | `SpawnChildren` |
+| children exist | observe | `WaitChildren, CollectChildren, LlmSession(mode="validate"), SpawnFollowups` |
+
+- **Research** explores the repo and writes `artifacts/RESEARCH.md`
+  (≤ 12 KB, never changes code), then RESULT `partial`/`next_step=design`.
+  **Design** writes `artifacts/DESIGN.md` plus `artifacts/tasks.json`,
+  then RESULT `partial`/`next_step=gate`. Both run on the epic's model
+  (opus recommended) with `coders/base.py::render_prompt` modes
+  `research`/`design` (`templates/INSTRUCTION_RESEARCH.md`,
+  `templates/INSTRUCTION_DESIGN.md`).
+- **tasks.json contract** (`core/job_plan.py::validate_tasks`):
+  `{"tasks": [{key, title, body, cwd, coder, model, priority,
+  depends_on}]}` — keys unique, `depends_on` names sibling keys, acyclic,
+  at most `job_max_children` (default 30), title ≤ 120 chars, body
+  non-empty. Invalid → `SpawnChildren` (or the gate, as a guard) writes
+  `artifacts/DESIGN_ERRORS.md` and RESULT `partial`/`next_step=design`,
+  so the next attempt re-runs design with the errors in the pack (plus any
+  `artifacts/DESIGN_NOTES.md` revision notes).
+- **Gate** (`AskApproval`, non-blocking ask_human like triage): posts one
+  question "Job \<id\>: approve k tasks?" (options `approve`,
+  `revise (write note)`, `cancel job`, `context="job_gate"`) and returns
+  `WAITING`. Next claim: `approve` writes `artifacts/APPROVED` and RESULT
+  `partial`/`next_step=spawn`; `revise`/note appends to
+  `artifacts/DESIGN_NOTES.md`, deletes tasks.json, RESULT
+  `partial`/`next_step=design`; `cancel` writes RESULT `blocked`
+  `cancelled by operator`. `job_gate: false` config or per-bead
+  `fleet_job_gate=off` (`fleet bd create --job-gate off`) skips the gate.
+- **Spawn** (`SpawnChildren`): creates beads in dependency order via
+  `beads/queue.py::create_child` (body gains "Part of job \<id\>; DESIGN.md
+  at \<path\>", cwd/coder/model default from the epic or
+  `job_child_coder`/`job_child_model`, `--deps` from keys, epic gains a
+  dependency on each child), journaling `artifacts/children.json`
+  after **each** create so a crash resumes without duplicates, then comments
+  "[fleet] job spawned k children: ids" and RESULT
+  `partial`/`next_step=observe`.
+- **Observe** reuses the observer steps under worker name `job.observe`
+  (observer rounds cap counts `job.observe` partials too).
+- **Policy**: research/design failing `job_max_phase_attempts` (default 2)
+  times each blocks the job ("job design failed; see attempts"). Wall-clock
+  per phase comes from the generic retry table. Only `LlmSession` holds a
+  concurrency slot.

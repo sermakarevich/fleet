@@ -306,6 +306,32 @@ class QuestionStore:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def fetch_answered_for_task(
+        self, task_id: str, context: str | None = None
+    ) -> list[dict]:
+        """Answered questions about one bead, oldest first (job gate lookup).
+
+        The job worker's gate step asks with ``context="job_gate"`` and
+        applies the latest answered row once: applying moves the job forward
+        (APPROVED marker, tasks.json deleted, or bead blocked), so an
+        already-applied question no longer matches the live gate state and
+        is skipped naturally.
+        """
+        with self._conn() as conn:
+            if context is None:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE status='answered' AND task_id=? "
+                    "ORDER BY answered_at ASC",
+                    (task_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE status='answered' AND task_id=? "
+                    "AND context=? ORDER BY answered_at ASC",
+                    (task_id, context),
+                ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
     def answer(
         self,
         qid: str,

@@ -10,6 +10,8 @@ _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
 _INSTRUCTION_FRESH_PATH = _TEMPLATES_DIR / "INSTRUCTION_FRESH.md"
 _INSTRUCTION_CONTINUE_PATH = _TEMPLATES_DIR / "INSTRUCTION_CONTINUE.md"
 _INSTRUCTION_VALIDATE_PATH = _TEMPLATES_DIR / "INSTRUCTION_VALIDATE.md"
+_INSTRUCTION_RESEARCH_PATH = _TEMPLATES_DIR / "INSTRUCTION_RESEARCH.md"
+_INSTRUCTION_DESIGN_PATH = _TEMPLATES_DIR / "INSTRUCTION_DESIGN.md"
 _INSTRUCTION_COMMON_PATH = _TEMPLATES_DIR / "INSTRUCTION_COMMON.md"
 _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
@@ -84,6 +86,10 @@ def render_prompt(
 
     if mode == "validate":
         mode_instructions = _INSTRUCTION_VALIDATE_PATH.read_text(encoding="utf-8").strip()
+    elif mode == "research":
+        mode_instructions = _INSTRUCTION_RESEARCH_PATH.read_text(encoding="utf-8").strip()
+    elif mode == "design":
+        mode_instructions = _INSTRUCTION_DESIGN_PATH.read_text(encoding="utf-8").strip()
     elif mode == "continue":
         mode_instructions = _INSTRUCTION_CONTINUE_PATH.read_text(encoding="utf-8").strip()
     else:

@@ -60,6 +60,11 @@ export function Header({ task, config }: Props) {
           {statusLabel(task.status)}
         </span>
         <span style={styles.title}>{task.title}</span>
+        {task.job_phase && (
+          <span style={styles.jobPill} title={`job phase (worker: job.${task.job_phase})`}>
+            job: {task.job_phase}
+          </span>
+        )}
       </div>
       {isBlocked && (
         <div style={styles.blockedBanner}>
@@ -158,6 +163,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.7rem',
     fontWeight: 600,
     color: '#fff',
+    flexShrink: 0,
+  },
+  jobPill: {
+    display: 'inline-block',
+    padding: '0.1rem 0.45rem',
+    borderRadius: 9999,
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    color: '#a78bfa',
+    border: '1px solid #a78bfa',
     flexShrink: 0,
   },
   title: {

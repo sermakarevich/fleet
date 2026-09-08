@@ -2,7 +2,7 @@
 
 import pytest
 
-from fleet.core.job_plan import observer_rounds, validate_followups
+from fleet.core.job_plan import observer_rounds, validate_followups, validate_tasks
 
 
 def _spec(title: str, **kw) -> dict:
@@ -86,3 +86,75 @@ def test_observer_rounds_counts_untagged_legacy_rows() -> None:
 def test_observer_rounds_ignores_waiting_rows() -> None:
     history = [_row("waiting"), _row("partial")]
     assert observer_rounds(history) == 1
+
+
+def test_observer_rounds_counts_job_observe_partials() -> None:
+    history = [_row("partial", worker="job.observe"), _row("partial", worker="job.design")]
+    assert observer_rounds(history) == 1
+
+
+# ---------------------------------------------------------------------------
+# validate_tasks
+# ---------------------------------------------------------------------------
+
+
+def _task(key: str, **kw) -> dict:
+    base = {"key": key, "title": f"title {key}", "body": f"body {key}", "depends_on": []}
+    base.update(kw)
+    return base
+
+
+def _doc(*tasks: dict) -> dict:
+    return {"tasks": list(tasks)}
+
+
+def test_validate_tasks_ok() -> None:
+    assert validate_tasks(_doc(_task("t0"), _task("t1", depends_on=["t0"]))) == []
+
+
+def test_validate_tasks_not_an_object() -> None:
+    assert validate_tasks([]) != []
+    assert validate_tasks({"nope": []}) != []
+
+
+def test_validate_tasks_empty_and_over_max() -> None:
+    assert validate_tasks({"tasks": []}) != []
+    many = _doc(*(_task(f"t{i}") for i in range(3)))
+    assert validate_tasks(many, max_children=2) == [
+        "too many tasks (3 > 2)"
+    ]
+
+
+def test_validate_tasks_blank_key_and_duplicates() -> None:
+    assert validate_tasks(_doc({"title": "x", "body": "y"})) != []
+    assert validate_tasks(_doc(_task("a"), _task("a"))) == [
+        "task keys must be unique"
+    ]
+
+
+def test_validate_tasks_title_rules() -> None:
+    assert validate_tasks(_doc(_task("a", title="  "))) == [
+        "task 'a' has a blank title"
+    ]
+    assert validate_tasks(_doc(_task("a", title="x" * 121))) == [
+        "task 'a' title exceeds 120 chars"
+    ]
+
+
+def test_validate_tasks_blank_body() -> None:
+    assert validate_tasks(_doc(_task("a", body="  "))) == [
+        "task 'a' has a blank body"
+    ]
+
+
+def test_validate_tasks_unknown_self_and_cycle() -> None:
+    assert validate_tasks(_doc(_task("a", depends_on=["ghost"]))) == [
+        "task 'a' depends on unknown 'ghost'"
+    ]
+    assert validate_tasks(_doc(_task("a", depends_on=["a"]))) == [
+        "task 'a' cannot depend on itself"
+    ]
+    errors = validate_tasks(
+        _doc(_task("a", depends_on=["b"]), _task("b", depends_on=["a"]))
+    )
+    assert len(errors) == 1 and "cycle" in errors[0]

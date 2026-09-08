@@ -26,6 +26,9 @@ class Task:
     # Isolation opt-out (bd metadata fleet_isolation). "none" disables the
     # worktree even when config.isolation="worktree"; None means "no override".
     isolation: str | None = None
+    # Job gate opt-out (bd metadata fleet_job_gate). "off" skips the human
+    # approval gate between design and spawn; None means "gate when enabled".
+    job_gate: str | None = None
     # Triage ignore: ISO timestamp or "forever" (task.json `ignore_until`).
     # While active the supervisor's triage loop skips this bead.
     ignore_until: str | None = None

@@ -197,6 +197,29 @@ def _read_handoff_excerpt(task_dir: Path) -> str | None:
     return text[:_HANDOFF_EXCERPT_MAX]
 
 
+def _job_phase(worker: str | None) -> str | None:
+    """The job phase badge, from the latest attempt's worker name.
+
+    ``job.research`` -> ``research``; non-job workers (and no attempt yet)
+    yield None. Mirrors ``core/job_phase.phase`` without re-reading files:
+    the worker name already records which phase last ran.
+    """
+    if worker and worker.startswith("job."):
+        return worker.removeprefix("job.")
+    return None
+
+
+def _job_artifacts(task_dir: Path) -> dict:
+    """Presence flags for the job worker's RESEARCH.md/DESIGN.md/tasks.json/APPROVED."""
+    artifacts = task_dir / "artifacts"
+    return {
+        "research": (artifacts / "RESEARCH.md").exists(),
+        "design": (artifacts / "DESIGN.md").exists(),
+        "tasks": (artifacts / "tasks.json").exists(),
+        "approved": (artifacts / "APPROVED").exists(),
+    }
+
+
 def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     """Return the summary dict for one task.
 
@@ -280,6 +303,8 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "result": _read_result(task_dir),
         "handoff_excerpt": _read_handoff_excerpt(task_dir),
         "worker": worker,
+        "job_phase": _job_phase(worker),
+        "job_artifacts": _job_artifacts(task_dir),
         "steps": steps,
         "lease": _read_lease(task_dir),
         "attempts": attempt_rows,

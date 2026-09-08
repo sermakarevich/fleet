@@ -344,6 +344,68 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
         sys.stdout.write(log_path.read_text(encoding="utf-8"))
 
+    @app.command("job")
+    def job_cmd(
+        job_id: Annotated[str, typer.Argument(help="Job (epic) bead ID.")],
+    ) -> None:
+        """Show a job's phase, children table, and pending gate question."""
+        from fleet.core.job_phase import JobSnapshot, phase
+
+        home = fleet_home()
+        q = BeadsQueue(home)
+        try:
+            task = q.get(job_id)
+        except BeadsError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        task_dir = _task_dir(home, job_id)
+        artifacts = task_dir / "artifacts"
+        has_research = (artifacts / "RESEARCH.md").exists()
+        has_tasks = (artifacts / "tasks.json").exists()
+        approved = (artifacts / "APPROVED").exists()
+        try:
+            children = q.list_children(job_id)
+        except BeadsError:
+            children = []
+        try:
+            from fleet.integrations.ask_human.store import QuestionStore
+
+            pending = QuestionStore().fetch_pending_for_task(job_id, "job_gate")
+        except Exception:
+            pending = []
+        snapshot = JobSnapshot(
+            has_research=has_research,
+            has_tasks=has_tasks,
+            gate_enabled=(task.job_gate or "") != "off",
+            approved=approved,
+            has_children=len(children) > 0,
+        )
+        typer.echo(f"id:     {task.id}")
+        typer.echo(f"title:  {task.title}")
+        typer.echo(f"status: {task.status}")
+        typer.echo(f"phase:  {phase(snapshot)}")
+        typer.echo(
+            "artifacts: "
+            f"research={'yes' if has_research else 'no'} "
+            f"design={'yes' if (artifacts / 'DESIGN.md').exists() else 'no'} "
+            f"tasks={'yes' if has_tasks else 'no'} "
+            f"approved={'yes' if approved else 'no'}"
+        )
+        if not children:
+            typer.echo("children: (none)")
+        else:
+            typer.echo(f"children: {len(children)}")
+            for child in children:
+                cid = getattr(child, "id", None) or child.get("id")
+                cstatus = getattr(child, "status", None) or child.get("status")
+                typer.echo(f"  {cid}  [{cstatus}]")
+        if pending:
+            typer.echo(f"gate: {len(pending)} pending question(s)")
+            for question in pending:
+                typer.echo(f"  {question.get('id')}: {(question.get('prompt') or '').splitlines()[0] if question.get('prompt') else ''}")
+        else:
+            typer.echo("gate: no pending questions")
+
     @app.command("tail")
     def tail_cmd(
         task_id: Annotated[str, typer.Argument(help="Task ID.")],

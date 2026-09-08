@@ -524,6 +524,24 @@ def create_tasks_router() -> APIRouter:
             return JSONResponse({"error": "not found"}, status_code=404)
         return _artifact_file_response(f)
 
+    @router.get("/tasks/{task_id}/artifacts/research")
+    async def get_artifact_research(task_id: str) -> JSONResponse:
+        """Job worker's RESEARCH.md (see workers/job.py)."""
+        home = get_fleet_home()
+        f = _artifact_path(task_id, "RESEARCH.md", home)
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return _artifact_file_response(f)
+
+    @router.get("/tasks/{task_id}/artifacts/design")
+    async def get_artifact_design(task_id: str) -> JSONResponse:
+        """Job worker's DESIGN.md (see workers/job.py)."""
+        home = get_fleet_home()
+        f = _artifact_path(task_id, "DESIGN.md", home)
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return _artifact_file_response(f)
+
     @router.get("/tasks/{task_id}/logs")
     async def get_task_logs(task_id: str, level: str | None = None) -> JSONResponse:
         home = get_fleet_home()

@@ -110,13 +110,14 @@ class BeadsQueue(Queue):
         model: str | None = None,
         worker: str | None = None,
         isolation: str | None = None,
+        job_gate: str | None = None,
     ) -> None:
-        """Persist per-task coder/model/worker/isolation overrides into task.json.
+        """Persist per-task coder/model/worker/isolation/job-gate overrides into task.json.
 
         Only the non-None fields are written; existing meta keys are preserved.
         Distinct from freeze_coder_model, which writes both fields at spawn time.
         """
-        if coder is None and model is None and worker is None and isolation is None:
+        if coder is None and model is None and worker is None and isolation is None and job_gate is None:
             return
         meta = self._load_meta(task_id) or {"id": task_id}
         if coder is not None:
@@ -127,6 +128,8 @@ class BeadsQueue(Queue):
             meta["worker"] = worker
         if isolation is not None:
             meta["isolation"] = isolation
+        if job_gate is not None:
+            meta["job_gate"] = job_gate
         self._write_meta(task_id, meta)
 
     def set_isolation_info(
@@ -277,6 +280,7 @@ class BeadsQueue(Queue):
             "max_attempt_minutes",
             "ignore_until",
             "isolation",
+            "job_gate",
             "repo_root",
             "base_ref",
             "worktree_path",
@@ -334,6 +338,7 @@ class BeadsQueue(Queue):
             retry_after=meta.get("retry_after"),
             ignore_until=meta.get("ignore_until"),
             isolation=meta.get("isolation") or bd_meta.get("fleet_isolation"),
+            job_gate=meta.get("job_gate") or bd_meta.get("fleet_job_gate"),
             repo_root=meta.get("repo_root"),
             base_ref=meta.get("base_ref"),
             worktree_path=meta.get("worktree_path"),
@@ -435,13 +440,14 @@ class BeadsQueue(Queue):
         ]
 
     def create_child(self, epic_id: str, spec: dict) -> Task:
-        """Open one observer follow-up bead under *epic_id*.
+        """Open one child bead under *epic_id* (observer follow-up or job task).
 
-        *spec* is a validated follow-up (core/job_plan.validate_followups):
-        title/body/cwd/depends_on (sibling bead ids for --deps between
-        follow-ups). Title/body/cwd fall back to the epic's own; coder/model
-        are inherited so the follow-up runs the same setup. The epic gains a
-        dependency on each child, so beads keeps it asleep until they close.
+        *spec* carries title/body/cwd/depends_on (sibling bead ids for
+        --deps); job tasks additionally carry coder/model/priority per task.
+        Title/body/cwd fall back to the epic's own; coder/model are inherited
+        from the epic unless the spec pins them, so a follow-up runs the same
+        setup. The epic gains a dependency on each child, so beads keeps it
+        asleep until they close.
         """
         epic = self.get(epic_id)
         title = spec.get("title") or epic.title
@@ -451,9 +457,17 @@ class BeadsQueue(Queue):
             description=body,
             depends_on=spec.get("depends_on") or [],
             cwd=spec.get("cwd") or epic.cwd,
-            coder=epic.coder,
-            model=epic.model,
+            coder=spec.get("coder") or epic.coder,
+            model=spec.get("model") or epic.model,
         )
+        if spec.get("priority") is not None:
+            try:
+                self._bd(
+                    "update", child.id, "--priority", str(int(spec["priority"])),
+                    json_envelope=False,
+                )
+            except (BeadsError, TypeError, ValueError):
+                pass
         try:
             self._bd("dep", "add", epic_id, child.id, json_envelope=False)
         except BeadsError:

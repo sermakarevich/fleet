@@ -39,12 +39,13 @@ def register(app: typer.Typer) -> None:
         },
         help=(
             "Run a `bd` command against the centralized fleet database in $FLEET_HOME. "
-            "For `bd create`/`bd new`, `--coder`, `--model`, `--worker`, `--cwd`, and "
-            "`--isolation` are "
+            "For `bd create`/`bd new`, `--coder`, `--model`, `--worker`, `--cwd`, "
+            "`--isolation`, and `--job-gate` are "
             "intercepted and stored as per-task overrides instead of being forwarded to bd. "
             "`--worker` names the worker family that should run this bead (see "
             "workers/__init__.py::FAMILIES), overriding the type-based default. "
             "`--isolation none` opts out of git worktree isolation for this task. "
+            "`--job-gate off` skips the job worker's human approval gate. "
             "Use `--cwd <path>` to set the task working directory explicitly instead of "
             "using the shell's current directory — useful when creating tasks from a "
             "centralized location for multiple projects."
@@ -82,6 +83,7 @@ def register(app: typer.Typer) -> None:
         model_override = overrides["model"]
         worker_override = overrides["worker"]
         isolation_override = overrides.get("isolation")
+        job_gate_override = overrides.get("job_gate")
         invocation_cwd = overrides["cwd"]
 
         user_wants_json = "--json" in bd_args
@@ -122,6 +124,7 @@ def register(app: typer.Typer) -> None:
                 model=model_override,
                 worker=worker_override,
                 isolation=isolation_override,
+                job_gate=job_gate_override,
             )
             # Also snapshot title/description so the UI can show them before the
             # supervisor claims the task (claim is when the full snapshot lands).

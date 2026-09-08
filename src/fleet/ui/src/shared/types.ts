@@ -51,6 +51,15 @@ export interface TaskSummary {
   result: TaskResult | null;
   handoff_excerpt: string | null;
   worker: string | null;
+  // Job worker phase badge, from the latest attempt's worker name
+  // ("job.research" -> "research"; null for non-job workers).
+  job_phase: string | null;
+  job_artifacts: {
+    research: boolean;
+    design: boolean;
+    tasks: boolean;
+    approved: boolean;
+  };
   steps: RunStep[];
   lease: TaskLease | null;
 }
@@ -80,7 +89,7 @@ export interface TaskResult {
 export interface TaskAttempt {
   n: number;
   kind: string; // "work" or "compact" (compaction job).
-  mode: 'fresh' | 'continue' | 'validate' | 'compact' | null;
+  mode: 'fresh' | 'continue' | 'validate' | 'compact' | 'research' | 'design' | 'gate' | 'spawn' | 'observe' | null;
   coder: string | null;
   model: string | null;
   started_at: string | null;

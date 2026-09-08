@@ -44,6 +44,12 @@ class RuntimeConfig:
     # max partial observer rounds before the epic blocks for human review.
     observer_max_followups: int = 10
     observer_max_rounds: int = 3
+    # Job worker: human gate on/off, child defaults, caps per phase/table.
+    job_gate: bool = True
+    job_child_coder: str = "claude"
+    job_child_model: str = "sonnet"
+    job_max_children: int = 30
+    job_max_phase_attempts: int = 2
 
 
 _KEY_TYPES: dict[str, type] = {

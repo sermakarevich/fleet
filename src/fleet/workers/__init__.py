@@ -17,12 +17,14 @@ from collections.abc import Callable
 from fleet.core.task import Task
 
 from .base import StepContext, Worker
+from .job import plan_job
 from .observe import plan_observer
 from .task import plan_task
 
 FAMILIES: dict[str, Callable[[StepContext], Worker]] = {
     "task": plan_task,
     "observer": plan_observer,
+    "job": plan_job,
 }
 
 _TYPE_TO_FAMILY: dict[str, str] = {

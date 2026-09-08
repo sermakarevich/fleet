@@ -49,9 +49,11 @@ def rewrite_create_argv(
 
     `--cwd` overrides *cwd* (normally the shell's cwd at invocation time) as
     the task's working directory. `--isolation none` opts the task out of
-    git worktree isolation (stored as bd metadata `fleet_isolation`). Returns
+    git worktree isolation (stored as bd metadata `fleet_isolation`).
+    `--job-gate off` skips the job worker's human approval gate (stored as
+    bd metadata `fleet_job_gate`). Returns
     (new_argv, meta) where meta has keys "coder", "model", "worker", "cwd",
-    "isolation" (cwd always set; the rest are None unless overridden).
+    "isolation", "job_gate" (cwd always set; the rest are None unless overridden).
     Raises ValueError if `--coder` names an unknown coder or `--isolation`
     names an unknown mode.
     """
@@ -60,11 +62,16 @@ def rewrite_create_argv(
     argv, worker = _extract_flag(argv, "--worker")
     argv, cwd_override = _extract_flag(argv, "--cwd")
     argv, isolation = _extract_flag(argv, "--isolation")
+    argv, job_gate = _extract_flag(argv, "--job-gate")
     if coder is not None:
         get_coder(coder)  # raises ValueError on an unknown coder name
     if isolation is not None and isolation not in ("worktree", "none"):
         raise ValueError(
             f"Unknown isolation mode {isolation!r}: expected 'worktree' or 'none'"
+        )
+    if job_gate is not None and job_gate not in ("on", "off"):
+        raise ValueError(
+            f"Unknown job-gate mode {job_gate!r}: expected 'on' or 'off'"
         )
 
     resolved_cwd = cwd_override if cwd_override is not None else cwd
@@ -75,6 +82,7 @@ def rewrite_create_argv(
         or worker is not None
         or cwd_override is not None
         or isolation is not None
+        or job_gate is not None
     ):
         argv, existing_metadata_raw = _extract_flag(argv, "--metadata")
         try:
@@ -91,6 +99,8 @@ def rewrite_create_argv(
             metadata["fleet_cwd"] = cwd_override
         if isolation is not None:
             metadata["fleet_isolation"] = isolation
+        if job_gate is not None:
+            metadata["fleet_job_gate"] = job_gate
         argv += ["--metadata", json.dumps(metadata)]
 
     return argv, {
@@ -99,4 +109,5 @@ def rewrite_create_argv(
         "worker": worker,
         "cwd": resolved_cwd,
         "isolation": isolation,
+        "job_gate": job_gate,
     }

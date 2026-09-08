@@ -205,6 +205,28 @@ close. The task detail **Children** tab shows each child with its RESULT
 status plus the digest. While children still run, the observer releases
 the epic immediately (outcome `waiting`: no comment, no retry counting).
 
+### Jobs decompose themselves
+
+An epic bead with `--worker job` is a job: it researches the repo, designs
+its own child beads, asks you to approve the plan, then spawns the children
+and observes them — no hand-decomposition needed:
+
+```
+fleet bd create "ship signup validation" -t epic --worker job --model opus
+```
+
+The job runs one phase per attempt (`job.research` writes
+`artifacts/RESEARCH.md`, `job.design` writes `artifacts/DESIGN.md` plus
+`artifacts/tasks.json`, `job.gate` posts one ask_human question "Job
+<id>: approve k tasks?" with approve / revise / cancel, `job.spawn`
+creates the children with dependencies, `job.observe` validates like the
+observer). Each `tasks.json` entry (`key`, `title`, `body`, optional `cwd`,
+`coder`, `model`, `priority`, `depends_on` naming sibling keys) becomes one
+child bead; the epic sleeps until they close. `fleet job <id>` prints the
+phase, children, and pending gate; the task detail shows a phase badge plus
+Research/Design tabs. Research/design failing twice blocks the job; pass
+`--job-gate off` (or `job_gate: false` in runtime.toml) to skip approval.
+
 ---
 
 ## First-run setup

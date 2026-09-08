@@ -193,6 +193,14 @@ export const api = {
     return request(`/api/tasks/${id}/artifacts/result`);
   },
 
+  getArtifactResearch(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/research`);
+  },
+
+  getArtifactDesign(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/design`);
+  },
+
   getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {
     const qs = level ? `?level=${encodeURIComponent(level)}` : '';
     return request(`/api/tasks/${id}/logs${qs}`);
