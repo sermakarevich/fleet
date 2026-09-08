@@ -32,6 +32,7 @@ CHAIN = [
     "fleet-bdbk7",  # 10/12 gc
     "fleet-kc107",  # 11/12 observer
     "fleet-k7obx",  # 12/12 job
+    "fleet-pltbj",  # 13/13 task dir artifacts (ADR 0004)
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
