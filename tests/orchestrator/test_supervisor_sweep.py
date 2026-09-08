@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import structlog
 
 from fleet.orchestrator.supervisor import Supervisor
@@ -48,145 +48,138 @@ class StubCoder:
         return None
 
 
-def _make_supervisor(tmp_path: Path) -> Supervisor:
+def _make_supervisor(fleet_home: Path) -> Supervisor:
     return Supervisor(
         coder=StubCoder(),
         queue=StubQueue(),
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path,
+        runtime_toml_path=fleet_home / "runtime.toml",
+        project_root=fleet_home,
         log=structlog.get_logger(),
     )
 
 
-class TestSweepOrphanWorktrees:
-    def test_removes_worktree_when_orphan(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Worktree with task NOT in flight and NO .needs_validation marker is removed."""
-        fleet_home = tmp_path / ".fleet"
-        worktrees = fleet_home / "worktrees"
-        tasks = fleet_home / "tasks"
-        worktrees.mkdir(parents=True)
-        tasks.mkdir(parents=True)
+def _fleet_home(tmp_path: Path) -> Path:
+    home = tmp_path / ".fleet"
+    (home / "worktrees").mkdir(parents=True)
+    (home / "tasks").mkdir(parents=True)
+    return home
 
-        orphan_dir = worktrees / "t-orphan"
+
+class TestSweepOrphanWorktrees:
+    def test_removes_worktree_when_orphan(self, tmp_path: Path) -> None:
+        """Worktree with no task.json ref and no validation marker is removed."""
+        fleet_home = _fleet_home(tmp_path)
+        orphan_dir = fleet_home / "worktrees" / "repo-t-orphan"
         orphan_dir.mkdir()
         orphan_dir.joinpath("HEAD").write_text("orphan")
 
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
-            mock_remove.assert_called_once_with(tmp_path, "t-orphan")
+            mock_remove.assert_called_once_with(orphan_dir)
 
-    def test_skips_when_task_in_flight(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_skips_when_task_in_flight(self, tmp_path: Path) -> None:
         """Worktree for a task in self.in_flight is NOT removed."""
-        fleet_home = tmp_path / ".fleet"
-        worktrees = fleet_home / "worktrees"
-        tasks = fleet_home / "tasks"
-        worktrees.mkdir(parents=True)
-        tasks.mkdir(parents=True)
+        fleet_home = _fleet_home(tmp_path)
+        active = fleet_home / "worktrees" / "repo-t-active"
+        active.mkdir()
 
-        in_flight_dir = worktrees / "t-active"
-        in_flight_dir.mkdir()
-        in_flight_dir.joinpath("HEAD").write_text("active")
-
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {"t-active": object()}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
             mock_remove.assert_not_called()
 
-    def test_skips_when_needs_validation_marker(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_skips_when_needs_validation_marker(self, tmp_path: Path) -> None:
         """Worktree with .needs_validation marker is NOT removed."""
-        fleet_home = tmp_path / ".fleet"
-        worktrees = fleet_home / "worktrees"
-        tasks = fleet_home / "tasks"
-        worktrees.mkdir(parents=True)
-        tasks.mkdir(parents=True)
+        fleet_home = _fleet_home(tmp_path)
+        (fleet_home / "worktrees" / "repo-t-validate").mkdir()
 
-        marker_dir = worktrees / "t-validate"
-        marker_dir.mkdir()
-        marker_dir.joinpath("HEAD").write_text("validate")
-
-        task_dir = tasks / "t-validate"
+        task_dir = fleet_home / "tasks" / "t-validate"
         task_dir.mkdir(parents=True)
         set_needs_validation(task_dir)
 
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
             mock_remove.assert_not_called()
 
-    def test_skips_non_directories(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_skips_live_task_json_ref(self, tmp_path: Path) -> None:
+        """Worktree still referenced by a task.json worktree_path is kept."""
+        fleet_home = _fleet_home(tmp_path)
+        wt = fleet_home / "worktrees" / "repo-t-live"
+        wt.mkdir()
+        task_dir = fleet_home / "tasks" / "t-live"
+        task_dir.mkdir(parents=True)
+        (task_dir / "task.json").write_text(
+            json.dumps(
+                {"id": "t-live", "repo_root": "/r", "base_ref": "main",
+                 "worktree_path": str(wt)}
+            )
+        )
+
+        s = _make_supervisor(fleet_home)
+        s.in_flight = {}
+
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
+            s._sweep_orphan_worktrees()
+            mock_remove.assert_not_called()
+
+    def test_skips_non_directories(self, tmp_path: Path) -> None:
         """Non-directory entries in worktrees are skipped."""
-        fleet_home = tmp_path / ".fleet"
-        worktrees = fleet_home / "worktrees"
-        worktrees.mkdir(parents=True)
+        fleet_home = _fleet_home(tmp_path)
+        (fleet_home / "worktrees" / "not-a-dir").write_text("file")
 
-        # A regular file, not a directory
-        (worktrees / "not-a-dir").write_text("file")
-
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
             mock_remove.assert_not_called()
 
-    def test_noop_when_worktrees_dir_missing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_noop_when_worktrees_dir_missing(self, tmp_path: Path) -> None:
         """Return early when the worktrees directory doesn't exist."""
         fleet_home = tmp_path / ".fleet"
-        # DON'T create the worktrees directory
 
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
             mock_remove.assert_not_called()
 
-    def test_multiple_orphans_all_removed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_multiple_orphans_all_removed(self, tmp_path: Path) -> None:
         """Multiple orphan worktrees are all removed."""
-        fleet_home = tmp_path / ".fleet"
-        worktrees = fleet_home / "worktrees"
-        tasks = fleet_home / "tasks"
-        worktrees.mkdir(parents=True)
-        tasks.mkdir(parents=True)
-
+        fleet_home = _fleet_home(tmp_path)
         for tid in ["t-a", "t-b", "t-c"]:
-            (worktrees / tid).mkdir()
+            (fleet_home / "worktrees" / f"repo-{tid}").mkdir()
 
-        monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-
-        s = _make_supervisor(tmp_path)
+        s = _make_supervisor(fleet_home)
         s.in_flight = {}
 
-        with patch("fleet.orchestrator.worktree.remove_worktree") as mock_remove:
+        with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
-            removed = {call[0][1] for call in mock_remove.call_args_list}
-            assert removed == {"t-a", "t-b", "t-c"}
+            removed = {call[0][0].name for call in mock_remove.call_args_list}
+            assert removed == {"repo-t-a", "repo-t-b", "repo-t-c"}
+
+
+class TestRemoveOrphanDir:
+    def test_falls_back_to_rmtree(self, tmp_path: Path) -> None:
+        """A dir that is not a git worktree is deleted recursively."""
+        from fleet.orchestrator.leases import _remove_orphan_dir
+
+        target = tmp_path / "orphan"
+        target.mkdir()
+        (target / "f.txt").write_text("x")
+        _remove_orphan_dir(target)
+        assert not target.exists()
+
+    def test_never_raises(self, tmp_path: Path) -> None:
+        from fleet.orchestrator.leases import _remove_orphan_dir
+
+        _remove_orphan_dir(tmp_path / "does-not-exist")

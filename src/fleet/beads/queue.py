@@ -99,13 +99,14 @@ class BeadsQueue(Queue):
         coder: str | None = None,
         model: str | None = None,
         worker: str | None = None,
+        isolation: str | None = None,
     ) -> None:
-        """Persist per-task coder/model/worker overrides into task.json.
+        """Persist per-task coder/model/worker/isolation overrides into task.json.
 
         Only the non-None fields are written; existing meta keys are preserved.
         Distinct from freeze_coder_model, which writes both fields at spawn time.
         """
-        if coder is None and model is None and worker is None:
+        if coder is None and model is None and worker is None and isolation is None:
             return
         meta = self._load_meta(task_id) or {"id": task_id}
         if coder is not None:
@@ -114,7 +115,70 @@ class BeadsQueue(Queue):
             meta["model"] = model
         if worker is not None:
             meta["worker"] = worker
+        if isolation is not None:
+            meta["isolation"] = isolation
         self._write_meta(task_id, meta)
+
+    def set_isolation_info(
+        self,
+        task_id: str,
+        repo_root: str,
+        base_ref: str,
+        worktree_path: str,
+    ) -> None:
+        """Persist git isolation info into task.json, preserving other fields.
+
+        Called once at spawn when a task is isolated into a worktree; reused
+        across attempts (the same worktree/branch is kept). Replaces the old
+        bare `.worktree` marker file.
+        """
+        meta = self._load_meta(task_id) or {"id": task_id}
+        meta["repo_root"] = repo_root
+        meta["base_ref"] = base_ref
+        meta["worktree_path"] = worktree_path
+        self._write_meta(task_id, meta)
+
+    def clear_isolation_info(self, task_id: str) -> None:
+        """Drop git isolation info from task.json after merge/cleanup."""
+        meta = self._load_meta(task_id) or {"id": task_id}
+        changed = False
+        for key in ("repo_root", "base_ref", "worktree_path"):
+            if key in meta:
+                del meta[key]
+                changed = True
+        if changed:
+            self._write_meta(task_id, meta)
+
+    def read_isolation_info(self, task_id: str) -> dict | None:
+        """Return {repo_root, base_ref, worktree_path} or None when not isolated.
+
+        Falls back to the legacy `.worktree` marker file (worktree path only)
+        for task dirs written before the task.json contract.
+        """
+        meta = self._load_meta(task_id)
+        repo_root = meta.get("repo_root")
+        base_ref = meta.get("base_ref")
+        worktree_path = meta.get("worktree_path")
+        if repo_root and base_ref and worktree_path:
+            return {
+                "repo_root": repo_root,
+                "base_ref": base_ref,
+                "worktree_path": worktree_path,
+            }
+        # Legacy fallback: bare marker held only the worktree path.
+        try:
+            marker = _task_dir(self.repo_root, task_id) / ".worktree"
+            if marker.exists():
+                text = marker.read_text(encoding="utf-8").strip()
+                if text:
+                    return {
+                        "repo_root": repo_root or "",
+                        "base_ref": base_ref or "main",
+                        "worktree_path": text,
+                    }
+        except OSError:
+            pass
+        return None
 
     def set_bd_fields(self, task_id: str, body: dict) -> None:
         """Persist title/description/status/priority from a bd body into task.json.
@@ -174,7 +238,14 @@ class BeadsQueue(Queue):
         deps = depends_on if depends_on is not None else existing.get("depends_on")
         if deps:
             result["depends_on"] = deps
-        for key in ("retry_after", "max_attempt_minutes"):
+        for key in (
+            "retry_after",
+            "max_attempt_minutes",
+            "isolation",
+            "repo_root",
+            "base_ref",
+            "worktree_path",
+        ):
             if existing.get(key) is not None:
                 result[key] = existing.get(key)
         return result
@@ -226,6 +297,10 @@ class BeadsQueue(Queue):
             worker=meta.get("worker") or bd_meta.get("fleet_worker"),
             max_attempt_minutes=max_minutes,
             retry_after=meta.get("retry_after"),
+            isolation=meta.get("isolation") or bd_meta.get("fleet_isolation"),
+            repo_root=meta.get("repo_root"),
+            base_ref=meta.get("base_ref"),
+            worktree_path=meta.get("worktree_path"),
         )
 
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:

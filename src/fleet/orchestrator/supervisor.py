@@ -193,6 +193,3 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin):
 
     def _task_dir_for(self, task: Task) -> Path:
         return _task_dir(self._project_root, task.id)
-
-    def _is_fleet_repo(self, path: Path) -> bool:
-        return path.resolve() == self._project_root.resolve()

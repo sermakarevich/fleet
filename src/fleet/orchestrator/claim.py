@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.state.paths import tasks_root as _tasks_root
@@ -48,6 +49,41 @@ def running_by_coder(tasks, default_coder: str) -> dict[str, int]:
         coder = getattr(task, "coder", None) or default_coder
         counts[coder] = counts.get(coder, 0) + 1
     return counts
+
+
+def read_isolation_info(task_dir: Path) -> dict | None:
+    """Read repo_root/base_ref/worktree_path from task.json, or None.
+
+    Falls back to the legacy `.worktree` marker for old task dirs.
+    """
+    try:
+        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    if isinstance(meta, dict):
+        repo_root = meta.get("repo_root")
+        base_ref = meta.get("base_ref")
+        worktree_path = meta.get("worktree_path")
+        if repo_root and base_ref and worktree_path:
+            return {
+                "repo_root": repo_root,
+                "base_ref": base_ref,
+                "worktree_path": worktree_path,
+            }
+    try:
+        marker = task_dir / ".worktree"
+        if marker.exists():
+            text = marker.read_text(encoding="utf-8").strip()
+            if text:
+                return {
+                    "repo_root": meta.get("repo_root") if isinstance(meta, dict) else "",
+                    "base_ref": (meta.get("base_ref") if isinstance(meta, dict) else None)
+                    or "main",
+                    "worktree_path": text,
+                }
+    except OSError:
+        pass
+    return None
 
 
 class ClaimMixin:
@@ -121,6 +157,17 @@ class ClaimMixin:
 
             await self._run_pending_validations()
 
+    def _finish_validation(self, task_dir: Path, task_id: str) -> None:
+        """Clear validation state and drop isolation info after a terminal merge."""
+        clear_needs_validation(task_dir)
+        (task_dir / ".worktree").unlink(missing_ok=True)
+        try:
+            self._queue.clear_isolation_info(task_id)
+        except AttributeError:
+            pass
+        except Exception:
+            pass
+
     async def _run_pending_validations(self) -> None:
         tasks_root = _tasks_root(self._project_root)
         if not tasks_root.exists():
@@ -131,55 +178,108 @@ class ClaimMixin:
                 continue
             if not needs_validation(task_dir):
                 continue
-            result = worktree.merge_to_base(self._project_root, task_id, base_ref="main")
-            if result.ok:
-                await asyncio.to_thread(
-                    self._queue.close,
-                    task_id,
-                    reason=f"validated: merged fleet/{task_id} into main",
-                )
-                self._log.info("task.validated", task_id=task_id)
-
-                # the merge just landed on main; rebuild the UI only if UI files changed
-                diff = subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(self._project_root),
-                        "diff",
-                        "--name-only",
-                        "HEAD~1",
-                        "HEAD",
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if any(line.startswith("src/fleet/ui/") for line in diff.stdout.splitlines()):
-                    proc = await asyncio.create_subprocess_exec(
-                        "make",
-                        "ui-build",
-                        cwd=str(self._project_root),
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    rc = await proc.wait()
-                    if rc == 0:
-                        self._log.info("ui.rebuilt", task_id=task_id)
-                    else:
-                        self._log.error("ui.rebuild_failed", task_id=task_id)
-            else:
-                reason = (
-                    f"merge conflict into main; resolve on branch fleet/{task_id} then close"
-                    if result.conflict
-                    else f"validation merge failed: {result.message}"
-                )
-                await asyncio.to_thread(self._queue.set_blocked, task_id, reason)
-                self._log.warning(
-                    "task.validation_failed",
-                    task_id=task_id,
-                    conflict=result.conflict,
-                )
-            worktree.remove_worktree(self._project_root, task_id)
-            clear_needs_validation(task_dir)
-            (task_dir / ".worktree").unlink(missing_ok=True)
+            await self._validate_one(task_dir, task_id)
             return  # ONE per tick
+
+    async def _validate_one(self, task_dir: Path, task_id: str) -> None:
+        """Merge one validated worktree into its base ref, generically."""
+        info = read_isolation_info(task_dir)
+        if info is None or not info.get("repo_root"):
+            await asyncio.to_thread(
+                self._queue.set_blocked,
+                task_id,
+                "validation failed: missing isolation info; merge manually",
+            )
+            self._log.warning("task.validation_no_info", task_id=task_id)
+            clear_needs_validation(task_dir)
+            return
+        repo_root = Path(info["repo_root"])
+        base_ref = info.get("base_ref") or "main"
+        wt_path = Path(info["worktree_path"])
+
+        if not repo_root.is_dir():
+            await asyncio.to_thread(
+                self._queue.set_blocked,
+                task_id,
+                f"validation failed: repo_root gone ({repo_root}); merge manually",
+            )
+            clear_needs_validation(task_dir)
+            return
+
+        # Never touch a dirty base checkout.
+        if worktree.is_repo_dirty(repo_root):
+            await asyncio.to_thread(
+                self._queue.set_blocked, task_id, "base repo dirty; merge manually"
+            )
+            self._log.warning("task.validation_dirty_base", task_id=task_id)
+            clear_needs_validation(task_dir)
+            return
+
+        # Worktree must still be clean and ahead of base.
+        if not wt_path.is_dir() or not worktree.is_committed_clean(
+            wt_path, base_ref=base_ref
+        ):
+            await asyncio.to_thread(
+                self._queue.set_blocked,
+                task_id,
+                f"validation failed: worktree not clean/ahead of {base_ref}; merge manually",
+            )
+            self._log.warning("task.validation_not_clean", task_id=task_id)
+            worktree.cleanup_worktree(
+                repo_root, task_id, wt_path, fleet_home=self._project_root
+            )
+            self._finish_validation(task_dir, task_id)
+            return
+
+        result = worktree.merge_to_base(repo_root, task_id, base_ref=base_ref)
+        if not result.ok:
+            reason = (
+                f"merge conflict into {base_ref}; resolve on branch fleet/{task_id} then close"
+                if result.conflict
+                else f"validation merge failed: {result.message}"
+            )
+            await asyncio.to_thread(self._queue.set_blocked, task_id, reason)
+            self._log.warning(
+                "task.validation_failed",
+                task_id=task_id,
+                conflict=result.conflict,
+            )
+            worktree.cleanup_worktree(
+                repo_root, task_id, wt_path, fleet_home=self._project_root
+            )
+            self._finish_validation(task_dir, task_id)
+            return
+
+        # Generic post-merge step (fleet's own repo sets this to `make ui-build`).
+        post_cmd = getattr(self.config, "post_merge_command", "") or ""
+        if post_cmd.strip():
+            ok, tail = await asyncio.to_thread(
+                worktree.run_post_merge_command, post_cmd, repo_root
+            )
+            if not ok:
+                await asyncio.to_thread(
+                    self._queue.set_blocked,
+                    task_id,
+                    f"post-merge command failed:\n{tail}",
+                )
+                self._log.warning("task.post_merge_failed", task_id=task_id)
+                worktree.cleanup_worktree(
+                    repo_root, task_id, wt_path, fleet_home=self._project_root
+                )
+                self._finish_validation(task_dir, task_id)
+                return
+
+        await asyncio.to_thread(
+            self._queue.close,
+            task_id,
+            reason=f"validated: merged fleet/{task_id} into {base_ref}",
+        )
+        self._log.info("task.validated", task_id=task_id)
+        worktree.cleanup_worktree(
+            repo_root, task_id, wt_path, fleet_home=self._project_root
+        )
+        try:
+            await asyncio.to_thread(worktree.delete_branch, repo_root, task_id)
+        except Exception:
+            pass
+        self._finish_validation(task_dir, task_id)

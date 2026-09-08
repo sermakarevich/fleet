@@ -9,7 +9,9 @@ RUN_JSON = "run.json"
 EVENTS_JSONL = "events.jsonl"
 ATTEMPTS_JSONL = "attempts.jsonl"
 KILL_MARKER = ".kill"
-WORKTREE_MARKER = ".worktree"
+# NOTE: the bare `.worktree` marker is gone. Isolation state lives in
+# task.json as repo_root/base_ref/worktree_path (see beads/queue.py::
+# set_isolation_info). Readers keep a legacy fallback for old task dirs.
 # Written by workers/llm_session.py when peak context crosses the checkpoint
 # threshold; read by the claude PostToolUse hook to nudge the model to wrap
 # up. One-shot per attempt (the hook adds .checkpoint_sent after firing).

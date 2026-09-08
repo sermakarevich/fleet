@@ -552,6 +552,8 @@ directly in the file.
 | `context_checkpoint_pct` | `75` | Peak-context percent at which the runner writes `.checkpoint_requested` so the model wraps up early. |
 | `context_kill_pct` | `90` | Peak-context percent at which the runner kills the session and reports `CONTEXT_PRESSURE`. |
 | `context_windows` | `""` | Per-model context windows as comma-separated `model:tokens` pairs, e.g. `muse-spark-1.3-contributor:1048576`. The one denominator for the context-usage display and the checkpoint/kill thresholds, shared by supervisor and UI. Empty string uses the built-in table in `core/context_window.py`. |
+| `isolation` | `"worktree"` | Git worktree isolation mode: `"worktree"` runs tasks whose cwd is inside a git repo in `$FLEET_HOME/worktrees/<repo>-<task_id>` on branch `fleet/<task_id>`; `"none"` runs everything in place. Per-task opt-out: `fleet bd create --isolation none`. |
+| `post_merge_command` | `""` | Shell command run in the repo root after a clean merge (10-minute timeout). Empty skips the step. Fleet's own repo sets `make ui-build` via config. On failure the bead blocks with the last 40 lines of output. |
 
 ---
 

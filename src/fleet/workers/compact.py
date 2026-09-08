@@ -80,6 +80,14 @@ def _git_lines(workdir: Path | None, args: list[str], limit: int) -> list[str]:
 
 
 def _resolve_workdir(ctx: StepContext) -> Path | None:
+    try:
+        import json
+
+        meta = json.loads((ctx.task_dir / "task.json").read_text(encoding="utf-8"))
+        if isinstance(meta, dict) and meta.get("worktree_path"):
+            return Path(meta["worktree_path"])
+    except (OSError, ValueError):
+        pass
     wt_marker = ctx.task_dir / ".worktree"
     if wt_marker.exists():
         try:

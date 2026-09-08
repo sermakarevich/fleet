@@ -164,6 +164,8 @@ src/fleet/ui/src/
 ```
 $FLEET_HOME/tasks/<id>/
    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
+                      # + isolation opt-out (isolation) and, when isolated,
+                      # repo_root, base_ref, worktree_path (replaces the old .worktree marker)
   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
    attempts/<n>/      # n = attempt number from state.attempts.record_start
       run.json         # pid, pgid, host, supervisor_pid, started_at, worker name,
@@ -178,8 +180,8 @@ $FLEET_HOME/tasks/<id>/
      .checkpoint_requested  # touched by workers/llm_session.py past the checkpoint threshold
      .checkpoint_sent       # touched by the claude PostToolUse hook after firing once
      .compacted             # touched by the claude PreCompact hook (CLI-side auto-compaction)
-  .needs_validation .kill .worktree
-  artifacts/
+   .needs_validation .kill
+   artifacts/
     RESULT.json      # worker's declared outcome for the last attempt
     RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
     PLAN.md          # restatement + plan; written once, updated rarely
@@ -197,8 +199,8 @@ places allowed to build these paths; everyone else (stall, orphans,
 cli `--log`/`--stderr`, the websocket tail) calls those helpers instead
 of hardcoding "the latest attempt". `state/events.py::iter_events`
 still reads across every attempt, oldest first, so history spans the
-  whole task. `.kill` and `.worktree` stay at the task
-  directory root (they gate the *next* spawn, not one attempt).
+  whole task. `.kill` stays at the task
+  directory root (it gates the *next* spawn, not one attempt).
   Context-pressure state is outcome-driven from `attempts.jsonl`
   (`outcome=context_pressure`); there is no `.context_pressure` marker file.
 The RESULT.json schema and what fleet does with each `status` value are

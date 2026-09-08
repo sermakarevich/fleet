@@ -13,6 +13,19 @@ _INSTRUCTION_COMMON_PATH = _TEMPLATES_DIR / "INSTRUCTION_COMMON.md"
 _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 
+def _is_isolated(task_dir: Path) -> bool:
+    """True when task.json carries worktree isolation info (legacy marker fallback)."""
+    try:
+        import json
+
+        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+        if isinstance(meta, dict) and meta.get("worktree_path"):
+            return True
+    except (OSError, ValueError):
+        pass
+    return (task_dir / ".worktree").exists()
+
+
 def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
     """Build the one prompt every coder sends: header + pack + mode instructions.
 
@@ -50,7 +63,7 @@ def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
         parts.append(pack)
     parts.append(mode_instructions)
     parts.append(common_instructions)
-    if (task_dir / ".worktree").exists():
+    if _is_isolated(task_dir):
         parts.append(_ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip())
 
     return "\n\n---\n\n".join(parts)

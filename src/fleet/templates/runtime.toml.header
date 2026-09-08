@@ -51,3 +51,16 @@
 #
 # context_kill_pct: Peak-context percent at which the runner kills the
 #   session and reports CONTEXT_PRESSURE. Defaults to 90.
+#
+# isolation: Git worktree isolation mode: "worktree" (default) or "none".
+#   "worktree" runs tasks whose cwd is inside a git repo in an isolated
+#   worktree at $FLEET_HOME/worktrees/<repo>-<task_id> on branch
+#   fleet/<task_id>; tasks outside a repo always run in place.
+#   Set via: fleet config set isolation=none
+#
+# post_merge_command: Shell command run in the repo root after a worktree
+#   branch merges cleanly into its base branch (10-minute timeout).
+#   Empty string (default) skips the step. A repo that needs a build gate
+#   (e.g. fleet itself) sets e.g. "make ui-build" via config, not code.
+#   On failure the bead blocks with the command's last 40 lines of output.
+#   Set via: fleet config set post_merge_command="make ui-build"

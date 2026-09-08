@@ -86,30 +86,116 @@ def lease_is_stale(lease_until: datetime | None, now: datetime | None = None) ->
     return (at - lease_until).total_seconds() > HEARTBEAT_SEC
 
 
+def _remove_orphan_dir(path) -> None:
+    """Remove one orphan worktree dir, git-aware when possible.
+
+    Prefers `git worktree remove` via the worktree's own common dir so the
+    admin metadata is cleaned; falls back to a plain recursive delete when
+    the repo is gone (best effort, never raises).
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path as _Path
+
+    target = _Path(path)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            common = _Path(result.stdout.strip())
+            repo = common if common.is_absolute() else (target / common)
+            rm = subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", str(target)],
+                capture_output=True,
+                text=True,
+            )
+            if rm.returncode == 0:
+                return
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        shutil.rmtree(target, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _task_names(tasks_root) -> list[str]:
+    """Task dir names under *tasks_root* (best effort, never raises)."""
+    try:
+        if tasks_root.is_dir():
+            return [p.name for p in tasks_root.iterdir() if p.is_dir()]
+    except OSError:
+        pass
+    return []
+
+
 class LeasesMixin:
     def _sweep_orphan_worktrees(self) -> None:
         """Remove worktrees with no corresponding active task (startup sweep)."""
-        worktrees_dir = worktree.worktree_path("")
+        from pathlib import Path as _Path
+
+        from fleet.state.paths import tasks_root as _tasks_root
+
+        worktrees_dir = worktree.worktrees_root(self._project_root)
         if not worktrees_dir.is_dir():
             return
+        tasks_root = _tasks_root(self._project_root)
+        names = _task_names(tasks_root)
 
-        fleet_home = worktrees_dir.parent
+        # Worktree dirs still in use: every task.json worktree_path. Tasks
+        # awaiting validation keep their dirs via the same rule (their
+        # task.json still points at the worktree until the merge lands).
+        live: set[str] = set()
+        for task_dir in [tasks_root / n for n in names]:
+            try:
+                import json as _json
+
+                meta = _json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                meta = {}
+            wt = meta.get("worktree_path") if isinstance(meta, dict) else None
+            if wt:
+                try:
+                    live.add(str(_Path(wt).resolve()))
+                except OSError:
+                    pass
 
         for worktree_dir in worktrees_dir.iterdir():
             if not worktree_dir.is_dir():
                 continue
-
+            try:
+                resolved = str(worktree_dir.resolve())
+            except OSError:
+                continue
+            if resolved in live:
+                continue
+            # Name-based keep: legacy dirs named exactly <task_id>, and new
+            # <repo>-<task_id> dirs, survive while validating or in flight.
+            # The repo prefix is unknown here, so a "<repo>-<task>" dir
+            # matches task "<task>" by suffix.
             task_id = worktree_dir.name
-
-            if task_id in self.in_flight:
+            matched = [
+                n for n in names if task_id == n or task_id.endswith(f"-{n}")
+            ]
+            keep = any(
+                task_id == tid or task_id.endswith(f"-{tid}")
+                for tid in self.in_flight
+            )
+            if not keep:
+                for cand in [task_id, *matched]:
+                    try:
+                        if needs_validation(_task_dir(self._project_root, cand)):
+                            keep = True
+                            break
+                    except OSError:
+                        continue
+            if keep:
                 continue
-
-            task_dir = _task_dir(fleet_home, task_id)
-            if needs_validation(task_dir):
-                continue
-
             self._log.info("worktree.sweep.removed", task_id=task_id)
-            worktree.remove_worktree(self._project_root, task_id)
+            _remove_orphan_dir(worktree_dir)
 
     def _log_lease_once(self, event: str, task_id: str, **fields) -> None:
         """Log a recurring lease notice only the first time per task."""

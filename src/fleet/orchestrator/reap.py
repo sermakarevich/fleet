@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +22,53 @@ from fleet.state.validation_marker import set_needs_validation
 from . import worktree
 
 _STALE_COUNTER_FILES = (".failures", ".noclose", ".stalls")
+
+
+def _read_isolation_info(task_dir: Path) -> dict | None:
+    """Read repo_root/base_ref/worktree_path from task.json, or None.
+
+    Falls back to the legacy `.worktree` marker (worktree path only) for
+    task dirs written before the task.json contract.
+    """
+    try:
+        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    if isinstance(meta, dict):
+        repo_root = meta.get("repo_root")
+        base_ref = meta.get("base_ref")
+        worktree_path = meta.get("worktree_path")
+        if repo_root and base_ref and worktree_path:
+            return {
+                "repo_root": repo_root,
+                "base_ref": base_ref,
+                "worktree_path": worktree_path,
+            }
+    try:
+        marker = task_dir / ".worktree"
+        if marker.exists():
+            text = marker.read_text(encoding="utf-8").strip()
+            if text:
+                meta_base = meta.get("base_ref") if isinstance(meta, dict) else None
+                meta_repo = meta.get("repo_root") if isinstance(meta, dict) else None
+                return {
+                    "repo_root": meta_repo or "",
+                    "base_ref": meta_base or "main",
+                    "worktree_path": text,
+                }
+    except OSError:
+        pass
+    return None
+
+
+def _resolve_workdir(task: Task, task_dir: Path) -> Path | None:
+    """Best-effort workdir for summaries: isolated worktree, else task.cwd."""
+    info = _read_isolation_info(task_dir)
+    if info and info.get("worktree_path"):
+        return Path(info["worktree_path"])
+    if task.cwd:
+        return Path(task.cwd)
+    return None
 
 
 def _drop_stale_counter_files(task_dir: Path) -> None:
@@ -122,21 +170,34 @@ class ReapMixin:
         )
 
     def _maybe_handle_isolated_success(
-        self, task: Task, task_dir: Path, record: TaskOutcomeRecord, bead_status: str | None
+        self,
+        task: Task,
+        task_dir: Path,
+        record: TaskOutcomeRecord,
+        bead_status: str | None,
+        result: Result | None = None,
     ) -> Decision | None:
         """Handle a SUCCESS exit for an isolated (worktree) task.
 
         Requires reading git state, so it cannot live in the pure policy.
         Returns a Decision when it handled the outcome, else None.
+
+        Isolated tasks need validation only when the worker declared
+        RESULT.json status=done AND the worktree is clean and ahead of base.
+        Anything else falls through to the normal retry policy (non-git
+        tasks behave identically except there is never a merge step).
         """
         if record.outcome != TaskOutcome.SUCCESS or bead_status != "in_progress":
             return None
-        wt_marker = task_dir / ".worktree"
-        if not wt_marker.exists():
+        info = _read_isolation_info(task_dir)
+        if info is None:
+            return None
+        if result is None or result.status != "done":
             return None
 
-        wt_path = Path(wt_marker.read_text().strip())
-        if worktree.is_committed_clean(wt_path, base_ref="main"):
+        wt_path = Path(info["worktree_path"])
+        base_ref = info.get("base_ref") or "main"
+        if worktree.is_committed_clean(wt_path, base_ref=base_ref):
             set_needs_validation(task_dir)
             self._log.info("task.needs_validation", task_id=task.id)
             return Decision(Action.NOOP, reason="needs validation")
@@ -324,15 +385,7 @@ class ReapMixin:
                     "attempt_snapshot_failed", task_id=task.id, file="HANDOFF.md", error=str(exc)
                 )
 
-        workdir: Path | None = None
-        wt_marker = task_dir / ".worktree"
-        if wt_marker.exists():
-            try:
-                workdir = Path(wt_marker.read_text(encoding="utf-8").strip())
-            except OSError:
-                workdir = None
-        elif task.cwd:
-            workdir = Path(task.cwd)
+        workdir = _resolve_workdir(task, task_dir)
 
         try:
             write_summary(task_dir, n, workdir)
@@ -348,7 +401,9 @@ class ReapMixin:
 
         result = self._read_declared_result(task_dir)
 
-        decision = self._maybe_handle_isolated_success(task, task_dir, outcome, bead_status)
+        decision = self._maybe_handle_isolated_success(
+            task, task_dir, outcome, bead_status, result
+        )
         record = outcome
         if decision is None:
             if record.outcome == TaskOutcome.SUCCESS and bead_status == "blocked":

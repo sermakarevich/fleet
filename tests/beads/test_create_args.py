@@ -10,7 +10,13 @@ from fleet.beads.create_args import rewrite_create_argv
 def test_no_overrides_passthrough_unchanged() -> None:
     argv, meta = rewrite_create_argv(["create", "Title"], "/cwd")
     assert argv == ["create", "Title"]
-    assert meta == {"coder": None, "model": None, "worker": None, "cwd": "/cwd"}
+    assert meta == {
+        "coder": None,
+        "model": None,
+        "worker": None,
+        "cwd": "/cwd",
+        "isolation": None,
+    }
 
 
 def test_extracts_coder_model_cwd_into_metadata() -> None:
@@ -21,7 +27,13 @@ def test_extracts_coder_model_cwd_into_metadata() -> None:
     assert "--coder" not in argv
     assert "--model" not in argv
     assert "--cwd" not in argv
-    assert meta == {"coder": "claude", "model": "sonnet", "worker": None, "cwd": "/custom"}
+    assert meta == {
+        "coder": "claude",
+        "model": "sonnet",
+        "worker": None,
+        "cwd": "/custom",
+        "isolation": None,
+    }
     idx = argv.index("--metadata")
     metadata = json.loads(argv[idx + 1])
     assert metadata == {"fleet_coder": "claude", "fleet_model": "sonnet", "fleet_cwd": "/custom"}
@@ -37,6 +49,18 @@ def test_extracts_worker_into_metadata() -> None:
     idx = argv.index("--metadata")
     metadata = json.loads(argv[idx + 1])
     assert metadata == {"fleet_worker": "task.fresh"}
+
+
+def test_extracts_isolation_opt_out_into_metadata() -> None:
+    argv, meta = rewrite_create_argv(
+        ["create", "Title", "--isolation", "none"],
+        "/cwd",
+    )
+    assert "--isolation" not in argv
+    assert meta["isolation"] == "none"
+    idx = argv.index("--metadata")
+    metadata = json.loads(argv[idx + 1])
+    assert metadata == {"fleet_isolation": "none"}
 
 
 def test_falls_back_to_cwd_when_no_override() -> None:
@@ -58,3 +82,8 @@ def test_merges_with_existing_metadata() -> None:
 def test_unknown_coder_raises_value_error() -> None:
     with pytest.raises(ValueError):
         rewrite_create_argv(["create", "Title", "--coder", "no-such-coder"], "/cwd")
+
+
+def test_unknown_isolation_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="isolation"):
+        rewrite_create_argv(["create", "Title", "--isolation", "docker"], "/cwd")

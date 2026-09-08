@@ -67,6 +67,21 @@ class SpawnMixin:
         self._queue.set_blocked(task.id, reason)
         self._queue.comment(task.id, f"[fleet] {reason}.")
 
+    def _should_isolate(self, task: Task, repo_root: Path | None) -> bool:
+        """True when a git task should run in an isolated worktree.
+
+        Non-git tasks (repo_root None) never isolate. Isolation also stays
+        off when the global `isolation` config is "none" or the bead opted
+        out via `fleet_isolation: "none"` metadata.
+        """
+        if repo_root is None:
+            return False
+        if getattr(self.config, "isolation", "worktree") == "none":
+            return False
+        if (task.isolation or "") == "none":
+            return False
+        return True
+
     def _spawn_worker(self, task: Task) -> None:
         # Purge any stale .kill sentinel from a previous run before registering
         # the runner — the kill_poll_loop only checks self._runners, so clearing
@@ -77,21 +92,13 @@ class SpawnMixin:
         if task.cwd is not None and not Path(task.cwd).is_dir():
             self._block_terminal(task, f"terminal: cwd is not a directory: {task.cwd}")
             return
-        use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(base_cwd)
-        if use_worktree:
-            task_root = worktree.create_worktree(self._project_root, task.id, base_ref="main")
-            task_dir = self._task_dir_for(task)
-            task_dir.mkdir(parents=True, exist_ok=True)
-            (task_dir / ".worktree").write_text(str(task_root))
-        else:
-            task_root = base_cwd
         if task.cwd is None:
             # Coding agents almost never mean to run in fleet's home; a
             # missing cwd usually means task.json lost the field.
             self._log.warning(
                 "task_cwd_missing",
                 task_id=task.id,
-                fallback_root=str(task_root),
+                fallback_root=str(base_cwd),
             )
         try:
             coder, coder_name, model = self._resolve_coder(task)
@@ -100,7 +107,8 @@ class SpawnMixin:
             # task.coder override, or runtime.toml hand-edited to an invalid
             # value mid-run. claim_next has already flipped the task to
             # in_progress. This is terminal (retry cannot help): journal it
-            # and block at once.
+            # and block at once. Resolved FIRST so an invalid coder never
+            # leaves a stray worktree behind.
             self._block_terminal(task, f"terminal: invalid coder: {exc}")
             return
         if self._coder_pin is None:
@@ -113,6 +121,31 @@ class SpawnMixin:
             coder=coder_name,
             model=model,
         )
+
+        # Git-aware isolation: inside a repo -> worktree; outside -> in place.
+        repo_root = worktree.detect_repo_root(base_cwd)
+        task_root = base_cwd
+        if self._should_isolate(task, repo_root):
+            assert repo_root is not None
+            base_ref = worktree.resolve_base_ref(repo_root)
+            try:
+                task_root = worktree.create_worktree(
+                    repo_root,
+                    task.id,
+                    base_ref=base_ref,
+                    fleet_home=self._project_root,
+                )
+            except Exception as exc:
+                self._block_terminal(task, f"terminal: worktree setup failed: {exc}")
+                return
+            try:
+                self._queue.set_isolation_info(
+                    task.id, str(repo_root), base_ref, str(task_root)
+                )
+            except Exception as exc:
+                self._log.warning(
+                    "isolation_info_write_failed", task_id=task.id, error=str(exc)
+                )
 
         task_dir = self._task_dir_for(task)
         attempt_n = attempts.record_start(task_dir, coder=coder_name, model=model, worker=None)

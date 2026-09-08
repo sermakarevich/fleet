@@ -34,6 +34,8 @@ class RuntimeConfig:
     compaction_model: str = "haiku"
     context_checkpoint_pct: int = 75
     context_kill_pct: int = 90
+    isolation: str = "worktree"
+    post_merge_command: str = ""
 
 
 _KEY_TYPES: dict[str, type] = {
@@ -97,6 +99,14 @@ def _warn_deprecated(data: dict) -> None:
         )
 
 
+def _validate_isolation(value: object) -> None:
+    """Raise ValueError when `isolation` is not a known mode."""
+    if value not in ("worktree", "none"):
+        raise ValueError(
+            f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'"
+        )
+
+
 def _parse(data: dict) -> RuntimeConfig:
     """Overlay TOML data onto defaults; ignore unknown keys."""
     _warn_deprecated(data)
@@ -104,6 +114,7 @@ def _parse(data: dict) -> RuntimeConfig:
     for k, v in data.items():
         if k in _KEY_TYPES:
             merged[k] = _coerce(k, v)
+    _validate_isolation(merged.get("isolation"))
     return RuntimeConfig(**merged)
 
 
@@ -145,6 +156,9 @@ def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
         from fleet.coders import get_coder
 
         get_coder(updates["coder"])  # raises ValueError on unknown coder name
+
+    if "isolation" in updates:
+        _validate_isolation(_coerce("isolation", updates["isolation"]))
 
     # Load existing or start from defaults
     if path.exists():

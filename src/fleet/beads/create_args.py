@@ -1,10 +1,10 @@
 """Rewriting for `bd create` / `bd new` argv before it is forwarded to `bd`.
 
-`fleet bd create` intercepts `--coder`, `--model`, `--worker`, and `--cwd`
-instead of forwarding them to `bd` — they become per-task overrides embedded
-in `bd`'s own `--metadata`, so they land atomically with `bd create` before
-the bead can ever be claimed by the supervisor. See `queue.py`'s
-`_task_from_dict` for the read side.
+`fleet bd create` intercepts `--coder`, `--model`, `--worker`, `--cwd`, and
+`--isolation` instead of forwarding them to `bd` — they become per-task
+overrides embedded in `bd`'s own `--metadata`, so they land atomically with
+`bd create` before the bead can ever be claimed by the supervisor. See
+`queue.py`'s `_task_from_dict` for the read side.
 """
 
 from __future__ import annotations
@@ -48,20 +48,34 @@ def rewrite_create_argv(
     """Rewrite a `bd create`/`bd new` argv tail, extracting --coder/--model/--cwd.
 
     `--cwd` overrides *cwd* (normally the shell's cwd at invocation time) as
-    the task's working directory. Returns (new_argv, meta) where meta has keys
-    "coder", "model", "worker", "cwd" (cwd always set; the rest are None
-    unless overridden). Raises ValueError if `--coder` names an unknown coder.
+    the task's working directory. `--isolation none` opts the task out of
+    git worktree isolation (stored as bd metadata `fleet_isolation`). Returns
+    (new_argv, meta) where meta has keys "coder", "model", "worker", "cwd",
+    "isolation" (cwd always set; the rest are None unless overridden).
+    Raises ValueError if `--coder` names an unknown coder or `--isolation`
+    names an unknown mode.
     """
     argv, coder = _extract_flag(argv, "--coder")
     argv, model = _extract_flag(argv, "--model")
     argv, worker = _extract_flag(argv, "--worker")
     argv, cwd_override = _extract_flag(argv, "--cwd")
+    argv, isolation = _extract_flag(argv, "--isolation")
     if coder is not None:
         get_coder(coder)  # raises ValueError on an unknown coder name
+    if isolation is not None and isolation not in ("worktree", "none"):
+        raise ValueError(
+            f"Unknown isolation mode {isolation!r}: expected 'worktree' or 'none'"
+        )
 
     resolved_cwd = cwd_override if cwd_override is not None else cwd
 
-    if coder is not None or model is not None or worker is not None or cwd_override is not None:
+    if (
+        coder is not None
+        or model is not None
+        or worker is not None
+        or cwd_override is not None
+        or isolation is not None
+    ):
         argv, existing_metadata_raw = _extract_flag(argv, "--metadata")
         try:
             metadata = json.loads(existing_metadata_raw) if existing_metadata_raw else {}
@@ -75,6 +89,14 @@ def rewrite_create_argv(
             metadata["fleet_worker"] = worker
         if cwd_override is not None:
             metadata["fleet_cwd"] = cwd_override
+        if isolation is not None:
+            metadata["fleet_isolation"] = isolation
         argv += ["--metadata", json.dumps(metadata)]
 
-    return argv, {"coder": coder, "model": model, "worker": worker, "cwd": resolved_cwd}
+    return argv, {
+        "coder": coder,
+        "model": model,
+        "worker": worker,
+        "cwd": resolved_cwd,
+        "isolation": isolation,
+    }

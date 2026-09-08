@@ -100,6 +100,27 @@ Independent of RESULT.json:
   block`) rather than declaring `status=blocked`, fleet does not call
   `set_blocked` again — that path already changed bead state itself.
 
+## Isolation
+
+Git-aware worktree isolation, decided at spawn (`orchestrator/spawn.py`):
+
+- **Non-git task** — `task.cwd` is not inside a git repo (`git rev-parse
+  --show-toplevel` fails). The worker runs in place in `task.cwd`; there is
+  no worktree and no merge step. Outcome handling is otherwise identical
+  (`RESULT.json` `status=done` still closes the bead).
+- **Isolated task** — cwd is inside a repo, `config.isolation="worktree"`
+  (default), and the bead did not opt out. The worker runs in
+  `$FLEET_HOME/worktrees/<repo>-<task_id>` on branch `fleet/<task_id>`,
+  forked from the repo's default branch (`origin/HEAD` → current branch →
+  `main`). `repo_root`/`base_ref`/`worktree_path` are stored in `task.json`.
+  The worker commits everything to its branch, declares `status=done`, and
+  exits; fleet merges (fast-forward, else `--no-ff`) into `base_ref` and
+  runs `config.post_merge_command` before closing. The prompt gains
+  `templates/ISOLATED_PROTOCOL.md`.
+- **Opted-out task** — the bead carries `fleet_isolation: "none"` metadata
+  (`fleet bd create --isolation none`) or `config.isolation="none"`. Runs
+  in place like a non-git task even though the cwd is in a repo.
+
 ## Where the pieces live
 
 - `core/result.py` — `Result` dataclass, `parse_result(text) -> Result | None`. Pure, no I/O.

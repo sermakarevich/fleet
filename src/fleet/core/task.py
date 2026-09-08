@@ -23,6 +23,14 @@ class Task:
     max_attempt_minutes: int | None = None
     # ISO timestamp: claim_next must skip this task while now < retry_after.
     retry_after: str | None = None
+    # Isolation opt-out (bd metadata fleet_isolation). "none" disables the
+    # worktree even when config.isolation="worktree"; None means "no override".
+    isolation: str | None = None
+    # Git isolation info, mirrored from task.json (queue.set_isolation_info).
+    # None when the task is not isolated (non-git cwd or opted out).
+    repo_root: str | None = None
+    base_ref: str | None = None
+    worktree_path: str | None = None
 
 
 EventKind = Literal[
