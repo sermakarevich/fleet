@@ -196,6 +196,49 @@ def record_end(
         f.write(json.dumps(entry) + "\n")
 
 
+def set_worker(task_dir: Path, n: int, worker: str) -> None:
+    """Tag attempt *n*'s start line with the worker name that ran it.
+
+    Spawn records the start before the worker is planned, so it calls this
+    right after `workers.select_worker`. Best effort: a missing file or a
+    missing start line is a no-op. The journal is rewritten atomically so
+    concurrent readers never see a half-written file.
+    """
+    path = _attempts_path(task_dir)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    changed = False
+    out_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        try:
+            obj = json.loads(stripped) if stripped else None
+        except (ValueError, json.JSONDecodeError):
+            obj = None
+        if (
+            isinstance(obj, dict)
+            and obj.get("event") == "start"
+            and obj.get("n") == n
+        ):
+            obj["worker"] = worker
+            line = json.dumps(obj)
+            changed = True
+        out_lines.append(line)
+    if not changed:
+        return
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def record_unblock(task_dir: Path, note: str | None = None) -> int:
     """Append an "unblock" row: an operator released a blocked task.
 

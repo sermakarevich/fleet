@@ -24,6 +24,9 @@ class Result:
     open_questions: list[str] = field(default_factory=list)
     next_step: str = ""
     blocked_reason: str = ""
+    # Observer-declared follow-up beads (status=partial only):
+    # [{title, body, cwd, depends_on}] — validated by core/job_plan.
+    followups: list[dict] = field(default_factory=list)
 
 
 def parse_result(text: str) -> Result | None:
@@ -45,6 +48,7 @@ def parse_result(text: str) -> Result | None:
     commits = data.get("commits") or []
     open_questions = data.get("open_questions") or []
     tests = data.get("tests")
+    followups = data.get("followups") or []
     return Result(
         schema=data.get("schema", SCHEMA_VERSION),
         status=status,
@@ -56,4 +60,7 @@ def parse_result(text: str) -> Result | None:
         else [],
         next_step=str(data.get("next_step") or ""),
         blocked_reason=str(data.get("blocked_reason") or ""),
+        followups=[f for f in followups]
+        if isinstance(followups, list)
+        else [],
     )

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fleet.core import retry_policy
+from fleet.core.job_plan import observer_rounds
 from fleet.core.result import Result, parse_result
 from fleet.core.retry_policy import (
     CONTEXT_MAX_ROUNDS,
@@ -314,6 +315,18 @@ class ReapMixin:
 
         # RELEASE (possibly with a wait_sec delay stored as task.json retry_after).
         wait_sec = decision.wait_sec or 0
+        if outcome == TaskOutcome.WAITING:
+            # The observer woke early: release silently (no bead comment, no
+            # round counting — retry_policy skips waiting rows in streaks).
+            # The wait_sec delay keeps the epic from hot-looping through claim.
+            self._queue.release(task.id, reason="", wait_sec=wait_sec)
+            self._log.info(
+                "worker_waiting",
+                task_id=task.id,
+                reason=decision.reason,
+                **fleet_ctx,
+            )
+            return
         if outcome == TaskOutcome.RATE_LIMIT:
             self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
             now = datetime.now(tz=UTC)
@@ -425,6 +438,41 @@ class ReapMixin:
         except OSError as exc:
             self._log.warning("attempt_summary_failed", task_id=task.id, error=str(exc))
 
+    def _is_observer_run(self, task: Task, history: list[dict]) -> bool:
+        """True when this attempt ran the observer worker (epic validation).
+
+        Epic beads only ever run the observer family, so bead type decides;
+        otherwise the worker name spawn tagged onto the current attempt's
+        start line decides.
+        """
+        if (task.type or "") == "epic":
+            return True
+        if history and str(history[-1].get("worker") or "").startswith("observer"):
+            return True
+        return False
+
+    def _observer_cap_decision(
+        self,
+        task: Task,
+        task_dir: Path,
+        record: TaskOutcomeRecord,
+        history: list[dict],
+    ) -> Decision | None:
+        """BLOCK an epic past its observer follow-up rounds, else None.
+
+        *history* holds prior attempts (the current one has a start line but
+        no end line yet), so the attempt that just ended partial counts +1.
+        """
+        if record.outcome != TaskOutcome.PARTIAL:
+            return None
+        if not self._is_observer_run(task, history):
+            return None
+        max_rounds = getattr(self.config, "observer_max_rounds", 3)
+        rounds = observer_rounds(history) + 1
+        if rounds >= max_rounds:
+            return Decision(Action.BLOCK, reason="observer exhausted; needs human review")
+        return None
+
     def _handle_outcome(
         self, task: Task, outcome: TaskOutcomeRecord, attempt_n: int | None = None
     ) -> None:
@@ -448,7 +496,9 @@ class ReapMixin:
             elif record.outcome == TaskOutcome.SUCCESS and result is not None:
                 record = self._fold_declared_result(record, result)
             history = attempts.load_attempts(task_dir)
-            decision = retry_policy.decide(record, history, bead_status, self.config)
+            decision = self._observer_cap_decision(task, task_dir, record, history)
+            if decision is None:
+                decision = retry_policy.decide(record, history, bead_status, self.config)
             self._apply_decision(
                 task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
             )

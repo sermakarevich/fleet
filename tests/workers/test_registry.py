@@ -53,9 +53,10 @@ def test_unknown_family_raises_value_error(tmp_path: Path) -> None:
         select_worker(task, ctx)
 
 
-def test_epic_type_raises_until_observer_worker_exists(tmp_path: Path) -> None:
+def test_epic_type_routes_to_observer_family(tmp_path: Path) -> None:
     task = Task(id="t-001", title="t", description=None, status="in_progress", type="epic")
     ctx = _ctx(tmp_path)
 
-    with pytest.raises(ValueError, match="observer"):
-        select_worker(task, ctx)
+    worker = select_worker(task, ctx)
+
+    assert worker.name == "observer"

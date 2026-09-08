@@ -16,6 +16,7 @@ from fleet.beads.client import BeadsError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
+from fleet.core.result import parse_result
 from fleet.observability.daemon import _pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
@@ -246,6 +247,53 @@ def create_tasks_router() -> APIRouter:
         data = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         summary = build_task_summary(task_dir, data, home)
         return JSONResponse({"attempts": summary["attempts"]})
+
+    @router.get("/tasks/{task_id}/children")
+    async def get_task_children(task_id: str) -> JSONResponse:
+        """Children panel for epics: child id/status/RESULT plus CHILDREN.md."""
+        home = get_fleet_home()
+        task_dir = _task_dir(home, task_id)
+        if not (task_dir / "task.json").exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        try:
+            deps = await asyncio.to_thread(beads_client.children_of, task_id, home)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        children: list[dict] = []
+        for dep in deps:
+            if not isinstance(dep, dict) or not dep.get("id"):
+                continue
+            cid = str(dep["id"])
+            result_status: str | None = None
+            result_summary: str | None = None
+            try:
+                text = (_task_dir(home, cid) / "artifacts" / "RESULT.json").read_text(
+                    encoding="utf-8"
+                )
+            except OSError:
+                text = ""
+            if text:
+                parsed = parse_result(text)
+                if parsed is not None:
+                    result_status = parsed.status
+                    result_summary = parsed.summary
+            children.append(
+                {
+                    "id": cid,
+                    "title": dep.get("title"),
+                    "status": dep.get("status"),
+                    "result_status": result_status,
+                    "result_summary": result_summary,
+                }
+            )
+        children_md: str | None = None
+        digest_file = task_dir / "artifacts" / "CHILDREN.md"
+        if digest_file.exists():
+            try:
+                children_md = digest_file.read_text(encoding="utf-8")
+            except OSError:
+                children_md = None
+        return JSONResponse({"children": children, "children_md": children_md})
 
     @router.get("/tasks/{task_id}/attempts/{n}/summary")
     async def get_attempt_summary(task_id: str, n: int) -> JSONResponse:

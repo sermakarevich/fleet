@@ -12,6 +12,7 @@ import type {
   SearchResult,
   StreamEvent,
   SupervisorStatus,
+  TaskChildren,
   TaskDetail,
   TaskSummary,
   Template,
@@ -71,6 +72,10 @@ export const api = {
 
   getTask(id: string): Promise<TaskDetail> {
     return request(`/api/tasks/${id}`);
+  },
+
+  getTaskChildren(id: string): Promise<TaskChildren> {
+    return request(`/api/tasks/${id}/children`);
   },
 
   killTask(id: string): Promise<{ ok: boolean; result: string }> {

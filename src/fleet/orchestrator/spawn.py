@@ -174,6 +174,10 @@ class SpawnMixin:
             # unroutable bead type. Terminal: journal it and block at once.
             self._block_terminal(task, f"terminal: invalid worker: {exc}")
             return
+        try:
+            attempts.set_worker(task_dir, attempt_n, worker.name)
+        except OSError:
+            pass
 
         run = WorkerRun(worker, ctx)
         async_task = asyncio.create_task(run.run(), name=f"worker:{task.id}")

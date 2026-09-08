@@ -74,6 +74,9 @@ class TaskOutcome(Enum):
     KILLED = "killed"
     PARTIAL = "partial"
     TERMINAL = "terminal"
+    # The observer worker woke before its epic's children were all
+    # terminal: release the bead at once, count nothing, comment nothing.
+    WAITING = "waiting"
 
 
 @dataclass

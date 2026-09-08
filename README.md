@@ -191,6 +191,20 @@ show an "ignored" badge in the Tasks table with an Unignore button
 (`POST /api/tasks/{id}/unignore`, `fleet tasks --ignored` lists them);
 unblocking or re-blocking a bead clears the ignore.
 
+### Epics are validated automatically
+
+Beads of type `epic` are runnable: once every child bead is `closed` or
+`blocked` (a `blocked` child never unblocks `bd ready`, so the supervisor
+also scans open epics itself), the observer worker claims the epic,
+digests the children into `artifacts/CHILDREN.md`, and validates the whole
+job against the epic goal — running the test suite, not re-reading child
+logs. A met goal closes the epic; missing work opens follow-up child beads
+(up to `observer_max_followups` per round, `observer_max_rounds` rounds
+before the epic blocks for human review) and the epic sleeps until they
+close. The task detail **Children** tab shows each child with its RESULT
+status plus the digest. While children still run, the observer releases
+the epic immediately (outcome `waiting`: no comment, no retry counting).
+
 ---
 
 ## First-run setup

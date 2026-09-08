@@ -86,3 +86,36 @@ def update(task_id: str, cwd: Path, *, actor: str | None = None, **fields: Any) 
 
 def comment(task_id: str, text: str, cwd: Path) -> None:
     run(["comment", task_id, text], cwd=cwd)
+
+
+# Dependency relations that make a bead an epic's *child*: the epic is
+# blocked until these close. `bd show <epic>` lists them under
+# "dependencies" (same query as `show()` above). When bd reports a relation
+# type, only these two count; when it doesn't, every dependency counts.
+_CHILD_RELATIONS = frozenset({"blocks", "depends_on"})
+
+
+def children_of(epic_id: str, cwd: Path) -> list[dict]:
+    """Return the epic's child beads as [{id, status, title, ...}].
+
+    A child is one of the epic's dependencies (``bd dep add <epic> <child>``
+    means the epic waits for the child). Each entry carries whatever `bd
+    show` reported (status, title, close_reason when present); entries
+    without an id are skipped.
+    """
+    body = show(epic_id, cwd)
+    if not isinstance(body, dict):
+        return []
+    deps = body.get("dependencies") or []
+    children: list[dict] = []
+    for dep in deps:
+        if not isinstance(dep, dict):
+            continue
+        dep_id = dep.get("id")
+        if not dep_id:
+            continue
+        relation = dep.get("dependency_type") or dep.get("type")
+        if relation is not None and relation not in _CHILD_RELATIONS:
+            continue
+        children.append(dep)
+    return children
