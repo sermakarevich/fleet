@@ -158,7 +158,16 @@ export const styles = {
     fontSize: '0.7rem',
     fontWeight: 600,
     whiteSpace: 'nowrap' as const,
-    width: 'fit-content',
+  } as React.CSSProperties,
+  ignoredBadge: {
+    display: 'inline-block',
+    padding: '0.05rem 0.4rem',
+    borderRadius: 4,
+    border: '1px solid #94a3b8',
+    color: '#94a3b8',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   coderCell: {
     width: '9rem',

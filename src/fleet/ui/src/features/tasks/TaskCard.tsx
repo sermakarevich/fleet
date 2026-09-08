@@ -1,4 +1,4 @@
-import { useUnblockTask } from '../../shared/hooks/useApi';
+import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
 import { fmtTs } from '../../shared/format';
 import { chipFor } from './statusChip';
 import { styles, cardStyles } from './itemStyles';
@@ -13,6 +13,7 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
   const isBlocked = task.status === 'blocked';
   const unblockTask = useUnblockTask();
+  const unignoreTask = useUnignoreTask();
 
   return (
     <div
@@ -29,6 +30,9 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
         <span style={cardStyles.cardActions} onClick={e => e.stopPropagation()}>
           {isBlocked && (
             <button style={styles.unblockBtn} onClick={() => unblockTask.mutate({ id: task.id })}>Unblock</button>
+          )}
+          {isBlocked && task.ignored && (
+            <button style={styles.unblockBtn} onClick={() => unignoreTask.mutate(task.id)}>Unignore</button>
           )}
           {killEligible && !isConfirming && !isStopping && (
             <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>Kill</button>
@@ -47,6 +51,11 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
       {isBlocked && (
         <div style={styles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
           {task.blocked_reason ?? 'No recorded reason'}
+        </div>
+      )}
+      {task.ignored && (
+        <div style={styles.ignoredBadge} title={`Triage ignored until ${task.ignore_until ?? '—'}`}>
+          ignored until {task.ignore_until ?? '—'}
         </div>
       )}
       <div style={cardStyles.cardMeta}>

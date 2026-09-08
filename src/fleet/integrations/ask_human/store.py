@@ -57,10 +57,14 @@ CREATE TABLE IF NOT EXISTS questions (
     timeout_s      REAL,
     answered_by    TEXT,
     created_at     REAL NOT NULL,
-    answered_at    REAL
+    answered_at    REAL,
+    task_id        TEXT,                              -- fleet bead this question is about (triage + human gates), or NULL
+    context        TEXT                               -- disambiguator, e.g. task.json blocked_at for triage; digest id-lists for digest questions
 );
 CREATE INDEX IF NOT EXISTS idx_questions_open
     ON questions(status, priority DESC, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_questions_task
+    ON questions(task_id, context, status);
 """
 
 # Statuses that mean the question is no longer waiting for a human.
@@ -103,7 +107,14 @@ class QuestionStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
-            conn.executescript(_SCHEMA)
+            try:
+                conn.executescript(_SCHEMA)
+            except sqlite3.OperationalError:
+                # Pre-existing DB from before some columns existed: the
+                # CREATE TABLE went through but a later statement (index on
+                # a not-yet-migrated column) failed. _migrate below adds the
+                # missing columns and re-creates the indexes.
+                pass
             self._migrate(conn)
 
     @staticmethod
@@ -121,6 +132,22 @@ class QuestionStore:
                 conn.execute("ALTER TABLE questions ADD COLUMN note TEXT")
             except sqlite3.OperationalError:
                 pass  # another process (server + CLI start together) added it first
+        if "task_id" not in cols:
+            try:
+                conn.execute("ALTER TABLE questions ADD COLUMN task_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+        if "context" not in cols:
+            try:
+                conn.execute("ALTER TABLE questions ADD COLUMN context TEXT")
+            except sqlite3.OperationalError:
+                pass
+        # Index for the triage pending lookup (task_id + blocked_at); harmless
+        # to re-run on a DB that already has it.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_questions_task "
+            "ON questions(task_id, context, status)"
+        )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -136,6 +163,75 @@ class QuestionStore:
             conn.close()
 
     # -- writes ---------------------------------------------------------------
+
+    def ask(
+        self,
+        prompt: str,
+        options: list[str] | None = None,
+        *,
+        task_id: str | None = None,
+        context: str | None = None,
+        agent_id: str = "triage",
+        priority: int = 0,
+        multi_select: bool = False,
+    ) -> str:
+        """Post a non-blocking question about a fleet bead; return its id.
+
+        Insert-only: unlike the MCP server's ask-and-wait flow this never
+        blocks — the supervisor's triage loop (and the future job worker's
+        human gate) collect answers on a later tick via
+        ``fetch_pending_for_task`` / ``fetch_answered_triage``. ``context``
+        disambiguates repeat questions about the same bead (triage stores
+        task.json ``blocked_at`` there).
+        """
+        return self._insert(
+            prompt,
+            options,
+            multi_select=multi_select,
+            agent_id=agent_id,
+            priority=priority,
+            task_id=task_id,
+            context=context,
+        )
+
+    def _insert(
+        self,
+        prompt: str,
+        options: list[str] | None,
+        *,
+        multi_select: bool = False,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+        timeout_s: float | None = None,
+        default_answer: Any = None,
+        priority: int = 0,
+        task_id: str | None = None,
+        context: str | None = None,
+    ) -> str:
+        qid = uuid.uuid4().hex[:12]
+        now = time.time()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO questions (id, agent_id, session_id, prompt, options, "
+                "multi_select, priority, status, default_answer, timeout_s, created_at, "
+                "task_id, context) "
+                "VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?,?,?)",
+                (
+                    qid,
+                    agent_id,
+                    session_id,
+                    prompt,
+                    _dumps(options),
+                    int(multi_select),
+                    priority,
+                    _dumps(default_answer),
+                    timeout_s,
+                    now,
+                    task_id,
+                    context,
+                ),
+            )
+        return qid
 
     def create(
         self,
@@ -170,6 +266,45 @@ class QuestionStore:
                 ),
             )
         return qid
+
+    def fetch_pending_for_task(
+        self, task_id: str, context: str | None = None
+    ) -> list[dict]:
+        """Pending questions about one bead, optionally for one context.
+
+        Triage passes the bead's ``blocked_at`` as context so a re-blocked
+        task (new blocked_at) gets a fresh question while the old block's
+        question is still pending.
+        """
+        with self._conn() as conn:
+            if context is None:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE status='pending' AND task_id=? "
+                    "ORDER BY created_at ASC",
+                    (task_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM questions WHERE status='pending' AND task_id=? "
+                    "AND context=? ORDER BY created_at ASC",
+                    (task_id, context),
+                ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def fetch_answered_triage(self, limit: int = 100) -> list[dict]:
+        """Answered triage questions (agent_id='triage'), oldest first.
+
+        The triage loop applies each answer once: applying changes the bead
+        (release/close/ignore), so an already-applied question no longer
+        matches its bead's live blocked state and is skipped naturally.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE status='answered' AND agent_id='triage' "
+                "ORDER BY answered_at ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
     def answer(
         self,

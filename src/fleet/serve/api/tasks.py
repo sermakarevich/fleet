@@ -350,6 +350,18 @@ def create_tasks_router() -> APIRouter:
             pass
         return JSONResponse({"ok": True})
 
+    @router.post("/tasks/{task_id}/unignore")
+    async def unignore_task(task_id: str, request: Request) -> JSONResponse:
+        home = get_fleet_home()
+        if not (_task_dir(home, task_id) / "task.json").exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        queue = request.app.state.queue
+        try:
+            await asyncio.to_thread(queue.clear_ignore, task_id)
+        except BeadsError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({"ok": True})
+
     @router.post("/tasks/{task_id}/close")
     async def close_task(task_id: str, request: Request) -> JSONResponse:
         home = get_fleet_home()

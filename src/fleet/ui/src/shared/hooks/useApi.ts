@@ -170,7 +170,26 @@ export function useUnblockTask() {
   });
 }
 
+export function useUnignoreTask() {
+  const qc = useQueryClient();
+  const { addToast } = useToast();
+  return useMutation({
+    mutationFn: (id: string) => api.unignoreTask(id),
+    onSuccess: (_data, id) => {
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+      if (qc.getQueryData(['task', id]) !== undefined) {
+        void qc.invalidateQueries({ queryKey: ['task', id] });
+      }
+      addToast('Triage ignore lifted.');
+    },
+    onError: (err: unknown) => {
+      addToast(`Unignore failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
+}
+
 export function useCloseTask() {
+
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.closeTask(id),

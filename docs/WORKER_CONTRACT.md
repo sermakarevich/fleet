@@ -116,6 +116,23 @@ Independent of RESULT.json:
   block`) rather than declaring `status=blocked`, fleet does not call
   `set_blocked` again — that path already changed bead state itself.
 
+## After a block
+
+A blocked bead waits for the operator, not for another worker spawn:
+
+- Every `triage_interval_minutes` the supervisor posts one non-blocking
+  ask_human question per fleet-blocked bead (rule-based proposal from
+  `core/triage_policy.py`) and applies the answer on the next tick:
+  `retry same setup` releases, `retry with claude/opus` pins the override
+  then releases, `edit task text and retry` appends your note to the bead
+  description then releases, `close as won't do` closes, `ignore 24h` /
+  `ignore forever` sets `task.json` `ignore_until` (triage skips the bead
+  while active). A free-text note always wins over the picked option.
+- Beads blocked by a human (`fleet bd block`, no `blocked_reason` in
+  `task.json`) never get triage questions.
+- Unblocking (UI button or API) releases the bead and resets the retry
+  counters; it also clears any triage ignore.
+
 ## Isolation
 
 Git-aware worktree isolation, decided at spawn (`orchestrator/spawn.py`):

@@ -36,6 +36,7 @@ class RuntimeConfig:
     context_kill_pct: int = 90
     isolation: str = "worktree"
     post_merge_command: str = ""
+    triage_interval_minutes: int = 15
 
 
 _KEY_TYPES: dict[str, type] = {

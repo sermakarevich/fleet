@@ -82,6 +82,7 @@ class MemoryQueue(Queue):
         self.comments: list[tuple[str, str]] = []
         self.closed: list[tuple[str, str]] = []
         self.claims: list[str] = []
+        self._ignores: dict[str, str] = {}
         self._listeners: list[Callable[[str, str], None]] = []
 
     def add_task(self, task: Task) -> None:
@@ -119,6 +120,30 @@ class MemoryQueue(Queue):
             self._tasks[task_id] = replace(self._tasks[task_id], status="blocked")
         self._fire("set_blocked", task_id)
 
+    def set_ignore(self, task_id: str, until: str) -> None:
+        self._ignores[task_id] = until
+        self._fire("set_ignore", task_id)
+
+    def clear_ignore(self, task_id: str) -> None:
+        self._ignores.pop(task_id, None)
+        self._fire("clear_ignore", task_id)
+
+    def set_overrides(
+        self,
+        task_id: str,
+        coder: str | None = None,
+        model: str | None = None,
+        worker: str | None = None,
+        isolation: str | None = None,
+    ) -> None:
+        if task_id in self._tasks:
+            t = self._tasks[task_id]
+            self._tasks[task_id] = replace(
+                t,
+                coder=coder if coder is not None else t.coder,
+                model=model if model is not None else t.model,
+            )
+
     def close(self, task_id: str, reason: str = "completed") -> None:
         self.closed.append((task_id, reason))
         if task_id in self._tasks:
@@ -144,6 +169,9 @@ class MemoryQueue(Queue):
 
     def list_in_progress(self, limit: int = 50) -> list[Task]:
         return [t for t in self._tasks.values() if t.status == "in_progress"][:limit]
+
+    def list_blocked(self, limit: int = 100) -> list[Task]:
+        return [t for t in self._tasks.values() if t.status == "blocked"][:limit]
 
     def freeze_coder_model(self, task_id: str, coder: str, model: str) -> None:
         if task_id in self._tasks:

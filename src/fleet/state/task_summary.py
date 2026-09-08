@@ -16,6 +16,7 @@ from fleet.beads.cache import get_beads_status_map
 from fleet.coders import get_coder
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
+from fleet.core.triage_policy import ignore_active
 from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
@@ -231,6 +232,8 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         beads_status = get_beads_status_map(home) or {}
         blocked_reason = beads_status.get(task_id, {}).get("notes")
 
+    ignore_until = data.get("ignore_until")
+
     last_attempt = attempts.last_attempt(task_dir)
     worker, steps = _read_run_info(task_dir)
     history = attempts.load_attempts(task_dir)
@@ -264,6 +267,8 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "last_event_detail": info.last_event_detail,
         "blocked_reason": blocked_reason,
         "blocked_at": data.get("blocked_at"),
+        "ignore_until": ignore_until,
+        "ignored": ignore_active(ignore_until),
         "rounds": rounds,
         "context_rounds": rounds.get("context", 0),
         "compactions": compactions,

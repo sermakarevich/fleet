@@ -1,4 +1,4 @@
-import { useUnblockTask } from '../../shared/hooks/useApi';
+import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
 import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
 import { chipFor } from './statusChip';
@@ -29,6 +29,7 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
   const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
   const isBlocked = task.status === 'blocked';
   const unblockTask = useUnblockTask();
+  const unignoreTask = useUnignoreTask();
   // A lease whose lease_until already passed while the task still shows as
   // running: the heartbeat stopped (crashed runner, slept host). The
   // supervisor reclaims it once the pid is provably dead; until then flag it.
@@ -57,6 +58,11 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
             stale lease
           </span>
         )}
+        {task.ignored && (
+          <span style={styles.ignoredBadge} title={`Triage ignored until ${task.ignore_until ?? '—'}`}>
+            ignored
+          </span>
+        )}
       </span>
       <span style={styles.coderCell}>
         {coderModelStr
@@ -78,6 +84,11 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
         {isBlocked && (
           <button style={styles.unblockBtn} onClick={() => unblockTask.mutate({ id: task.id })}>
             Unblock
+          </button>
+        )}
+        {isBlocked && task.ignored && (
+          <button style={styles.unblockBtn} onClick={() => unignoreTask.mutate(task.id)}>
+            Unignore
           </button>
         )}
         {killEligible && !isConfirming && !isStopping && (

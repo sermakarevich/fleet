@@ -85,6 +85,10 @@ export const api = {
     return request(`/api/tasks/${id}/unblock`, json('POST', { note: note ?? '' }));
   },
 
+  unignoreTask(id: string): Promise<void> {
+    return request(`/api/tasks/${id}/unignore`, { method: 'POST' });
+  },
+
   closeTask(id: string): Promise<void> {
     return request(`/api/tasks/${id}/close`, { method: 'POST' });
   },

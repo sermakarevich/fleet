@@ -164,7 +164,8 @@ src/fleet/ui/src/
 ```
 $FLEET_HOME/tasks/<id>/
    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
-                      # + isolation opt-out (isolation) and, when isolated,
+                       # + triage ignore (ignore_until: ISO timestamp or "forever")
+                       # + isolation opt-out (isolation) and, when isolated,
                       # repo_root, base_ref, worktree_path (replaces the old .worktree marker)
   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
    attempts/<n>/      # n = attempt number from state.attempts.record_start
