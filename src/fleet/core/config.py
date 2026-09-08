@@ -21,8 +21,9 @@ class RuntimeConfig:
     opencode_bedrock_profile: str = ""
     opencode_bedrock_context_limit: int = 200000
     stall_warning_minutes: int = 15
-    stall_action: str = "warn"
+    stall_action: str = "kill"
     stall_block_after: int = 2
+    max_attempt_minutes: int = 120
     continue_pack_max_bytes: int = 8192
     handoff_max_bytes: int = 2048
     knowledge_max_bytes: int = 4096

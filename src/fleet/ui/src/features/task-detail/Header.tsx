@@ -37,10 +37,13 @@ export function Header({ task, config }: Props) {
   const unblockTask = useUnblockTask();
   const isBlocked = task.status === 'blocked';
 
+  const rounds = task.rounds ?? { failure: 0, stall: 0, context: 0, partial: 0, noclose: 0 };
   const counters: string[] = [];
-  if (task.failures) counters.push(`${task.failures} failures`);
-  if (task.noclose) counters.push(`${task.noclose} no-close`);
-  if (task.stalls) counters.push(`${task.stalls} stalls`);
+  if (rounds.failure) counters.push(`${rounds.failure} failures`);
+  if (rounds.noclose) counters.push(`${rounds.noclose} no-close`);
+  if (rounds.stall) counters.push(`${rounds.stall} stalls`);
+  if (rounds.partial) counters.push(`${rounds.partial} partial`);
+  if (rounds.context) counters.push(`${rounds.context} context`);
   if (task.restarts) counters.push(`${task.restarts} restarts`);
 
   return (

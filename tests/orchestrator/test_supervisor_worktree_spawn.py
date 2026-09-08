@@ -37,7 +37,7 @@ class StubQueue:
     def claim_next(self, claimer_id):
         return None
 
-    def release(self, task_id, reason=""):
+    def release(self, task_id, reason="", wait_sec=0):
         self.released.append((task_id, reason))
 
     def set_blocked(self, task_id, reason):

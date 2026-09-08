@@ -467,6 +467,11 @@ fleet config set max_concurrent=5
 
 The supervisor re-reads `$FLEET_HOME/runtime.toml` on change and applies updates without restart.
 
+Retry tuning: `max_attempt_minutes` (default 120, 0 = off) caps one attempt's
+wall-clock time — over budget the worker is killed and reported as
+`KILLED reason="timeout"`. `stall_action` (default `"kill"`) decides what a
+stall detection does (`warn` or `kill`).
+
 ### `fleet telegram setup` / `fleet telegram status` / `fleet telegram test`
 
 ```bash

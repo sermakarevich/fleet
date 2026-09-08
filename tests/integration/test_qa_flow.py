@@ -157,7 +157,6 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
 
 def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
     """BLOCKED_BY_AGENT does not increment failure_count. (FR-16)"""
-    from fleet.state.counters import failure_count
 
     queue = init_beads_queue(tmp_path)
     task = queue.create_task(title="qa-no-failure-task")
@@ -200,6 +199,9 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
 
     assert done.is_set()
     task_dir = tmp_path / "tasks" / task_id
-    assert failure_count(task_dir) == 0, (
+    from fleet.core.retry_policy import rounds_for_history
+    from fleet.state.attempts import load_attempts
+
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, (
         "BLOCKED_BY_AGENT must not burn retries"
     )

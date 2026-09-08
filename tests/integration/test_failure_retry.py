@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import Task
 from fleet.state.attempts import load_attempts
-from fleet.state.counters import failure_count
 from fleet.state.paths import attempt_dir_path
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -27,7 +27,7 @@ def _task(tid: str = "t-001") -> Task:
 
 
 def test_failure_retry_exhaustion(tmp_path: Path) -> None:
-    """Task fails twice → set_blocked; comments record each failure. (FR-07/08)"""
+    """Task fails 3 times → set_blocked; comments record each failure. (FR-07/08)"""
     queue = MemoryQueue()
     queue.add_task(_task())
 
@@ -50,10 +50,10 @@ def test_failure_retry_exhaustion(tmp_path: Path) -> None:
     assert "retry limit" in queue.blocked[0][1]
 
     task_dir = tmp_path / "tasks" / "t-001"
-    assert failure_count(task_dir) == 2
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 3
 
-    # Both failures produce a supervisor comment
-    assert len(queue.comments) == 2
+    # All three failures produce a supervisor comment (two releases + exhaustion)
+    assert len(queue.comments) == 3
     for _, body in queue.comments:
         assert "fleet" in body.lower() or "failure" in body.lower()
 
@@ -96,14 +96,14 @@ def test_failure_transitions(tmp_path: Path) -> None:
 
 
 def test_non_failures_dont_burn_retries(tmp_path: Path) -> None:
-    """rate_limit + context_pressure don't count as failures; crash(×2) exhausts limit."""
+    """rate_limit + context_pressure don't count as failures; crash(×3) exhausts limit."""
     queue = MemoryQueue()
     queue.add_task(_task())
 
-    # Run sequence: rate_limit_rejected, context_pressure, crash, crash
-    # Only crashes count → after 2 crashes, retry_limit=2 is exhausted
+    # Run sequence: rate_limit_rejected, context_pressure, crash, crash, crash
+    # Only crashes count → after 3 crashes, the failure ladder (3) is exhausted
     coder = FakeClaudeCoder(
-        scenarios=["rate_limit_rejected", "context_pressure", "crash", "crash"],
+        scenarios=["rate_limit_rejected", "context_pressure", "crash", "crash", "crash"],
     )
     config = fast_config()
     sup = make_supervisor(tmp_path, queue, coder=coder, config=config)
@@ -119,7 +119,7 @@ def test_non_failures_dont_burn_retries(tmp_path: Path) -> None:
     asyncio.run(run_until(sup, done, timeout=30.0))
 
     task_dir = tmp_path / "tasks" / "t-001"
-    assert failure_count(task_dir) == 2, "exactly 2 crash-failures"
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 3, "exactly 3 crash-failures"
     # Each attempt now writes its own attempts/<n>/log.jsonl; sum across all
     # attempt dirs (one per run) instead of one shared task-root file.
     starts = 0

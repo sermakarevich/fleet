@@ -96,13 +96,36 @@ class TestTaskRecordFull:
 
 
 class TestRateLimit:
-    """Test 2: rate_limit_info rejected + .noclose marker."""
+    """Test 2: rate_limit_info rejected + success/release attempt history."""
 
     def test_rate_limit_and_noclose(self, tmp_path: Path) -> None:
         td = tmp_path / "tasks" / "task-rl"
         td.mkdir(parents=True)
         _write_task_json(td)
-        (td / ".noclose").touch()
+        # noclose is derived from attempts history: latest end is a
+        # success that released (rc=0 without RESULT.json close).
+        (td / "attempts.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {"event": "start", "n": 1, "ts": "2025-03-05T08:00:00+00:00"}
+                    ),
+                    json.dumps(
+                        {
+                            "event": "end",
+                            "n": 1,
+                            "ts": "2025-03-05T08:03:00+00:00",
+                            "outcome": "success",
+                            "exit_code": 0,
+                            "reason": "rc=0 without close",
+                            "action": "release",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            "utf-8",
+        )
 
         evs = [
             _event(ts="2025-03-05T08:00:00Z", kind="rate_limit_info"),

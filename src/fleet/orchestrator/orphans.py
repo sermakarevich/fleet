@@ -5,8 +5,8 @@ import os
 import signal
 
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.counters import needs_validation
 from fleet.state.paths import task_dir as _task_dir
+from fleet.state.validation_marker import needs_validation
 
 from . import worktree
 

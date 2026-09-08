@@ -107,7 +107,7 @@ class MemoryQueue(Queue):
                 return updated
         return None
 
-    def release(self, task_id: str, reason: str = "") -> None:
+    def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
         self.released.append((task_id, reason))
         if task_id in self._tasks:
             self._tasks[task_id] = replace(self._tasks[task_id], status="open")
@@ -285,7 +285,7 @@ def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 1)
     monkeypatch.setattr("fleet.orchestrator.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
     monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 3)
-    monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
+    monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
     monkeypatch.setattr("fleet.workers.llm_session.SHUTDOWN_GRACE_SEC", 3)
 
 

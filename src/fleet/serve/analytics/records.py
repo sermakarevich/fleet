@@ -43,7 +43,24 @@ def _build_record(tdir: Path) -> dict:
     stats = scan_cached(tdir)
 
     context_pressure = (tdir / ".context_pressure").exists() or stats.context_pressure
-    noclose = (tdir / ".noclose").exists()
+    try:
+        from fleet.state.attempts import load_attempts
+
+        _history = load_attempts(tdir)
+        _last = _history[-1] if _history else {}
+        noclose = _last.get("outcome") in ("success", "partial") and _last.get("action") in (
+            "release",
+            "released",
+            None,
+        )
+        # load_attempts merges start/end rows; an unfinished latest attempt has
+        # outcome None. Fall back to the outcome-bearing tail in that case.
+        if _last.get("outcome") is None:
+            noclose = any(
+                h.get("outcome") in ("success", "partial") for h in _history[-3:]
+            )
+    except Exception:
+        noclose = False
 
     return {
         "id": id_,

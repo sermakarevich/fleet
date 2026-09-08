@@ -63,6 +63,34 @@ def _current_n(task_dir: Path) -> int:
     return current
 
 
+def _max_n(task_dir: Path) -> int:
+    """Highest N seen in any start or end line, or 0 if none."""
+    path = _attempts_path(task_dir)
+    if not path.exists():
+        return 0
+    current = 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(obj, dict) and obj.get("event") in ("start", "end"):
+            try:
+                n = int(obj.get("n", 0))
+            except (TypeError, ValueError):
+                continue
+            if n > current:
+                current = n
+    return current
+
+
 def current_attempt_n(task_dir: Path) -> int:
     """Public alias for the highest start N seen so far, or 0 if none.
 
@@ -122,9 +150,16 @@ def record_end(
     reason: str,
     action: str,
 ) -> None:
-    """Append an end line for the current attempt."""
+    """Append an end line for the current attempt.
+
+    *n* is the current start number; when no start was ever recorded (unit
+    tests driving reap directly), allocate a fresh n so repeated ends don't
+    collapse into one row and streak counting still works.
+    """
     task_dir.mkdir(parents=True, exist_ok=True)
     n = _current_n(task_dir)
+    if n == 0:
+        n = _max_n(task_dir) + 1
     entry = {
         "event": "end",
         "n": n,

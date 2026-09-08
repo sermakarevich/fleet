@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from fleet.coders import get_coder
-from fleet.core.task import Task
+from fleet.core.task import Task, TaskOutcome
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers import select_worker
@@ -40,6 +40,32 @@ class SpawnMixin:
             kwargs["bedrock_context_limit"] = self.config.opencode_bedrock_context_limit
         return coder_cls(model=model, **kwargs), coder_name, model
 
+    def _block_terminal(self, task: Task, reason: str) -> None:
+        """Record a TERMINAL attempt (no retry possible) and block the bead.
+
+        Terminal setup errors (unknown coder/model, missing cwd, cwd not a
+        directory) can never succeed on retry, so the policy blocks at once.
+        The attempt is journaled so rounds history shows what happened.
+        """
+        task_dir = self._task_dir_for(task)
+        try:
+            attempts.record_start(task_dir, coder=task.coder, model=task.model, worker=None)
+        except OSError:
+            pass
+        try:
+            attempts.record_end(
+                task_dir,
+                outcome=TaskOutcome.TERMINAL.value,
+                exit_code=None,
+                reason=reason,
+                action="block",
+            )
+        except OSError:
+            pass
+        self._log.error("task_terminal", task_id=task.id, reason=reason)
+        self._queue.set_blocked(task.id, reason)
+        self._queue.comment(task.id, f"[fleet] {reason}.")
+
     def _spawn_worker(self, task: Task) -> None:
         # Purge any stale .kill sentinel from a previous run before registering
         # the runner — the kill_poll_loop only checks self._runners, so clearing
@@ -47,6 +73,9 @@ class SpawnMixin:
         (_task_dir(self._project_root, task.id) / ".kill").unlink(missing_ok=True)
 
         base_cwd = Path(task.cwd) if task.cwd else self._project_root
+        if task.cwd is not None and not Path(task.cwd).is_dir():
+            self._block_terminal(task, f"terminal: cwd is not a directory: {task.cwd}")
+            return
         use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(
             base_cwd
         )
@@ -73,20 +102,9 @@ class SpawnMixin:
             # Effective coder name is unknown — typo in config.coder, typo in
             # task.coder override, or runtime.toml hand-edited to an invalid
             # value mid-run. claim_next has already flipped the task to
-            # in_progress, so block it explicitly to stop the supervisor
-            # from re-claiming it on every poll.
-            self._log.error(
-                "task_coder_invalid",
-                task_id=task.id,
-                task_coder=task.coder,
-                default_coder=self.config.coder,
-                error=str(exc),
-            )
-            self._queue.set_blocked(task.id, reason=f"invalid coder: {exc}")
-            self._queue.comment(
-                task.id,
-                f"[fleet] {exc}. Fix `coder` in runtime.toml or set --coder on this task.",
-            )
+            # in_progress. This is terminal (retry cannot help): journal it
+            # and block at once.
+            self._block_terminal(task, f"terminal: invalid coder: {exc}")
             return
         if self._coder_pin is None:
             # Freeze the resolved coder/model into task.json so that config
@@ -120,21 +138,8 @@ class SpawnMixin:
             worker = select_worker(task, ctx)
         except ValueError as exc:
             # Unknown worker family — a typo in fleet_worker metadata or an
-            # unroutable bead type. claim_next has already flipped the task
-            # to in_progress, so block it explicitly so the supervisor
-            # doesn't re-claim it on every poll.
-            self._log.error(
-                "task_worker_invalid",
-                task_id=task.id,
-                task_worker=task.worker,
-                task_type=task.type,
-                error=str(exc),
-            )
-            self._queue.set_blocked(task.id, reason=f"invalid worker: {exc}")
-            self._queue.comment(
-                task.id,
-                f"[fleet] {exc}. Fix `fleet_worker` metadata or the bead type.",
-            )
+            # unroutable bead type. Terminal: journal it and block at once.
+            self._block_terminal(task, f"terminal: invalid worker: {exc}")
             return
 
         run = WorkerRun(worker, ctx)

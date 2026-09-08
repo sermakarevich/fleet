@@ -38,7 +38,7 @@ class StubQueue:
     def claim_next(self, claimer_id, *, can_claim=None):
         return None
 
-    def release(self, task_id, reason=""):
+    def release(self, task_id, reason="", wait_sec=0):
         self.released.append((task_id, reason))
 
     def set_blocked(self, task_id, reason):
@@ -168,8 +168,7 @@ def test_no_result_json_releases_with_noclose_comment(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_failure_with_result_summary_in_comment(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("fleet.core.outcome_policy.RETRY_LIMIT", 3)
+def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
     _write_result(
         tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "reached halfway"}
     )

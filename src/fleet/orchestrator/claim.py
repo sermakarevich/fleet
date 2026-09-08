@@ -5,8 +5,8 @@ import subprocess
 from datetime import UTC, datetime
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
-from fleet.state.counters import clear_needs_validation, needs_validation
 from fleet.state.paths import tasks_root as _tasks_root
+from fleet.state.validation_marker import clear_needs_validation, needs_validation
 
 from . import worktree
 

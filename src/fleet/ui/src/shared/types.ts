@@ -1,3 +1,12 @@
+// Trailing-streak retry rounds, computed from attempts.jsonl (see core/retry_policy.py).
+export interface TaskRounds {
+  failure: number;
+  stall: number;
+  context: number;
+  partial: number;
+  noclose: number;
+}
+
 export interface TaskSummary {
   id: string;
   title: string;
@@ -20,9 +29,7 @@ export interface TaskSummary {
   last_event_detail: string | null;
   blocked_reason: string | null;
   blocked_at: string | null;
-  failures: number;
-  noclose: number;
-  stalls: number;
+  rounds: TaskRounds;
   restarts: number;
   last_outcome: string | null;
   last_outcome_reason: string | null;

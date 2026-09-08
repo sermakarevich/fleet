@@ -172,8 +172,28 @@ class TestSummaryDefaultDays:
             ],
         )
 
-        # Also set noclose on task-5
-        (td5 / ".noclose").touch()
+        # Also journal a success/release attempt on task-5 (noclose signal
+        # comes from attempts history, not a marker file).
+        (td5 / "attempts.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps({"event": "start", "n": 1, "ts": window}),
+                    json.dumps(
+                        {
+                            "event": "end",
+                            "n": 1,
+                            "ts": window,
+                            "outcome": "success",
+                            "exit_code": 0,
+                            "reason": "rc=0 without close",
+                            "action": "release",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            "utf-8",
+        )
 
         # Task 6: rate limited completed task
         td6 = make_task_dir(
@@ -815,7 +835,26 @@ class TestSummaryExtras:
 
         td_nc = make_task_dir(tasks_root, "task-noclose", status="closed", cwd="/p")
         write_events(td_nc, [ev(ts=ts, kind="session_started", session_id="nc")])
-        (td_nc / ".noclose").touch()
+        (td_nc / "attempts.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps({"event": "start", "n": 1, "ts": ts}),
+                    json.dumps(
+                        {
+                            "event": "end",
+                            "n": 1,
+                            "ts": ts,
+                            "outcome": "success",
+                            "exit_code": 0,
+                            "reason": "rc=0 without close",
+                            "action": "release",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            "utf-8",
+        )
 
         td_cp = make_task_dir(tasks_root, "task-ctx", status="closed", cwd="/p")
         write_events(td_cp, [ev(ts=ts, kind="context_pressure", session_id="cp")])

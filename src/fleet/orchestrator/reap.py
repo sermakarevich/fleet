@@ -1,31 +1,34 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fleet.core import outcome_policy
-from fleet.core.limits import NOCLOSE_LIMIT, RETRY_LIMIT
-from fleet.core.outcome_policy import Action, Counters, Decision
+from fleet.core import retry_policy
 from fleet.core.result import Result, parse_result
+from fleet.core.retry_policy import (
+    NOCLOSE_MAX_ROUNDS,
+    PARTIAL_MAX_ROUNDS,
+    Action,
+    Decision,
+)
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts
 from fleet.state.attempt_summary import write_summary
-from fleet.state.counters import (
-    failure_count,
-    increment_failure,
-    increment_noclose,
-    increment_stall,
-    noclose_count,
-    reset_failure,
-    reset_noclose,
-    reset_stall,
-    set_needs_validation,
-    stall_count,
-)
+from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
+
+_STALE_COUNTER_FILES = (".failures", ".noclose", ".stalls")
+
+
+def _drop_stale_counter_files(task_dir: Path) -> None:
+    """Remove pre-retry-policy counter files; rounds now come from attempts.jsonl."""
+    for name in _STALE_COUNTER_FILES:
+        try:
+            (task_dir / name).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class ReapMixin:
@@ -116,41 +119,39 @@ class ReapMixin:
             reason=result.blocked_reason or result.summary,
         )
 
-    def _counters_for(self, task_dir: Path) -> Counters:
-        return Counters(
-            failures=failure_count(task_dir),
-            noclose=noclose_count(task_dir),
-            stalls=stall_count(task_dir),
-        )
-
     def _maybe_handle_isolated_success(
         self, task: Task, task_dir: Path, record: TaskOutcomeRecord, bead_status: str | None
-    ) -> bool:
+    ) -> Decision | None:
         """Handle a SUCCESS exit for an isolated (worktree) task.
 
         Requires reading git state, so it cannot live in the pure policy.
-        Returns True when it fully handled the outcome (caller should not
-        also call outcome_policy.decide()).
+        Returns a Decision when it handled the outcome, else None.
         """
         if record.outcome != TaskOutcome.SUCCESS or bead_status != "in_progress":
-            return False
+            return None
         wt_marker = task_dir / ".worktree"
         if not wt_marker.exists():
-            return False
+            return None
 
         wt_path = Path(wt_marker.read_text().strip())
         if worktree.is_committed_clean(wt_path, base_ref="main"):
             set_needs_validation(task_dir)
             self._log.info("task.needs_validation", task_id=task.id)
-            return True
+            return Decision(Action.NOOP, reason="needs validation")
 
-        count = increment_noclose(task_dir)
-        reason = f"isolated task exited without a clean commit ({count}x)"
-        if count >= NOCLOSE_LIMIT:
-            self._queue.set_blocked(task.id, reason)
-        else:
-            self._queue.release(task.id)
-        return True
+        history = attempts.load_attempts(task_dir)
+        rounds = retry_policy._trailing_streak(history, "noclose") + 1
+        if rounds >= NOCLOSE_MAX_ROUNDS:
+            reason = (
+                f"isolated task exited without a clean commit "
+                f"({rounds}/{NOCLOSE_MAX_ROUNDS}); needs human review"
+            )
+            return Decision(Action.BLOCK, reason=reason)
+        return Decision(
+            Action.RELEASE,
+            reason=f"isolated task exited without a clean commit (#{rounds}/{NOCLOSE_MAX_ROUNDS})",
+            wait_sec=0,
+        )
 
     def _apply_decision(
         self,
@@ -163,90 +164,64 @@ class ReapMixin:
         result: Result | None = None,
     ) -> None:
         outcome = record.outcome
+        _drop_stale_counter_files(task_dir)
 
         if decision.action == Action.NOOP:
-            if outcome == TaskOutcome.SUCCESS:
-                reset_noclose(task_dir)
-                reset_stall(task_dir)
-                self._log.info("task_completed_success", task_id=task.id, **fleet_ctx)
-            else:
-                reset_failure(task_dir)
-                self._log.info(
-                    "task_already_closed_on_exit",
-                    task_id=task.id,
-                    outcome=outcome.name,
-                    **fleet_ctx,
-                )
+            self._log.info(
+                "task_noop_on_exit",
+                task_id=task.id,
+                outcome=outcome.name,
+                reason=decision.reason,
+                **fleet_ctx,
+            )
             return
 
-        if outcome == TaskOutcome.SUCCESS and decision.action == Action.CLOSE:
+        if decision.action == Action.CLOSE:
             self._queue.close(task.id, reason=decision.reason)
-            reset_noclose(task_dir)
-            reset_stall(task_dir)
             self._log.info("task_closed_by_fleet", task_id=task.id, **fleet_ctx)
             return
 
-        if outcome == TaskOutcome.SUCCESS:
-            # No RESULT.json (or fleet would have taken the CLOSE branch above).
-            count = increment_noclose(task_dir)
-            if decision.action == Action.BLOCK:
-                self._queue.set_blocked(task.id, decision.reason)
+        if decision.action == Action.BLOCK:
+            if outcome == TaskOutcome.BLOCKED_BY_AGENT and bead_status == "blocked":
+                # The agent already called `fleet bd block` itself; the bead
+                # is where it should be. No further queue writes.
+                self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
+                return
+            self._queue.set_blocked(task.id, decision.reason)
+            if outcome == TaskOutcome.FAILURE:
+                note = f" Worker summary: {result.summary}" if result and result.summary else ""
                 self._queue.comment(
                     task.id,
-                    f"[fleet] no-close limit exhausted: {count} successful exits, "
-                    f"worker exited without RESULT.json. Blocked for human review.",
+                    (
+                        f"[fleet] {decision.reason} "
+                        f"Last exit code={record.exit_code}. "
+                        f"stderr_tail: {record.stderr_tail}.{note}"
+                    ),
                 )
-                self._log.warning(
-                    "task_noclose_exhausted", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
-                )
-            else:  # RELEASE
-                self._queue.release(task.id, reason=decision.reason)
-                self._queue.comment(
-                    task.id,
-                    f"[fleet] success #{count}/{NOCLOSE_LIMIT}: rc=0, "
-                    f"worker exited without RESULT.json. "
-                    f"At {NOCLOSE_LIMIT} the task will be blocked for human review.",
-                )
-                self._log.warning(
-                    "task_success_noclose", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
-                )
+                self._log.error("task_retry_exhausted", task_id=task.id, **fleet_ctx)
+            elif outcome in (TaskOutcome.SUCCESS, TaskOutcome.PARTIAL):
+                self._queue.comment(task.id, f"[fleet] {decision.reason}")
+                self._log.warning("task_noclose_exhausted", task_id=task.id, **fleet_ctx)
+            elif outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
+                self._stall_killed.discard(task.id)
+                self._log.warning("task_stall_exhausted", task_id=task.id, **fleet_ctx)
+            elif outcome == TaskOutcome.TERMINAL:
+                self._queue.comment(task.id, f"[fleet] {decision.reason}")
+                self._log.error("task_terminal", task_id=task.id, **fleet_ctx)
+            elif outcome == TaskOutcome.KILLED:
+                # Manual kill: journal the interruption on the bead.
+                self._queue.comment(task.id, f"[fleet] {decision.reason}.")
+                self._log.info("task_blocked", task_id=task.id, **fleet_ctx)
+            else:
+                self._log.info("task_blocked", task_id=task.id, **fleet_ctx)
             return
 
-        if outcome == TaskOutcome.PARTIAL:
-            count = increment_noclose(task_dir)
-            if decision.action == Action.BLOCK:
-                self._queue.set_blocked(task.id, decision.reason)
-                self._queue.comment(
-                    task.id,
-                    f"[fleet] no-close limit exhausted: {count} partial exits. "
-                    f"Blocked for human review.",
-                )
-                self._log.warning(
-                    "task_partial_exhausted", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
-                )
-            else:  # RELEASE
-                self._queue.release(task.id, reason=decision.reason)
-                self._queue.comment(
-                    task.id,
-                    f"[fleet] partial progress #{count}/{NOCLOSE_LIMIT}: {decision.reason}",
-                )
-                self._log.info(
-                    "task_partial_release", task_id=task.id, count=count, limit=NOCLOSE_LIMIT
-                )
-            return
-
-        if outcome == TaskOutcome.CONTEXT_PRESSURE:
-            # decision.action == RELEASE_FOR_CONTEXT
-            self._queue.release(task.id, reason=decision.reason)
-            self._log.info("task_context_pressure_release", task_id=task.id, **fleet_ctx)
-            return
-
+        # RELEASE (possibly with a wait_sec delay stored as task.json retry_after).
+        wait_sec = decision.wait_sec or 0
         if outcome == TaskOutcome.RATE_LIMIT:
-            # decision.action == RELEASE_AFTER_RATE_LIMIT
-            self._queue.release(task.id, reason=decision.reason)
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
             now = datetime.now(tz=UTC)
-            sleep_sec = decision.sleep_sec or 0
-            sleep_until = now + timedelta(seconds=sleep_sec)
+            sleep_until = now + timedelta(seconds=wait_sec)
             if self._paused_until is None or sleep_until > self._paused_until:
                 self._paused_until = sleep_until
             rate_ctx = {k: v for k, v in fleet_ctx.items() if k != "paused_until"}
@@ -259,66 +234,54 @@ class ReapMixin:
             )
             return
 
-        if outcome == TaskOutcome.BLOCKED_BY_AGENT:
-            if bead_status != "blocked":
-                # Declared via RESULT.json (status=blocked): the bead itself
-                # is still in_progress, so fleet has to block it.
-                self._queue.set_blocked(task.id, decision.reason)
-            # else: the agent already called `fleet bd block` itself.
-            self._log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
-            return
-
-        if outcome == TaskOutcome.KILLED:
-            if record.reason == "stalled":
-                self._stall_killed.discard(task.id)
-                count = increment_stall(task_dir)
-                if decision.action == Action.BLOCK:
-                    self._queue.set_blocked(task.id, decision.reason)
-                else:  # RELEASE
-                    self._queue.release(task.id, reason=decision.reason)
-                self._log.warning("task_stall_handled", task_id=task.id, count=count)
-                return
-            # decision.action == BLOCK: manually interrupted
-            self._queue.set_blocked(task.id, reason="manually interrupted")
-            self._queue.comment(task.id, "[fleet] task was manually interrupted.")
-            self._log.info("task_killed", task_id=task.id, **fleet_ctx)
+        if outcome == TaskOutcome.KILLED and record.reason in ("stalled", "timeout"):
+            self._stall_killed.discard(task.id)
+            history = attempts.load_attempts(task_dir)
+            rounds = retry_policy._trailing_streak(history, "stall") + 1
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+            self._log.warning("task_stall_handled", task_id=task.id, count=rounds)
             return
 
         if outcome == TaskOutcome.FAILURE:
-            count = increment_failure(task_dir)
-            result_note = f" Worker summary: {result.summary}" if result and result.summary else ""
-            if decision.action == Action.BLOCK:
-                self._queue.set_blocked(task.id, reason=decision.reason)
-                self._queue.comment(
-                    task.id,
-                    (
-                        f"[fleet] retry limit exhausted after {count} failures. "
-                        f"Last exit code={record.exit_code}. "
-                        f"stderr_tail: {record.stderr_tail}.{result_note}"
-                    ),
-                )
-                self._log.error(
-                    "task_retry_exhausted",
-                    task_id=task.id,
-                    failures=count,
-                    retry_limit=RETRY_LIMIT,
-                    **fleet_ctx,
-                )
-            else:  # RELEASE
-                self._queue.release(task.id, reason=decision.reason)
-                self._queue.comment(
-                    task.id,
-                    f"[fleet] failure {count} (rc={record.exit_code}). "
-                    f"Releasing for retry.{result_note}",
-                )
-                self._log.warning(
-                    "task_failure_release",
-                    task_id=task.id,
-                    failures=count,
-                    retry_limit=RETRY_LIMIT,
-                    **fleet_ctx,
-                )
+            history = attempts.load_attempts(task_dir)
+            rounds = retry_policy._trailing_streak(history, "failure") + 1
+            note = f" Worker summary: {result.summary}" if result and result.summary else ""
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+            self._queue.comment(
+                task.id,
+                f"[fleet] failure {rounds} (rc={record.exit_code}). "
+                f"Releasing for retry.{note}",
+            )
+            self._log.warning("task_failure_release", task_id=task.id, failures=rounds)
             return
+
+        if outcome == TaskOutcome.PARTIAL:
+            history = attempts.load_attempts(task_dir)
+            rounds = retry_policy._trailing_streak(history, "partial") + 1
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+            self._queue.comment(
+                task.id,
+                f"[fleet] partial progress #{rounds}/{PARTIAL_MAX_ROUNDS}: {decision.reason}",
+            )
+            self._log.info("task_partial_release", task_id=task.id, count=rounds)
+            return
+
+        if outcome == TaskOutcome.SUCCESS:
+            history = attempts.load_attempts(task_dir)
+            rounds = retry_policy._trailing_streak(history, "noclose") + 1
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+            self._queue.comment(
+                task.id,
+                f"[fleet] success #{rounds}/{NOCLOSE_MAX_ROUNDS}: rc=0, "
+                f"worker exited without RESULT.json. "
+                f"At {NOCLOSE_MAX_ROUNDS} the task will be blocked for human review.",
+            )
+            self._log.warning("task_success_noclose", task_id=task.id, count=rounds)
+            return
+
+        # CONTEXT_PRESSURE and anything else: plain release.
+        self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+        self._log.info("task_released", task_id=task.id, **fleet_ctx)
 
     def _snapshot_attempt_artifacts(self, task: Task, task_dir: Path, n: int) -> None:
         """Copy this attempt's RESULT.json/HANDOFF.md into its attempts/<n>/
@@ -369,9 +332,9 @@ class ReapMixin:
 
         result = self._read_declared_result(task_dir)
 
-        handled = self._maybe_handle_isolated_success(task, task_dir, outcome, bead_status)
-        if not handled:
-            record = outcome
+        decision = self._maybe_handle_isolated_success(task, task_dir, outcome, bead_status)
+        record = outcome
+        if decision is None:
             if record.outcome == TaskOutcome.SUCCESS and bead_status == "blocked":
                 record = TaskOutcomeRecord(
                     outcome=TaskOutcome.BLOCKED_BY_AGENT,
@@ -380,29 +343,25 @@ class ReapMixin:
                 )
             elif record.outcome == TaskOutcome.SUCCESS and result is not None:
                 record = self._fold_declared_result(record, result)
-            counters = self._counters_for(task_dir)
-            decision = outcome_policy.decide(record, counters, bead_status, self.config)
+            history = attempts.load_attempts(task_dir)
+            decision = retry_policy.decide(record, history, bead_status, self.config)
+            self._apply_decision(
+                task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
+            )
+        else:
+            # Isolated-success path already produced a Decision; apply it so
+            # queue state, comments, and the attempts.jsonl action all agree.
             self._apply_decision(
                 task, task_dir, record, decision, fleet_ctx, bead_status=bead_status, result=result
             )
 
         try:
-            raw = (task_dir / "task.json").read_text(encoding="utf-8")
-            status = json.loads(raw).get("status")
-        except (OSError, ValueError):
-            status = None
-        action = {
-            "open": "released",
-            "blocked": "blocked",
-            "closed": "closed",
-        }.get(status if isinstance(status, str) else "", "unknown")
-        try:
             attempts.record_end(
                 task_dir,
-                outcome=outcome.outcome.value,
-                exit_code=outcome.exit_code,
-                reason=outcome.reason,
-                action=action,
+                outcome=record.outcome.value,
+                exit_code=record.exit_code,
+                reason=record.reason,
+                action=decision.action.value,
             )
         except OSError as exc:
             self._log.warning(

@@ -58,6 +58,24 @@ def _input_tokens(usage: dict) -> int:
     )
 
 
+def _max_attempt_sec(ctx) -> float | None:
+    """Per-attempt wall-clock ceiling in seconds, or None when disabled.
+
+    Per-task override (bd metadata fleet_max_attempt_minutes) wins over the
+    global RuntimeConfig.max_attempt_minutes. 0 (or negative) means off.
+    """
+    raw = ctx.task.max_attempt_minutes
+    if raw is None:
+        raw = ctx.config.max_attempt_minutes
+    try:
+        minutes = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if minutes <= 0:
+        return None
+    return float(minutes * 60)
+
+
 def _read_file_tail(path: Path, max_bytes: int = _STDERR_TAIL_BYTES) -> str | None:
     if not path.exists():
         return None
@@ -159,6 +177,7 @@ class LlmSession:
             proc.stdout._limit = 100 * 1024 * 1024
             last_event_at = started_at
             last_probe_at = started_at
+            attempt_budget_sec = _max_attempt_sec(ctx)
             while True:
                 try:
                     raw_bytes = await asyncio.wait_for(
@@ -166,6 +185,27 @@ class LlmSession:
                     )
                 except TimeoutError:
                     now = datetime.now(tz=UTC)
+                    if (
+                        attempt_budget_sec is not None
+                        and (now - started_at).total_seconds() > attempt_budget_sec
+                    ):
+                        task_log.log.warning(
+                            "attempt_timeout",
+                            task_id=task.id,
+                            budget_sec=int(attempt_budget_sec),
+                        )
+                        _signal_group(proc, signal.SIGTERM)
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                        except TimeoutError:
+                            _signal_group(proc, signal.SIGKILL)
+                            await proc.wait()
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.KILLED,
+                            exit_code=proc.returncode,
+                            reason="timeout",
+                        )
+                        break
                     silent_for = (now - last_event_at).total_seconds()
                     since_last_probe = (now - last_probe_at).total_seconds()
                     if silent_for <= PROBE_SILENCE_SEC or since_last_probe < PROBE_INTERVAL_SEC:
@@ -205,6 +245,27 @@ class LlmSession:
                 if not raw_bytes:
                     break
                 last_event_at = datetime.now(tz=UTC)
+                if (
+                    attempt_budget_sec is not None
+                    and (last_event_at - started_at).total_seconds() > attempt_budget_sec
+                ):
+                    task_log.log.warning(
+                        "attempt_timeout",
+                        task_id=task.id,
+                        budget_sec=int(attempt_budget_sec),
+                    )
+                    _signal_group(proc, signal.SIGTERM)
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    except TimeoutError:
+                        _signal_group(proc, signal.SIGKILL)
+                        await proc.wait()
+                    outcome = TaskOutcomeRecord(
+                        outcome=TaskOutcome.KILLED,
+                        exit_code=proc.returncode,
+                        reason="timeout",
+                    )
+                    break
                 raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
                 evt = coder.normalize_event(raw_line)
                 if evt is None:

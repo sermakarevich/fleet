@@ -64,8 +64,25 @@ Also, every attempt:
 
 ## What fleet does with each outcome
 
-Decided in `core/outcome_policy.py::decide` (pure) and applied in
-`orchestrator/reap.py` after the subprocess exits with `rc=0`:
+Decided in `core/retry_policy.py::decide` (pure) and applied in
+`orchestrator/reap.py` after the subprocess exits. Rounds are counted from
+`attempts.jsonl` history (consecutive same-outcome attempts; a different
+ending resets the streak). `RELEASE` may carry a `wait_sec` delay, stored as
+task.json `retry_after` — `claim_next` skips tasks whose `retry_after` is in
+the future.
+
+| outcome | retry | wait (sec) | max rounds | then |
+|---|---|---|---|---|
+| FAILURE (rc≠0) | yes | 60, 300, 900 + jitter 0–30 | 3 | BLOCK |
+| KILLED reason=stalled or reason=timeout | yes | 0 | 2 | BLOCK |
+| RATE_LIMIT | yes | until resets_at (min 300) | unlimited, not counted | wait |
+| CONTEXT_PRESSURE | yes | 0 | 3 | BLOCK reason "too large for one worker; split it" |
+| PARTIAL (RESULT.json) | yes | 0 | 5 | BLOCK |
+| SUCCESS with RESULT done | close | | | |
+| SUCCESS without RESULT.json (noclose) | yes | 0 | 3 (was 12) | BLOCK |
+| BLOCKED_BY_AGENT | no | | | BLOCK |
+| KILLED manual | no | | | BLOCK "manually interrupted" |
+| TERMINAL setup error (unknown coder/model, missing cwd, cwd not a dir) | no | | | BLOCK immediately |
 
 | RESULT.json `status` | Bead state before | Fleet action |
 |---|---|---|
@@ -76,8 +93,8 @@ Decided in `core/outcome_policy.py::decide` (pure) and applied in
 | *(no RESULT.json)* | `in_progress` | Falls back to the pre-contract no-close path: release/block on the no-close counter, comment notes "worker exited without RESULT.json". |
 
 Independent of RESULT.json:
-- `rc≠0` is always `TaskOutcome.FAILURE` — retried up to `RETRY_LIMIT`,
-  then blocked. If `RESULT.json` is present, its `summary` is folded into
+- `rc≠0` is always `TaskOutcome.FAILURE` — retried up to 3 rounds
+  (waits 60, 300, 900 sec + jitter), then blocked. If `RESULT.json` is present, its `summary` is folded into
   the bead comment, but it never overrides the failure outcome.
 - If the agent set the bead to `blocked` directly (e.g. via `fleet bd
   block`) rather than declaring `status=blocked`, fleet does not call
@@ -87,7 +104,7 @@ Independent of RESULT.json:
 
 - `core/result.py` — `Result` dataclass, `parse_result(text) -> Result | None`. Pure, no I/O.
 - `core/task.py` — `TaskOutcome.PARTIAL`, `TaskOutcomeRecord.close_reason`.
-- `core/outcome_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
+- `core/retry_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
 - `orchestrator/reap.py` — reads `artifacts/RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
 - `workers/task.py::PrepareArtifacts` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
 - `templates/INSTRUCTION_FRESH.md`, `templates/INSTRUCTION_CONTINUE.md`,

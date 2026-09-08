@@ -18,6 +18,11 @@ class Task:
     type: str | None = None
     # Optional metadata override (fleet_worker) naming the family directly.
     worker: str | None = None
+    # Per-task wall-clock override, minutes (bd metadata fleet_max_attempt_minutes).
+    # None means "use RuntimeConfig.max_attempt_minutes".
+    max_attempt_minutes: int | None = None
+    # ISO timestamp: claim_next must skip this task while now < retry_after.
+    retry_after: str | None = None
 
 
 EventKind = Literal[
@@ -57,6 +62,7 @@ class TaskOutcome(Enum):
     BLOCKED_BY_AGENT = "blocked_by_agent"
     KILLED = "killed"
     PARTIAL = "partial"
+    TERMINAL = "terminal"
 
 
 @dataclass
@@ -67,6 +73,6 @@ class TaskOutcomeRecord:
     resets_at: int | None = None
     stderr_tail: str | None = None
     # Set when RESULT.json declared status=done: the worker's own summary,
-    # telling outcome_policy to close the bead itself rather than count
-    # towards the no-close limit.
+    # telling retry_policy to close the bead itself rather than count
+    # towards the no-close rounds.
     close_reason: str | None = None

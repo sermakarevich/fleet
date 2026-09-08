@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import Task
-from fleet.state.counters import failure_count
 from fleet.state.events import iter_events
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -45,8 +45,9 @@ def test_context_pressure_release_no_failure(tmp_path: Path) -> None:
     release_reasons = [r for _, r in queue.released]
     assert any("context_pressure" in r for r in release_reasons)
 
+    from fleet.state.attempts import load_attempts
     task_dir = tmp_path / "tasks" / "t-001"
-    assert failure_count(task_dir) == 0, "context_pressure must not burn retries"
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, "context_pressure must not burn retries"
 
 
 def test_context_pressure_flag_removed(tmp_path: Path) -> None:
@@ -109,4 +110,5 @@ def test_context_pressure_then_success_events_append_only(tmp_path: Path) -> Non
         f"events from both runs should be appended; got {len(lines)} records"
     )
 
-    assert failure_count(task_dir) == 0
+    from fleet.state.attempts import load_attempts
+    assert rounds_for_history(load_attempts(task_dir))["failure"] == 0

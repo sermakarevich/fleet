@@ -35,7 +35,7 @@ class StubQueue:
     def claim_next(self, claimer_id):
         return None
 
-    def release(self, task_id, reason=""):
+    def release(self, task_id, reason="", wait_sec=0):
         self.released.append((task_id, reason))
 
     def set_blocked(self, task_id, reason):
@@ -120,11 +120,9 @@ def test_isolated_clean_commit_sets_needs_validation(tmp_path: Path) -> None:
     assert queue.released == []
     assert queue.blocked == []
 
-    # .noclose must NOT be incremented
-    assert (
-        not (task_dir / ".noclose").exists()
-        or (task_dir / ".noclose").read_text().strip() == "0"
-    )
+    # no counter files are used anymore
+    assert not (task_dir / ".noclose").exists()
+    assert not (task_dir / ".failures").exists()
 
 
 def test_isolated_clean_commit_no_noclose_increment(tmp_path: Path) -> None:
@@ -165,9 +163,9 @@ def test_isolated_dirty_no_needs_validation(tmp_path: Path) -> None:
     assert len(queue.released) == 1
 
 
-def test_isolated_dirty_increments_noclose(tmp_path: Path) -> None:
-    """ISOLATED + dirty: .noclose counter is incremented (not .needs_validation)."""
-    from fleet.state.counters import noclose_count
+def test_isolated_dirty_journals_history(tmp_path: Path) -> None:
+    """ISOLATED + dirty: attempt journaled, no counter files (not .needs_validation)."""
+    from fleet.state.attempts import load_attempts
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
@@ -179,28 +177,22 @@ def test_isolated_dirty_increments_noclose(tmp_path: Path) -> None:
         s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
     task_dir = tmp_path / "tasks" / task.id
-    assert noclose_count(task_dir) == 1
+    assert not (task_dir / ".noclose").exists()
+    assert [e.get("outcome") for e in load_attempts(task_dir) if e.get("outcome")] == ["success"]
 
 
 # ====================================================
-# ISOLATED + dirty: exhausting NOCLOSE_LIMIT => set_blocked
+# ISOLATED + dirty: exhausting NOCLOSE_MAX_ROUNDS => set_blocked
 # ====================================================
 
 
-def test_isolated_dirty_exhausts_noclose_limit(tmp_path: Path, monkeypatch) -> None:
-    """ISOLATED + dirty at NOCLOSE_LIMIT: set_blocked called."""
-    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 3)  # low limit for test
-
+def test_isolated_dirty_exhausts_noclose_limit(tmp_path: Path) -> None:
+    """ISOLATED + dirty at the noclose max rounds (3): set_blocked called."""
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
     wt_dir = tmp_path / "worktrees" / task.id
     _create_worktree_marker(tmp_path, task, wt_dir)
-
-    # Pre-create .noclose file so increment_noclose starts counting
-    task_dir = tmp_path / "tasks" / task.id
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / ".noclose").write_text("0")
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False):
         s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
@@ -233,24 +225,27 @@ def test_non_isolated_success_still_releases(tmp_path: Path) -> None:
     assert not (task_dir / ".needs_validation").exists()
 
 
-def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
-    """Non-isolated: releases below NOCLOSE_LIMIT, blocks at NOCLOSE_LIMIT."""
-    monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 2)
-    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 2)
+def test_non_isolated_behavior_unchanged(tmp_path: Path) -> None:
+    """Non-isolated: releases below the noclose max (3), blocks at 3."""
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
     # No .worktree marker
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    # First SUCCESS (count 1 < 2) -> one release
+    # First SUCCESS (round 1 < 3) -> one release
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
-    assert "#1/2" in queue.released[0][1]
+    assert "#1/3" in queue.released[0][1]
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    # Second SUCCESS (count 2 >= 2) -> blocked, no further release
-    assert len(queue.released) == 1
+    # Second SUCCESS (round 2 < 3) -> release, still no block
+    assert len(queue.released) == 2
+    assert len(queue.blocked) == 0
+
+    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    # Third SUCCESS (round 3 >= 3) -> blocked, no further release
+    assert len(queue.released) == 2
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
     task_dir = tmp_path / "tasks" / task.id
@@ -258,25 +253,24 @@ def test_non_isolated_behavior_unchanged(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path,
 ) -> None:
-    """Non-isolated: releases below NOCLOSE_LIMIT, blocks at NOCLOSE_LIMIT."""
-    monkeypatch.setattr("fleet.core.outcome_policy.NOCLOSE_LIMIT", 2)
-    monkeypatch.setattr("fleet.orchestrator.reap.NOCLOSE_LIMIT", 2)
+    """Non-isolated: releases below the noclose max (3), blocks at 3."""
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     task = _task()
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
-    # First SUCCESS (count 1 < 2) -> one release
+    # First SUCCESS (round 1 < 3) -> one release
     assert len(queue.released) == 1
     assert "re-queueing" in queue.released[0][1]
-    assert "#1/2" in queue.released[0][1]
+    assert "#1/3" in queue.released[0][1]
 
     s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+    s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
 
-    # Second SUCCESS (count 2 >= 2) -> blocked, no further release
-    assert len(queue.released) == 1
+    # Third SUCCESS (round 3 >= 3) -> blocked, no further release
+    assert len(queue.released) == 2
     assert len(queue.blocked) == 1
     assert "needs human review" in queue.blocked[0][1]
     task_dir = tmp_path / "tasks" / task.id

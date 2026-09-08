@@ -20,17 +20,14 @@ from fleet.observability.daemon import _pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.counters import (
-    clear_needs_validation,
-    reset_failure,
-    reset_noclose,
-    reset_stall,
-)
 from fleet.state.events import iter_events, scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
 from fleet.state.task_summary import build_task_summary
+from fleet.state.validation_marker import (
+    clear_needs_validation,
+)
 
 
 @dataclass
@@ -339,9 +336,13 @@ def create_tasks_router() -> APIRouter:
             await asyncio.to_thread(queue.release, task_id, reason)
         except BeadsError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
-        reset_failure(task_dir)
-        reset_noclose(task_dir)
-        reset_stall(task_dir)
+        try:
+            task_file = task_dir / "task.json"
+            data = json.loads(task_file.read_text(encoding="utf-8"))
+            data.pop("retry_after", None)
+            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, ValueError):
+            pass
         clear_needs_validation(task_dir)
         return JSONResponse({"ok": True})
 

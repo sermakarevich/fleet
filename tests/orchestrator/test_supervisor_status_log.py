@@ -38,7 +38,7 @@ class StubQueue:
     def claim_next(self, claimer_id):
         return None
 
-    def release(self, task_id, reason=""):
+    def release(self, task_id, reason="", wait_sec=0):
         pass
 
     def set_blocked(self, task_id, reason):
@@ -238,10 +238,10 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
     )
 
     records = _read_fleet_log(log_root)
-    success = [r for r in records if r.get("event") == "task_completed_success"]
-    assert len(success) == 1
-    assert success[0]["usage_pct"] == 55.0
-    assert success[0]["in_flight"] == 0
+    noop = [r for r in records if r.get("event") == "task_noop_on_exit"]
+    assert len(noop) == 1
+    assert noop[0]["usage_pct"] == 55.0
+    assert noop[0]["in_flight"] == 0
     structlog.reset_defaults()
 
 

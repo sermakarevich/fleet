@@ -788,13 +788,48 @@ def test_list_tasks_fills_missing_title_from_beads(
 def test_list_tasks_includes_block_and_retry_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/tasks includes blocked_reason, restarts, failures for a task."""
+    """GET /api/tasks includes blocked_reason, restarts, rounds for a task."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task_dir(
         tasks_root, "task-blocked", "blocked", blocked_reason="x"
     )
-    (task_dir / ".failures").write_text("2")
+    # Two consecutive failure attempts journaled in attempts.jsonl.
+    (task_dir / "attempts.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}
+                ),
+                json.dumps(
+                    {
+                        "event": "end",
+                        "n": 1,
+                        "ts": "2026-01-01T00:01:00+00:00",
+                        "outcome": "failure",
+                        "exit_code": 1,
+                        "reason": "boom",
+                        "action": "release",
+                    }
+                ),
+                json.dumps(
+                    {"event": "start", "n": 2, "ts": "2026-01-01T01:00:00+00:00"}
+                ),
+                json.dumps(
+                    {
+                        "event": "end",
+                        "n": 2,
+                        "ts": "2026-01-01T01:01:00+00:00",
+                        "outcome": "failure",
+                        "exit_code": 1,
+                        "reason": "boom again",
+                        "action": "release",
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
 
     monkeypatch.setattr(
         "fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None)
@@ -812,8 +847,8 @@ def test_list_tasks_includes_block_and_retry_fields(
     assert resp.status_code == 200
     t = {t["id"]: t for t in resp.json()["tasks"]}["task-blocked"]
     assert t["blocked_reason"] == "x"
-    assert t["restarts"] == 0
-    assert t["failures"] == 2
+    assert t["restarts"] == 1
+    assert t["rounds"]["failure"] == 2
 
 
 def test_task_detail_includes_attempts(
@@ -861,16 +896,18 @@ def test_task_detail_includes_attempts(
     assert data["attempts"][0]["n"] == 1
 
 
-def test_unblock_task_releases_and_resets_counters(
+def test_unblock_task_releases_and_clears_retry_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """POST /api/tasks/{id}/unblock releases the task and clears failure counters."""
+    """POST /api/tasks/{id}/unblock releases the task and clears retry_after."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     task_dir = _make_task_dir(tasks_root, "task-unblock", "blocked")
-    (task_dir / ".failures").write_text("3")
-    (task_dir / ".noclose").write_text("1")
-    (task_dir / ".stalls").write_text("1")
+    (task_dir / "task.json").write_text(
+        json.dumps(
+            {**json.loads((task_dir / "task.json").read_text()), "retry_after": "2099-01-01T00:00:00+00:00"}
+        )
+    )
     (task_dir / ".needs_validation").write_text("1")
 
     mock_queue = MagicMock()
@@ -892,9 +929,7 @@ def test_unblock_task_releases_and_resets_counters(
     assert args[0] == "task-unblock"
     assert "unblocked" in args[1]
     assert "looks fine" in args[1]
-    assert not (task_dir / ".failures").exists()
-    assert not (task_dir / ".noclose").exists()
-    assert not (task_dir / ".stalls").exists()
+    assert "retry_after" not in (task_dir / "task.json").read_text()
     assert not (task_dir / ".needs_validation").exists()
 
 

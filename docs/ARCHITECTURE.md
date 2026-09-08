@@ -42,15 +42,15 @@ src/fleet/
   core/                  # domain types and constants. No I/O.
     task.py              # Task, Event, EventKind, TaskOutcome, TaskOutcomeRecord
     config.py            # RuntimeConfig dataclass, load/reload/write_atomic
-    limits.py            # RETRY_LIMIT, NOCLOSE_LIMIT, poll intervals, grace periods
-    outcome_policy.py    # decide(outcome, counters, status) -> Action. Pure.
+    limits.py            # poll intervals, grace periods (retry limits live in core/retry_policy.py)
+    retry_policy.py    # decide(record, history, status) -> Decision. Pure.
 
   state/                 # everything that touches a task directory on disk
     paths.py             # fleet_home(), tasks_root(), task_dir(id), file-name constants
     task_dir.py          # TaskDir: task.json, run.json, marker files (.kill, .worktree, ...)
     events.py            # THE events.jsonl reader + derived stats (context, last event, files touched)
     attempts.py          # attempts.jsonl (start/end journal, restart_count)
-    counters.py          # .failures / .noclose / .stalls / .needs_validation
+    validation_marker.py # .needs_validation marker (retry rounds come from attempts.jsonl)
     journal.py           # append_event, open_task_log, rotation  (was logging.py)
     archive.py           # move finished task dirs aside            (was gc.py)
 
@@ -140,7 +140,7 @@ src/fleet/ui/src/
 |---|---|
 | `schemas.py` | `core/task.py` + `core/limits.py` |
 | `config.py` | `core/config.py` |
-| `supervisor.py::_apply_outcome` | `core/outcome_policy.py` (pure) + `orchestrator/reap.py` (applies) |
+| `supervisor.py::_apply_outcome` | `core/retry_policy.py` (pure) + `orchestrator/reap.py` (applies) |
 | `serve/stats.py::fleet_home, task_dir` | `state/paths.py` |
 | `serve/stats.py` scanners, `serve/analytics_core.py::_build_record`, `routes/analytics.py::_scan_events`, `routes/tasks.py::_extract_file_ops` | `state/events.py` |
 | `failures.py` | `state/counters.py` |
@@ -163,7 +163,7 @@ src/fleet/ui/src/
 
 ```
 $FLEET_HOME/tasks/<id>/
-  task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at
+   task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
   attempts/<n>/      # n = attempt number from state.attempts.record_start
     run.json         # pid, started_at, worker name, per-step status of this attempt
@@ -172,7 +172,7 @@ $FLEET_HOME/tasks/<id>/
     RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)
     HANDOFF.md        # snapshot of artifacts/HANDOFF.md at reap time
     SUMMARY.md        # deterministic, no-LLM summary generated after the attempt ends
-  .failures .noclose .stalls .needs_validation .kill .worktree .context_pressure
+  .needs_validation .kill .worktree .context_pressure
   artifacts/
     RESULT.json      # worker's declared outcome for the last attempt
     RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn

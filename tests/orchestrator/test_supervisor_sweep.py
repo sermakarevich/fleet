@@ -9,14 +9,14 @@ import pytest
 import structlog
 
 from fleet.orchestrator.supervisor import Supervisor
-from fleet.state.counters import set_needs_validation
+from fleet.state.validation_marker import set_needs_validation
 
 
 class StubQueue:
     def claim_next(self, claimer_id):
         return None
 
-    def release(self, task_id, reason=""):
+    def release(self, task_id, reason="", wait_sec=0):
         pass
 
     def set_blocked(self, task_id, reason):

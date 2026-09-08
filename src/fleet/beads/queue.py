@@ -2,7 +2,7 @@ import json
 import shlex
 import shutil
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fleet.beads import client as beads_client
@@ -16,7 +16,7 @@ class Queue(ABC):
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None: ...
 
     @abstractmethod
-    def release(self, task_id: str, reason: str = "") -> None: ...
+    def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None: ...
 
     @abstractmethod
     def set_blocked(self, task_id: str, reason: str) -> None: ...
@@ -174,6 +174,9 @@ class BeadsQueue(Queue):
         deps = depends_on if depends_on is not None else existing.get("depends_on")
         if deps:
             result["depends_on"] = deps
+        for key in ("retry_after", "max_attempt_minutes"):
+            if existing.get(key) is not None:
+                result[key] = existing.get(key)
         return result
 
     def _bd(
@@ -206,6 +209,11 @@ class BeadsQueue(Queue):
         # after a later `set_overrides`/`freeze_coder_model` call); bd metadata
         # is the fallback that closes the race window for brand-new beads.
         bd_meta = body.get("metadata") or {}
+        raw_max = meta.get("max_attempt_minutes", bd_meta.get("fleet_max_attempt_minutes"))
+        try:
+            max_minutes = int(raw_max) if raw_max is not None else None
+        except (TypeError, ValueError):
+            max_minutes = None
         return Task(
             id=body["id"],
             title=body["title"],
@@ -216,6 +224,8 @@ class BeadsQueue(Queue):
             model=meta.get("model") or bd_meta.get("fleet_model"),
             type=body.get("issue_type"),
             worker=meta.get("worker") or bd_meta.get("fleet_worker"),
+            max_attempt_minutes=max_minutes,
+            retry_after=meta.get("retry_after"),
         )
 
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
@@ -228,6 +238,8 @@ class BeadsQueue(Queue):
         if not isinstance(items, list):
             items = []
         for cand in self._order_ready(items):
+            if self._retry_after_in_future(cand["id"]):
+                continue
             if can_claim is not None:
                 cand_coder = self._load_meta(cand["id"]).get("coder") or (
                     cand.get("metadata") or {}
@@ -250,7 +262,20 @@ class BeadsQueue(Queue):
             return self._task_from_dict(cand, status_override="in_progress")
         return None
 
-    def release(self, task_id: str, reason: str = "") -> None:
+    def _retry_after_in_future(self, task_id: str) -> bool:
+        """True when task.json retry_after is still in the future (delayed retry)."""
+        raw = self._load_meta(task_id).get("retry_after")
+        if not raw or not isinstance(raw, str):
+            return False
+        try:
+            dt = datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt > datetime.now(tz=UTC)
+
+    def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
         self._bd(
             "update", task_id, "--status", "open", "--assignee", "", json_envelope=False
         )
@@ -260,6 +285,12 @@ class BeadsQueue(Queue):
         meta["status"] = "open"
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
+        if wait_sec and wait_sec > 0:
+            meta["retry_after"] = (
+                datetime.now(tz=UTC) + timedelta(seconds=int(wait_sec))
+            ).isoformat()
+        else:
+            meta.pop("retry_after", None)
         self._write_meta(task_id, meta)
 
     def set_blocked(self, task_id: str, reason: str) -> None:
@@ -276,6 +307,7 @@ class BeadsQueue(Queue):
         meta["status"] = "blocked"
         meta["blocked_reason"] = reason
         meta["blocked_at"] = datetime.now(tz=UTC).isoformat()
+        meta.pop("retry_after", None)
         self._write_meta(task_id, meta)
 
     def close(self, task_id: str, reason: str = "completed") -> None:
@@ -284,6 +316,7 @@ class BeadsQueue(Queue):
         meta["status"] = "closed"
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
+        meta.pop("retry_after", None)
         self._write_meta(task_id, meta)
 
     def delete(self, task_id: str) -> None:

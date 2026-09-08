@@ -1,8 +1,8 @@
 """Build the one task-summary dict shared by `fleet tasks` and GET /api/tasks.
 
 Combines task.json fields with the events.jsonl scan (fleet.state.events) and
-the counter files (fleet.state.counters), so the CLI table and the API report the
-same numbers for the same task.
+the attempt-history rounds (fleet.core.retry_policy), so the CLI table and the
+API report the same numbers for the same task.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from pathlib import Path
 from fleet.beads.cache import get_beads_status_map
 from fleet.coders import get_coder
 from fleet.core.result import parse_result
+from fleet.core.retry_policy import rounds_for_history
 from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.counters import failure_count, noclose_count, stall_count
 from fleet.state.events import iter_attempt_events, scan_rows
 
 _HANDOFF_EXCERPT_MAX = 2048
@@ -153,6 +153,8 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
 
     last_attempt = attempts.last_attempt(task_dir)
     worker, steps = _read_run_info(task_dir)
+    history = attempts.load_attempts(task_dir)
+    rounds = rounds_for_history(history)
 
     return {
         "id": task_id,
@@ -176,9 +178,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "last_event_detail": info.last_event_detail,
         "blocked_reason": blocked_reason,
         "blocked_at": data.get("blocked_at"),
-        "failures": failure_count(task_dir),
-        "noclose": noclose_count(task_dir),
-        "stalls": stall_count(task_dir),
+        "rounds": rounds,
         "restarts": attempts.restart_count(task_dir),
         "last_outcome": last_attempt.get("outcome") if last_attempt else None,
         "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
