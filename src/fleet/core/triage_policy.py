@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from fleet.core.iso import parse_iso
 from fleet.core.limits import CONTEXT_MAX_ROUNDS, FAILURE_MAX_ROUNDS, STALL_MAX_ROUNDS
 
 # Canonical answer options. The apply step (orchestrator/triage.py) matches
@@ -187,14 +188,11 @@ def ignore_active(ignore_until: str | None, now: datetime | None = None) -> bool
         return False
     if ignore_until.strip().lower() == "forever":
         return True
-    try:
-        dt = datetime.fromisoformat(ignore_until)
-    except (ValueError, TypeError):
+    parsed = parse_iso(ignore_until)
+    if parsed is None:
         return False
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
     ref = now if now is not None else datetime.now(tz=UTC)
-    return dt > ref
+    return parsed > ref
 
 
 def ignore_until_24h(now: datetime | None = None) -> str:

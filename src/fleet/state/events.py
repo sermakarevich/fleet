@@ -17,14 +17,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fleet.core.iso import parse_iso as _parse_iso_clock
+
 _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit": "edit"}
 
 
 def parse_iso(ts: str) -> datetime | None:
-    try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return None
+    """Parse one event timestamp; None when missing or malformed."""
+    return _parse_iso_clock(ts)
 
 
 def safe_int(v: object) -> int:

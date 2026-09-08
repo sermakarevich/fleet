@@ -34,10 +34,12 @@ from datetime import UTC, datetime
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 
+from fleet.core.iso import parse_iso
 from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root as _tasks_root
+from fleet.state.run_file import RunRecord
 from fleet.state.validation_marker import needs_validation
 
 from . import worktree
@@ -49,19 +51,6 @@ if TYPE_CHECKING:
     from .state import SupervisorState
 
 LEASE_EXPIRED_REASON = "lease expired"
-
-
-def _parse_ts(value: object) -> datetime | None:
-    """Parse an ISO timestamp, or None when missing/malformed/naive-guarded."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(value)
-    except (ValueError, TypeError):
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt
 
 
 def _pid_alive(pid: object) -> bool:
@@ -238,16 +227,11 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
         # there is no attempt to own, so there is nothing to reclaim.
         _log_lease_once(seen, st, "lease_no_attempt_dir", task.id)
         return
-    run_file = attempt_dir / "run.json"
-    try:
-        data = json.loads(run_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    run = RunRecord.load(attempt_dir)
+    if run is None:
         _log_lease_once(seen, st, "lease_no_run_json", task.id)
         return
-    if not isinstance(data, dict):
-        _log_lease_once(seen, st, "lease_no_run_json", task.id)
-        return
-    lease_until = _parse_ts(data.get("lease_until"))
+    lease_until = parse_iso(run.lease_until)
     if lease_until is None:
         # No heartbeat was ever written (old attempt format): without
         # lease keys we cannot prove anything, so never touch it.
@@ -255,11 +239,11 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
         return
     if not lease_is_stale(lease_until):
         return
-    pid = data.get("pid")
+    pid = run.pid
     if not isinstance(pid, int) or isinstance(pid, bool):
         st.log.warning("lease_no_pid", task_id=task.id)
         return
-    host = data.get("host")
+    host = run.host
     if isinstance(host, str) and host and host != _host_name():
         pid_dead = True
     else:

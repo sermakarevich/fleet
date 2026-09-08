@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from fleet.state.paths import tasks_root
+from fleet.state.task_meta import TaskMeta
 
 
 @dataclass
@@ -48,13 +48,11 @@ def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     for task_dir in sorted(tasks_dir.iterdir()):
         if not task_dir.is_dir():
             continue
-        meta_path = task_dir / "task.json"
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        meta = TaskMeta.load(task_dir)
+        if meta is None:
             result.skipped += 1
             continue
-        if meta.get("status") != "closed" or task_dir.stat().st_mtime > cutoff:
+        if meta.status != "closed" or task_dir.stat().st_mtime > cutoff:
             result.skipped += 1
             continue
         size = _dir_size(task_dir)
@@ -89,12 +87,8 @@ def purge_archive(home: Path, days: int = 90, dry_run: bool = False) -> PurgeRes
     return result
 
 
-def _task_meta(task_dir: Path) -> dict:
-    try:
-        data = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+def _task_meta(task_dir: Path) -> TaskMeta | None:
+    return TaskMeta.load(task_dir)
 
 
 def _closed_and_old(task_dir: Path, cutoff: float) -> bool:
@@ -103,7 +97,8 @@ def _closed_and_old(task_dir: Path, cutoff: float) -> bool:
         old_mtime = task_dir.stat().st_mtime <= cutoff
     except OSError:
         return False
-    return old_mtime and _task_meta(task_dir).get("status") == "closed"
+    meta = _task_meta(task_dir)
+    return old_mtime and meta is not None and meta.status == "closed"
 
 
 def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
@@ -121,11 +116,13 @@ def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
     if not worktrees_dir.is_dir():
         return []
     cutoff = time.time() - days * 86400
-    stale_tasks: dict[str, dict] = {}
+    stale_tasks: dict[str, TaskMeta] = {}
     if tasks_dir.is_dir():
         for task_dir in sorted(tasks_dir.iterdir()):
             if task_dir.is_dir() and _closed_and_old(task_dir, cutoff):
-                stale_tasks[task_dir.name] = _task_meta(task_dir)
+                meta = _task_meta(task_dir)
+                if meta is not None:
+                    stale_tasks[task_dir.name] = meta
     found: list[StaleWorktree] = []
     for wt in sorted(worktrees_dir.iterdir()):
         if not wt.is_dir():
@@ -137,8 +134,8 @@ def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
         if match is None:
             continue
         meta = stale_tasks[match]
-        wt_path = meta.get("worktree_path")
-        repo_root = meta.get("repo_root")
+        wt_path = meta.worktree_path
+        repo_root = meta.repo_root
         if wt_path and Path(wt_path).resolve() != wt.resolve():
             continue
         found.append(StaleWorktree(task_id=match, path=wt, repo_root=repo_root))

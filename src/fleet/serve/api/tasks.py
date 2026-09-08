@@ -27,6 +27,7 @@ from fleet.state.legacy import attempt_state_snapshot, legacy_state_text
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
+from fleet.state.task_meta import TaskMeta
 from fleet.state.task_summary import build_task_summary, read_result
 from fleet.state.validation_marker import (
     clear_needs_validation,
@@ -87,14 +88,10 @@ def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
         beads_client.update(task_id, home, assignee="")
     except BeadsError as exc:
         return False, str(exc) or "bd update failed"
-    task_file = _task_dir(home, task_id) / "task.json"
-    if task_file.exists():
-        try:
-            data = json.loads(task_file.read_text(encoding="utf-8"))
-            data["coder"] = None
-            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except (OSError, json.JSONDecodeError) as exc:
-            return False, str(exc)
+    task_dir = _task_dir(home, task_id)
+    if (task_dir / "task.json").exists() and TaskMeta.load(task_dir) is not None:
+        with contextlib.suppress(OSError, ValueError):
+            TaskMeta.update(task_dir, coder=None)
     return True, ""
 
 
@@ -391,13 +388,9 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
             await asyncio.to_thread(queue.release, task_id, reason)
         except BeadsError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
-        try:
-            task_file = task_dir / "task.json"
-            data = json.loads(task_file.read_text(encoding="utf-8"))
-            data.pop("retry_after", None)
-            task_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except (OSError, ValueError):
-            pass
+        if TaskMeta.load(task_dir) is not None:
+            with contextlib.suppress(OSError):
+                TaskMeta.clear(task_dir, "retry_after")
         clear_needs_validation(task_dir)
         with contextlib.suppress(OSError):
             record_unblock(task_dir, note)

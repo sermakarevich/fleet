@@ -22,11 +22,12 @@ from fleet.core.retry_policy import rounds_for_history
 from fleet.core.triage_policy import ignore_active
 from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
+from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import iter_attempt_events, scan_rows
 from fleet.state.legacy import legacy_result, legacy_state_text
-from fleet.state.paths import RESULT_JSON, STATE_MD
+from fleet.state.run_file import RunRecord
 
 _STATE_EXCERPT_MAX = 6144
 
@@ -79,13 +80,15 @@ def read_result(task_dir: Path) -> dict | None:
     the legacy artifacts/RESULT.json for old task dirs.
     """
     try:
-        return _parse_result_text((task_dir / RESULT_JSON).read_text(encoding="utf-8"))
+        return _parse_result_text(ResultFile.path(task_dir).read_text(encoding="utf-8"))
     except OSError:
         pass
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is not None:
         try:
-            parsed = _parse_result_text((attempt_dir / RESULT_JSON).read_text(encoding="utf-8"))
+            parsed = _parse_result_text(
+                ResultFile.snapshot_path(attempt_dir).read_text(encoding="utf-8")
+            )
         except OSError:
             parsed = None
         if parsed is not None:
@@ -110,15 +113,10 @@ def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is None:
         return None, []
-    run_file = attempt_dir / "run.json"
-    try:
-        data = json.loads(run_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    run = RunRecord.load(attempt_dir)
+    if run is None:
         return None, []
-    if not isinstance(data, dict):
-        return None, []
-    steps = data.get("steps")
-    return data.get("worker"), steps if isinstance(steps, list) else []
+    return run.worker, run.steps
 
 
 def _pid_alive(pid: object) -> bool:
@@ -143,20 +141,17 @@ def _read_lease(task_dir: Path) -> dict | None:
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is None:
         return None
-    try:
-        data = json.loads((attempt_dir / "run.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    run = RunRecord.load(attempt_dir)
+    if run is None:
         return None
-    if not isinstance(data, dict):
-        return None
-    heartbeat_at = data.get("heartbeat_at")
-    lease_until = data.get("lease_until")
+    heartbeat_at = run.heartbeat_at
+    lease_until = run.lease_until
     if not isinstance(heartbeat_at, str) or not isinstance(lease_until, str):
         return None
     return {
         "heartbeat_at": heartbeat_at,
         "lease_until": lease_until,
-        "alive": _pid_alive(data.get("pid")),
+        "alive": _pid_alive(run.pid),
     }
 
 
@@ -180,8 +175,8 @@ def _build_attempts_summary(
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
         adir = _attempt_dir_path(task_dir, n)
-        run: dict = _read_json_file(adir / "run.json") or {}
-        raw_launch = run.get("launch")
+        run = RunRecord.load(adir)
+        raw_launch = run.launch if run is not None else None
         launch: dict = raw_launch if isinstance(raw_launch, dict) else {}
         result = _read_json_file(adir / "RESULT.json")
         stats = scan_rows(iter_attempt_events(task_dir, n))
@@ -222,11 +217,12 @@ def _build_attempts_summary(
 
 def _read_state_excerpt(task_dir: Path) -> str | None:
     """Read STATE.md, truncated to the worker-memory cap fleet enforces."""
-    state_file = task_dir / STATE_MD
-    try:
-        return state_file.read_text(encoding="utf-8")[:_STATE_EXCERPT_MAX]
-    except OSError:
-        pass
+    state_path = StateFile.path(task_dir)
+    if state_path.exists():
+        try:
+            return state_path.read_text(encoding="utf-8")[:_STATE_EXCERPT_MAX]
+        except OSError:
+            pass
     legacy = legacy_state_text(task_dir)
     if legacy is None:
         return None

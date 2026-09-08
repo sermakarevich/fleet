@@ -26,7 +26,7 @@ from fleet.core.retry_policy import (
 )
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts
-from fleet.state.paths import RESULT_JSON, STATE_MD
+from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
@@ -77,7 +77,7 @@ def bead_status(st: SupervisorState, task_id: str) -> str | None:
 def read_declared_result(task_dir: Path) -> Result | None:
     """Parse the task-level RESULT.json, the worker's declared outcome, if present."""
     try:
-        text = (task_dir / RESULT_JSON).read_text(encoding="utf-8")
+        text = ResultFile.path(task_dir).read_text(encoding="utf-8")
     except OSError:
         return None
     return parse_result(text)
@@ -414,27 +414,17 @@ def snapshot_attempt_artifacts(st: SupervisorState, task: Task, task_dir: Path, 
     attempt_dir = attempts.attempt_dir(task_dir, n)
     attempt_dir.mkdir(parents=True, exist_ok=True)
 
-    state_src = task_dir / STATE_MD
-    if state_src.exists():
-        try:
-            (attempt_dir / STATE_MD).write_bytes(state_src.read_bytes())
-        except OSError as exc:
-            st.log.warning(
-                "attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc)
-            )
+    try:
+        StateFile.snapshot(task_dir, attempt_dir)
+    except OSError as exc:
+        st.log.warning("attempt_snapshot_failed", task_id=task.id, file="STATE.md", error=str(exc))
 
-    result_src = task_dir / RESULT_JSON
-    if result_src.exists():
-        try:
-            (attempt_dir / RESULT_JSON).write_bytes(result_src.read_bytes())
-        except OSError as exc:
-            st.log.warning(
-                "attempt_snapshot_failed", task_id=task.id, file=RESULT_JSON, error=str(exc)
-            )
-        try:
-            result_src.unlink(missing_ok=True)
-        except OSError as exc:
-            st.log.warning("attempt_result_unlink_failed", task_id=task.id, error=str(exc))
+    try:
+        ResultFile.snapshot(task_dir, attempt_dir)
+    except OSError as exc:
+        st.log.warning(
+            "attempt_snapshot_failed", task_id=task.id, file="RESULT.json", error=str(exc)
+        )
 
 
 def is_observer_run(task: Task, history: list[dict]) -> bool:

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fleet.state import attempts as state_attempts
 from fleet.state.events import iter_attempt_events, scan_rows
+from fleet.state.run_file import RunRecord
 
 _MAX_CHARS = 4096
 _STDERR_TAIL_LINES = 30
@@ -108,10 +109,8 @@ def _read_stderr_tail(attempt_dir: Path, n_lines: int) -> list[str]:
 def summarize(task_dir: Path, n: int) -> AttemptSummary:
     """Compute the derived summary for attempt *n*. Pure read path."""
     attempt_dir = state_attempts.attempt_dir(task_dir, n)
-    run = _read_json(attempt_dir / "run.json")
-    launch = run.get("launch")
-    if not isinstance(launch, dict):
-        launch = {}
+    run = RunRecord.load(attempt_dir)
+    launch = run.launch if run is not None and isinstance(run.launch, dict) else {}
     row = _attempt_row(task_dir, n)
     stats = scan_rows(iter_attempt_events(task_dir, n))
 

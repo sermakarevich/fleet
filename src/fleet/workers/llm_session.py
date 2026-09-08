@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fleet.core.context_window import parse_context_windows
+from fleet.core.iso import now_iso
 from fleet.core.limits import (
     HEARTBEAT_SEC,
     PROBE_INTERVAL_SEC,
@@ -34,6 +35,7 @@ from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state.atomic import write_text_atomic
 from fleet.state.journal import append_event, open_task_log
 from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER, PROMPT_MD, RUN_JSON
+from fleet.state.run_file import RunRecord
 
 from .base import StepContext, StepResult, write_run_json
 
@@ -204,11 +206,7 @@ async def _heartbeat_loop(run_file: Path, proc: asyncio.subprocess.Process) -> N
                 break
             heartbeat_at, lease_until = _lease_times()
             with contextlib.suppress(OSError):
-                write_run_json(
-                    run_file,
-                    heartbeat_at=heartbeat_at,
-                    lease_until=lease_until,
-                )
+                RunRecord.touch_lease(run_file.parent, lease_until, heartbeat_at)
     except asyncio.CancelledError:
         pass
 
@@ -542,7 +540,7 @@ class LlmSession:
                 write_run_json(
                     run_file,
                     exit_code=exit_code,
-                    ended_at=datetime.now(tz=UTC).isoformat(),
+                    ended_at=now_iso(),
                     peak_context_tokens=peak_context_tokens,
                 )
             except OSError as exc:

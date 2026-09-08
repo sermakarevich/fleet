@@ -8,10 +8,12 @@ from pathlib import Path
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
+from fleet.core.iso import now_iso, parse_iso
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
 from fleet.core.triage_policy import ignore_active
 from fleet.state.paths import task_dir as _task_dir
+from fleet.state.task_meta import TaskMeta
 
 
 class Queue(ABC):
@@ -76,34 +78,18 @@ class BeadsQueue(Queue):
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root
 
-    def _meta_path(self, task_id: str) -> Path:
-        return _task_dir(self.repo_root, task_id) / "task.json"
-
     def _load_meta(self, task_id: str) -> dict:
-        path = self._meta_path(task_id)
-        if not path.exists():
-            return {}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+        meta = TaskMeta.load(_task_dir(self.repo_root, task_id))
+        return meta.to_dict() if meta is not None else {}
 
     def _write_meta(self, task_id: str, data: dict) -> None:
-        path = self._meta_path(task_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Write-then-rename so concurrent readers (UI, CLI, another
-        # supervisor) never see a half-written file: a torn read makes
-        # _load_meta return {}, and the next snapshot then silently drops
-        # fleet-managed fields that exist only in task.json (cwd).
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        task_dir = _task_dir(self.repo_root, task_id)
+        task_dir.mkdir(parents=True, exist_ok=True)
+        TaskMeta.from_dict(task_id, data).save(task_dir)
 
     def set_cwd(self, task_id: str, cwd: str) -> None:
         """Persist invocation cwd into task.json, preserving other fields if present."""
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["cwd"] = cwd
-        self._write_meta(task_id, meta)
+        TaskMeta.update(_task_dir(self.repo_root, task_id), cwd=cwd)
 
     def set_overrides(
         self,
@@ -127,18 +113,18 @@ class BeadsQueue(Queue):
             and job_gate is None
         ):
             return
-        meta = self._load_meta(task_id) or {"id": task_id}
+        updates = {}
         if coder is not None:
-            meta["coder"] = coder
+            updates["coder"] = coder
         if model is not None:
-            meta["model"] = model
+            updates["model"] = model
         if worker is not None:
-            meta["worker"] = worker
+            updates["worker"] = worker
         if isolation is not None:
-            meta["isolation"] = isolation
+            updates["isolation"] = isolation
         if job_gate is not None:
-            meta["job_gate"] = job_gate
-        self._write_meta(task_id, meta)
+            updates["job_gate"] = job_gate
+        TaskMeta.update(_task_dir(self.repo_root, task_id), **updates)
 
     def set_isolation_info(
         self,
@@ -153,11 +139,12 @@ class BeadsQueue(Queue):
         across attempts (the same worktree/branch is kept). Replaces the old
         bare `.worktree` marker file.
         """
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["repo_root"] = repo_root
-        meta["base_ref"] = base_ref
-        meta["worktree_path"] = worktree_path
-        self._write_meta(task_id, meta)
+        TaskMeta.update(
+            _task_dir(self.repo_root, task_id),
+            repo_root=repo_root,
+            base_ref=base_ref,
+            worktree_path=worktree_path,
+        )
 
     def clear_isolation_info(self, task_id: str) -> None:
         """Drop git isolation info from task.json after merge/cleanup."""
@@ -243,10 +230,7 @@ class BeadsQueue(Queue):
         Called once per execution start so that config changes to runtime.toml
         after a task begins do not affect retries or context-pressure reclaims.
         """
-        meta = self._load_meta(task_id) or {"id": task_id}
-        meta["coder"] = coder
-        meta["model"] = model
-        self._write_meta(task_id, meta)
+        TaskMeta.update(_task_dir(self.repo_root, task_id), coder=coder, model=model)
 
     def _snapshot_meta(
         self,
@@ -471,13 +455,10 @@ class BeadsQueue(Queue):
         raw = self._load_meta(task_id).get("retry_after")
         if not raw or not isinstance(raw, str):
             return False
-        try:
-            dt = datetime.fromisoformat(raw)
-        except (ValueError, TypeError):
+        parsed = parse_iso(raw)
+        if parsed is None:
             return False
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt > datetime.now(tz=UTC)
+        return parsed > datetime.now(tz=UTC)
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
         self._bd("update", task_id, "--status", "open", "--assignee", "", json_envelope=False)
@@ -509,7 +490,7 @@ class BeadsQueue(Queue):
         meta = self._load_meta(task_id) or {"id": task_id}
         meta["status"] = "blocked"
         meta["blocked_reason"] = reason
-        meta["blocked_at"] = datetime.now(tz=UTC).isoformat()
+        meta["blocked_at"] = now_iso()
         meta.pop("retry_after", None)
         meta.pop("ignore_until", None)
         self._write_meta(task_id, meta)

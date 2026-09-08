@@ -23,9 +23,10 @@ from pathlib import Path
 from fleet.coders import get_coder
 from fleet.core.compaction_fallback import compact_fallback
 from fleet.state import attempts as state_attempts
+from fleet.state.artifacts import StateFile
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.journal import append_event
-from fleet.state.paths import RUN_JSON, STATE_MD
+from fleet.state.paths import RUN_JSON
 
 from .base import StepContext, StepResult, write_run_json
 
@@ -113,7 +114,7 @@ def collect_material(
     (never stored) via ``state/attempt_summary.py``.
     """
     mat = CompactionMaterial(
-        state=_read_capped(task_dir / STATE_MD, STATE_INPUT_MAX_BYTES),
+        state=_read_capped(StateFile.path(task_dir), STATE_INPUT_MAX_BYTES),
         result_text=_read_capped(task_dir / "RESULT.json", RESULT_MAX_BYTES),
     )
     prev_ns: list[int] = []
@@ -209,13 +210,6 @@ def _extract_text(raw: object) -> str:
         if isinstance(val, str) and val:
             return val
     return json.dumps(raw)[:4000]
-
-
-def _write_atomic(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
 
 
 async def _run_compaction_model(
@@ -354,7 +348,7 @@ class Compact:
             state = parsed
             outcome_reason = "compacted"
         try:
-            _write_atomic(task_dir / STATE_MD, state)
+            StateFile.write(task_dir, state)
         except OSError as exc:
             self._finish_compact_row(ctx, compact_n, "failure", str(exc))
             return StepResult(status="fail", reason=f"compaction write failed: {exc}")
@@ -372,7 +366,7 @@ class Compact:
             max_bytes=ctx.config.state_max_bytes,
         )
         try:
-            _write_atomic(ctx.task_dir / STATE_MD, state)
+            StateFile.write(ctx.task_dir, state)
         except OSError as exc:
             return StepResult(status="fail", reason=f"compaction write failed: {exc}")
         ctx.log.warning("compaction_fallback", reason=reason)

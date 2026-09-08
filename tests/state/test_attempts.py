@@ -15,13 +15,13 @@ from fleet.state.attempts import (
 def test_set_worker_tags_start_line(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "t-001"
     n = record_start(task_dir, coder="claude", model="sonnet")
-    set_worker(task_dir, n, "observer")
+    assert set_worker(task_dir, n, "observer") is True
     items = attempts.load_attempts(task_dir)
     assert items[0]["worker"] == "observer"
 
 
-def test_set_worker_missing_file_is_noop(tmp_path: Path) -> None:
-    set_worker(tmp_path / "nope", 1, "observer")
+def test_set_worker_missing_file_returns_false(tmp_path: Path) -> None:
+    assert set_worker(tmp_path / "nope", 1, "observer") is False
 
 
 def test_start_end_round_trip(tmp_path: Path) -> None:

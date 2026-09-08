@@ -23,6 +23,7 @@ from fleet.integrations.ask_human.store import QuestionStore
 from fleet.observability import tailview
 from fleet.serve.stats import task_runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
+from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import fleet_home
@@ -305,7 +306,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             raise typer.Exit(1)
 
         if action is TaskAction.state:
-            state_path = task_dir / "STATE.md"
+            state_path = StateFile.path(task_dir)
             if state_path.exists():
                 _print_file_or_exit(state_path, f"No STATE.md for task {task_id}")
                 return
@@ -318,12 +319,13 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             return
 
         if action is TaskAction.result:
-            result_path = task_dir / "RESULT.json"
+            result_path = ResultFile.path(task_dir)
             if not result_path.exists():
                 # Post-reap only the attempt snapshot remains.
                 latest = latest_attempt_dir(task_dir)
-                if latest is not None and (latest / "RESULT.json").exists():
-                    result_path = latest / "RESULT.json"
+                snapshot = ResultFile.snapshot_path(latest) if latest is not None else None
+                if snapshot is not None and snapshot.exists():
+                    result_path = snapshot
                 else:
                     result_path = task_dir / "artifacts" / "RESULT.json"
             _print_file_or_exit(

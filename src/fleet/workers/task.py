@@ -13,15 +13,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fleet.core.launch import LaunchLimits, LaunchPlan, plan_launch
-from fleet.state.artifacts import read_artifacts
+from fleet.state.artifacts import StateFile, read_artifacts
 from fleet.state.attempts import load_attempts
-from fleet.state.paths import OUTPUTS_DIR, STATE_MD
 
 from .base import Step, StepContext, StepResult, Worker, merge_run_json
 from .compact import Compact
 from .llm_session import LlmSession
-
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
 def _ensure_state(task_dir: Path, task_id: str) -> None:
@@ -30,13 +27,7 @@ def _ensure_state(task_dir: Path, task_id: str) -> None:
     Never overwrites existing content — the worker owns STATE.md after
     the first run.
     """
-    task_dir.mkdir(parents=True, exist_ok=True)
-    (task_dir / OUTPUTS_DIR).mkdir(parents=True, exist_ok=True)
-    target = task_dir / STATE_MD
-    if target.exists():
-        return
-    tmpl = (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8")
-    target.write_text(tmpl.format(task_id=task_id), encoding="utf-8")
+    StateFile.ensure_stub(task_dir, task_id)
 
 
 def _record_launch(ctx: StepContext, plan) -> None:

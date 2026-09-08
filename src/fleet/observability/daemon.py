@@ -28,10 +28,10 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 import fleet as _fleet_pkg
+from fleet.core.iso import now_iso
 from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
 
 # Seconds to wait after spawning before probing liveness, so `start` can report
@@ -166,7 +166,7 @@ class Daemon:
         self.spec.pidfile.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "pid": pid,
-            "started_at": datetime.now(UTC).isoformat(),
+            "started_at": now_iso(),
             "version_fingerprint": code_fingerprint(),
             **self.spec.extra,
         }

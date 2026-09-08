@@ -8,10 +8,8 @@ steps; ``WorkerRun`` is the handle the orchestrator keeps per in-flight task.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -19,8 +17,10 @@ import structlog
 
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
+from fleet.core.iso import now_iso
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import RUN_JSON
+from fleet.state.run_file import RunRecord
 
 
 class RateGauge(Protocol):
@@ -77,23 +77,11 @@ class Worker:
     steps: tuple[Step, ...]
 
 
-def _read_run_json(run_file: Path) -> dict:
-    try:
-        return json.loads(run_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
 def write_run_json(run_file: Path, **updates: Any) -> None:
     """Read-merge-write run.json so sequential step writers never clobber
     each other's keys (a step may run after another step already wrote its
     own fields, e.g. pid/exit_code, into the same file)."""
-    data = _read_run_json(run_file)
-    data.update(updates)
-    run_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = run_file.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    tmp.replace(run_file)
+    RunRecord.merge(run_file.parent, **updates)
 
 
 def merge_run_json(ctx: StepContext, **updates: Any) -> None:
@@ -103,7 +91,7 @@ def merge_run_json(ctx: StepContext, **updates: Any) -> None:
     ``launch`` record) call this instead of writing run.json themselves,
     so concurrent writers (the llm_session heartbeat) never lose keys.
     """
-    write_run_json((ctx.attempt_dir or ctx.task_dir) / RUN_JSON, **updates)
+    RunRecord.merge(ctx.attempt_dir or ctx.task_dir, **updates)
 
 
 def _record_step(
@@ -111,21 +99,7 @@ def _record_step(
     worker_name: str,
     entry: dict,
 ) -> None:
-    data = _read_run_json(run_file)
-    data["worker"] = worker_name
-    steps = data.get("steps")
-    if not isinstance(steps, list):
-        steps = []
-    steps.append(entry)
-    data["steps"] = steps
-    run_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = run_file.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    tmp.replace(run_file)
-
-
-def _now_iso() -> str:
-    return datetime.now(tz=UTC).isoformat()
+    RunRecord.record_step(run_file.parent, worker_name, entry)
 
 
 async def run_worker(
@@ -145,11 +119,11 @@ async def run_worker(
     for step in worker.steps:
         if on_step is not None:
             on_step(step)
-        started_at = _now_iso()
+        started_at = now_iso()
         try:
             result = await step.run(ctx)
         except Exception as exc:  # noqa: BLE001 - step contract: never propagate
-            ended_at = _now_iso()
+            ended_at = now_iso()
             _record_step(
                 run_file,
                 worker.name,
@@ -167,7 +141,7 @@ async def run_worker(
                 outcome=TaskOutcome.FAILURE,
                 reason=f"unexpected exception: {exc}",
             )
-        ended_at = _now_iso()
+        ended_at = now_iso()
         _record_step(
             run_file,
             worker.name,
