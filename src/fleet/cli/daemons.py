@@ -180,6 +180,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             typer.echo(f"warning: ollama tunnel not available ({tunnel.detail})", err=True)
         else:
             log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
+        question_store = QuestionStore()
         supervisor = Supervisor(
             state=SupervisorState(
                 config=cfg,
@@ -188,8 +189,9 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
                 queue=q,
                 log=log,
                 rate_gauge=RateGauge(log=log),
+                question_store=question_store,
             ),
-            services=default_services(question_store=QuestionStore()),
+            services=default_services(question_store=question_store),
             checks=DEFAULT_CHECKS,
         )
         try:

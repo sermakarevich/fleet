@@ -11,12 +11,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import fleet.integrations.ask_human.store as db_mod
-import fleet.integrations.telegram.bot as tg
-import fleet.serve.api.chat as chat_mod
+import fleet.integrations.telegram.listener as listener_mod
 import fleet.serve.app as app_mod
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
+from fleet.integrations.ask_human.store import QuestionStore
+from fleet.integrations.telegram.api import TelegramApi
+from fleet.integrations.telegram.commands import (
+    HELP_TEXT,
+    CommandEnv,
+    is_allowed,
+    parse_allowed_ids,
+    parse_new_task_command,
+)
+from fleet.integrations.telegram.listener import inbound_listener
+from fleet.integrations.telegram.messages import MessageStore, OffsetStore
 from fleet.state.config_file import load
 from fleet.state.config_file import write as write_atomic
 
@@ -69,11 +78,39 @@ def _insert_question(
     conn.close()
 
 
-def _make_fake_app(chat_id: str = "999") -> MagicMock:
+def _make_fake_app(
+    chat_id: str = "999", store: QuestionStore | None = None, home: Path | None = None
+) -> MagicMock:
     cfg = RuntimeConfig(telegram_chat_id=chat_id)
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = cfg
+    fake_app.state.fleet_state.question_store = store
+    fake_app.state.fleet_state.home = home
     return fake_app
+
+
+def _listener_parts(
+    app: MagicMock, tmp_path: Path, *, qmsgs: str = "qmsgs.json", db: Path | None = None
+) -> tuple[TelegramApi, QuestionStore, CommandEnv, OffsetStore]:
+    """Build (api, store, env, offsets) for inbound_listener from the fake app."""
+    cfg = app.state.fleet_state.config
+    return (
+        TelegramApi("tok"),
+        QuestionStore(db or tmp_path / "questions.db"),
+        CommandEnv(
+            queue=app.state.queue,
+            messages=MessageStore(tmp_path / qmsgs),
+            allowed_ids=lambda: parse_allowed_ids(cfg.telegram_allowed_ids),
+            default_cwd=lambda: cfg.telegram_default_cwd or None,
+        ),
+        OffsetStore(tmp_path / "offset"),
+    )
+
+
+def _run(app: MagicMock, tmp_path: Path) -> None:
+    """Build listener parts from the fake app and drive until CancelledError."""
+    api, store, env, offsets = _listener_parts(app, tmp_path)
+    return asyncio.run(inbound_listener(api, store, env, offsets))
 
 
 class _FakeResp:
@@ -101,7 +138,7 @@ def test_send_message_posts_correct_url_and_payload(monkeypatch: pytest.MonkeyPa
         return _FakeResp()
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
-    asyncio.run(tg.send_message("mytoken", "123", "hello"))
+    asyncio.run(TelegramApi("mytoken").send("123", "hello"))
 
     assert len(captured) == 1
     req = captured[0]
@@ -119,7 +156,7 @@ def test_send_message_truncates_to_4096_chars(monkeypatch: pytest.MonkeyPatch) -
         return _FakeResp()
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
-    asyncio.run(tg.send_message("tok", "cid", "a" * 5000))
+    asyncio.run(TelegramApi("tok").send("cid", "a" * 5000))
 
     assert len(captured_texts) == 1
     assert len(captured_texts[0]) == 4096
@@ -134,19 +171,10 @@ def test_send_message_swallows_exception_and_does_not_raise(
         raise OSError("connection refused")
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
-    asyncio.run(tg.send_message("tok", "cid", "hi"))  # must not raise
+    asyncio.run(TelegramApi("tok").send("cid", "hi"))  # must not raise
 
 
-def test_is_configured_false_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """is_configured() returns False when TELEGRAM_BOT_TOKEN is unset."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    assert not tg.is_configured()
-
-
-def test_is_configured_true_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """is_configured() returns True when TELEGRAM_BOT_TOKEN is set."""
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    assert tg.is_configured()
+# (is_configured was dead code in src — removed with its tests per ARCH rule 5.)
 
 
 def test_poller_skips_send_when_token_missing(
@@ -155,17 +183,16 @@ def test_poller_skips_send_when_token_missing(
     """No HTTP call is made when TELEGRAM_BOT_TOKEN is absent (silent no-op)."""
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
+    store = QuestionStore(db_path)
 
-    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
-    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self: TelegramApi, chat_id: str, text: str) -> None:
         sent.append(text)
 
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     call_n = [0]
 
@@ -179,7 +206,7 @@ def test_poller_skips_send_when_token_missing(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app()))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
 
     assert sent == [], "No messages should be sent when token is absent"
 
@@ -196,17 +223,17 @@ def test_poller_does_not_send_preexisting_rows(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="old question", created_at=1000.0)
+    store = QuestionStore(db_path)
 
-    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
-    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self: TelegramApi, chat_id: str, text: str) -> int | None:
         sent.append(text)
+        return None
 
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send_with_id", _fake_send)
 
     call_n = [0]
 
@@ -218,7 +245,7 @@ def test_poller_does_not_send_preexisting_rows(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app()))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
 
     assert sent == [], "Pre-existing rows must not be sent"
 
@@ -230,18 +257,17 @@ def test_poller_sends_new_question_exactly_once(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
+    store = QuestionStore(db_path)
 
-    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
-    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> int | None:
+    async def _fake_send(self: TelegramApi, chat_id: str, text: str) -> int | None:
         sent.append(text)
         return None
 
-    monkeypatch.setattr(tg, "send_message_with_id", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send_with_id", _fake_send)
 
     call_n = [0]
 
@@ -256,7 +282,7 @@ def test_poller_sends_new_question_exactly_once(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app()))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
 
     assert len(sent) == 1
     assert "new question?" in sent[0]
@@ -266,22 +292,21 @@ def test_poller_continues_after_send_error(tmp_path: Path, monkeypatch: pytest.M
     """A send error does not kill the poll loop."""
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)  # empty → watermark = 0.0
+    store = QuestionStore(db_path)
 
-    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
-    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    async def _failing_send(token: str, chat_id: str, text: str) -> int | None:
+    async def _failing_send(self: TelegramApi, chat_id: str, text: str) -> int | None:
         raise RuntimeError("network boom")
 
-    monkeypatch.setattr(tg, "send_message_with_id", _failing_send)
+    monkeypatch.setattr(TelegramApi, "send_with_id", _failing_send)
 
     call_n = [0]
 
     async def _fake_sleep(s: float) -> None:
         call_n[0] += 1
         if call_n[0] == 1:
-            # Insert row so send_message_with_id is called (and raises)
+            # Insert row so send_with_id is called (and raises)
             _insert_question(db_path, qid="q1", prompt="failing", created_at=500.0)
         elif call_n[0] >= 4:
             raise asyncio.CancelledError()
@@ -289,7 +314,7 @@ def test_poller_continues_after_send_error(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app()))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
 
     assert call_n[0] >= 4, "Loop must keep running after a send error"
 
@@ -355,19 +380,19 @@ def test_telegram_default_cwd_round_trips(tmp_path: Path) -> None:
 
 
 def test_parse_allowed_ids_empty_string() -> None:
-    assert tg._parse_allowed_ids("") == set()
+    assert parse_allowed_ids("") == set()
 
 
 def test_parse_allowed_ids_single() -> None:
-    assert tg._parse_allowed_ids("12345") == {"12345"}
+    assert parse_allowed_ids("12345") == {"12345"}
 
 
 def test_parse_allowed_ids_comma_separated() -> None:
-    assert tg._parse_allowed_ids("111, 222 , 333") == {"111", "222", "333"}
+    assert parse_allowed_ids("111, 222 , 333") == {"111", "222", "333"}
 
 
 def test_parse_allowed_ids_ignores_empty_segments() -> None:
-    assert tg._parse_allowed_ids(",,,  ") == set()
+    assert parse_allowed_ids(",,,  ") == set()
 
 
 # ---------------------------------------------------------------------------
@@ -385,23 +410,23 @@ def _make_update(from_id: str | None = None, chat_id: str | None = None) -> dict
 
 
 def test_is_allowed_from_id_in_list() -> None:
-    assert tg._is_allowed(_make_update(from_id="123"), {"123"})
+    assert is_allowed(_make_update(from_id="123"), {"123"})
 
 
 def test_is_allowed_chat_id_in_list() -> None:
-    assert tg._is_allowed(_make_update(chat_id="-100987"), {"-100987"})
+    assert is_allowed(_make_update(chat_id="-100987"), {"-100987"})
 
 
 def test_is_allowed_neither_in_list() -> None:
-    assert not tg._is_allowed(_make_update(from_id="111", chat_id="222"), {"999"})
+    assert not is_allowed(_make_update(from_id="111", chat_id="222"), {"999"})
 
 
 def test_is_allowed_empty_allowlist() -> None:
-    assert not tg._is_allowed(_make_update(from_id="123", chat_id="123"), set())
+    assert not is_allowed(_make_update(from_id="123", chat_id="123"), set())
 
 
 def test_is_allowed_no_ids_in_update() -> None:
-    assert not tg._is_allowed({"update_id": 1, "message": {}}, {"123"})
+    assert not is_allowed({"update_id": 1, "message": {}}, {"123"})
 
 
 # ---------------------------------------------------------------------------
@@ -410,49 +435,49 @@ def test_is_allowed_no_ids_in_update() -> None:
 
 
 def test_parse_new_task_command_simple() -> None:
-    assert tg._parse_new_task_command("/new_task Fix the bug") == ("Fix the bug", None)
+    assert parse_new_task_command("/new_task Fix the bug") == ("Fix the bug", None)
 
 
 def test_parse_new_task_command_with_description() -> None:
-    result = tg._parse_new_task_command("/new_task Fix the bug\nDetails here\nMore info")
+    result = parse_new_task_command("/new_task Fix the bug\nDetails here\nMore info")
     assert result == ("Fix the bug", "Details here\nMore info")
 
 
 def test_parse_new_task_command_not_a_new_task() -> None:
-    assert tg._parse_new_task_command("/start") is None
-    assert tg._parse_new_task_command("Hello world") is None
-    assert tg._parse_new_task_command("/task Fix the bug") is None
+    assert parse_new_task_command("/start") is None
+    assert parse_new_task_command("Hello world") is None
+    assert parse_new_task_command("/task Fix the bug") is None
 
 
 def test_parse_new_task_command_empty_title() -> None:
-    assert tg._parse_new_task_command("/new_task\n") is None
-    assert tg._parse_new_task_command("/new_task   ") is None
+    assert parse_new_task_command("/new_task\n") is None
+    assert parse_new_task_command("/new_task   ") is None
 
 
 def test_parse_new_task_command_bot_name_variant() -> None:
-    assert tg._parse_new_task_command("/new_task@mybot Do something") == ("Do something", None)
+    assert parse_new_task_command("/new_task@mybot Do something") == ("Do something", None)
 
 
 def test_parse_new_task_command_newline_only_title() -> None:
-    result = tg._parse_new_task_command("/new_task Refactor module\n\nExtra notes")
+    result = parse_new_task_command("/new_task Refactor module\n\nExtra notes")
     assert result is not None
     assert result[0] == "Refactor module"
 
 
 def test_parse_new_task_command_title_on_next_line() -> None:
     """Title on the line after the command (no inline text) is accepted."""
-    result = tg._parse_new_task_command("/new_task\nMy title\ndetails here")
+    result = parse_new_task_command("/new_task\nMy title\ndetails here")
     assert result == ("My title", "details here")
 
 
 def test_parse_new_task_command_title_on_next_line_no_desc() -> None:
-    result = tg._parse_new_task_command("/new_task\nJust the title")
+    result = parse_new_task_command("/new_task\nJust the title")
     assert result == ("Just the title", None)
 
 
 def test_parse_new_task_command_bare_no_text_returns_none() -> None:
-    assert tg._parse_new_task_command("/new_task") is None
-    assert tg._parse_new_task_command("/new_task\n\n  \n") is None
+    assert parse_new_task_command("/new_task") is None
+    assert parse_new_task_command("/new_task\n\n  \n") is None
 
 
 # ---------------------------------------------------------------------------
@@ -461,25 +486,25 @@ def test_parse_new_task_command_bare_no_text_returns_none() -> None:
 
 
 def test_load_offset_missing_file(tmp_path: Path) -> None:
-    assert tg._load_offset(tmp_path / "offset") is None
+    assert OffsetStore(tmp_path / "offset").load() is None
 
 
 def test_save_and_load_offset(tmp_path: Path) -> None:
-    path = tmp_path / "offset"
-    tg._save_offset(path, 42)
-    assert tg._load_offset(path) == 42
+    offsets = OffsetStore(tmp_path / "offset")
+    offsets.save(42)
+    assert offsets.load() == 42
 
 
 def test_save_offset_creates_parent_dirs(tmp_path: Path) -> None:
-    path = tmp_path / "sub" / "dir" / "offset"
-    tg._save_offset(path, 99)
-    assert tg._load_offset(path) == 99
+    offsets = OffsetStore(tmp_path / "sub" / "dir" / "offset")
+    offsets.save(99)
+    assert offsets.load() == 99
 
 
 def test_load_offset_invalid_content(tmp_path: Path) -> None:
     path = tmp_path / "offset"
     path.write_text("not-a-number")
-    assert tg._load_offset(path) is None
+    assert OffsetStore(path).load() is None
 
 
 # ---------------------------------------------------------------------------
@@ -491,10 +516,9 @@ def test_inbound_listener_exits_when_no_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    app = MagicMock()
-    asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
-    # Must return without making any calls
-    assert app.mock_calls == []
+    api = TelegramApi("")
+    asyncio.run(inbound_listener(api, MagicMock(), MagicMock(), OffsetStore(tmp_path / "offset")))
+    # Must return without making any calls (store/commands/offsets untouched)
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +552,7 @@ def test_inbound_listener_skips_polling_when_allowlist_empty(
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert fetched == [], "getUpdates must not be called when allowlist is empty"
 
@@ -562,17 +586,17 @@ def test_inbound_listener_rejects_unknown_sender(
             return updates  # _fetch_updates
         raise asyncio.CancelledError()
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         raise AssertionError("send_message must not be called for rejected sender")
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     # Offset should have advanced past the rejected update
-    assert tg._load_offset(tmp_path / "offset") == 11
+    assert OffsetStore(tmp_path / "offset").load() == 11
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +629,7 @@ def test_inbound_listener_creates_task_and_replies(
 
     sent: list[tuple[str, str]] = []  # (chat_id, text)
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -620,14 +644,14 @@ def test_inbound_listener_creates_task_and_replies(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "fleet-abc1" in sent[0][1]
-    assert tg._load_offset(tmp_path / "offset") == 6
+    assert OffsetStore(tmp_path / "offset").load() == 6
     app.state.queue.create_task.assert_called_once_with(
         "Fix the bug", "Some details", None, None, "/my/project"
     )
@@ -663,7 +687,7 @@ def test_inbound_listener_backs_off_on_network_error(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sleep_durations) >= 2
     # Backoff doubles: second sleep should be >= first
@@ -698,7 +722,7 @@ def test_inbound_listener_malformed_task_sends_error_reply(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -710,15 +734,15 @@ def test_inbound_listener_malformed_task_sends_error_reply(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     app.state.queue.create_task.assert_not_called()
     assert len(sent) == 1, "Expected exactly one error reply"
     assert "usage" in sent[0][1].lower() or "Usage" in sent[0][1]
-    assert tg._load_offset(tmp_path / "offset") == 21
+    assert OffsetStore(tmp_path / "offset").load() == 21
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +776,7 @@ def test_inbound_listener_new_task_botname_creates_task(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -766,10 +790,10 @@ def test_inbound_listener_new_task_botname_creates_task(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "fleet-bot1" in sent[0][1]
@@ -803,14 +827,14 @@ def test_inbound_listener_tasks_command_lists_tasks(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     app.state.queue.create_task.assert_not_called()
     assert len(sent) == 1
@@ -840,14 +864,14 @@ def test_inbound_listener_tasks_both_empty_replies_no_open_tasks(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert sent[0][1] == "No open tasks."
@@ -869,14 +893,14 @@ def test_inbound_listener_tasks_queue_error_replies_could_not_fetch(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert sent[0][1] == "Could not fetch tasks."
@@ -897,7 +921,7 @@ def test_inbound_listener_tasks_rejected_sender_no_queue_call(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -909,10 +933,10 @@ def test_inbound_listener_tasks_rejected_sender_no_queue_call(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert sent == [], "Rejected sender must get no reply"
     app.state.queue.list_in_progress.assert_not_called()
@@ -935,7 +959,7 @@ def test_inbound_listener_task_command_sends_usage(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -947,10 +971,10 @@ def test_inbound_listener_task_command_sends_usage(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     app.state.queue.create_task.assert_not_called()
     assert len(sent) == 1
@@ -976,7 +1000,7 @@ def test_inbound_listener_tasks_not_confused_with_task(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -988,10 +1012,10 @@ def test_inbound_listener_tasks_not_confused_with_task(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     app.state.queue.create_task.assert_not_called()
 
@@ -1024,14 +1048,14 @@ def test_inbound_listener_task_id_shows_details(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     reply = sent[0][1]
@@ -1059,14 +1083,14 @@ def test_inbound_listener_task_id_unknown_sends_hint(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "No task fleet-0000" in sent[0][1]
@@ -1091,7 +1115,7 @@ def test_inbound_listener_task_id_rejected_sender_no_reply(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token, chat_id, text):
+    async def _fake_send(self, chat_id, text):
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -1103,10 +1127,10 @@ def test_inbound_listener_task_id_rejected_sender_no_reply(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert sent == [], "Rejected sender must get no reply"
     app.state.queue.get.assert_not_called()
@@ -1145,7 +1169,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
     app1.state.fleet_state.config = cfg
     app1.state.queue.create_task.return_value = fake_task
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         pass
 
     run1_n = [0]
@@ -1159,12 +1183,12 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread_run1)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app1, offset_path))
+        asyncio.run(_run(app1, tmp_path))
 
-    assert tg._load_offset(offset_path) == 8
+    assert OffsetStore(offset_path).load() == 8
     assert app1.state.queue.create_task.call_count == 1
 
     # --- Second run: offset=8 should be passed to _fetch_updates ---
@@ -1184,7 +1208,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread_run2)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app2, offset_path))
+        asyncio.run(_run(app2, tmp_path))
 
     assert fetched_offsets == [8], "Second run must use saved offset=8"
     app2.state.queue.create_task.assert_not_called()
@@ -1215,7 +1239,7 @@ def test_send_message_with_id_returns_message_id(monkeypatch: pytest.MonkeyPatch
         "urllib.request.urlopen",
         lambda req, timeout=None: _JsonResp({"ok": True, "result": {"message_id": 42}}),
     )
-    result = asyncio.run(tg.send_message_with_id("tok", "123", "hello"))
+    result = asyncio.run(TelegramApi("tok").send_with_id("123", "hello"))
     assert result == 42
 
 
@@ -1225,7 +1249,7 @@ def test_send_message_with_id_returns_none_on_http_error(monkeypatch: pytest.Mon
         "urllib.request.urlopen",
         lambda req, timeout=None: (_ for _ in ()).throw(OSError("refused")),
     )
-    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+    assert asyncio.run(TelegramApi("tok").send_with_id("123", "hi")) is None
 
 
 def test_send_message_with_id_returns_none_when_ok_false(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1234,7 +1258,7 @@ def test_send_message_with_id_returns_none_when_ok_false(monkeypatch: pytest.Mon
         "urllib.request.urlopen",
         lambda req, timeout=None: _JsonResp({"ok": False, "description": "Bad Request"}),
     )
-    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+    assert asyncio.run(TelegramApi("tok").send_with_id("123", "hi")) is None
 
 
 def test_send_message_with_id_truncates_to_4096(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1246,7 +1270,7 @@ def test_send_message_with_id_truncates_to_4096(monkeypatch: pytest.MonkeyPatch)
         return _JsonResp({"ok": True, "result": {"message_id": 1}})
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
-    asyncio.run(tg.send_message_with_id("tok", "cid", "x" * 5000))
+    asyncio.run(TelegramApi("tok").send_with_id("cid", "x" * 5000))
     assert lengths == [4096]
 
 
@@ -1257,22 +1281,23 @@ def test_send_message_with_id_truncates_to_4096(monkeypatch: pytest.MonkeyPatch)
 
 def test_record_and_lookup_question_message(tmp_path: Path) -> None:
     """Basic round-trip: record then look up."""
-    path = tmp_path / "q_msgs.json"
-    tg.record_question_message(path, 100, "q-abc")
-    assert tg.lookup_question_for_message(path, 100) == "q-abc"
-    assert tg.lookup_question_for_message(path, 999) is None
+    messages = MessageStore(tmp_path / "q_msgs.json")
+    messages.record(100, "q-abc")
+    assert messages.lookup(100) == "q-abc"
+    assert messages.lookup(999) is None
 
 
 def test_lookup_question_for_message_missing_file(tmp_path: Path) -> None:
     """lookup returns None when the mapping file does not exist."""
-    assert tg.lookup_question_for_message(tmp_path / "missing.json", 1) is None
+    assert MessageStore(tmp_path / "missing.json").lookup(1) is None
 
 
 def test_record_question_message_caps_at_200(tmp_path: Path) -> None:
     """Oldest entries are evicted when the mapping exceeds 200 entries."""
     path = tmp_path / "q_msgs.json"
+    messages = MessageStore(path)
     for i in range(205):
-        tg.record_question_message(path, i, f"q-{i}")
+        messages.record(i, f"q-{i}")
     mapping = json.loads(path.read_text())
     assert len(mapping) == 200
     # Oldest 5 entries evicted
@@ -1284,10 +1309,10 @@ def test_record_question_message_caps_at_200(tmp_path: Path) -> None:
 
 def test_record_question_message_overwrites_existing_key(tmp_path: Path) -> None:
     """Recording the same message_id twice updates the value."""
-    path = tmp_path / "q_msgs.json"
-    tg.record_question_message(path, 1, "q-first")
-    tg.record_question_message(path, 1, "q-second")
-    assert tg.lookup_question_for_message(path, 1) == "q-second"
+    messages = MessageStore(tmp_path / "q_msgs.json")
+    messages.record(1, "q-first")
+    messages.record(1, "q-second")
+    assert messages.lookup(1) == "q-second"
 
 
 def test_record_question_message_swallows_oserror(
@@ -1300,7 +1325,7 @@ def test_record_question_message_swallows_oserror(
 
     monkeypatch.setattr(pathlib.Path, "write_text", _bad_write)
     # Must not raise
-    tg.record_question_message(tmp_path / "q_msgs.json", 1, "q-1")
+    MessageStore(tmp_path / "q_msgs.json").record(1, "q-1")
 
 
 # ---------------------------------------------------------------------------
@@ -1313,22 +1338,22 @@ def test_poller_records_message_id_mapping(tmp_path: Path, monkeypatch: pytest.M
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-pre", prompt="pre-existing", created_at=1000.0)
+    store = QuestionStore(db_path)
 
-    monkeypatch.setattr(app_mod, "ASK_HUMAN_DB", db_path)
-    monkeypatch.setattr(chat_mod, "ASK_HUMAN_DB", db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
     sent: list[str] = []
 
-    async def _fake_send_with_id(token: str, chat_id: str, text: str) -> int | None:
+    async def _fake_send_with_id(self: TelegramApi, chat_id: str, text: str) -> int | None:
         sent.append(text)
         return 777
 
-    monkeypatch.setattr(tg, "send_message_with_id", _fake_send_with_id)
+    monkeypatch.setattr(TelegramApi, "send_with_id", _fake_send_with_id)
 
     cfg = RuntimeConfig(telegram_chat_id="999")
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = cfg
+    fake_app.state.fleet_state.question_store = store
     fake_app.state.fleet_state.home = tmp_path
 
     call_n = [0]
@@ -1364,7 +1389,7 @@ def _make_fetch_dispatcher(updates: list) -> object:
     fetch_n = [0]
 
     async def _fake(fn, *args, **kwargs):  # type: ignore[misc]
-        if fn is tg._fetch_updates:
+        if fn is listener_mod._fetch_updates:
             fetch_n[0] += 1
             if fetch_n[0] == 1:
                 return updates
@@ -1382,10 +1407,8 @@ def test_inbound_listener_answer_via_reply_to(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-reply", prompt="color?", created_at=1000.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 42, "q-reply")
+    MessageStore(qmsg_path).record(42, "q-reply")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
@@ -1406,14 +1429,14 @@ def test_inbound_listener_answer_via_reply_to(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0][1]
@@ -1424,7 +1447,7 @@ def test_inbound_listener_answer_via_reply_to(
     conn.close()
     assert row[0] == "answered"
     assert json.loads(row[1]) == "blue"
-    assert tg._load_offset(tmp_path / "offset") == 6
+    assert OffsetStore(tmp_path / "offset").load() == 6
 
 
 def test_inbound_listener_reply_to_unknown_mapping(
@@ -1450,16 +1473,16 @@ def test_inbound_listener_reply_to_unknown_mapping(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
-    qmsg_path = tmp_path / "qmsgs.json"  # empty / non-existent mapping
+    # mapping file untouched: _run uses tmp/qmsgs.json, which does not exist here
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert sent[0][1] == "Unknown or expired question"
@@ -1473,10 +1496,8 @@ def test_inbound_listener_reply_to_already_answered(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-done", prompt="done?", created_at=1000.0, status="answered")
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 77, "q-done")
+    MessageStore(qmsg_path).record(77, "q-done")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
@@ -1497,14 +1518,14 @@ def test_inbound_listener_reply_to_already_answered(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert sent[0][1] == "Question already answered"
@@ -1518,8 +1539,6 @@ def test_inbound_listener_single_pending_fallback(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-one", prompt="scale?", created_at=1000.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
@@ -1538,14 +1557,14 @@ def test_inbound_listener_single_pending_fallback(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0][1]
@@ -1566,8 +1585,6 @@ def test_inbound_listener_multiple_pending_reply(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-a", prompt="first?", created_at=1000.0)
     _insert_question(db_path, qid="q-b", prompt="second?", created_at=1001.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
@@ -1586,14 +1603,14 @@ def test_inbound_listener_multiple_pending_reply(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "2 questions pending" in sent[0][1]
@@ -1607,8 +1624,6 @@ def test_inbound_listener_zero_pending_silently_dropped(
 
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
@@ -1627,14 +1642,14 @@ def test_inbound_listener_zero_pending_silently_dropped(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert sent == [], "No reply sent when there are no pending questions"
 
@@ -1654,10 +1669,8 @@ def test_inbound_listener_numeric_option_shortcut(
     )
     conn.commit()
     conn.close()
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 55, "q-opt")
+    MessageStore(qmsg_path).record(55, "q-opt")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
@@ -1678,14 +1691,14 @@ def test_inbound_listener_numeric_option_shortcut(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0][1]
@@ -1712,10 +1725,8 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     )
     conn.commit()
     conn.close()
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 88, "q-out")
+    MessageStore(qmsg_path).record(88, "q-out")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
@@ -1736,14 +1747,14 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0][1]
@@ -1773,17 +1784,17 @@ def test_inbound_listener_help_replies_with_help_text(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
-    assert sent[0][1] == tg.HELP_TEXT
+    assert sent[0][1] == HELP_TEXT
 
 
 def test_inbound_listener_start_replies_with_help_text(
@@ -1800,17 +1811,17 @@ def test_inbound_listener_start_replies_with_help_text(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
-    assert sent[0][1] == tg.HELP_TEXT
+    assert sent[0][1] == HELP_TEXT
 
 
 def test_inbound_listener_help_botname_replies_with_help_text(
@@ -1830,17 +1841,17 @@ def test_inbound_listener_help_botname_replies_with_help_text(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
-    assert sent[0][1] == tg.HELP_TEXT
+    assert sent[0][1] == HELP_TEXT
 
 
 def test_inbound_listener_help_rejected_sender_no_reply(
@@ -1857,7 +1868,7 @@ def test_inbound_listener_help_rejected_sender_no_reply(
     ]
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     call_n = [0]
@@ -1869,10 +1880,10 @@ def test_inbound_listener_help_rejected_sender_no_reply(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset"))
+        asyncio.run(_run(app, tmp_path))
 
     assert sent == [], "Rejected sender must get no reply for /help"
 
@@ -1885,8 +1896,6 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-cmd", prompt="pending?", created_at=1000.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     cfg = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
@@ -1905,17 +1914,17 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
-    assert sent[0][1] == tg.HELP_TEXT, "/start must reply with help text"
+    assert sent[0][1] == HELP_TEXT, "/start must reply with help text"
 
     conn = sqlite3.connect(str(db_path))
     row = conn.execute("SELECT status FROM questions WHERE id='q-cmd'").fetchone()

@@ -2,8 +2,8 @@
 
 Called by serve/app.py (builds it) and every serve/api/* router (takes it via
 ``get_state``). Routers never touch ``request.app.state`` directly. The
-telegram bot (bead 11) still reads ``app.state.fleet_state.config`` and
-``app.state.queue`` — both stay populated by create_app.
+telegram listener gets its dependencies (api token, question store, command
+env, offset file) built from here by create_app — never app.state itself.
 """
 
 from __future__ import annotations

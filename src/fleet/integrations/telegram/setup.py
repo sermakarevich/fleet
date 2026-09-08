@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.integrations.telegram.bot import get_me, get_updates, send_message_raise
+from fleet.integrations.telegram.api import get_me, get_updates, send_message_raise
 from fleet.state.config_file import write as write_config
 
 DISCOVERY_ROUNDS = 8  # ~40s of polling at POLL_TIMEOUT_SEC per round

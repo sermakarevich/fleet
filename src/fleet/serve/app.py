@@ -15,63 +15,62 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-import fleet.integrations.ask_human.store as _ahdb
-import fleet.integrations.telegram.bot as tg
+import fleet.integrations.telegram.notify as tg_notify
 from fleet.beads.queue import Queue
-from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
+from fleet.integrations.telegram.api import TelegramApi
+from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
+from fleet.integrations.telegram.listener import inbound_listener
+from fleet.integrations.telegram.messages import MessageStore, OffsetStore
 from fleet.serve.api import ROUTERS
 from fleet.serve.auth import install_auth
-from fleet.serve.state import build_state, refresh_config
+from fleet.serve.state import AppState, build_state, refresh_config
 from fleet.state.paths import fleet_home
 
 logger = logging.getLogger(__name__)
 
+_QUESTION_MSGS = "telegram_question_msgs.json"
+_QUESTION_POLL_SEC = 2.0
 
-def _db_max_created_at() -> float:
-    return _ahdb.max_created_at(db_path=ASK_HUMAN_DB)
 
-
-def _db_fetch_new_questions(since: float) -> list[dict]:
-    return _ahdb.fetch_new(since, db_path=ASK_HUMAN_DB)
+def _question_messages(state: AppState) -> MessageStore:
+    """Reply-routing store for telegram question notifications."""
+    return MessageStore(state.home / _QUESTION_MSGS)
 
 
 async def _question_poller(app: FastAPI) -> None:
-    watermark: float = await asyncio.to_thread(_db_max_created_at)
+    """Forward new ask_human questions to Telegram until cancelled."""
+    state = app.state.fleet_state
+    watermark: float = await asyncio.to_thread(state.question_store.max_created_at)
     while True:
         try:
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(_QUESTION_POLL_SEC)
             token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-            cfg = app.state.fleet_state.config
-            chat_id = cfg.telegram_chat_id
+            chat_id = state.config.telegram_chat_id if state.config else ""
             if not token or not chat_id:
                 continue
-            questions = await asyncio.to_thread(_db_fetch_new_questions, watermark)
-            new_wm = watermark
-            home = app.state.fleet_state.home
-            for q in questions:
-                agent_id = q.get("agent_id") or "unknown"
-                prompt = q.get("prompt") or ""
-                options = q.get("options")
-                msg = f"[{agent_id}] {prompt}"
-                if options:
-                    opts = options if isinstance(options, list) else [str(options)]
-                    msg += "\n" + "\n".join(f"  {i + 1}. {o}" for i, o in enumerate(opts))
-                message_id = await tg.send_message_with_id(token, chat_id, msg)
-                if message_id is not None:
-                    q_id = q.get("id")
-                    if q_id:
-                        tg.record_question_message(
-                            home / "telegram_question_msgs.json",
-                            message_id,
-                            q_id,
-                        )
-                created_at = float(q.get("created_at") or 0)
-                new_wm = max(new_wm, created_at)
-            watermark = new_wm
+            watermark = await tg_notify.notify_new_questions(
+                TelegramApi(token),
+                state.question_store,
+                _question_messages(state),
+                chat_id,
+                watermark,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("question_poller error")
+
+
+def _command_env(state: AppState) -> CommandEnv:
+    """Handler dependencies for the inbound listener, read live from state."""
+    return CommandEnv(
+        queue=state.queue,
+        messages=_question_messages(state),
+        allowed_ids=lambda: parse_allowed_ids(
+            state.config.telegram_allowed_ids if state.config else ""
+        ),
+        default_cwd=lambda: (state.config.telegram_default_cwd if state.config else "") or None,
+    )
 
 
 class _SPAStaticFiles(StaticFiles):
@@ -97,10 +96,11 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         watcher_task = asyncio.create_task(state.watcher.start(state.home, mgr))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
-            tg.inbound_listener(
-                app,
-                state.home / "telegram_update_offset",
-                state.home / "telegram_question_msgs.json",
+            inbound_listener(
+                TelegramApi(os.environ.get("TELEGRAM_BOT_TOKEN", "")),
+                state.question_store,
+                _command_env(state),
+                OffsetStore(state.home / "telegram_update_offset"),
             )
         )
         try:
@@ -122,7 +122,6 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     app.state.fleet_state = state
     app.state.connection_manager = mgr
-    app.state.queue = state.queue
     for router in ROUTERS:
         app.include_router(router)
 

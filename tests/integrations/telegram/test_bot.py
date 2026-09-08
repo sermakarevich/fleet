@@ -10,10 +10,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import fleet.integrations.ask_human.store as db_mod
-import fleet.integrations.telegram.bot as tg
+import fleet.integrations.telegram.listener as listener_mod
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
+from fleet.integrations.ask_human.store import QuestionStore
+from fleet.integrations.telegram.api import TelegramApi
+from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
+from fleet.integrations.telegram.listener import inbound_listener
+from fleet.integrations.telegram.messages import MessageStore, OffsetStore
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -83,13 +87,37 @@ def _make_fake_app(allowed_ids: str = "123", default_cwd: str = "") -> MagicMock
     return app
 
 
+def _listener_parts(
+    app: MagicMock, tmp_path: Path, *, qmsgs: str = "qmsgs.json", db: Path | None = None
+) -> tuple[TelegramApi, QuestionStore, CommandEnv, OffsetStore]:
+    """Build (api, store, env, offsets) for inbound_listener from the fake app."""
+    cfg = app.state.fleet_state.config
+    return (
+        TelegramApi("tok"),
+        QuestionStore(db or tmp_path / "questions.db"),
+        CommandEnv(
+            queue=app.state.queue,
+            messages=MessageStore(tmp_path / qmsgs),
+            allowed_ids=lambda: parse_allowed_ids(cfg.telegram_allowed_ids),
+            default_cwd=lambda: cfg.telegram_default_cwd or None,
+        ),
+        OffsetStore(tmp_path / "offset"),
+    )
+
+
+def _run(app: MagicMock, tmp_path: Path) -> None:
+    """Build listener parts from the fake app and drive until CancelledError."""
+    api, store, env, offsets = _listener_parts(app, tmp_path)
+    return asyncio.run(inbound_listener(api, store, env, offsets))
+
+
 def _make_fetch_dispatcher(updates: list) -> object:
     """Fake asyncio.to_thread: returns updates on 1st _fetch_updates call,
     CancelledError on 2nd; executes fn(*args) for all other functions."""
     fetch_n = [0]
 
     async def _fake(fn, *args, **kwargs):  # type: ignore[misc]
-        if fn is tg._fetch_updates:
+        if fn is listener_mod._fetch_updates:
             fetch_n[0] += 1
             if fetch_n[0] == 1:
                 return updates
@@ -122,17 +150,18 @@ class _JsonResp:
 
 def test_record_and_lookup_round_trip(tmp_path: Path) -> None:
     """record_question_message then lookup_question_for_message returns the stored qid."""
-    path = tmp_path / "q_msgs.json"
-    tg.record_question_message(path, 101, "q-abc")
-    assert tg.lookup_question_for_message(path, 101) == "q-abc"
-    assert tg.lookup_question_for_message(path, 999) is None
+    messages = MessageStore(tmp_path / "q_msgs.json")
+    messages.record(101, "q-abc")
+    assert messages.lookup(101) == "q-abc"
+    assert messages.lookup(999) is None
 
 
 def test_200_entry_cap_eviction(tmp_path: Path) -> None:
     """Inserting 205 entries evicts the 5 oldest; exactly 200 remain."""
     path = tmp_path / "q_msgs.json"
+    messages = MessageStore(path)
     for i in range(205):
-        tg.record_question_message(path, i, f"q-{i}")
+        messages.record(i, f"q-{i}")
     mapping = json.loads(path.read_text())
     assert len(mapping) == 200
     for i in range(5):
@@ -152,7 +181,7 @@ def test_send_message_with_id_returns_message_id(monkeypatch: pytest.MonkeyPatch
         "urllib.request.urlopen",
         lambda req, timeout=None: _JsonResp({"ok": True, "result": {"message_id": 77}}),
     )
-    result = asyncio.run(tg.send_message_with_id("tok", "123", "hello"))
+    result = asyncio.run(TelegramApi("tok").send_with_id("123", "hello"))
     assert result == 77
 
 
@@ -162,7 +191,7 @@ def test_send_message_with_id_returns_none_on_http_error(monkeypatch: pytest.Mon
         "urllib.request.urlopen",
         lambda req, timeout=None: (_ for _ in ()).throw(OSError("connection refused")),
     )
-    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+    assert asyncio.run(TelegramApi("tok").send_with_id("123", "hi")) is None
 
 
 def test_send_message_with_id_returns_none_when_ok_false(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,7 +200,7 @@ def test_send_message_with_id_returns_none_when_ok_false(monkeypatch: pytest.Mon
         "urllib.request.urlopen",
         lambda req, timeout=None: _JsonResp({"ok": False, "description": "Bad Request"}),
     )
-    assert asyncio.run(tg.send_message_with_id("tok", "123", "hi")) is None
+    assert asyncio.run(TelegramApi("tok").send_with_id("123", "hi")) is None
 
 
 # ---------------------------------------------------------------------------
@@ -187,10 +216,9 @@ def test_reply_to_mapped_message_answers_question(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-1", prompt="color?", created_at=1000.0, agent_id="my-agent")
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
 
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 42, "q-1")
+    MessageStore(qmsg_path).record(42, "q-1")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
@@ -209,14 +237,14 @@ def test_reply_to_mapped_message_answers_question(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0][1]
@@ -237,7 +265,6 @@ def test_plain_text_one_pending_answers_it(tmp_path: Path, monkeypatch: pytest.M
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-only", prompt="confirm?", created_at=1000.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
@@ -255,14 +282,14 @@ def test_plain_text_one_pending_answers_it(tmp_path: Path, monkeypatch: pytest.M
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append(text)
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0]
@@ -283,7 +310,6 @@ def test_plain_text_two_pending_sends_hint_no_db_write(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-a", prompt="first?", created_at=1000.0)
     _insert_question(db_path, qid="q-b", prompt="second?", created_at=1001.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
@@ -301,14 +327,14 @@ def test_plain_text_two_pending_sends_hint_no_db_write(
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append(text)
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "2 questions pending" in sent[0]
@@ -335,10 +361,8 @@ def test_numeric_reply_with_options_stores_option_string(
         options=["alpha", "beta", "gamma"],
         agent_id="opts-agent",
     )
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 55, "q-opts")
+    MessageStore(qmsg_path).record(55, "q-opts")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
@@ -357,14 +381,14 @@ def test_numeric_reply_with_options_stores_option_string(
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append(text)
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert "Answered" in sent[0]
@@ -383,10 +407,8 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-safe", prompt="stay pending?", created_at=1000.0)
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 99, "q-safe")
+    MessageStore(qmsg_path).record(99, "q-safe")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     # Allowed only: 999; sender is 111
@@ -406,14 +428,14 @@ def test_sender_not_on_allowlist_rejected_no_db_write(
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append(text)
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert sent == [], "No reply to a rejected sender"
 
@@ -438,10 +460,8 @@ def test_already_answered_conflict_reply_no_overwrite(
         status="answered",
         answer=json.dumps("original answer"),
     )
-    monkeypatch.setattr(db_mod, "ASK_HUMAN_DB", db_path)
-
     qmsg_path = tmp_path / "qmsgs.json"
-    tg.record_question_message(qmsg_path, 77, "q-done")
+    MessageStore(qmsg_path).record(77, "q-done")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
     app = _make_fake_app()
@@ -460,14 +480,14 @@ def test_already_answered_conflict_reply_no_overwrite(
 
     sent: list[str] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append(text)
 
     monkeypatch.setattr(asyncio, "to_thread", _make_fetch_dispatcher(updates))
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", qmsg_path))
+        asyncio.run(_run(app, tmp_path))
 
     assert len(sent) == 1
     assert sent[0] == "Question already answered"
@@ -501,24 +521,24 @@ def test_task_command_creates_task_regression(
 
     sent: list[tuple[str, str]] = []
 
-    async def _fake_send(token: str, chat_id: str, text: str) -> None:
+    async def _fake_send(self, chat_id: str, text: str) -> None:
         sent.append((chat_id, text))
 
     call_n = [0]
 
     async def _fake_to_thread(fn, *args):
         call_n[0] += 1
-        if fn is tg._fetch_updates:
+        if fn is listener_mod._fetch_updates:
             if call_n[0] == 1:
                 return updates
             raise asyncio.CancelledError()
         return fn(*args)
 
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
-    monkeypatch.setattr(tg, "send_message", _fake_send)
+    monkeypatch.setattr(TelegramApi, "send", _fake_send)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(tg.inbound_listener(app, tmp_path / "offset", tmp_path / "qmsgs.json"))
+        asyncio.run(_run(app, tmp_path))
 
     app.state.queue.create_task.assert_called_once()
     assert len(sent) == 1

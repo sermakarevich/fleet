@@ -3,7 +3,7 @@
 Called by ``orchestrator/`` (claim, spawn, reap, leases, triage,
 merge_validation), ``serve/api/tasks.py``, ``cli/tasks.py``,
 ``cli/beads.py``, ``workers/observe.py``, ``workers/job.py`` and
-``integrations/telegram/bot.py``. This module only talks to ``bd``
+``integrations/telegram/commands.py``. This module only talks to ``bd``
 (through :class:`BdClient`); every task.json read or write lives in
 ``beads/task_store.py``.
 """

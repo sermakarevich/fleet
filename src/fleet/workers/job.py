@@ -28,7 +28,6 @@ from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
-from fleet.integrations.ask_human.store import QuestionStore
 from fleet.state import attempts as state_attempts
 from fleet.state.paths import RESULT_JSON
 
@@ -57,12 +56,6 @@ StoreFactory = Callable[[Path], Any]
 def _default_queue(home: Path) -> Any:
 
     return BeadsQueue(home)
-
-
-def _default_store(_home: Path) -> Any:
-    """The ask_human store, same pattern as the triage loop (default DB)."""
-
-    return QuestionStore()
 
 
 def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
@@ -174,7 +167,13 @@ class AskApproval:
     name = "ask_approval"
 
     def __init__(self, store_factory: StoreFactory | None = None) -> None:
-        self._store_factory = store_factory or _default_store
+        self._store_factory = store_factory
+
+    def _store_for(self, ctx: StepContext) -> Any:
+        """Explicit factory first, else the store orchestrator/spawn.py injected."""
+        if self._store_factory is not None:
+            return self._store_factory(ctx.fleet_home)
+        return ctx.question_store
 
     def _invalid_plan(self, ctx: StepContext, errors: list[str]) -> StepResult:
         """Send an invalid plan back to design without asking the operator."""
@@ -210,7 +209,9 @@ class AskApproval:
 
     def _gate(self, ctx: StepContext, doc: Any) -> StepResult:
         """Apply an existing gate answer, or ask and wait for a new one."""
-        store = self._store_factory(ctx.fleet_home)
+        store = self._store_for(ctx)
+        if store is None:
+            return StepResult(status="fail", reason="no question store injected")
         answered = self._store_read(
             store, "answers", lambda: store.fetch_answered_for_task(ctx.task.id, JOB_GATE_CONTEXT)
         )

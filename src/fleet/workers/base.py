@@ -52,6 +52,9 @@ class StepContext:
     # Small values passed forward between steps (e.g. prompt text). Never
     # file contents > 16 KB.
     scratch: dict[str, Any] = field(default_factory=dict)
+    # ask_human question store, injected by orchestrator/spawn.py. Steps use
+    # it (never build one: workers must not import integrations).
+    question_store: Any = None
 
 
 @dataclass

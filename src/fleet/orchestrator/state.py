@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -52,6 +52,10 @@ class SupervisorState:
     # Writer: Supervisor runner fills this before on_start so services
     # (e.g. ConfigReload) can emit events to each other via emit().
     services: list[Service] = field(default_factory=list)
+    # Writer: the CLI entry point injects the shared ask_human store once;
+    # spawn.py forwards it to StepContext (Any: this package never imports
+    # integrations, same as default_services(question_store=...)).
+    question_store: Any = None
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""

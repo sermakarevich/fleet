@@ -1,19 +1,19 @@
 """SQLite-backed question store for the ask_human MCP server.
 
-Vendored from the standalone agent-chat project (~/git/claude/mcp/ask_human);
-keep behavior-identical so the two stay easy to diff. The module-level
-``fetch_pending`` / ``count_pending`` / ``get`` / ``answer`` functions below are
-the serve process's (and Telegram's) lightweight reader/answerer over the same
-DB file — no ``QuestionStore`` instance required.
+The single owner of the questions database: every reader and writer goes
+through ``QuestionStore`` (agents asking via the MCP server in
+``server.py``, operators answering via the serve/chat API, the Telegram
+bot, the triage loop, the job gate). Callers receive an injected instance
+(``serve/state.py::AppState.question_store``); nothing reads a module
+global. The MCP child-process env var (``ASK_HUMAN_DB``, owned by
+``integrations/mcp_servers.py``) tells the *server* process where the DB
+is — a different concern from this module.
 
-This is the single source of truth shared by the MCP server (writers: agents
-asking questions) and the operator frontends (CLI / web / Telegram, which read
-pending questions and write answers). It is concurrency-safe:
-
-* WAL journal mode + a generous ``busy_timeout`` let many agent writers and
-  operator readers/writers coexist without "database is locked" errors.
-* Answering is a single conditional ``UPDATE ... WHERE status='pending'`` so
-  the first responder wins and two operators can never double-answer.
+Concurrency-safe: WAL journal mode + a generous ``busy_timeout`` let many
+agent writers and operator readers/writers coexist without "database is
+locked" errors. Answering is a single conditional
+``UPDATE ... WHERE status='pending'`` so the first responder wins and two
+operators can never double-answer.
 
 Values that may be structured (``options``, ``answer``, ``default_answer``)
 are stored as JSON text and decoded on read.
@@ -31,14 +31,13 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB_PATH = Path(
-    os.environ.get("ASK_HUMAN_DB") or (Path.home() / ".claude" / "ask_human" / "questions.db")
-)
 
-# Monkeypatchable by tests / callers that point at a different DB file; the
-# module-level reader/answerer functions below re-read this attribute on every
-# call rather than closing over a default parameter.
-ASK_HUMAN_DB = DEFAULT_DB_PATH
+def _default_db_path() -> Path:
+    """DB location when the caller passes no path (MCP server default)."""
+    return Path(
+        os.environ.get("ASK_HUMAN_DB") or (Path.home() / ".claude" / "ask_human" / "questions.db")
+    )
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS questions (
@@ -100,8 +99,8 @@ class QuestionStore:
     operator frontend) pointing at the same ``db_path``.
     """
 
-    def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = Path(db_path) if db_path is not None else _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             # Pre-existing DB from before some columns existed: the
@@ -375,6 +374,61 @@ class QuestionStore:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def fetch_pending(self, limit: int = 200) -> list[dict]:
+        """Pending questions, highest priority first (chat tab + telegram)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE status='pending' "
+                "ORDER BY priority DESC, created_at ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def fetch_new(self, since: float, limit: int = 100) -> list[dict]:
+        """Pending questions created after ``since`` (poll for new arrivals)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM questions WHERE status='pending' AND created_at > ? "
+                "ORDER BY created_at ASC LIMIT ?",
+                (since, limit),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def max_created_at(self) -> float:
+        """Newest question timestamp, 0.0 on an empty store (poll watermark)."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT MAX(created_at) FROM questions").fetchone()
+        return float(row[0]) if row[0] is not None else 0.0
+
+    def count_pending(self) -> int:
+        """Number of questions still waiting for a human."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM questions WHERE status='pending'").fetchone()
+        return int(row[0]) if row else 0
+
+    def answer_result(
+        self,
+        qid: str,
+        answer: Any,
+        *,
+        answered_by: str,
+        note: str | None = None,
+    ) -> dict:
+        """Answer like ``answer`` but report ``{"ok", "status"}`` for frontends."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT status FROM questions WHERE id=?", (qid,)).fetchone()
+            if row is None:
+                return {"ok": False, "status": "missing"}
+            if row["status"] != "pending":
+                return {"ok": False, "status": row["status"]}
+            cur = conn.execute(
+                "UPDATE questions SET status='answered', answer=?, note=?, answered_by=?, "
+                "answered_at=? WHERE id=? AND status='pending'",
+                (_dumps(answer), note, answered_by, time.time(), qid),
+            )
+            ok = cur.rowcount > 0
+        return {"ok": ok, "status": "answered" if ok else "conflict"}
+
     def resolve_id(self, prefix: str) -> str | None:
         """Resolve a (possibly shortened) id prefix to a full id.
 
@@ -416,125 +470,3 @@ class QuestionStore:
             if q is None:
                 raise KeyError(qid)
         return q
-
-
-# -- module-level reader/answerer functions --------------------------------
-#
-# The MCP server (above) uses ``QuestionStore`` directly. The serve process
-# (web chat tab) and the Telegram bot are lighter-weight callers that just
-# need to read pending questions and write answers over the same DB file
-# without owning a ``QuestionStore`` instance (and without paying its
-# create-parent-dir / migrate cost on every call) — these functions are that
-# client. They assume the DB already exists (created by the MCP server on
-# first run) and are no-ops against a missing file.
-
-
-def _connect(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path), timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
-
-
-def fetch_pending(limit: int = 200, *, db_path: Path | None = None) -> list[dict]:
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return []
-    conn = _connect(path)
-    try:
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE status='pending' "
-            "ORDER BY priority DESC, created_at ASC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def fetch_new(since: float, *, db_path: Path | None = None) -> list[dict]:
-    """Pending questions created after ``since`` (used to poll for new arrivals)."""
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return []
-    conn = _connect(path)
-    try:
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE status='pending' AND created_at > ? "
-            "ORDER BY created_at ASC LIMIT 100",
-            (since,),
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def max_created_at(*, db_path: Path | None = None) -> float:
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return 0.0
-    conn = _connect(path)
-    try:
-        row = conn.execute("SELECT MAX(created_at) FROM questions").fetchone()
-        return float(row[0]) if row[0] is not None else 0.0
-    finally:
-        conn.close()
-
-
-def count_pending(*, db_path: Path | None = None) -> int:
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return 0
-    conn = _connect(path)
-    try:
-        row = conn.execute("SELECT COUNT(*) FROM questions WHERE status='pending'").fetchone()
-        return int(row[0]) if row else 0
-    finally:
-        conn.close()
-
-
-def get(qid: str, *, db_path: Path | None = None) -> dict | None:
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return None
-    conn = _connect(path)
-    try:
-        row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
-        return _row_to_dict(row) if row is not None else None
-    finally:
-        conn.close()
-
-
-def answer(
-    qid: str,
-    answer: Any,
-    *,
-    answered_by: str,
-    note: str | None = None,
-    db_path: Path | None = None,
-) -> dict:
-    """Answer a pending question, writing ``note`` alongside the answer.
-
-    Returns ``{"ok": bool, "status": "answered" | "conflict" | "missing"}``.
-    """
-    path = db_path if db_path is not None else ASK_HUMAN_DB
-    if not path.exists():
-        return {"ok": False, "status": "missing"}
-    conn = _connect(path)
-    try:
-        row = conn.execute("SELECT status FROM questions WHERE id=?", (qid,)).fetchone()
-        if not row:
-            return {"ok": False, "status": "missing"}
-        if row["status"] != "pending":
-            return {"ok": False, "status": row["status"]}
-        cur = conn.execute(
-            "UPDATE questions SET status='answered', answer=?, note=?, answered_by=?, "
-            "answered_at=? WHERE id=? AND status='pending'",
-            (_dumps(answer), note, answered_by, time.time(), qid),
-        )
-        conn.commit()
-        ok = cur.rowcount > 0
-    finally:
-        conn.close()
-    return {"ok": ok, "status": "answered" if ok else "conflict"}

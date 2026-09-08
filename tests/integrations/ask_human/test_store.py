@@ -13,16 +13,11 @@ import threading
 import time
 from pathlib import Path
 
-from fleet.integrations.ask_human import store as store_mod
 from fleet.integrations.ask_human.store import QuestionStore
 
 
-def _store(tmp_path: Path) -> QuestionStore:
-    return QuestionStore(tmp_path / "q.db")
-
-
-def test_blocking_ask_answered_out_of_band(tmp_path: Path):
-    s = _store(tmp_path)
+def test_blocking_ask_answered_out_of_band(question_store: QuestionStore):
+    s = question_store
     qid = s.create("Deploy to prod?", options=["yes", "no"], agent_id="agent-7")
 
     def operator():
@@ -39,24 +34,24 @@ def test_blocking_ask_answered_out_of_band(tmp_path: Path):
     assert q["answered_by"] == "cli"
 
 
-def test_timeout_returns_default(tmp_path: Path):
-    s = _store(tmp_path)
+def test_timeout_returns_default(question_store: QuestionStore):
+    s = question_store
     qid = s.create("Proceed?", timeout_s=0.2, default_answer="no")
     q = s.wait(qid, poll_interval=0.05)
     assert q["status"] == "expired"
     assert q["answer"] == "no"
 
 
-def test_first_writer_wins(tmp_path: Path):
-    s = _store(tmp_path)
+def test_first_writer_wins(question_store: QuestionStore):
+    s = question_store
     qid = s.create("Pick one")
     assert s.answer(qid, "a") is True
     assert s.answer(qid, "b") is False  # already resolved
     assert s.get(qid)["answer"] == "a"
 
 
-def test_many_concurrent_waiters_released_independently(tmp_path: Path):
-    s = _store(tmp_path)
+def test_many_concurrent_waiters_released_independently(question_store: QuestionStore):
+    s = question_store
     ids = [s.create(f"q{i}") for i in range(20)]
     results: dict[str, dict] = {}
 
@@ -76,16 +71,16 @@ def test_many_concurrent_waiters_released_independently(tmp_path: Path):
     assert all(results[i]["answer"] == f"ans-{i}" for i in ids)
 
 
-def test_multi_select_and_listing(tmp_path: Path):
-    s = _store(tmp_path)
+def test_multi_select_and_listing(question_store: QuestionStore):
+    s = question_store
     qid = s.create("Languages?", options=["py", "ts", "go"], multi_select=True)
     assert any(p["id"] == qid for p in s.list_pending())
     s.answer(qid, ["py", "go"])
     assert s.get(qid)["answer"] == ["py", "go"]
 
 
-def test_answer_with_note_supplements_selection(tmp_path: Path):
-    s = _store(tmp_path)
+def test_answer_with_note_supplements_selection(question_store: QuestionStore):
+    s = question_store
     qid = s.create("Deploy to prod?", options=["yes", "no"])
     assert s.answer(qid, "yes", note="but wait for the migration to finish")
     q = s.get(qid)
@@ -93,10 +88,10 @@ def test_answer_with_note_supplements_selection(tmp_path: Path):
     assert q["note"] == "but wait for the migration to finish"
 
 
-def test_note_only_answer_overrides_options(tmp_path: Path):
+def test_note_only_answer_overrides_options(question_store: QuestionStore):
     # The operator picks nothing because none of the options fit, answering purely
     # in free text. `answer` stays None; the real reply lives in `note`.
-    s = _store(tmp_path)
+    s = question_store
     qid = s.create("Which DB?", options=["postgres", "mysql"])
     assert s.answer(qid, None, note="actually use sqlite")
     q = s.get(qid)
@@ -130,47 +125,73 @@ def test_migration_adds_note_column_to_preexisting_db(tmp_path: Path):
     assert s.get("old1")["note"] == "works after migrate"
 
 
-def test_resolve_id_prefix_and_cancel(tmp_path: Path):
-    s = _store(tmp_path)
+def test_resolve_id_prefix_and_cancel(question_store: QuestionStore):
+    s = question_store
     qid = s.create("cancel me")
     assert s.resolve_id(qid[:6]) == qid
     assert s.cancel(qid) is True
     assert s.answer(qid, "late") is False  # can't answer a cancelled one
 
 
-def test_shared_db_with_module_level_helpers(tmp_path: Path):
-    # QuestionStore and the module-level fetch_pending/answer functions are two
-    # clients of the same SQLite file; an answer written through either side
-    # must be visible to the other (this is exactly the serve-process /
-    # MCP-server split in production).
+def test_two_instances_share_one_file(question_store: QuestionStore):
+    # Two QuestionStore instances are the serve-process / MCP-server split:
+    # an answer written through either side is visible to the other.
 
-    path = tmp_path / "q.db"
-    s = QuestionStore(path)
-    qid = s.create("Cross-module?", options=["a", "b"], agent_id="x")
+    other = QuestionStore(question_store.db_path)
+    qid = question_store.create("Cross-instance?", options=["a", "b"], agent_id="x")
 
-    pending = store_mod.fetch_pending(db_path=path)
-    assert [p["id"] for p in pending] == [qid]
+    assert [p["id"] for p in other.fetch_pending()] == [qid]
 
-    result = store_mod.answer(qid, "a", answered_by="web", db_path=path)
-    assert result["ok"] is True
-    q = s.get(qid)
+    result = other.answer_result(qid, "a", answered_by="web")
+    assert result == {"ok": True, "status": "answered"}
+    q = question_store.get(qid)
     assert q["status"] == "answered"
     assert q["answer"] == "a"
     assert q["note"] is None
 
 
-def test_module_level_answer_writes_note(tmp_path: Path):
+def test_answer_result_reports_missing_and_conflict(question_store: QuestionStore):
+    assert question_store.answer_result("nope", "x", answered_by="web") == {
+        "ok": False,
+        "status": "missing",
+    }
+    qid = question_store.create("Pick one")
+    assert question_store.answer(qid, "a") is True
+    assert question_store.answer_result(qid, "b", answered_by="web") == {
+        "ok": False,
+        "status": "answered",
+    }
+    assert question_store.get(qid)["answer"] == "a"
 
-    path = tmp_path / "q.db"
-    s = QuestionStore(path)
-    qid = s.create("Deploy to prod?", options=["yes", "no"])
 
-    result = store_mod.answer(
-        qid, "yes", answered_by="web", note="wait for migration", db_path=path
-    )
-    assert result["ok"] is True
+def test_answer_result_writes_note(question_store: QuestionStore):
+    qid = question_store.create("Deploy to prod?", options=["yes", "no"])
 
-    q = store_mod.get(qid, db_path=path)
+    result = question_store.answer_result(qid, "yes", answered_by="web", note="wait for migration")
+    assert result == {"ok": True, "status": "answered"}
+
+    q = question_store.get(qid)
     assert q["note"] == "wait for migration"
     assert q["answer"] == "yes"  # decoded, not a raw JSON string
     assert q["answered_by"] == "web"
+
+
+def test_poll_reads_fetch_new_max_created_at_count(question_store: QuestionStore):
+    assert question_store.count_pending() == 0
+    assert question_store.max_created_at() == 0.0
+    assert question_store.fetch_new(0.0) == []
+
+    first = question_store.create("First?")
+    second = question_store.create("Second?", priority=5)
+
+    assert question_store.count_pending() == 2
+    watermark = question_store.max_created_at()
+    assert watermark > 0.0
+    assert question_store.fetch_new(watermark) == []
+
+    pending = question_store.fetch_pending()
+    assert [p["id"] for p in pending] == [second, first]  # priority first
+
+    question_store.answer(first, "yes")
+    assert question_store.count_pending() == 1
+    assert [p["id"] for p in question_store.fetch_new(0.0)] == [second]

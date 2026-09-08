@@ -184,6 +184,7 @@ def _build_step_context(
         log=st.log.bind(task_id=task.id),
         attempt_dir=attempt_dir,
         attempt_n=attempt_n,
+        question_store=st.question_store,
     )
 
 

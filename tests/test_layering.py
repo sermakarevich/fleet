@@ -57,7 +57,6 @@ ALLOWED: dict[str, set[str]] = {
 
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {
     ("coders", "integrations"),  # bead 11: mcp_servers placement
-    ("workers", "integrations"),  # bead 11: QuestionStore injection
 }
 
 
