@@ -24,6 +24,7 @@ CHAIN = [
     "fleet-l9i2m",  # 3/12 launch modes
     "fleet-ukh2r",  # 4/12 retry policy
     "fleet-ul4t5",  # 5/12 compaction
+    "fleet-y4x9w",  # 5b/12 per-model context window
     "fleet-q16mb",  # 6/12 lease heartbeat
     "fleet-jojvk",  # 7/12 isolation
     "fleet-ml2s9",  # 8/12 mcp wiring
