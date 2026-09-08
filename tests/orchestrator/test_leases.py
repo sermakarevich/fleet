@@ -20,6 +20,7 @@ from fleet.core.limits import HEARTBEAT_SEC
 from fleet.core.task import Task
 from fleet.orchestrator.leases import lease_is_stale
 from fleet.state import attempts
+from tests.conftest import make_running_worker
 from tests.helpers.task_dir import make_attempt
 from tests.orchestrator.test_supervisor_failures import (
     StubQueue,
@@ -203,11 +204,11 @@ def test_running_set_membership_untouched(tmp_path: Path) -> None:
     _setup_attempt(
         tmp_path, s, task, _lease_payload(_dead_pid(), lease_offset_sec=-300)
     )
-    s.in_flight["t-lease-running"] = object()  # type: ignore[assignment]
+    s.state.running["t-lease-running"] = make_running_worker("t-lease-running", tmp_path)
     try:
         s.reconcile_leases()
     finally:
-        s.in_flight.pop("t-lease-running", None)
+        s.state.running.pop("t-lease-running", None)
     assert queue.released == []
 
 

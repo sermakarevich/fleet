@@ -21,9 +21,9 @@ class KillSentinel(PeriodicService):
 
     async def tick(self, st: SupervisorState) -> None:
         """Unlink present .kill files and kill the matching runner once."""
-        for task_id, run in list(st.runners.items()):
+        for task_id, worker in list(st.running.items()):
             kill_file = st.task_dir_for(task_id) / ".kill"
             if kill_file.exists():
                 kill_file.unlink(missing_ok=True)
                 st.log.info("task_kill_requested", task_id=task_id)
-                await run.kill()
+                await worker.run.kill()

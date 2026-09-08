@@ -1,12 +1,16 @@
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import structlog
 
 from fleet.beads.queue import BeadsQueue
 from fleet.core.config import RuntimeConfig
+from fleet.core.task import Task
 from fleet.orchestrator.checks import StartupCheck
 from fleet.orchestrator.service import Service
+from fleet.orchestrator.state import RunningWorker
 from fleet.orchestrator.supervisor import Supervisor
 
 
@@ -38,3 +42,23 @@ def make_supervisor(
     if config is not None:
         sup.config = config
     return sup
+
+
+def make_running_worker(
+    task_id: str,
+    tmp_path: Path | None = None,
+    *,
+    task: Task | None = None,
+    run=None,
+    future=None,
+    attempt_n: int = 1,
+) -> RunningWorker:
+    """Build a RunningWorker for tests (fake run/future unless given)."""
+    _ = tmp_path  # reserved: callers pass it for symmetry with make_supervisor
+    return RunningWorker(
+        task=task or Task(id=task_id, title="T", description=None, status="in_progress"),
+        run=run if run is not None else MagicMock(),
+        future=future if future is not None else MagicMock(),
+        attempt_n=attempt_n,
+        started_at=datetime.now(tz=UTC),
+    )

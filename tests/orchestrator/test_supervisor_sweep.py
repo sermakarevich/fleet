@@ -10,6 +10,7 @@ import structlog
 
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.validation_marker import set_needs_validation
+from tests.conftest import make_running_worker
 
 
 class StubQueue:
@@ -74,20 +75,19 @@ class TestSweepOrphanWorktrees:
         orphan_dir.joinpath("HEAD").write_text("orphan")
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
             mock_remove.assert_called_once_with(orphan_dir)
 
     def test_skips_when_task_in_flight(self, tmp_path: Path) -> None:
-        """Worktree for a task in self.in_flight is NOT removed."""
+        """Worktree for a task in state.running is NOT removed."""
         fleet_home = _fleet_home(tmp_path)
         active = fleet_home / "worktrees" / "repo-t-active"
         active.mkdir()
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {"t-active": object()}
+        s.state.running["t-active"] = make_running_worker("t-active", tmp_path)
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
@@ -103,7 +103,6 @@ class TestSweepOrphanWorktrees:
         set_needs_validation(task_dir)
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
@@ -124,7 +123,6 @@ class TestSweepOrphanWorktrees:
         )
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
@@ -136,7 +134,6 @@ class TestSweepOrphanWorktrees:
         (fleet_home / "worktrees" / "not-a-dir").write_text("file")
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
@@ -147,7 +144,6 @@ class TestSweepOrphanWorktrees:
         fleet_home = tmp_path / ".fleet"
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()
@@ -160,7 +156,6 @@ class TestSweepOrphanWorktrees:
             (fleet_home / "worktrees" / f"repo-{tid}").mkdir()
 
         s = _make_supervisor(fleet_home)
-        s.in_flight = {}
 
         with patch("fleet.orchestrator.leases._remove_orphan_dir") as mock_remove:
             s._sweep_orphan_worktrees()

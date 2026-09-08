@@ -17,18 +17,17 @@ from fleet.core.limits import (
 )
 from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir
-from fleet.workers.base import WorkerRun
 
 from .checks import DEFAULT_CHECKS, StartupCheck, run_startup_checks
-from .claim import ClaimMixin
+from .claim import Claim
 from .config_reload import ConfigReload
 from .kill_sentinel import KillSentinel
 from .leases import LeasesMixin
+from .merge_validation import MergeValidation
 from .rate_gauge import RateGauge
 from .reap import ReapMixin
 from .retention_gc import RetentionGc
 from .service import LegacyLoop, Service, ServiceOrder, emit
-from .spawn import SpawnMixin
 from .stall import StallMixin
 from .state import SupervisorState
 from .status_log import StatusLog
@@ -51,7 +50,7 @@ class StartupSweeps(Service):
         sup.reconcile_leases()
 
 
-class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, TriageMixin):
+class Supervisor(ReapMixin, StallMixin, LeasesMixin, TriageMixin):
     def __init__(
         self,
         queue: Queue,
@@ -163,44 +162,21 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
 
     @property
     def in_flight(self) -> dict[str, asyncio.Task]:
-        """In-flight asyncio tasks by task id (delegates to state)."""
-        return self.state.in_flight
-
-    @in_flight.setter
-    def in_flight(self, value: dict[str, asyncio.Task]) -> None:
-        self.state.in_flight = value
+        """Read-only view of in-flight futures, built from state.running."""
+        return {tid: rw.future for tid, rw in self.state.running.items()}
 
     @property
     def in_flight_tasks(self) -> dict[str, Task]:
-        """In-flight tasks by task id (delegates to state)."""
-        return self.state.in_flight_tasks
-
-    @in_flight_tasks.setter
-    def in_flight_tasks(self, value: dict[str, Task]) -> None:
-        self.state.in_flight_tasks = value
-
-    @property
-    def _runners(self) -> dict[str, WorkerRun]:
-        return self.state.runners
-
-    @_runners.setter
-    def _runners(self, value: dict[str, WorkerRun]) -> None:
-        self.state.runners = value
-
-    @property
-    def _attempt_n(self) -> dict[str, int]:
-        return self.state.attempt_n
-
-    @_attempt_n.setter
-    def _attempt_n(self, value: dict[str, int]) -> None:
-        self.state.attempt_n = value
+        """Read-only view of in-flight tasks, built from state.running."""
+        return {tid: rw.task for tid, rw in self.state.running.items()}
 
     def default_services(self) -> list[Service]:
         """Build the production service list (legacy loops behind adapters)."""
         return [
             ConfigReload(),
             StartupSweeps(self),
-            LegacyLoop("claim_and_spawn", ServiceOrder.Claim, lambda: self._claim_and_spawn_loop()),
+            Claim(),
+            MergeValidation(),
             LegacyLoop("reap", ServiceOrder.Reap, lambda: self._reap_loop()),
             LegacyLoop(
                 "legacy_stall_leases_triage",
@@ -259,25 +235,26 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         loop = asyncio.get_event_loop()
         deadline = loop.time() + grace
 
-        if self._runners:
+        if self.state.running:
             await asyncio.gather(
-                *[runner.cancel() for runner in self._runners.values()],
+                *[rw.run.cancel() for rw in self.state.running.values()],
                 return_exceptions=True,
             )
 
-        if self.in_flight:
+        if self.state.running:
             remaining = deadline - loop.time()
+            futures = [rw.future for rw in self.state.running.values()]
             if remaining > 0:
                 _, still_running = await asyncio.wait(
-                    list(self.in_flight.values()),
+                    futures,
                     timeout=remaining,
                 )
             else:
-                still_running = set(self.in_flight.values())
+                still_running = set(futures)
 
             for async_task in still_running:
                 task_id = next(
-                    (tid for tid, t in self.in_flight.items() if t is async_task),
+                    (tid for tid, rw in self.state.running.items() if rw.future is async_task),
                     None,
                 )
                 if task_id is not None:

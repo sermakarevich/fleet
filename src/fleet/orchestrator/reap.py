@@ -74,14 +74,14 @@ def _drop_stale_counter_files(task_dir: Path) -> None:
 
 class ReapMixin:
     async def _reap_loop(self) -> None:
-        while not self._shutting_down or self.in_flight:
-            if not self.in_flight:
+        while not self._shutting_down or self.state.running:
+            if not self.state.running:
                 await asyncio.sleep(0.1)
                 continue
 
             try:
                 done, _ = await asyncio.wait(
-                    list(self.in_flight.values()),
+                    [rw.future for rw in self.state.running.values()],
                     return_when=asyncio.FIRST_COMPLETED,
                     timeout=1.0,
                 )
@@ -90,16 +90,15 @@ class ReapMixin:
 
             for async_task in done:
                 task_id = next(
-                    (tid for tid, t in self.in_flight.items() if t is async_task),
+                    (tid for tid, rw in self.state.running.items() if rw.future is async_task),
                     None,
                 )
                 if task_id is None:
                     continue
 
-                bead_task = self.in_flight_tasks.pop(task_id)
-                self.in_flight.pop(task_id)
-                self._runners.pop(task_id, None)
-                attempt_n = self._attempt_n.pop(task_id, None)
+                worker = self.state.running.pop(task_id)
+                bead_task = worker.task
+                attempt_n = worker.attempt_n
                 self._stall_warned.discard(task_id)
                 self._stall_killed.discard(task_id)
 

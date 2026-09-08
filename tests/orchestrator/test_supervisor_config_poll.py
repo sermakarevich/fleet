@@ -6,18 +6,15 @@ from pathlib import Path
 
 import structlog
 
-from fleet.core.config import RuntimeConfig, write_atomic
+from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
-from fleet.orchestrator.claim import cap_for_coder, running_by_coder
+from fleet.orchestrator.claim import can_claim
 from fleet.orchestrator.supervisor import Supervisor
+from tests.conftest import make_running_worker
 
 
 def _can_spawn(s: Supervisor) -> bool:
-    running = running_by_coder(s.in_flight_tasks.values(), s.config.coder)
-    cap = cap_for_coder(
-        s.config.coder, s.config.max_concurrent, s.config.max_concurrent_overrides
-    )
-    return running.get(s.config.coder, 0) < cap
+    return can_claim(s.state, None)
 
 
 # ---------------------------------------------------------------------------
@@ -101,27 +98,29 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())
-            s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(
-                id=task_id, title="T", description=None, status="in_progress"
+            s.state.running[task_id] = make_running_worker(
+                task_id,
+                tmp_path,
+                task=Task(id=task_id, title="T", description=None, status="in_progress"),
+                future=t,
             )
 
-        initial_count = len(s.in_flight)
+        initial_count = len(s.state.running)
 
         # Simulate config change: lower max_concurrent to 2
         s.config = RuntimeConfig(max_concurrent=2)
 
         # In-flight count must be unchanged (no cancellations)
-        assert len(s.in_flight) == initial_count == 4
+        assert len(s.state.running) == initial_count == 4
 
         # Spawn decision must be PAUSED_FULL (4 in-flight >= 2 cap)
         assert _can_spawn(s) is False
 
         # Cleanup
-        for t in list(s.in_flight.values()):
-            t.cancel()
+        for rw in list(s.state.running.values()):
+            rw.future.cancel()
             try:
-                await t
+                await rw.future
             except (asyncio.CancelledError, Exception):
                 pass
 
@@ -146,20 +145,21 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())
-            s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(
-                id=task_id, title="T", description=None, status="in_progress"
+            s.state.running[task_id] = make_running_worker(
+                task_id,
+                tmp_path,
+                task=Task(id=task_id, title="T", description=None, status="in_progress"),
+                future=t,
             )
 
         assert _can_spawn(s) is False
 
         # Remove one from in-flight — still 2 == cap, still PAUSED_FULL
         tid = "t-000"
-        removed_task = s.in_flight.pop(tid)
-        s.in_flight_tasks.pop(tid, None)
-        removed_task.cancel()
+        removed = s.state.running.pop(tid)
+        removed.future.cancel()
         try:
-            await removed_task
+            await removed.future
         except (asyncio.CancelledError, Exception):
             pass
 
@@ -167,21 +167,20 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
 
         # Remove another — now 1 < cap=2, SPAWN
         tid = "t-001"
-        removed_task = s.in_flight.pop(tid)
-        s.in_flight_tasks.pop(tid, None)
-        removed_task.cancel()
+        removed = s.state.running.pop(tid)
+        removed.future.cancel()
         try:
-            await removed_task
+            await removed.future
         except (asyncio.CancelledError, Exception):
             pass
 
         assert _can_spawn(s) is True
 
         # Cleanup remaining
-        for t in list(s.in_flight.values()):
-            t.cancel()
+        for rw in list(s.state.running.values()):
+            rw.future.cancel()
             try:
-                await t
+                await rw.future
             except (asyncio.CancelledError, Exception):
                 pass
 
@@ -203,12 +202,14 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())
-            s.in_flight[task_id] = t
-            s.in_flight_tasks[task_id] = Task(
-                id=task_id, title="T", description=None, status="in_progress"
+            s.state.running[task_id] = make_running_worker(
+                task_id,
+                tmp_path,
+                task=Task(id=task_id, title="T", description=None, status="in_progress"),
+                future=t,
             )
 
-        initial_count = len(s.in_flight)
+        initial_count = len(s.state.running)
 
         # Lower threshold below current gauge level
         s.rate_gauge.update(
@@ -222,67 +223,14 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
         s.config = RuntimeConfig(max_concurrent=4)
 
         # In-flight count unchanged
-        assert len(s.in_flight) == initial_count == 3
+        assert len(s.state.running) == initial_count == 3
 
         # Cleanup
-        for t in list(s.in_flight.values()):
-            t.cancel()
+        for rw in list(s.state.running.values()):
+            rw.future.cancel()
             try:
-                await t
+                await rw.future
             except (asyncio.CancelledError, Exception):
                 pass
 
     asyncio.run(_run())
-
-
-# ---------------------------------------------------------------------------
-# _resolve_coder — opencode kwargs
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_coder_opencode_passes_default_model_not_limits(tmp_path: Path):
-    """When coder_name == 'opencode', _resolve_coder passes routing kwargs only.
-
-    Context windows are per-model now (``context_windows`` + resolve_window):
-    the coder resolves its own window, so no limit kwargs are passed.
-    """
-    queue = TrackingQueue()
-    runtime_toml = tmp_path / "runtime.toml"
-    write_atomic(
-        runtime_toml,
-        {
-            "opencode_default_model": "qwen3.6:latest",
-        },
-    )
-    from fleet.coders.opencode import OpencodeCoder
-
-    # Load config from file to get the values
-    # We manually set them since write_atomic writes strings
-    s = Supervisor(
-        coder=None,
-        queue=queue,
-        runtime_toml_path=runtime_toml,
-        project_root=tmp_path,
-        log=structlog.get_logger(),
-    )
-    s.config = RuntimeConfig(
-        coder="opencode",
-        opencode_default_model="qwen3.6:latest",
-    )
-
-    task = Task(
-        id="t-opencode-01",
-        title="Opencode test",
-        description=None,
-        status="in_progress",
-        cwd=str(tmp_path),
-    )
-    coder, coder_name, model = s._resolve_coder(task)
-
-    assert coder_name == "opencode"
-    assert isinstance(coder, OpencodeCoder)
-    assert coder.default_model == "qwen3.6:latest"
-    assert coder.model == "sonnet"  # falls back to RuntimeConfig.model
-    # "sonnet" resolves through the built-in per-model table (200k), not a
-    # single global number.
-    assert coder.context_limit == 200_000

@@ -8,6 +8,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.supervisor import Supervisor
+from tests.conftest import make_running_worker
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -67,6 +68,23 @@ def _make_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | N
     return s
 
 
+class _FakeRun:
+    """Stand-in for WorkerRun: shutdown cancel is a no-op."""
+
+    async def cancel(self) -> None:
+        return None
+
+
+def _track(s: Supervisor, task_id: str, t: asyncio.Task) -> None:
+    s.state.running[task_id] = make_running_worker(
+        task_id,
+        None,
+        task=Task(id=task_id, title="T", description=None, status="in_progress"),
+        run=_FakeRun(),
+        future=t,
+    )
+
+
 # ---------------------------------------------------------------------------
 # SIGINT in-flight: all tasks released within grace
 # ---------------------------------------------------------------------------
@@ -87,8 +105,7 @@ def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path, monkeypatch
 
         task_id = "t-001"
         t = asyncio.create_task(quick_task())
-        s.in_flight[task_id] = t
-        s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+        _track(s, task_id, t)
 
         await s._shutdown()
 
@@ -154,8 +171,7 @@ def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path, monkeypatch) -
 
         task_id = "t-001"
         t = asyncio.create_task(stubborn_task())
-        s.in_flight[task_id] = t
-        s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+        _track(s, task_id, t)
 
         await s._shutdown()
 
@@ -188,8 +204,7 @@ def test_shutdown_force_releases_correct_task_id(tmp_path: Path, monkeypatch) ->
 
         task_id = "t-abc"
         t = asyncio.create_task(stubborn())
-        s.in_flight[task_id] = t
-        s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+        _track(s, task_id, t)
 
         await s._shutdown()
 
@@ -220,8 +235,7 @@ def test_shutdown_idempotent(tmp_path: Path, monkeypatch) -> None:
 
         task_id = "t-001"
         t = asyncio.create_task(stubborn())
-        s.in_flight[task_id] = t
-        s.in_flight_tasks[task_id] = Task(id=task_id, title="T", description=None, status="in_progress")
+        _track(s, task_id, t)
 
         await s._shutdown()
         await s._shutdown()  # second call is a no-op
