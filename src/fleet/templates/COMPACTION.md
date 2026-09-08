@@ -1,16 +1,12 @@
 # Compaction prompt (fleet workers/compact.py)
 
-Write a HANDOFF.md (at most 2000 bytes: Done / In flight / Next / Do-not-redo)
-and a KNOWLEDGE.md (at most 4000 bytes: curated facts only) for the next worker,
-from the material below. Output ONLY the two files as fenced blocks labelled
-HANDOFF and KNOWLEDGE.
+Write a STATE.md (at most 6144 bytes: Plan / Done / In flight / Next /
+Facts) for the next worker, from the material below. Keep every Next item
+verbatim — never drop or merge Next. Output ONLY the file as one fenced
+block labelled STATE.
 
 Format exactly:
 
-```HANDOFF
-<HANDOFF.md content>
-```
-
-```KNOWLEDGE
-<KNOWLEDGE.md content>
+```STATE
+<STATE.md content>
 ```

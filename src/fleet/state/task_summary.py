@@ -22,8 +22,10 @@ from fleet.state import attempts
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import iter_attempt_events, scan_rows
+from fleet.state.legacy import legacy_result, legacy_state_text
+from fleet.state.paths import RESULT_JSON, STATE_MD
 
-_HANDOFF_EXCERPT_MAX = 2048
+_STATE_EXCERPT_MAX = 6144
 
 
 def context_overrides_for_home(home: Path) -> dict[str, int]:
@@ -64,15 +66,45 @@ def coder_context_limit(
         return 200_000
 
 
-def _read_result(task_dir: Path) -> dict | None:
-    """Read and parse artifacts/RESULT.json, if present."""
-    result_file = task_dir / "artifacts" / "RESULT.json"
-    try:
-        text = result_file.read_text(encoding="utf-8")
-    except OSError:
-        return None
+def _parse_result_text(text: str) -> dict | None:
     result = parse_result(text)
     return asdict(result) if result is not None else None
+
+
+def read_result(task_dir: Path) -> dict | None:
+    """The task's latest declared result as a plain dict, or None.
+
+    Reads the live task-level RESULT.json first (present between worker
+    exit and reap), then the latest attempt's RESULT.json snapshot, then
+    the legacy artifacts/RESULT.json for old task dirs.
+    """
+    try:
+        return _parse_result_text((task_dir / RESULT_JSON).read_text(encoding="utf-8"))
+    except OSError:
+        pass
+    attempt_dir = latest_attempt_dir(task_dir)
+    if attempt_dir is not None:
+        try:
+            parsed = _parse_result_text(
+                (attempt_dir / RESULT_JSON).read_text(encoding="utf-8")
+            )
+        except OSError:
+            parsed = None
+        if parsed is not None:
+            return parsed
+    legacy = legacy_result(task_dir)
+    if legacy is None:
+        return None
+    try:
+        result = parse_result(json.dumps(legacy))
+    except (ValueError, TypeError):
+        return None
+    return asdict(result) if result is not None else None
+
+
+def _read_result(task_dir: Path) -> dict | None:
+    """Read and parse the task's latest declared result, if present."""
+    return read_result(task_dir)
 
 
 def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
@@ -151,7 +183,8 @@ def _build_attempts_summary(
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
         adir = _attempt_dir_path(task_dir, n)
-        launch = _read_json_file(adir / "launch.json") or {}
+        run = _read_json_file(adir / "run.json") or {}
+        launch = run.get("launch") if isinstance(run.get("launch"), dict) else {}
         result = _read_json_file(adir / "RESULT.json")
         stats = scan_rows(iter_attempt_events(task_dir, n))
         peak_context_pct = (
@@ -180,21 +213,26 @@ def _build_attempts_summary(
                 "files_touched": stats.files_touched_count,
                 "commits": (result or {}).get("commits") or [],
                 "result": result,
-                "has_summary": (adir / "SUMMARY.md").exists(),
-                "has_handoff": (adir / "HANDOFF.md").exists(),
+                # The summary is derived on demand (never stored), so it
+                # always exists; the prompt is recorded per attempt.
+                "has_summary": True,
+                "has_prompt": (adir / "prompt.md").exists(),
             }
         )
     return rows
 
 
-def _read_handoff_excerpt(task_dir: Path) -> str | None:
-    """Read artifacts/HANDOFF.md, truncated to the hard cap fleet enforces."""
-    handoff_file = task_dir / "artifacts" / "HANDOFF.md"
+def _read_state_excerpt(task_dir: Path) -> str | None:
+    """Read STATE.md, truncated to the worker-memory cap fleet enforces."""
+    state_file = task_dir / STATE_MD
     try:
-        text = handoff_file.read_text(encoding="utf-8")
+        return state_file.read_text(encoding="utf-8")[:_STATE_EXCERPT_MAX]
     except OSError:
+        pass
+    legacy = legacy_state_text(task_dir)
+    if legacy is None:
         return None
-    return text[:_HANDOFF_EXCERPT_MAX]
+    return legacy[:_STATE_EXCERPT_MAX]
 
 
 def _job_phase(worker: str | None) -> str | None:
@@ -301,7 +339,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
         "last_action": last_attempt.get("action") if last_attempt else None,
         "result": _read_result(task_dir),
-        "handoff_excerpt": _read_handoff_excerpt(task_dir),
+        "state_excerpt": _read_state_excerpt(task_dir),
         "worker": worker,
         "job_phase": _job_phase(worker),
         "job_artifacts": _job_artifacts(task_dir),

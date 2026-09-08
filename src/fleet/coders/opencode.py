@@ -167,7 +167,6 @@ class OpencodeCoder(Coder):
         e = {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
             # Provider + MCP config is injected via env instead of an
             # opencode.json written into the task cwd, so we no longer
             # pollute project directories. opencode loads this as a

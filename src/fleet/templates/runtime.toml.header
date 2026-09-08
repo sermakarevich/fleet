@@ -46,6 +46,11 @@
 # compaction_model: Model used for the cheap compaction model call.
 #   Defaults to haiku.
 #
+# state_max_bytes: Hard cap on the worker-memory file STATE.md (default 6144).
+#   The worker rewrites STATE.md completely every attempt; compaction keeps
+#   it within this cap (Facts truncated first, Done second, never Next).
+#   Set via: fleet config set state_max_bytes=8192
+#
 # context_checkpoint_pct: Peak-context percent at which the runner writes
 #   .checkpoint_requested so the model wraps up early. Defaults to 75.
 #

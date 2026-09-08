@@ -16,20 +16,14 @@ from typing import Literal
 @dataclass
 class LaunchLimits:
     continue_pack_max_bytes: int = 8192
-    handoff_max_bytes: int = 2048
-    knowledge_max_bytes: int = 4096
+    state_max_bytes: int = 6144
 
 
 @dataclass
 class ArtifactSnapshot:
-    handoff_text: str
-    handoff_is_stub: bool
-    knowledge_text: str
-    knowledge_is_stub: bool
-    plan_text: str
-    plan_is_stub: bool
-    latest_summary_text: str | None  # latest attempt SUMMARY.md, or None
-    latest_result: dict | None  # parsed latest attempt RESULT.json, or None
+    state_text: str
+    state_is_stub: bool
+    latest_result: dict | None  # parsed previous attempt RESULT.json, or None
     latest_result_is_missing: bool  # True if the previous attempt has no RESULT.json at all
 
 
@@ -53,6 +47,20 @@ def _truncate(text: str, max_bytes: int) -> str:
     return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
+def _result_lines(result: dict) -> list[str]:
+    """The Previous-RESULT.json lines the pack carries: summary, next_step, open_questions, tests."""
+    lines = [f"summary: {result.get('summary') or ''}"]
+    lines.append(f"next_step: {result.get('next_step') or ''}")
+    open_questions = result.get("open_questions") or []
+    if open_questions:
+        lines.append("open_questions:")
+        lines.extend(f"- {q}" for q in open_questions)
+    tests = result.get("tests")
+    if tests is not None:
+        lines.append(f"tests: {tests}")
+    return lines
+
+
 def plan_launch(
     attempts: list[dict], artifacts: ArtifactSnapshot, limits: LaunchLimits
 ) -> LaunchPlan:
@@ -60,12 +68,11 @@ def plan_launch(
 
     *attempts* is this task's attempt history strictly before the attempt
     being planned (oldest first). Fresh only when there is no history AND
-    every artifact is still its seeded stub; otherwise continue.
+    STATE.md is still its seeded stub; otherwise continue. The pack is
+    STATE.md plus the previous RESULT.json (summary, next_step,
+    open_questions, tests).
     """
-    all_stubs = (
-        artifacts.handoff_is_stub and artifacts.knowledge_is_stub and artifacts.plan_is_stub
-    )
-    if not attempts and all_stubs:
+    if not attempts and artifacts.state_is_stub:
         return LaunchPlan(mode="fresh", pack="", pack_bytes=0, needs_compaction=False)
 
     if attempts:
@@ -81,34 +88,20 @@ def plan_launch(
         f"Previous attempt ended: {prev_outcome}: {prev_reason}."
     ]
 
-    handoff = _truncate(artifacts.handoff_text, limits.handoff_max_bytes)
-    sections.append("## Previous HANDOFF.md\n" + handoff)
+    state = _truncate(artifacts.state_text, limits.state_max_bytes)
+    sections.append("## STATE.md\n" + state)
 
     if artifacts.latest_result is not None:
-        next_step = artifacts.latest_result.get("next_step") or ""
-        open_questions = artifacts.latest_result.get("open_questions") or []
-        lines = [f"next_step: {next_step}"]
-        if open_questions:
-            lines.append("open_questions:")
-            lines.extend(f"- {q}" for q in open_questions)
-        sections.append("## Previous next_step / open_questions\n" + "\n".join(lines))
-
-    if artifacts.latest_summary_text is not None:
         sections.append(
-            "## Latest attempt summary (SUMMARY.md)\n" + artifacts.latest_summary_text
+            "## Previous RESULT.json\n" + "\n".join(_result_lines(artifacts.latest_result))
         )
-
-    knowledge = _truncate(artifacts.knowledge_text, limits.knowledge_max_bytes)
-    sections.append("## KNOWLEDGE.md\n" + knowledge)
 
     pack = "\n\n".join(sections)
     pack_bytes = len(pack.encode("utf-8"))
 
     needs_compaction = (
         pack_bytes > limits.continue_pack_max_bytes
-        or len(artifacts.knowledge_text.encode("utf-8")) > limits.knowledge_max_bytes
-        or artifacts.latest_result_is_missing
-        or (bool(attempts) and artifacts.handoff_is_stub)
+        or len(artifacts.state_text.encode("utf-8")) > limits.state_max_bytes
     )
 
     return LaunchPlan(

@@ -159,40 +159,33 @@ src/fleet/ui/src/
 
 ## Task directory contract
 
-`state/task_dir.py` is the only module allowed to know these names:
+`state/paths.py` is the only module allowed to know these names (old
+task directories are read through the read-only `state/legacy.py`
+fallback; nothing writes the old layout):
 
 ```
 $FLEET_HOME/tasks/<id>/
    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
-                       # + triage ignore (ignore_until: ISO timestamp or "forever")
-                       # + isolation opt-out (isolation) and, when isolated,
+                      # + triage ignore (ignore_until: ISO timestamp or "forever")
+                      # + isolation opt-out (isolation) and, when isolated,
                       # repo_root, base_ref, worktree_path (replaces the old .worktree marker)
-  attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
-   attempts/<n>/      # n = attempt number from state.attempts.record_start
-      run.json         # pid, pgid, host, supervisor_pid, started_at, worker name,
-                       # per-step status of this attempt, plus the claim lease:
-                       # heartbeat_at + lease_until, refreshed every HEARTBEAT_SEC
-                       # by workers/llm_session.py while the coder subprocess lives
-     events.jsonl      log.jsonl   log.stderr
-     launch.json      # {"mode": "fresh|continue|compact", "pack_bytes": n, "kind": "work|compact"}, written at spawn
-     RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)
-     HANDOFF.md        # snapshot of artifacts/HANDOFF.md at reap time
-     SUMMARY.md        # deterministic, no-LLM summary generated after the attempt ends
-     .checkpoint_requested  # touched by workers/llm_session.py past the checkpoint threshold
-     .checkpoint_sent       # touched by the claude PostToolUse hook after firing once
-     .compacted             # touched by the claude PreCompact hook (CLI-side auto-compaction)
-   .needs_validation .kill
-     artifacts/
-      RESULT.json      # worker's declared outcome for the last attempt
-      RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
-      CHILDREN.md      # observer worker's bounded digest of child beads (epic tasks only)
-      RESEARCH.md DESIGN.md tasks.json  # job worker's research, plan, child specs (job epics only)
-      APPROVED DESIGN_NOTES.md DESIGN_ERRORS.md children.json  # job gate markers + spawn journal
-    PLAN.md          # restatement + plan; written once, updated rarely
-    HANDOFF.md       # overwritten every attempt, hard cap 2 KB
-    KNOWLEDGE.md     # curated durable facts, rewritten when stale (~4 KB cap)
-    outputs/         # real deliverables (reports, data) referenced from RESULT.json
+   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
+   STATE.md           # worker memory: ## Plan, ## Done, ## In flight, ## Next, ## Facts
+   RESULT.json        # completion contract, present only between worker exit and reap
+   outputs/           # real deliverables (reports, data) referenced from RESULT.json
+   .kill .needs_validation                      # signals, not artifacts
+   attempts/<n>/
+     run.json         # identity, lease, launch {mode, pack_bytes, kind}, steps, exit metrics
+     prompt.md        # the rendered prompt as sent
+     mcp.json         # coder input (claude only)
+     events.jsonl  log.jsonl  log.stderr
+     STATE.md  RESULT.json                      # snapshots taken at reap
+     .checkpoint_requested .checkpoint_sent .compacted   # signals
 ```
+
+Signals (not artifacts): `.kill`, `.needs_validation`,
+`.checkpoint_requested`, `.checkpoint_sent`, `.compacted` coordinate the
+supervisor and hooks; the UI never reads them.
 
 `run.json`, `events.jsonl`, `log.jsonl`, `log.stderr` moved from the task
 root into each attempt's own folder so that per-attempt slicing (tailing,

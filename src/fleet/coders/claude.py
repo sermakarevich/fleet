@@ -114,7 +114,6 @@ class ClaudeCoder(Coder):
         return {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
 
     @staticmethod

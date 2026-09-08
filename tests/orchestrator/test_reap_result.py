@@ -76,9 +76,8 @@ def _task(task_id: str = "t-001") -> Task:
 
 def _write_result(tmp_path: Path, task_id: str, body: dict) -> None:
     task_dir = _task_dir(tmp_path, task_id)
-    artifacts = task_dir / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
 
 
 def _rc0() -> TaskOutcomeRecord:
@@ -180,3 +179,28 @@ def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
     )
     assert len(queue.released) == 1
     assert "reached halfway" in queue.comments[0][1]
+
+
+# ---------------------------------------------------------------------------
+# reap snapshots STATE.md + RESULT.json into attempts/<n>, then unlinks live RESULT
+# ---------------------------------------------------------------------------
+
+
+def test_reap_snapshots_state_and_result_then_unlinks(tmp_path: Path) -> None:
+    from fleet.state import attempts as attempts_mod
+
+    task_dir = _task_dir(tmp_path, "t-001")
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "STATE.md").write_text("## Next\n- keep going\n", encoding="utf-8")
+    _write_result(tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "shipped"})
+    attempts_mod.record_start(task_dir, coder="c", model="m", worker="task.fresh")
+
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    s._handle_outcome(_task(), _rc0(), attempt_n=1)
+
+    attempt_dir = task_dir / "attempts" / "1"
+    assert (attempt_dir / "STATE.md").read_text(encoding="utf-8") == "## Next\n- keep going\n"
+    assert json.loads((attempt_dir / "RESULT.json").read_text(encoding="utf-8"))["summary"] == "shipped"
+    assert not (task_dir / "RESULT.json").exists()
+    assert queue.closed == [("t-001", "shipped")]

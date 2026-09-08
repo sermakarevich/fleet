@@ -9,15 +9,16 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from fleet.state.legacy import legacy_state_text
+from fleet.state.paths import STATE_MD, tasks_root
 from fleet.state.paths import fleet_home as get_fleet_home
-from fleet.state.paths import tasks_root
 
 
 @dataclass
 class SearchResult:
     task_id: str
     task_title: str
-    source: str  # "title" | "description" | "qa" | "knowledge" | "plan"
+    source: str  # "title" | "description" | "qa" | "state"
     match_context: str  # ~120 char snippet
 
 
@@ -27,6 +28,15 @@ def _snippet(text: str, query: str) -> str:
         return text[:120]
     start = max(0, idx - 40)
     return text[start : start + 120]
+
+
+def _state_text(task_dir: Path) -> str:
+    """Current STATE.md, or the legacy view for old task dirs."""
+    try:
+        return (task_dir / STATE_MD).read_text(encoding="utf-8")
+    except OSError:
+        pass
+    return legacy_state_text(task_dir) or ""
 
 
 def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
@@ -68,26 +78,14 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
                 match_context=_snippet(desc, q),
             ))
 
-        artifact_sources: list[tuple[str, str]] = [
-            ("KNOWLEDGE.md", "knowledge"),
-            ("HANDOFF.md", "handoff"),
-            ("PLAN.md", "plan"),
-        ]
-        for filename, source_label in artifact_sources:
-            f = task_dir / "artifacts" / filename
-            if not f.exists():
-                continue
-            try:
-                text = f.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            if q in text.lower():
-                results.append(SearchResult(
-                    task_id=task_id,
-                    task_title=task_title,
-                    source=source_label,
-                    match_context=_snippet(text, q),
-                ))
+        state_text = _state_text(task_dir)
+        if state_text and q in state_text.lower():
+            results.append(SearchResult(
+                task_id=task_id,
+                task_title=task_title,
+                source="state",
+                match_context=_snippet(state_text, q),
+            ))
 
         if len(results) >= 20:
             break

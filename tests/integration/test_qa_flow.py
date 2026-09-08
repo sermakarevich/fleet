@@ -71,7 +71,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:
 
     # Verify Q&A.md has the Q block
     task_dir = tmp_path / "tasks" / task_id
-    qa_path = task_dir / "artifacts" / "Q&A.md"
+    qa_path = task_dir / "Q&A.md"
     assert qa_path.exists(), "Q&A.md should exist after block_via_bd"
     qa_content = qa_path.read_text()
     assert "## Q:" in qa_content

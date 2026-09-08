@@ -37,49 +37,45 @@ def _ctx(tmp_path: Path, task_id: str = "t-001") -> StepContext:
 
 
 def test_prepare_artifacts_creates_stubs(tmp_path: Path) -> None:
+    import json
+
     ctx = _ctx(tmp_path)
+    ctx.attempt_dir = ctx.task_dir / "attempts" / "1"
+    ctx.attempt_n = 1
 
     result = asyncio.run(PrepareArtifacts().run(ctx))
 
     assert result.status == "ok"
-    artifacts_dir = ctx.task_dir / "artifacts"
-    plan = artifacts_dir / "PLAN.md"
-    handoff = artifacts_dir / "HANDOFF.md"
-    knowledge = artifacts_dir / "KNOWLEDGE.md"
-    assert plan.exists()
-    assert handoff.exists()
-    assert knowledge.exists()
-    assert (artifacts_dir / "outputs").is_dir()
-    assert "t-001" in plan.read_text()
-    assert "Next" in handoff.read_text()
-    assert "t-001" in knowledge.read_text()
+    state = ctx.task_dir / "STATE.md"
+    assert state.exists()
+    assert (ctx.task_dir / "outputs").is_dir()
+    assert "t-001" in state.read_text()
+    assert "## Next" in state.read_text()
+    # Launch decision recorded in run.json, not launch.json.
+    run = json.loads((ctx.attempt_dir / "run.json").read_text(encoding="utf-8"))
+    assert run["launch"]["mode"] == "fresh"
+    assert not (ctx.attempt_dir / "launch.json").exists()
 
 
-def test_prepare_artifacts_does_not_overwrite_existing_stubs(tmp_path: Path) -> None:
+def test_prepare_artifacts_does_not_overwrite_existing_state(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    artifacts_dir = ctx.task_dir / "artifacts"
-    artifacts_dir.mkdir(parents=True)
-    (artifacts_dir / "PLAN.md").write_text("custom plan content")
-    (artifacts_dir / "HANDOFF.md").write_text("custom handoff content")
-    (artifacts_dir / "KNOWLEDGE.md").write_text("custom knowledge content")
+    ctx.task_dir.mkdir(parents=True)
+    (ctx.task_dir / "STATE.md").write_text("custom state content")
 
     asyncio.run(PrepareArtifacts().run(ctx))
 
-    assert (artifacts_dir / "PLAN.md").read_text() == "custom plan content"
-    assert (artifacts_dir / "HANDOFF.md").read_text() == "custom handoff content"
-    assert (artifacts_dir / "KNOWLEDGE.md").read_text() == "custom knowledge content"
+    assert (ctx.task_dir / "STATE.md").read_text() == "custom state content"
 
 
-def test_prepare_artifacts_rotates_previous_result_json(tmp_path: Path) -> None:
+def test_prepare_artifacts_leaves_previous_result_json_alone(tmp_path: Path) -> None:
+    """No rotation: reap snapshots STATE.md/RESULT.json and unlinks the live file."""
     ctx = _ctx(tmp_path)
-    artifacts_dir = ctx.task_dir / "artifacts"
-    artifacts_dir.mkdir(parents=True)
-    (artifacts_dir / "RESULT.json").write_text('{"schema": 1, "status": "partial"}')
+    ctx.task_dir.mkdir(parents=True)
+    (ctx.task_dir / "RESULT.json").write_text('{"schema": 1, "status": "partial"}')
 
     asyncio.run(PrepareArtifacts().run(ctx))
 
-    assert not (artifacts_dir / "RESULT.json").exists()
-    assert (artifacts_dir / "RESULT.prev.json").read_text() == '{"schema": 1, "status": "partial"}'
+    assert (ctx.task_dir / "RESULT.json").read_text() == '{"schema": 1, "status": "partial"}'
 
 
 def test_prepare_artifacts_calls_write_runtime_config(tmp_path: Path) -> None:

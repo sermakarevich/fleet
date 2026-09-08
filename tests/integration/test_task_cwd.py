@@ -20,7 +20,6 @@ from tests.integration.conftest import (
     run_until,
 )
 
-
 pytestmark = pytest.mark.skipif(
     not BD_AVAILABLE or not beads_functional(),
     reason="bd not installed or not functional in this environment",
@@ -67,11 +66,10 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
         f"subprocess ran in {recorded}, expected {project_dir}"
     )
 
-    # Centralized layout: artifacts live under FLEET_HOME, not the task cwd.
+    # Centralized layout: task state lives under FLEET_HOME, not the task cwd.
     task_dir = fleet_home / "tasks" / task.id
     assert task_dir.exists(), (
         f"task dir not centralized in fleet_home: expected {task_dir}"
     )
-    assert (task_dir / "artifacts").exists()
-    assert (task_dir / "log.jsonl").exists()
+    assert (task_dir / "STATE.md").exists()
     assert (task_dir / "task.json").exists()

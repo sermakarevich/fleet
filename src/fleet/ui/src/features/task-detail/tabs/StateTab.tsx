@@ -25,22 +25,38 @@ function ResultBadge({ result }: { result: TaskResult }) {
   );
 }
 
-export function PlanTab({ taskId, result }: Props) {
-  const [content, setContent] = useState<string | null>(null);
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// Artifacts tab: live STATE.md, latest RESULT.json (live file, else latest
+// attempt snapshot), and the outputs/ deliverables listing.
+export function StateTab({ taskId, result }: Props) {
+  const [state, setState] = useState<string | null>(null);
+  const [statePath, setStatePath] = useState<string | null>(null);
+  const [stateError, setStateError] = useState<string | null>(null);
+  const [resultJson, setResultJson] = useState<string | null>(null);
+  const [outputs, setOutputs] = useState<string[]>([]);
   const mtimeRef = useRef<number | null>(null);
 
   const load = useCallback(async (checkMtime = false) => {
     try {
-      const data = await api.getArtifactPlan(taskId);
+      const data = await api.getArtifactState(taskId);
       if (checkMtime && mtimeRef.current === data.mtime) return;
       mtimeRef.current = data.mtime;
-      setContent(data.content);
-      setFilePath(data.path);
-      setError(null);
+      setState(data.content);
+      setStatePath(data.path || null);
+      setStateError(null);
     } catch {
-      if (!checkMtime) setError('Plan not available');
+      if (!checkMtime) setStateError('STATE.md not available');
+    }
+    try {
+      const data = await api.getArtifactResult(taskId);
+      setResultJson(data.content);
+    } catch {
+      if (!checkMtime) setResultJson(null);
+    }
+    try {
+      const data = await api.getArtifactOutputs(taskId);
+      setOutputs(data.files);
+    } catch {
+      if (!checkMtime) setOutputs([]);
     }
   }, [taskId]);
 
@@ -50,11 +66,11 @@ export function PlanTab({ taskId, result }: Props) {
     return () => clearInterval(timer);
   }, [load]);
 
-  if (error) {
-    return <p style={styles.empty}>{error}</p>;
+  if (stateError) {
+    return <p style={styles.empty}>{stateError}</p>;
   }
 
-  if (content == null) {
+  if (state == null) {
     return <p style={styles.loading}>Loading…</p>;
   }
 
@@ -62,18 +78,28 @@ export function PlanTab({ taskId, result }: Props) {
     <div style={styles.container}>
       <div style={styles.toolbar}>
         {result && <ResultBadge result={result} />}
-        {filePath && (
+        {statePath && (
           <a
-            href={`vscode://file/${filePath}`}
+            href={`vscode://file/${statePath}`}
             style={styles.editorLink}
-            title={filePath}
+            title={statePath}
           >
             Open in editor
           </a>
         )}
       </div>
       <div style={styles.markdown}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{state}</ReactMarkdown>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionLabel}>RESULT.json</div>
+        <pre style={styles.pre}>{resultJson ?? '(no result declared yet)'}</pre>
+      </div>
+      <div style={styles.section}>
+        <div style={styles.sectionLabel}>outputs/</div>
+        <pre style={styles.pre}>
+          {outputs.length === 0 ? '(empty)' : outputs.join('\n')}
+        </pre>
       </div>
     </div>
   );
@@ -102,27 +128,20 @@ const styles: Record<string, React.CSSProperties> = {
   resultBadge: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.4rem',
+    gap: '0.5rem',
     fontSize: '0.75rem',
-    color: '#a1a1aa',
-    overflow: 'hidden',
   },
   resultDot: {
-    width: '0.5rem',
-    height: '0.5rem',
+    width: '0.6rem',
+    height: '0.6rem',
     borderRadius: '50%',
-    flexShrink: 0,
   },
   resultStatus: {
     fontWeight: 600,
-    textTransform: 'uppercase',
     color: '#e4e4e7',
-    flexShrink: 0,
   },
   resultSummary: {
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    color: '#a1a1aa',
   },
   markdown: {
     flex: 1,
@@ -132,6 +151,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'system-ui, sans-serif',
     fontSize: '0.875rem',
     lineHeight: 1.6,
+  },
+  section: {
+    borderTop: '1px solid #27272a',
+    padding: '0.5rem 1.25rem',
+  },
+  sectionLabel: {
+    color: '#71717a',
+    fontWeight: 600,
+    fontSize: '0.75rem',
+    marginBottom: '0.25rem',
+  },
+  pre: {
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    background: '#0f0f12',
+    border: '1px solid #27272a',
+    borderRadius: '4px',
+    padding: '0.5rem',
+    margin: 0,
+    color: '#d4d4d8',
+    fontSize: '0.75rem',
+    maxHeight: '12rem',
+    overflowY: 'auto',
   },
   loading: {
     padding: '1rem',

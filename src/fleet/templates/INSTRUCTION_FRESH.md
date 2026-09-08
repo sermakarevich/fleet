@@ -2,13 +2,13 @@
 
 This is the first attempt at this task; there is no prior attempt to read.
 
-## Read these files first
+## Read this file first
 
-Read `PLAN.md`, `HANDOFF.md`, then `KNOWLEDGE.md` under `$FLEET_ARTIFACT_DIR`
-— they are freshly-seeded stubs on a fresh start, but read them anyway in
-case fleet re-runs this attempt.
+Read `$FLEET_TASK_DIR/STATE.md` — it is a freshly-seeded stub on a fresh
+start, but read it anyway in case fleet re-runs this attempt.
 
 ## Plan before you act
 
-Write `PLAN.md` first: a one-paragraph restatement of the task, a numbered
-plan, and any assumptions or open questions. Then start executing the plan.
+Fill in the `## Plan` section of `STATE.md` first: a one-paragraph
+restatement of the task, a numbered plan, and any assumptions or open
+questions. Then start executing the plan.

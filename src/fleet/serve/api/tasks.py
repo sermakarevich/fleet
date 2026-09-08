@@ -16,16 +16,17 @@ from fleet.beads.client import BeadsError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
-from fleet.core.result import parse_result
 from fleet.observability.daemon import _pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
+from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir, record_unblock
 from fleet.state.events import iter_events, scan_cached
+from fleet.state.legacy import attempt_state_snapshot, legacy_state_text
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
-from fleet.state.task_summary import build_task_summary
+from fleet.state.task_summary import build_task_summary, read_result
 from fleet.state.validation_marker import (
     clear_needs_validation,
 )
@@ -264,26 +265,16 @@ def create_tasks_router() -> APIRouter:
             if not isinstance(dep, dict) or not dep.get("id"):
                 continue
             cid = str(dep["id"])
-            result_status: str | None = None
-            result_summary: str | None = None
-            try:
-                text = (_task_dir(home, cid) / "artifacts" / "RESULT.json").read_text(
-                    encoding="utf-8"
-                )
-            except OSError:
-                text = ""
-            if text:
-                parsed = parse_result(text)
-                if parsed is not None:
-                    result_status = parsed.status
-                    result_summary = parsed.summary
+            # Latest declared result: live file, else latest attempt
+            # snapshot, else the legacy layout (see state.task_summary).
+            declared = read_result(_task_dir(home, cid))
             children.append(
                 {
                     "id": cid,
                     "title": dep.get("title"),
                     "status": dep.get("status"),
-                    "result_status": result_status,
-                    "result_summary": result_summary,
+                    "result_status": (declared or {}).get("status"),
+                    "result_summary": (declared or {}).get("summary"),
                 }
             )
         children_md: str | None = None
@@ -298,21 +289,34 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/attempts/{n}/summary")
     async def get_attempt_summary(task_id: str, n: int) -> JSONResponse:
         home = get_fleet_home()
+        task_dir = _require_task_dir(task_id, home)
         attempt_dir = _require_attempt_dir(task_id, n, home)
-        if attempt_dir is None:
+        if task_dir is None or attempt_dir is None:
             return JSONResponse({"error": "not found"}, status_code=404)
-        f = attempt_dir / "SUMMARY.md"
-        if not f.exists():
+        try:
+            content = render_markdown(summarize(task_dir, n))
+        except (OSError, ValueError):
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse({"content": f.read_text(encoding="utf-8")})
+        return JSONResponse({"content": content})
 
-    @router.get("/tasks/{task_id}/attempts/{n}/handoff")
-    async def get_attempt_handoff(task_id: str, n: int) -> JSONResponse:
+    @router.get("/tasks/{task_id}/attempts/{n}/state")
+    async def get_attempt_state(task_id: str, n: int) -> JSONResponse:
         home = get_fleet_home()
         attempt_dir = _require_attempt_dir(task_id, n, home)
         if attempt_dir is None:
             return JSONResponse({"error": "not found"}, status_code=404)
-        f = attempt_dir / "HANDOFF.md"
+        f = attempt_state_snapshot(attempt_dir)
+        if f is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"content": f.read_text(encoding="utf-8")})
+
+    @router.get("/tasks/{task_id}/attempts/{n}/prompt")
+    async def get_attempt_prompt(task_id: str, n: int) -> JSONResponse:
+        home = get_fleet_home()
+        attempt_dir = _require_attempt_dir(task_id, n, home)
+        if attempt_dir is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        f = attempt_dir / "prompt.md"
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         return JSONResponse({"content": f.read_text(encoding="utf-8")})
@@ -480,7 +484,7 @@ def create_tasks_router() -> APIRouter:
     def _artifact_path(task_id: str, filename: str, home: Path) -> Path:
         return _task_dir(home, task_id) / "artifacts" / filename
 
-    def _artifact_file_response(f: Path) -> JSONResponse:
+    def _task_file_response(f: Path) -> JSONResponse:
         return JSONResponse(
             {
                 "content": f.read_text(encoding="utf-8"),
@@ -489,40 +493,51 @@ def create_tasks_router() -> APIRouter:
             }
         )
 
-    @router.get("/tasks/{task_id}/artifacts/plan")
-    async def get_artifact_plan(task_id: str) -> JSONResponse:
-        home = get_fleet_home()
-        f = _artifact_path(task_id, "PLAN.md", home)
-        if not f.exists():
-            # Fall back to the pre-worker-1 combined file for old tasks.
-            f = _artifact_path(task_id, "PLAN_AND_STATUS.md", home)
-        if not f.exists():
-            return JSONResponse({"error": "not found"}, status_code=404)
-        return _artifact_file_response(f)
+    def _artifact_file_response(f: Path) -> JSONResponse:
+        return _task_file_response(f)
 
-    @router.get("/tasks/{task_id}/artifacts/handoff")
-    async def get_artifact_handoff(task_id: str) -> JSONResponse:
+    @router.get("/tasks/{task_id}/artifacts/state")
+    async def get_artifact_state(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        f = _artifact_path(task_id, "HANDOFF.md", home)
-        if not f.exists():
+        task_dir = _task_dir(home, task_id)
+        f = task_dir / "STATE.md"
+        if f.exists():
+            return _task_file_response(f)
+        # Old task dirs without STATE.md: render the legacy view on demand.
+        legacy = legacy_state_text(task_dir)
+        if legacy is None:
             return JSONResponse({"error": "not found"}, status_code=404)
-        return _artifact_file_response(f)
-
-    @router.get("/tasks/{task_id}/artifacts/knowledge")
-    async def get_artifact_knowledge(task_id: str) -> JSONResponse:
-        home = get_fleet_home()
-        f = _artifact_path(task_id, "KNOWLEDGE.md", home)
-        if not f.exists():
-            return JSONResponse({"error": "not found"}, status_code=404)
-        return _artifact_file_response(f)
+        return JSONResponse({"content": legacy, "mtime": 0, "path": ""})
 
     @router.get("/tasks/{task_id}/artifacts/result")
     async def get_artifact_result(task_id: str) -> JSONResponse:
         home = get_fleet_home()
+        task_dir = _task_dir(home, task_id)
+        # Live file first (present between worker exit and reap), then the
+        # latest attempt's snapshot, then the legacy layout.
+        f = task_dir / "RESULT.json"
+        if f.exists():
+            return _task_file_response(f)
+        attempt_dir = latest_attempt_dir(task_dir)
+        if attempt_dir is not None and (attempt_dir / "RESULT.json").exists():
+            return _task_file_response(attempt_dir / "RESULT.json")
         f = _artifact_path(task_id, "RESULT.json", home)
         if not f.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         return _artifact_file_response(f)
+
+    @router.get("/tasks/{task_id}/artifacts/outputs")
+    async def get_artifact_outputs(task_id: str) -> JSONResponse:
+        """List the task's deliverables (tasks/<id>/outputs/)."""
+        home = get_fleet_home()
+        outputs = _task_dir(home, task_id) / "outputs"
+        if not outputs.is_dir():
+            return JSONResponse({"files": []})
+        try:
+            files = sorted(p.name for p in outputs.iterdir() if p.is_file())
+        except OSError:
+            files = []
+        return JSONResponse({"files": files})
 
     @router.get("/tasks/{task_id}/artifacts/research")
     async def get_artifact_research(task_id: str) -> JSONResponse:

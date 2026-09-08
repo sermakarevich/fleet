@@ -74,7 +74,7 @@ class TestPosttoolCheckpointScript:
         assert (
             payload["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
         )
-        assert "HANDOFF.md" in payload["hookSpecificOutput"]["additionalContext"]
+        assert "STATE.md" in payload["hookSpecificOutput"]["additionalContext"]
         assert (attempt_dir / ".checkpoint_sent").exists()
 
         second = _run_hook(self._script(), attempt_dir)

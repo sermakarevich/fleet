@@ -9,6 +9,16 @@ RUN_JSON = "run.json"
 EVENTS_JSONL = "events.jsonl"
 ATTEMPTS_JSONL = "attempts.jsonl"
 KILL_MARKER = ".kill"
+# ADR 0004: one memory file (STATE.md), one completion contract (RESULT.json
+# at the task root, present only between worker exit and reap), one
+# deliverables directory (outputs/), one recorded input (prompt.md per
+# attempt). Per-attempt summaries are derived on demand, never stored; the
+# launch record lives in run.json["launch"]; reap snapshots instead of
+# rotating.
+STATE_MD = "STATE.md"
+RESULT_JSON = "RESULT.json"
+PROMPT_MD = "prompt.md"
+OUTPUTS_DIR = "outputs"
 # NOTE: the bare `.worktree` marker is gone. Isolation state lives in
 # task.json as repo_root/base_ref/worktree_path (see beads/queue.py::
 # set_isolation_info). Readers keep a legacy fallback for old task dirs.
@@ -17,8 +27,8 @@ KILL_MARKER = ".kill"
 # up. One-shot per attempt (the hook adds .checkpoint_sent after firing).
 CHECKPOINT_REQUESTED_MARKER = ".checkpoint_requested"
 CHECKPOINT_SENT_MARKER = ".checkpoint_sent"
-# Touched by the claude PreCompact hook so SUMMARY.md can count CLI-side
-# auto-compactions that happened inside the model session.
+# Touched by the claude PreCompact hook so the derived attempt summary can
+# count CLI-side auto-compactions that happened inside the model session.
 COMPACTED_MARKER = ".compacted"
 
 
@@ -44,6 +54,27 @@ def attempts_root(task_dir: Path) -> Path:
 
 
 def attempt_dir_path(task_dir: Path, n: int) -> Path:
-    """The per-attempt directory: run.json, events.jsonl, log.jsonl, log.stderr,
-    RESULT.json, HANDOFF.md, SUMMARY.md, launch.json for attempt *n*."""
+    """The per-attempt directory: run.json (with launch), prompt.md,
+    mcp.json, events.jsonl, log.jsonl, log.stderr, STATE.md / RESULT.json
+    snapshots (taken at reap), for attempt *n*."""
     return attempts_root(task_dir) / str(n)
+
+
+def state_file(task_dir: Path) -> Path:
+    """The task-level worker-memory file (tasks/<id>/STATE.md)."""
+    return task_dir / STATE_MD
+
+
+def result_file(task_dir: Path) -> Path:
+    """The task-level completion contract (tasks/<id>/RESULT.json)."""
+    return task_dir / RESULT_JSON
+
+
+def outputs_dir(task_dir: Path) -> Path:
+    """The task-level deliverables directory (tasks/<id>/outputs/)."""
+    return task_dir / OUTPUTS_DIR
+
+
+def prompt_file(attempt_dir: Path) -> Path:
+    """The recorded prompt for one attempt (attempts/<n>/prompt.md)."""
+    return attempt_dir / PROMPT_MD

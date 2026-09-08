@@ -9,7 +9,7 @@ function fmtContextPct(pct: number | null): string {
   if (pct == null) return '—';
   return `${Math.round(pct)}%`;
 }
-import { useAttemptSummary, useAttemptHandoff } from '../../../shared/hooks/useApi';
+import { useAttemptSummary, useAttemptPrompt } from '../../../shared/hooks/useApi';
 
 interface Props {
   taskId: string;
@@ -17,8 +17,8 @@ interface Props {
 }
 
 // One row of the Attempts timeline: the fixed fields state/task_summary.py
-// computes per attempt, plus an expandable SUMMARY.md / HANDOFF.md snapshot
-// fetched on demand (not embedded in the task payload — could be large).
+// computes per attempt, plus an expandable derived summary and the recorded
+// prompt.md fetched on demand (not embedded in the task payload).
 export function AttemptsTab({ taskId, attempts }: Props) {
   const sorted = [...attempts].sort((a, b) => b.n - a.n);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -60,7 +60,7 @@ function AttemptRow({
   onToggle: () => void;
 }) {
   const summary = useAttemptSummary(taskId, attempt.n, isOpen && attempt.has_summary);
-  const handoff = useAttemptHandoff(taskId, attempt.n, isOpen && attempt.has_handoff);
+  const prompt = useAttemptPrompt(taskId, attempt.n, isOpen && attempt.has_prompt);
 
   return (
     <div style={styles.row}>
@@ -98,15 +98,15 @@ function AttemptRow({
             </div>
           )}
           <div style={styles.detailBlock}>
-            <div style={styles.detailLabel}>SUMMARY.md</div>
+            <div style={styles.detailLabel}>Summary (derived)</div>
             <pre style={styles.pre}>
               {!attempt.has_summary ? '(no summary for this attempt)' : summary.data?.content ?? 'Loading…'}
             </pre>
           </div>
           <div style={styles.detailBlock}>
-            <div style={styles.detailLabel}>HANDOFF.md (snapshot at reap time)</div>
+            <div style={styles.detailLabel}>Prompt</div>
             <pre style={styles.pre}>
-              {!attempt.has_handoff ? '(no handoff snapshot for this attempt)' : handoff.data?.content ?? 'Loading…'}
+              {!attempt.has_prompt ? '(no recorded prompt for this attempt)' : prompt.data?.content ?? 'Loading…'}
             </pre>
           </div>
         </div>

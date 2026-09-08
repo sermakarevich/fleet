@@ -7,10 +7,8 @@ import { Header } from './Header';
 import { LiveTab } from './tabs/LiveTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
 import { ChildrenTab } from './tabs/ChildrenTab';
-import { PlanTab } from './tabs/PlanTab';
-import { HandoffTab } from './tabs/HandoffTab';
+import { StateTab } from './tabs/StateTab';
 import { JobDocTab } from './tabs/JobDocTab';
-import { KnowledgeTab } from './tabs/KnowledgeTab';
 import { LogTab } from './tabs/LogTab';
 import { StderrTab } from './tabs/StderrTab';
 import { DiffTab } from './tabs/DiffTab';
@@ -19,17 +17,15 @@ import { EventsTab } from './tabs/EventsTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import type { FleetEvent } from '../../shared/types';
 
-type TabId = 'live' | 'attempts' | 'children' | 'plan' | 'research' | 'design' | 'handoff' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'attempts', label: 'Attempts' },
   { id: 'children', label: 'Children' },
-  { id: 'plan', label: 'Plan' },
+  { id: 'artifacts', label: 'Artifacts' },
   { id: 'research', label: 'Research' },
   { id: 'design', label: 'Design' },
-  { id: 'handoff', label: 'Handoff' },
-  { id: 'knowledge', label: 'Knowledge' },
   { id: 'log', label: 'Log' },
   { id: 'events', label: 'Events' },
   { id: 'stderr', label: 'Stderr' },
@@ -78,11 +74,9 @@ export function TaskDetailPage() {
       case 'live': return <LiveTab events={events} />;
       case 'attempts': return <AttemptsTab taskId={task!.id} attempts={task?.attempts ?? []} />;
       case 'children': return <ChildrenTab taskId={task!.id} />;
-      case 'plan': return <PlanTab taskId={task!.id} result={task!.result} />;
+      case 'artifacts': return <StateTab taskId={task!.id} result={task!.result} />;
       case 'research': return <JobDocTab taskId={task!.id} kind="research" />;
       case 'design': return <JobDocTab taskId={task!.id} kind="design" />;
-      case 'handoff': return <HandoffTab taskId={task!.id} />;
-      case 'knowledge': return <KnowledgeTab taskId={task!.id} />;
       case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'events': return <EventsTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;

@@ -9,7 +9,7 @@ interface Props {
 }
 
 // Job worker document tab: RESEARCH.md / DESIGN.md (see workers/job.py).
-// Same polling shape as HandoffTab; hidden unless the artifact exists.
+// Same polling shape as StateTab; hidden unless the artifact exists.
 export function JobDocTab({ taskId, kind }: Props) {
   const [content, setContent] = useState<string | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);

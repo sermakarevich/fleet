@@ -8,8 +8,8 @@ Controlled via env vars:
   FAKE_CLAUDE_SLEEP_SEC — float, used by slow/slow_ignore_sigterm
   FAKE_CLAUDE_BD_ROOT   — path passed as cwd to bd subcommands
   FLEET_TASK_ID         — inherited from supervisor (used by bd scenarios)
-  FLEET_TASK_DIR        — inherited from supervisor (task root)
-  FLEET_ARTIFACT_DIR    — inherited from supervisor (task_dir/artifacts)
+  FLEET_TASK_DIR        — inherited from supervisor (task root; STATE.md,
+                          RESULT.json and Q&A.md live here)
 
 Scenarios:
   clean_exit           emit init + result, exit 0
@@ -39,7 +39,6 @@ def main() -> None:
     scenario = os.environ.get("FAKE_CLAUDE_SCENARIO", "clean_exit")
     task_id = os.environ.get("FLEET_TASK_ID", "unknown")
     task_dir = Path(os.environ.get("FLEET_TASK_DIR", "."))
-    artifact_dir = Path(os.environ.get("FLEET_ARTIFACT_DIR", "."))
     bd_root = os.environ.get("FAKE_CLAUDE_BD_ROOT", ".")
 
     emit({"type": "system", "subtype": "init", "session_id": "fake"})
@@ -121,9 +120,9 @@ def main() -> None:
         sys.exit(0)
 
     elif scenario == "block_via_bd":
-        artifact_dir.mkdir(parents=True, exist_ok=True)
+        task_dir.mkdir(parents=True, exist_ok=True)
         ts = time.strftime("%Y-%m-%d %H:%M")
-        qa_path = artifact_dir / "Q&A.md"
+        qa_path = task_dir / "Q&A.md"
         with qa_path.open("a") as fh:
             fh.write(
                 f"## Q: What is the magic number? — {ts}, fake_claude\n\n"
@@ -141,7 +140,7 @@ def main() -> None:
         sys.exit(0)
 
     elif scenario == "read_qa_and_close":
-        qa_path = artifact_dir / "Q&A.md"
+        qa_path = task_dir / "Q&A.md"
         if not qa_path.exists():
             print(f"ERROR: Q&A.md not found at {qa_path}", file=sys.stderr)
             sys.exit(1)

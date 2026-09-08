@@ -33,12 +33,15 @@ from fleet.core.triage_policy import (
     RETRY_SAME,
 )
 from fleet.state import attempts as attempts_mod
+from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.legacy import legacy_result
+from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as _task_dir
 
 # How many of the newest attempts count for "rate-limit history".
 _RATE_LIMIT_WINDOW = 5
-# Characters of SUMMARY.md tail shown for exhausted failure rounds.
+# Characters of the derived attempt-summary tail shown for exhausted failure rounds.
 _STDERR_TAIL_CHARS = 1500
 
 
@@ -52,25 +55,50 @@ def _read_meta(project_root: Path, task_id: str) -> dict:
 
 
 def _stderr_tail(task_dir: Path) -> str | None:
-    """Tail of the latest attempt's SUMMARY.md, if any."""
+    """Tail of the latest attempt's derived summary, if any."""
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is None:
         return None
     try:
-        text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
-    except OSError:
+        n = int(attempt_dir.name)
+    except ValueError:
+        return None
+    try:
+        text = render_markdown(summarize(task_dir, n))
+    except (OSError, ValueError):
         return None
     tail = text.strip()[-_STDERR_TAIL_CHARS:]
     return tail or None
 
 
 def _read_result(task_dir: Path) -> dict | None:
-    """Parsed artifacts/RESULT.json as a plain dict, or None."""
-    try:
-        text = (task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
-    except OSError:
+    """Parsed task-level RESULT.json as a plain dict, or None.
+
+    Falls back to the latest attempt's RESULT.json snapshot, then to the
+    legacy artifacts/RESULT.json for old task dirs.
+    """
+    for path in (
+        task_dir / RESULT_JSON,
+        *(
+            [latest_attempt_dir(task_dir) / RESULT_JSON]
+            if latest_attempt_dir(task_dir) is not None
+            else []
+        ),
+    ):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        result = parse_result(text)
+        if result is not None:
+            return asdict(result)
+    legacy = legacy_result(task_dir)
+    if legacy is None:
         return None
-    result = parse_result(text)
+    try:
+        result = parse_result(json.dumps(legacy))
+    except (ValueError, TypeError):
+        return None
     return asdict(result) if result is not None else None
 
 

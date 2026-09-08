@@ -138,9 +138,9 @@ override with `$FLEET_HOME` if you like.
     ├── .failures                 # failure counter (drives retries)
     ├── .noclose                  # no-close counter (agent exited without closing the bead)
     ├── .stalls                   # stall counter (agent went silent past the warning threshold)
-    └── artifacts/
-        ├── PLAN_AND_STATUS.md    # agent-owned plan + progress
-        └── KNOWLEDGE.md          # agent-owned persistent notes
+    ├── STATE.md                  # agent-owned worker memory (plan/done/next/facts)
+    ├── RESULT.json               # agent-declared outcome (present until reap)
+    └── outputs/                  # agent deliverables referenced from RESULT.json
 ```
 
 Each task records the project working directory the agent should run in,
@@ -353,12 +353,12 @@ time, elapsed, idle, peak context-window usage, event count, coder,
 model, title, and cwd. Per-task overrides are bolded; values inherited
 from `runtime.toml` are dim. See the screenshot in [Quick start](#quick-start).
 
-### `fleet task <id> {log|plan|knowledge}`
+### `fleet task <id> {log|state|result}`
 
 ```bash
-fleet task fleet-abc log         # → $FLEET_HOME/tasks/fleet-abc/log.jsonl
-fleet task fleet-abc plan        # → artifacts/PLAN_AND_STATUS.md
-fleet task fleet-abc knowledge   # → artifacts/KNOWLEDGE.md
+fleet task fleet-abc log         # → latest attempt's log.jsonl
+fleet task fleet-abc state       # → tasks/fleet-abc/STATE.md
+fleet task fleet-abc result      # → tasks/fleet-abc/RESULT.json
 ```
 
 Prints the named artifact for one task. `fleet task --help` additionally
@@ -1075,7 +1075,6 @@ class MyCoder(Coder):
             task_title=task.title,
             task_description=task.description or "",
             task_dir=task_dir,
-            artifacts_dir=artifacts_dir,
             invocation_line=invocation_line,
         ).strip()
         prompt = f"{header}\n\n---\n\n{instructions}"
@@ -1084,13 +1083,12 @@ class MyCoder(Coder):
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         """Return env-var overlay merged on top of os.environ before spawn.
 
-        These three keys are REQUIRED — the agent reads them to locate its
-        artifact directory and write PLAN_AND_STATUS.md / KNOWLEDGE.md.
+        These two keys are REQUIRED — the agent reads them to locate its
+        task directory and write STATE.md / RESULT.json.
         """
         return {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
 
     def normalize_event(self, raw_line: str) -> Event | None:
@@ -1117,7 +1115,7 @@ class MyCoder(Coder):
 - `build_argv` — the last positional element is almost always the full prompt;
   construct it from the shared templates so the agent receives the Fleet task
   protocol and artifact-directory instructions.
-- `env` — always emit `FLEET_TASK_ID`, `FLEET_TASK_DIR`, `FLEET_ARTIFACT_DIR`;
+- `env` — always emit `FLEET_TASK_ID`, `FLEET_TASK_DIR`;
   never put `ANTHROPIC_API_KEY` here (the CLI owns that).
 - `normalize_event` — return `None` for anything you don't understand; the
   runner skips `None` events safely. Must be **pure** (no I/O, no logging).

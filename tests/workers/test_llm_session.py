@@ -38,7 +38,6 @@ class StubCoder:
         return {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
 
     def normalize_event(self, raw_line: str) -> Event | None:
@@ -768,3 +767,37 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
     assert coder.probe_calls >= 1
     assert fake_proc.killed is False
     assert result.outcome != TaskOutcome.RATE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# prompt.md is recorded; log.jsonl argv line stays small
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_md_records_argv_last_element(tmp_path: Path) -> None:
+    session, ctx, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "import sys; sys.exit(0)", "PROMPT-TEXT-HERE"],
+    )
+
+    _run(session, ctx)
+
+    prompt_path = tmp_path / "tasks" / "t-001" / "prompt.md"
+    assert prompt_path.exists()
+    assert prompt_path.read_text(encoding="utf-8") == "PROMPT-TEXT-HERE"
+
+
+def test_log_argv_redacts_prompt_text(tmp_path: Path) -> None:
+    session, ctx, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "import sys; sys.exit(0)", "SUPERSECRET-PROMPT"],
+    )
+
+    _run(session, ctx)
+
+    log_path = tmp_path / "tasks" / "t-001" / "log.jsonl"
+    lines = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+    started = [row for row in lines if row.get("event") == "subprocess_started"]
+    assert len(started) == 1
+    assert started[0]["argv"][-1] == "<see prompt.md>"
+    assert "SUPERSECRET-PROMPT" not in log_path.read_text()

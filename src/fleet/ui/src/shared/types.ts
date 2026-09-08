@@ -49,7 +49,7 @@ export interface TaskSummary {
   last_outcome_reason: string | null;
   last_action: string | null;
   result: TaskResult | null;
-  handoff_excerpt: string | null;
+  state_excerpt: string | null;
   worker: string | null;
   // Job worker phase badge, from the latest attempt's worker name
   // ("job.research" -> "research"; null for non-job workers).
@@ -73,7 +73,8 @@ export interface RunStep {
   reason: string;
 }
 
-// The worker's declared outcome, parsed from artifacts/RESULT.json.
+// The worker's declared outcome: task-level RESULT.json (live), else the
+// latest attempt's RESULT.json snapshot.
 export interface TaskResult {
   schema: number;
   status: 'done' | 'partial' | 'blocked';
@@ -103,7 +104,7 @@ export interface TaskAttempt {
   commits: string[];
   result: TaskResult | null;
   has_summary: boolean;
-  has_handoff: boolean;
+  has_prompt: boolean;
 }
 
 // One child bead of an epic: GET /api/tasks/{id}/children (see workers/observe.py).
@@ -317,7 +318,7 @@ export interface AnalyticsRateLimit {
 export interface SearchResult {
   task_id: string;
   task_title: string;
-  source: string;        // "title" | "description" | "qa" | "knowledge" | "plan"
+  source: string;        // "title" | "description" | "qa" | "state"
   match_context: string; // ~120 char snippet
 }
 

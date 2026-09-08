@@ -149,7 +149,6 @@ def test_env_includes_required_vars(tmp_path: Path):
     env = coder.env(task, tmp_path)
     assert env["FLEET_TASK_ID"] == "t-42"
     assert env["FLEET_TASK_DIR"] == str(tmp_path)
-    assert env["FLEET_ARTIFACT_DIR"] == str(tmp_path / "artifacts")
 
 
 def test_env_does_not_contain_api_key(tmp_path: Path):

@@ -27,9 +27,7 @@ from fleet.state.tail import read_new_bytes
 
 class TaskAction(StrEnum):
     log = "log"
-    plan = "plan"
-    handoff = "handoff"
-    knowledge = "knowledge"
+    state = "state"
     result = "result"
 
 
@@ -298,40 +296,41 @@ def register(app: typer.Typer) -> None:
         task_id: Annotated[str, typer.Argument(help="Task ID.")],
         action: Annotated[
             TaskAction,
-            typer.Argument(help="What to print: log | plan | handoff | knowledge | result."),
+            typer.Argument(help="What to print: log | state | result."),
         ],
     ) -> None:
-        """Print a task's log, PLAN, HANDOFF, KNOWLEDGE, or RESULT artifact."""
+        """Print a task's log, STATE.md, or RESULT.json artifact."""
         task_dir = _task_dir(fleet_home(), task_id)
         if not task_dir.exists():
             typer.echo(f"No task directory at {task_dir}", err=True)
             raise typer.Exit(1)
 
-        if action is TaskAction.plan:
-            plan_path = task_dir / "artifacts" / "PLAN.md"
-            if not plan_path.exists():
-                # Fall back to the pre-worker-1 combined file for old tasks.
-                plan_path = task_dir / "artifacts" / "PLAN_AND_STATUS.md"
-            _print_file_or_exit(plan_path, f"No PLAN.md for task {task_id}")
-            return
+        if action is TaskAction.state:
+            state_path = task_dir / "STATE.md"
+            if state_path.exists():
+                _print_file_or_exit(state_path, f"No STATE.md for task {task_id}")
+                return
+            # Old task dirs without STATE.md: render the legacy view on demand.
+            from fleet.state.legacy import legacy_state_text
 
-        if action is TaskAction.handoff:
-            _print_file_or_exit(
-                task_dir / "artifacts" / "HANDOFF.md",
-                f"No HANDOFF.md for task {task_id}",
-            )
-            return
-
-        if action is TaskAction.knowledge:
-            _print_file_or_exit(
-                task_dir / "artifacts" / "KNOWLEDGE.md",
-                f"No KNOWLEDGE.md for task {task_id}",
-            )
+            legacy = legacy_state_text(task_dir)
+            if legacy is None:
+                typer.echo(f"No STATE.md for task {task_id}", err=True)
+                raise typer.Exit(1)
+            sys.stdout.write(legacy)
             return
 
         if action is TaskAction.result:
+            result_path = task_dir / "RESULT.json"
+            if not result_path.exists():
+                # Post-reap only the attempt snapshot remains.
+                latest = latest_attempt_dir(task_dir)
+                if latest is not None and (latest / "RESULT.json").exists():
+                    result_path = latest / "RESULT.json"
+                else:
+                    result_path = task_dir / "artifacts" / "RESULT.json"
             _print_file_or_exit(
-                task_dir / "artifacts" / "RESULT.json",
+                result_path,
                 f"No RESULT.json for task {task_id}",
             )
             return

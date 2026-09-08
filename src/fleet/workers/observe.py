@@ -25,9 +25,12 @@ from fleet.core.launch import LaunchPlan
 from fleet.core.result import parse_result
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
+from fleet.state.attempt_summary import summarize
+from fleet.state.legacy import legacy_result
+from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as task_dir_path
 
-from .base import StepContext, StepResult, Worker
+from .base import StepContext, StepResult, Worker, merge_run_json
 from .llm_session import LlmSession
 
 # artifacts/CHILDREN.md is bounded by construction: each child section is
@@ -55,18 +58,6 @@ def _as_summaries(children: list) -> list[BeadSummary]:
     return out
 
 
-def _rotate_result(artifacts_dir: Path) -> None:
-    """Move a previous attempt's RESULT.json aside before this attempt runs.
-
-    Same guarantee as the task family's PrepareArtifacts: a stale file can
-    never be mistaken for this attempt's outcome (in particular, reap must
-    not snapshot or fold last round's verdict into a WAITING attempt).
-    """
-    result_file = artifacts_dir / "RESULT.json"
-    if result_file.exists():
-        result_file.replace(artifacts_dir / "RESULT.prev.json")
-
-
 class WaitChildren:
     """Re-release the epic while any child still runs (outcome WAITING)."""
 
@@ -76,7 +67,6 @@ class WaitChildren:
         self._queue_factory = queue_factory or _default_queue
 
     async def run(self, ctx: StepContext) -> StepResult:
-        _rotate_result(ctx.task_dir / "artifacts")
         try:
             children = _as_summaries(
                 self._queue_factory(ctx.fleet_home).list_children(ctx.task.id)
@@ -101,49 +91,37 @@ class WaitChildren:
         return None
 
 
-def _summary_facts(text: str) -> tuple[list[str], int]:
-    """Pull (commit shas, files-touched count) out of an attempt SUMMARY.md."""
-    commits: list[str] = []
-    files = 0
-    section = ""
-    for line in text.splitlines():
-        if line.startswith("## "):
-            section = line[3:].strip().lower()
-            continue
-        if not line.startswith("- "):
-            continue
-        if section == "commits":
-            words = line[2:].split()
-            if words and words[0] != "(none)":
-                commits.append(words[0])
-        elif section == "files touched":
-            files += 1
-    return commits[:5], files
+def _latest_result(task_dir: Path) -> tuple[str, str]:
+    """The child's declared (status, summary): live RESULT.json, else legacy."""
+    try:
+        text = (task_dir / RESULT_JSON).read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    result = parse_result(text) if text else None
+    if result is None:
+        legacy = legacy_result(task_dir)
+        if legacy is not None:
+            try:
+                result = parse_result(json.dumps(legacy))
+            except (ValueError, TypeError):
+                result = None
+    if result is not None:
+        return result.status, result.summary
+    return "unknown", ""
 
 
 def _child_digest(child_id: str, fleet_home: Path) -> dict:
-    """Collect one child's RESULT status/summary, commits, files, block reason."""
+    """Collect one child's RESULT status/summary, files touched, block reason."""
     task_dir = task_dir_path(fleet_home, child_id)
-    status, summary = "unknown", ""
-    try:
-        text = (task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
-    except OSError:
-        text = ""
-    if text:
-        result = parse_result(text)
-        if result is not None:
-            status, summary = result.status, result.summary
-    commits: list[str] = []
+    status, summary = _latest_result(task_dir)
     files = 0
     outcome = ""
     latest = state_attempts.latest_attempt_dir(task_dir)
     if latest is not None:
         try:
-            facts_text = (latest / "SUMMARY.md").read_text(encoding="utf-8")
-        except OSError:
-            facts_text = ""
-        if facts_text:
-            commits, files = _summary_facts(facts_text)
+            files = len(summarize(task_dir, int(latest.name)).files_touched)
+        except (OSError, ValueError):
+            files = 0
     history = state_attempts.load_attempts(task_dir)
     if history:
         last = history[-1]
@@ -158,7 +136,6 @@ def _child_digest(child_id: str, fleet_home: Path) -> dict:
     return {
         "status": status,
         "summary": summary,
-        "commits": commits,
         "files": files,
         "outcome": outcome,
         "blocked_reason": blocked_reason,
@@ -171,8 +148,6 @@ def _render_child_section(child_id: str, bead_status: str, digest: dict) -> str:
         f"## {child_id} — bead {bead_status}, RESULT {digest['status']}",
         (digest["summary"] or "(no summary)")[:200],
     ]
-    if digest["commits"]:
-        lines.append("commits: " + ", ".join(digest["commits"]))
     if digest["files"]:
         lines.append(f"files touched: {digest['files']}")
     if digest["outcome"]:
@@ -223,11 +198,9 @@ class CollectChildren:
         ctx.scratch["launch_plan"] = LaunchPlan(
             mode="validate", pack=body, pack_bytes=pack_bytes, needs_compaction=False
         )
-        attempt_dir = ctx.attempt_dir or ctx.task_dir
-        attempt_dir.mkdir(parents=True, exist_ok=True)
-        (attempt_dir / "launch.json").write_text(
-            json.dumps({"mode": "validate", "pack_bytes": pack_bytes, "kind": "work"}),
-            encoding="utf-8",
+        merge_run_json(
+            ctx,
+            launch={"mode": "validate", "pack_bytes": pack_bytes, "kind": "work"},
         )
         return StepResult(status="ok")
 
@@ -245,7 +218,7 @@ class SpawnFollowups:
 
     async def run(self, ctx: StepContext) -> StepResult:
         try:
-            text = (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+            text = (ctx.task_dir / RESULT_JSON).read_text(encoding="utf-8")
         except OSError:
             return StepResult(status="ok")
         result = parse_result(text)

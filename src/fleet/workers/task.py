@@ -1,98 +1,83 @@
 """The `task` family: fresh vs. continue launch, decided in Python.
 
 ``plan_task`` is the family's `plan(ctx)` entry point (see
-``workers/__init__.py``). It reads this task's artifacts and attempt
+``workers/__init__.py``). It reads this task's STATE.md and attempt
 history through `core.launch.plan_launch` and picks ``FreshTask`` (no
-prior attempts, artifacts still stubs), ``ContinueLargeTask`` (continue
+prior attempts, STATE.md still the stub), ``ContinueLargeTask`` (continue
 with ``LaunchPlan.needs_compaction`` — a ``Compact`` step first), or
 ``ContinueTask`` (everything else).
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fleet.core.launch import LaunchLimits, LaunchPlan, plan_launch
 from fleet.state.artifacts import read_artifacts
 from fleet.state.attempts import load_attempts
+from fleet.state.paths import OUTPUTS_DIR, STATE_MD
 
-from .base import Step, StepContext, StepResult, Worker
+from .base import Step, StepContext, StepResult, Worker, merge_run_json
 from .compact import Compact
 from .llm_session import LlmSession
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
-def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
-    """Create PLAN.md, HANDOFF.md, KNOWLEDGE.md stubs and outputs/ if missing.
+def _ensure_state(task_dir: Path, task_id: str) -> None:
+    """Create the STATE.md stub and outputs/ if missing.
 
-    Never overwrites existing content — agents own these files after the
-    first run.
+    Never overwrites existing content — the worker owns STATE.md after
+    the first run.
     """
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    (artifacts_dir / "outputs").mkdir(parents=True, exist_ok=True)
-    for name in ("PLAN.md", "HANDOFF.md", "KNOWLEDGE.md"):
-        target = artifacts_dir / name
-        if target.exists():
-            continue
-        tmpl = (_TEMPLATES_DIR / f"{name}.tmpl").read_text(encoding="utf-8")
-        target.write_text(tmpl.format(task_id=task_id))
-
-
-def _rotate_result(artifacts_dir: Path) -> None:
-    """Move a previous attempt's RESULT.json aside before spawning a new one.
-
-    Spec 2 will move RESULT.json into per-attempt folders; for now the
-    previous attempt's declaration is kept at RESULT.prev.json so it does
-    not leak into the next attempt's outcome.
-    """
-    result_file = artifacts_dir / "RESULT.json"
-    if not result_file.exists():
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / OUTPUTS_DIR).mkdir(parents=True, exist_ok=True)
+    target = task_dir / STATE_MD
+    if target.exists():
         return
-    result_file.replace(artifacts_dir / "RESULT.prev.json")
+    tmpl = (_TEMPLATES_DIR / "STATE.md.tmpl").read_text(encoding="utf-8")
+    target.write_text(tmpl.format(task_id=task_id), encoding="utf-8")
 
 
-def _write_launch_json(attempt_dir: Path, plan) -> None:
-    """Write `attempt_dir/launch.json`, the on-disk record of this attempt's
-    launch decision (mode + pack size); read back by `state/artifacts.py`
-    and `state/attempt_summary.py`."""
-    attempt_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"mode": plan.mode, "pack_bytes": plan.pack_bytes, "kind": "work"}
-    (attempt_dir / "launch.json").write_text(json.dumps(payload), encoding="utf-8")
+def _record_launch(ctx: StepContext, plan) -> None:
+    """Record this attempt's launch decision in run.json["launch"].
+
+    Read back by `state/artifacts.py` (previous-attempt RESULT comes from
+    the snapshot, launch mode from here) and `state/attempt_summary.py`.
+    """
+    merge_run_json(
+        ctx,
+        launch={"mode": plan.mode, "pack_bytes": plan.pack_bytes, "kind": "work"},
+    )
 
 
 def _launch_limits(ctx: StepContext) -> LaunchLimits:
     return LaunchLimits(
         continue_pack_max_bytes=ctx.config.continue_pack_max_bytes,
-        handoff_max_bytes=ctx.config.handoff_max_bytes,
-        knowledge_max_bytes=ctx.config.knowledge_max_bytes,
+        state_max_bytes=ctx.config.state_max_bytes,
     )
 
 
 def _plan_launch_for(ctx: StepContext):
-    """Read artifacts + attempt history and decide this attempt's LaunchPlan."""
+    """Read STATE.md + attempt history and decide this attempt's LaunchPlan."""
     attempts_before = [a for a in load_attempts(ctx.task_dir) if a["n"] < ctx.attempt_n]
     artifacts = read_artifacts(ctx.task_dir, ctx.task.id, before_n=ctx.attempt_n)
     return plan_launch(attempts_before, artifacts, _launch_limits(ctx))
 
 
 class PrepareArtifacts:
-    """Seed artifact stubs, rotate the previous RESULT.json, write coder config.
+    """Seed the STATE.md stub and record a fresh launch in run.json.
 
-    The fresh-launch prepare step: no continuation pack, launch.json always
+    The fresh-launch prepare step: no continuation pack, launch always
     records ``mode="fresh"``.
     """
 
     name = "prepare_artifacts"
 
     async def run(self, ctx: StepContext) -> StepResult:
-        artifacts_dir = ctx.task_dir / "artifacts"
-        _ensure_artifact_stubs(artifacts_dir, ctx.task.id)
-        _rotate_result(artifacts_dir)
-        attempt_dir = ctx.attempt_dir or ctx.task_dir
+        _ensure_state(ctx.task_dir, ctx.task.id)
         fresh_plan = LaunchPlan(mode="fresh", pack="", pack_bytes=0, needs_compaction=False)
-        _write_launch_json(attempt_dir, fresh_plan)
+        _record_launch(ctx, fresh_plan)
         assert ctx.coder is not None
         ctx.coder.write_runtime_config(ctx.project_root, ctx.task)
         return StepResult(status="ok")
@@ -103,16 +88,15 @@ class PrepareArtifacts:
 
 class PrepareContinue:
     """The continue-launch prepare step: plans the launch pack from this
-    task's artifacts and attempt history, stores it for `LlmSession`, and
-    records the decision in this attempt's launch.json."""
+    task's STATE.md and attempt history, stores it for `LlmSession`, and
+    records the decision in this attempt's run.json."""
 
     name = "prepare_continue"
 
     async def run(self, ctx: StepContext) -> StepResult:
         plan = _plan_launch_for(ctx)
         ctx.scratch["launch_plan"] = plan
-        attempt_dir = ctx.attempt_dir or ctx.task_dir
-        _write_launch_json(attempt_dir, plan)
+        _record_launch(ctx, plan)
         assert ctx.coder is not None
         ctx.coder.write_runtime_config(ctx.project_root, ctx.task)
         return StepResult(status="ok")
@@ -136,7 +120,7 @@ def plan_task(ctx: StepContext) -> Worker:
     chosen) recomputes the plan itself rather than receiving it here, since a
     worker is a static list of steps with no room to smuggle data in.
     `Compact` runs first on the large path and `PrepareContinue` re-plans on
-    the compacted artifacts, so the session never re-reads huge logs.
+    the compacted STATE.md, so the session never re-reads huge logs.
 
     A fresh ``Worker`` (with fresh step instances) is built on every call
     rather than reusing a module-level singleton, because ``LlmSession``

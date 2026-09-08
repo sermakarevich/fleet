@@ -269,7 +269,7 @@ def test_gate_approve_writes_marker(tmp_path: Path) -> None:
     assert result.status == "ok"
     assert (ctx.task_dir / "artifacts" / "APPROVED").exists()
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["status"] == "partial" and declared["next_step"] == "spawn"
 
@@ -288,7 +288,7 @@ def test_gate_revise_appends_note_and_deletes_tasks(tmp_path: Path) -> None:
     )
     assert "split t1" in notes
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["status"] == "partial" and declared["next_step"] == "design"
 
@@ -302,7 +302,7 @@ def test_gate_cancel_blocks(tmp_path: Path) -> None:
     result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
     assert result.status == "ok"
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["status"] == "blocked"
     assert declared["blocked_reason"] == "cancelled by operator"
@@ -317,7 +317,7 @@ def test_gate_invalid_tasks_skips_question(tmp_path: Path) -> None:
     assert store.asked == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["next_step"] == "design"
 
@@ -355,7 +355,7 @@ def test_spawn_creates_children_with_deps_and_footer(tmp_path: Path) -> None:
         ("job-1", "[fleet] job spawned 2 children: kid-1, kid-2")
     ]
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["status"] == "partial" and declared["next_step"] == "observe"
 
@@ -386,6 +386,6 @@ def test_spawn_invalid_tasks_writes_errors(tmp_path: Path) -> None:
     assert queue.created == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
     declared = json.loads(
-        (ctx.task_dir / "artifacts" / "RESULT.json").read_text(encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").read_text(encoding="utf-8")
     )
     assert declared["next_step"] == "design"

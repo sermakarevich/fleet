@@ -96,6 +96,16 @@ def write_run_json(run_file: Path, **updates: Any) -> None:
     tmp.replace(run_file)
 
 
+def merge_run_json(ctx: StepContext, **updates: Any) -> None:
+    """Merge *updates* into this attempt's run.json via the atomic writer.
+
+    Steps that need to record their own keys (e.g. the prepare steps'
+    ``launch`` record) call this instead of writing run.json themselves,
+    so concurrent writers (the llm_session heartbeat) never lose keys.
+    """
+    write_run_json((ctx.attempt_dir or ctx.task_dir) / RUN_JSON, **updates)
+
+
 def _record_step(
     run_file: Path,
     worker_name: str,
@@ -195,6 +205,10 @@ class WorkerRun:
 
     async def run(self) -> TaskOutcomeRecord:
         return await run_worker(self.worker, self._ctx, on_step=self._set_current)
+
+    def merge_run_json(self, **updates: Any) -> None:
+        """Merge *updates* into this run's attempt run.json (see `merge_run_json`)."""
+        merge_run_json(self._ctx, **updates)
 
     async def kill(self, reason: str = "manual_kill") -> None:
         """Forward to the step currently running."""
