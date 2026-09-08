@@ -9,6 +9,10 @@ current bead closes it restarts the supervisor and un-defers the next one.
 State lives in beads only (status closed / deferred), so the script is
 idempotent and can be restarted at any time. Logs to
 ~/.fleet/logging/chain_watcher.log. Stop with: kill $(cat ~/.fleet/chain_watcher.pid)
+
+The chain itself is read from ~/.fleet/chain.txt on every tick (falls back to
+the built-in CHAIN list), so appending bead ids to that file extends a running
+chain without a restart.
 """
 from __future__ import annotations
 
@@ -45,12 +49,29 @@ CHAIN = [
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
+CHAIN_FILE = HOME / "chain.txt"  # one bead id per line, "#" comments; re-read every tick
 LOG = HOME / "logging" / "chain_watcher.log"
 PIDFILE = HOME / "chain_watcher.pid"
 POLL_SEC = 30
 # Bead lookups go straight to `bd` in the fleet home (where .beads lives) so a
 # worker's half-edited fleet CLI cannot blind the watcher. Only the supervisor
 # restart needs the fleet CLI itself.
+
+
+def load_chain() -> list[str]:
+    """Bead ids in order: ~/.fleet/chain.txt when present, else the built-in CHAIN.
+
+    Reading the file every tick means new beads can be appended to a running
+    chain without restarting the watcher.
+    """
+    if not CHAIN_FILE.exists():
+        return CHAIN
+    ids = []
+    for line in CHAIN_FILE.read_text(encoding="utf-8").splitlines():
+        bead_id = line.split("#", 1)[0].strip()
+        if bead_id:
+            ids.append(bead_id)
+    return ids or CHAIN
 
 
 def log(msg: str) -> None:
@@ -104,8 +125,9 @@ def restart_supervisor() -> bool:
 
 def tick() -> bool:
     """One pass. Returns False when the chain is finished."""
-    statuses = {b: bead(b).get("status") for b in CHAIN}
-    pending = [b for b in CHAIN if statuses[b] != "closed"]
+    chain = load_chain()
+    statuses = {b: bead(b).get("status") for b in chain}
+    pending = [b for b in chain if statuses[b] != "closed"]
     if not pending:
         # The last bead also changed fleet's code: restart once more so the
         # supervisor is not left running stale code after the chain ends.
@@ -121,8 +143,8 @@ def tick() -> bool:
 
     if statuses[cur] == "deferred":
         # The previous bead has closed; the supervisor has old code in memory.
-        prev_idx = CHAIN.index(cur) - 1
-        prev = CHAIN[prev_idx] if prev_idx >= 0 else None
+        prev_idx = chain.index(cur) - 1
+        prev = chain[prev_idx] if prev_idx >= 0 else None
         log(f"{prev} closed -> {cur} is next")
         if restart_supervisor():
             undefer(cur)
@@ -134,7 +156,7 @@ def tick() -> bool:
 def main() -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     PIDFILE.write_text(str(os.getpid()))
-    log(f"watcher started pid={os.getpid()} chain={' '.join(CHAIN)}")
+    log(f"watcher started pid={os.getpid()} chain={' '.join(load_chain())}")
     try:
         while True:
             try:
