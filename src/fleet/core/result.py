@@ -1,7 +1,7 @@
 """RESULT.json contract: the worker's machine-readable declaration of outcome.
 
-Pure parsing only — no file I/O here. Callers read ``artifacts/RESULT.json``
-and pass its text to ``parse_result``.
+Pure parsing only — no file I/O here. Callers read the task-level
+``RESULT.json`` and pass its text to ``parse_result``.
 """
 
 from __future__ import annotations

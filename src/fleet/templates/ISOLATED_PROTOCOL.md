@@ -6,7 +6,7 @@
 > 1. If you changed files in this repo, commit ALL of them to this branch:
 >    `git add -A && git commit -m "<clear message>"`. If the task changed nothing in this
 >    repo (research, notes elsewhere), skip this step: no commit is required.
-> 2. Write `artifacts/RESULT.json` with `status="done"`; fleet merges your branch into the base
+> 2. Write `$FLEET_TASK_DIR/RESULT.json` with `status="done"`; fleet merges your branch into the base
 >    branch and closes the bead. Do NOT run `fleet bd close` yourself. Do NOT run
 >    `fleet serve restart`. Do NOT touch the base branch — stay on `fleet/<task_id>`.
 > 3. Exit 0. A separate validation step merges your branch (fast-forward, else `--no-ff`),

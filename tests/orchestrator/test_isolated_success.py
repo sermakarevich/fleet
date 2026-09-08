@@ -110,9 +110,8 @@ def _isolate(tmp_path: Path, task: Task, base_ref: str = "main") -> Path:
             }
         )
     )
-    artifacts = task_dir / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "RESULT.json").write_text(
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "RESULT.json").write_text(
         json.dumps({"schema": 1, "status": "done", "summary": "did it"})
     )
     return wt_dir
@@ -162,7 +161,7 @@ def test_isolated_clean_but_no_result_falls_through(tmp_path: Path) -> None:
     task = _task()
     wt_dir = _isolate(tmp_path, task)
     # Remove the RESULT declaration -> SUCCESS without RESULT.
-    (tmp_path / "tasks" / task.id / "artifacts" / "RESULT.json").unlink()
+    (tmp_path / "tasks" / task.id / "RESULT.json").unlink()
 
     with mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=True):
         s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))

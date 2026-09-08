@@ -80,7 +80,7 @@ def propose(
     *task*: task.json content (uses ``id`` and ``title``).
     *attempts*: ``{"rounds": {"failure": n, "stall": n, "context": n, ...},
     "rate_limited": bool, "stderr_tail": str | None}``.
-    *result*: parsed artifacts/RESULT.json (``status`` / ``blocked_reason`` /
+    *result*: parsed task-level RESULT.json (``status`` / ``blocked_reason`` /
     ``open_questions`` keys) or None when absent.
     *blocked_reason*: the fleet block reason from task.json.
     """

@@ -26,8 +26,9 @@ from fleet.core.job_plan import validate_tasks
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
+from fleet.state.paths import RESULT_JSON
 
-from .base import StepContext, StepResult, Worker
+from .base import StepContext, StepResult, Worker, merge_run_json
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
 
@@ -61,36 +62,29 @@ def _default_store(_home: Path) -> Any:
     return QuestionStore()
 
 
-def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
-    """Create PLAN.md, HANDOFF.md, KNOWLEDGE.md stubs and outputs/ if missing."""
-    from .task import _ensure_artifact_stubs as _seed
+def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
+    """Seed the STATE.md stub and outputs/ if missing (see workers/task.py)."""
+    from .task import _ensure_state as _seed
 
-    _seed(artifacts_dir, task_id)
-
-
-def _rotate_result(artifacts_dir: Path) -> None:
-    """Move a previous attempt's RESULT.json aside so it can't leak forward."""
-    result_file = artifacts_dir / "RESULT.json"
-    if result_file.exists():
-        result_file.replace(artifacts_dir / "RESULT.prev.json")
+    _seed(task_dir, task_id)
 
 
 def _write_result(
-    artifacts_dir: Path,
+    task_dir: Path,
     *,
     status: str,
     summary: str,
     next_step: str = "",
     blocked_reason: str = "",
 ) -> None:
-    """Write artifacts/RESULT.json for a Python-decided gate/spawn outcome."""
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    """Write task-level RESULT.json for a Python-decided gate/spawn outcome."""
+    task_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {"schema": 1, "status": status, "summary": summary}
     if next_step:
         payload["next_step"] = next_step
     if blocked_reason:
         payload["blocked_reason"] = blocked_reason
-    (artifacts_dir / "RESULT.json").write_text(
+    (task_dir / RESULT_JSON).write_text(
         json.dumps(payload, indent=2), encoding="utf-8"
     )
 
@@ -131,9 +125,8 @@ class JobPrepare:
         self._mode = mode
 
     async def run(self, ctx: StepContext) -> StepResult:
+        _ensure_artifact_stubs(ctx.task_dir, ctx.task.id)
         artifacts_dir = ctx.task_dir / "artifacts"
-        _ensure_artifact_stubs(artifacts_dir, ctx.task.id)
-        _rotate_result(artifacts_dir)
         if self._mode == "design":
             parts = []
             research = _read_text_capped(artifacts_dir / "RESEARCH.md", RESEARCH_MAX_BYTES)
@@ -155,11 +148,9 @@ class JobPrepare:
             needs_compaction=False,
         )
         ctx.scratch["launch_plan"] = plan
-        attempt_dir = ctx.attempt_dir or ctx.task_dir
-        attempt_dir.mkdir(parents=True, exist_ok=True)
-        (attempt_dir / "launch.json").write_text(
-            json.dumps({"mode": self._mode, "pack_bytes": plan.pack_bytes, "kind": "work"}),
-            encoding="utf-8",
+        merge_run_json(
+            ctx,
+            launch={"mode": self._mode, "pack_bytes": plan.pack_bytes, "kind": "work"},
         )
         assert ctx.coder is not None
         ctx.coder.write_runtime_config(ctx.project_root, ctx.task)
@@ -187,15 +178,13 @@ class AskApproval:
             encoding="utf-8",
         )
         _write_result(
-            artifacts_dir, status="partial",
+            ctx.task_dir, status="partial",
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
         return StepResult(status="ok")
 
     async def run(self, ctx: StepContext) -> StepResult:
-        artifacts_dir = ctx.task_dir / "artifacts"
-        _rotate_result(artifacts_dir)
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
             return self._invalid_plan(ctx, [load_error])
@@ -244,14 +233,15 @@ class AskApproval:
 
     def _apply_answer(self, ctx: StepContext, question: dict) -> StepResult:
         """Apply the operator's gate answer: approve, revise, or cancel."""
-        artifacts_dir = ctx.task_dir / "artifacts"
+        task_dir = ctx.task_dir
+        artifacts_dir = task_dir / "artifacts"
         answer = question.get("answer")
         if isinstance(answer, list):
             answer = answer[0] if answer else None
         note = (question.get("note") or "").strip() or None
         if answer == GATE_OPTION_CANCEL:
             _write_result(
-                artifacts_dir, status="blocked",
+                task_dir, status="blocked",
                 summary="job cancelled by operator",
                 blocked_reason="cancelled by operator",
             )
@@ -259,7 +249,7 @@ class AskApproval:
         if answer == GATE_OPTION_APPROVE and not note:
             (artifacts_dir / "APPROVED").write_text("approved\n", encoding="utf-8")
             _write_result(
-                artifacts_dir, status="partial",
+                task_dir, status="partial",
                 summary="job plan approved; spawning children",
                 next_step="spawn",
             )
@@ -278,7 +268,7 @@ class AskApproval:
         except OSError:
             pass
         _write_result(
-            artifacts_dir, status="partial",
+            task_dir, status="partial",
             summary="job plan needs revision; see DESIGN_NOTES.md",
             next_step="design",
         )
@@ -317,7 +307,6 @@ class SpawnChildren:
 
     async def run(self, ctx: StepContext) -> StepResult:
         artifacts_dir = ctx.task_dir / "artifacts"
-        _rotate_result(artifacts_dir)
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
             return self._invalid(ctx, [load_error])
@@ -396,7 +385,7 @@ class SpawnChildren:
         except OSError:
             pass
         _write_result(
-            artifacts_dir, status="partial",
+            ctx.task_dir, status="partial",
             summary=f"spawned {len(created)} children",
             next_step="observe",
         )
@@ -409,7 +398,7 @@ class SpawnChildren:
             encoding="utf-8",
         )
         _write_result(
-            artifacts_dir, status="partial",
+            ctx.task_dir, status="partial",
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
@@ -429,7 +418,7 @@ class BlockJob:
 
     async def run(self, ctx: StepContext) -> StepResult:
         _write_result(
-            ctx.task_dir / "artifacts", status="blocked",
+            ctx.task_dir, status="blocked",
             summary=self._reason, blocked_reason=self._reason,
         )
         return StepResult(status="ok")

@@ -130,9 +130,8 @@ def test_waiting_reap_releases_silently(tmp_path: Path) -> None:
 
 def _write_result(tmp_path: Path, task_id: str, body: dict) -> None:
     task_dir = _task_dir(tmp_path, task_id)
-    artifacts = task_dir / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
 
 
 def _rc0() -> TaskOutcomeRecord:

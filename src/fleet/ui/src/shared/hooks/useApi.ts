@@ -41,10 +41,10 @@ export function useAttemptSummary(taskId: string, n: number, enabled: boolean) {
   });
 }
 
-export function useAttemptHandoff(taskId: string, n: number, enabled: boolean) {
+export function useAttemptPrompt(taskId: string, n: number, enabled: boolean) {
   return useQuery({
-    queryKey: ['attempt-handoff', taskId, n],
-    queryFn: () => api.getAttemptHandoff(taskId, n),
+    queryKey: ['attempt-prompt', taskId, n],
+    queryFn: () => api.getAttemptPrompt(taskId, n),
     enabled,
   });
 }

@@ -199,7 +199,6 @@ def test_env_includes_required_vars(tmp_path: Path):
     env = _coder().env(_task("t-42"), tmp_path)
     assert env["FLEET_TASK_ID"] == "t-42"
     assert env["FLEET_TASK_DIR"] == str(tmp_path)
-    assert env["FLEET_ARTIFACT_DIR"] == str(tmp_path / "artifacts")
 
 
 def test_env_keys_ollama(tmp_path: Path):
@@ -207,7 +206,6 @@ def test_env_keys_ollama(tmp_path: Path):
     assert set(env.keys()) == {
         "FLEET_TASK_ID",
         "FLEET_TASK_DIR",
-        "FLEET_ARTIFACT_DIR",
         "OPENCODE_CONFIG_CONTENT",
     }
 
@@ -237,7 +235,6 @@ def test_env_bedrock_injects_aws_profile_and_region(tmp_path: Path):
     assert env["AWS_REGION"] == "us-east-1"
     assert env["FLEET_TASK_ID"] == "t-42"
     assert env["FLEET_TASK_DIR"] == str(tmp_path)
-    assert env["FLEET_ARTIFACT_DIR"] == str(tmp_path / "artifacts")
 
 
 def test_env_bedrock_empty_config_no_aws_keys(tmp_path: Path):

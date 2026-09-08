@@ -2,7 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.state.paths import fleet_home, task_dir, tasks_root
+from fleet.state.paths import (
+    OUTPUTS_DIR,
+    PROMPT_MD,
+    RESULT_JSON,
+    STATE_MD,
+    fleet_home,
+    outputs_dir,
+    prompt_file,
+    result_file,
+    state_file,
+    task_dir,
+    tasks_root,
+)
 
 
 def test_tasks_root_composition(tmp_path: Path) -> None:
@@ -21,3 +33,18 @@ def test_fleet_home_env_override(tmp_path: Path, monkeypatch) -> None:
 def test_fleet_home_default_is_dot_fleet(monkeypatch) -> None:
     monkeypatch.delenv("FLEET_HOME", raising=False)
     assert fleet_home() == Path.home() / ".fleet"
+
+
+def test_task_file_names(tmp_path: Path) -> None:
+    assert STATE_MD == "STATE.md"
+    assert RESULT_JSON == "RESULT.json"
+    assert PROMPT_MD == "prompt.md"
+    assert OUTPUTS_DIR == "outputs"
+
+
+def test_task_file_helpers(tmp_path: Path) -> None:
+    root = task_dir(tmp_path, "fleet-abc")
+    assert state_file(root) == root / "STATE.md"
+    assert result_file(root) == root / "RESULT.json"
+    assert outputs_dir(root) == root / "outputs"
+    assert prompt_file(root / "attempts" / "1") == root / "attempts" / "1" / "prompt.md"

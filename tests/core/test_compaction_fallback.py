@@ -1,55 +1,78 @@
 """Tests for the pure deterministic compaction fallback (no model, no I/O)."""
 from fleet.core.compaction_fallback import (
-    HANDOFF_MAX_BYTES,
-    KNOWLEDGE_MAX_BYTES,
+    STATE_MAX_BYTES,
     compact_fallback,
-    fallback_handoff,
-    fallback_knowledge,
+    fallback_state,
 )
 
 
-def test_handoff_within_cap() -> None:
-    handoff, _ = compact_fallback(
-        "# H\n\n## Done\n- a\n\n## In flight\n- b\n\n## Next\n- c\n\n## Do not redo\n- d\n",
-        "facts",
-        ["summary line"],
-        ["abc123 did the thing"],
-    )
-    assert len(handoff.encode("utf-8")) <= HANDOFF_MAX_BYTES
+def _state(**overrides: str) -> str:
+    sections = {
+        "Plan": "do the thing",
+        "Done": "- did a",
+        "In flight": "- doing b",
+        "Next": "- do c",
+        "Facts": "- fleet uses beads",
+    }
+    sections.update(overrides)
+    parts = ["# t — STATE", ""]
+    for heading in ("Plan", "Done", "In flight", "Next", "Facts"):
+        parts.append(f"## {heading}")
+        parts.append(sections[heading])
+        parts.append("")
+    return "\n".join(parts)
 
 
-def test_knowledge_within_cap() -> None:
-    _, knowledge = compact_fallback("h", "x" * 9000, [], ["abc123 did the thing"])
-    assert len(knowledge.encode("utf-8")) <= KNOWLEDGE_MAX_BYTES
+def test_state_within_cap() -> None:
+    state = compact_fallback(_state(), ["summary line"], "", ["abc123 did the thing"])
+    assert len(state.encode("utf-8")) <= STATE_MAX_BYTES
+    assert "## Next" in state
 
 
 def test_git_log_becomes_done_list() -> None:
-    handoff = fallback_handoff("", [], ["abc123 did the thing", "def456 another"])
-    assert "abc123 did the thing" in handoff
-    assert "## Done" in handoff
-    assert "## Next" in handoff
+    state = fallback_state(_state(Done=""), [], "", ["abc123 did the thing"])
+    assert "abc123 did the thing" in state
+    assert "## Done" in state
+    assert "## Next" in state
 
 
 def test_huge_inputs_still_bounded() -> None:
-    handoff, knowledge = compact_fallback(
-        "H" * 20000, "K" * 40000, ["S" * 8000], [f"commit-{i}" for i in range(50)]
+    state = compact_fallback(
+        _state(Facts="K" * 40000, Done="H" * 20000),
+        ["S" * 8000],
+        '{"status": "partial"}',
+        [f"commit-{i}" for i in range(50)],
     )
-    assert len(handoff.encode("utf-8")) <= HANDOFF_MAX_BYTES
-    assert len(knowledge.encode("utf-8")) <= KNOWLEDGE_MAX_BYTES
+    assert len(state.encode("utf-8")) <= STATE_MAX_BYTES
+
+
+def test_facts_truncated_first_next_never() -> None:
+    """Over-cap input shrinks Facts (then Done) but keeps Next verbatim."""
+    next_text = "- the one next step"
+    state = fallback_state(
+        _state(Facts="F" * 20000, Done="D" * 20000, Next=next_text),
+        [],
+        "",
+        [],
+        max_bytes=2000,
+    )
+    assert len(state.encode("utf-8")) <= 2000
+    assert next_text in state
 
 
 def test_empty_inputs_produce_skeleton() -> None:
-    handoff, knowledge = compact_fallback("", "", [], [])
-    assert "## Done" in handoff
-    assert "## Do not redo" in handoff
-    assert "## Facts" in knowledge
+    state = compact_fallback("", [], "", [])
+    assert "## Done" in state
+    assert "## Next" in state
+    assert "## Facts" in state
+    assert "## Plan" in state
 
 
 def test_fallback_is_deterministic() -> None:
-    args = ("handoff text", "knowledge text", ["sum"], ["abc log line"])
+    args = (_state(), ["sum"], '{"status": "partial"}', ["abc log line"])
     assert compact_fallback(*args) == compact_fallback(*args)
 
 
-def test_knowledge_keeps_curated_facts() -> None:
-    knowledge = fallback_knowledge("## Facts\n- fleet uses beads\n", [])
-    assert "fleet uses beads" in knowledge
+def test_state_keeps_curated_facts() -> None:
+    state = fallback_state(_state(), [], "", [])
+    assert "fleet uses beads" in state

@@ -1,27 +1,53 @@
-"""Deterministic, no-LLM SUMMARY.md for one attempt.
+"""Deterministic, no-LLM per-attempt summary, derived on demand (ADR 0004).
 
-`write_summary` is called from `orchestrator/reap.py` right after
-`state.attempts.record_end`, alongside the RESULT.json/HANDOFF.md snapshots.
-It never calls a model: everything is derived from this attempt's
-`events.jsonl`, `launch.json`, `log.stderr`, the matching `attempts.jsonl`
-row, and (optionally) `git log`/`git status` in the task's working
-directory. The whole rendered file is hard-capped at ~4 KB.
+`summarize` builds an `AttemptSummary` from one attempt's `run.json`
+(including its `launch` record), `events.jsonl`, the matching
+`attempts.jsonl` row, and the `RESULT.json` snapshot — no model call, no
+network. `render_markdown` renders it, hard-capped at ~4 KB. Nothing is
+stored: readers (`orchestrator/triage.py`, `workers/compact.py`,
+`serve/api/tasks.py`, `state/task_summary.py`, `cli/tasks.py`) compute it
+when they need it.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fleet.state import attempts as state_attempts
-from fleet.state.atomic import write_text_atomic
 from fleet.state.events import iter_attempt_events, scan_rows
 
 _MAX_CHARS = 4096
 _STDERR_TAIL_LINES = 30
 _LAST_TEXT_EVENTS = 5
 _LAST_TEXT_MAX_CHARS = 400
+
+
+@dataclass
+class AttemptSummary:
+    """Derived facts about one attempt (never stored on disk)."""
+
+    n: int
+    kind: str = "work"
+    mode: str = "unknown"
+    coder: str | None = None
+    model: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    duration_sec: float | None = None
+    outcome: str | None = None
+    reason: str | None = None
+    exit_code: int | None = None
+    cli_compactions: int = 0
+    peak_context_tokens: int | None = None
+    output_tokens: int | None = None
+    files_touched: dict = field(default_factory=dict)
+    tool_counts: dict = field(default_factory=dict)
+    result: dict | None = None
+    last_error: dict | None = None
+    stderr_tail: list[str] = field(default_factory=list)
+    last_texts: list[str] = field(default_factory=list)
 
 
 def _read_json(path: Path) -> dict:
@@ -79,160 +105,115 @@ def _read_stderr_tail(attempt_dir: Path, n_lines: int) -> list[str]:
     return lines[-n_lines:]
 
 
-def _git_commits(workdir: Path | None, started_at: str | None, ended_at: str | None) -> list[str]:
-    """`git log --oneline` between the attempt's start/end, or [] if not a repo."""
-    if workdir is None or not started_at:
-        return []
-    cmd = ["git", "log", "--oneline", f"--since={started_at}"]
-    if ended_at:
-        cmd.append(f"--until={ended_at}")
-    try:
-        result = subprocess.run(
-            cmd, cwd=workdir, capture_output=True, text=True, timeout=10, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
-def _git_status_short(workdir: Path | None) -> list[str]:
-    if workdir is None:
-        return []
-    try:
-        result = subprocess.run(
-            ["git", "status", "--short"],
-            cwd=workdir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    return [line for line in result.stdout.splitlines() if line.strip()][:20]
-
-
-def _render(
-    *,
-    n: int,
-    launch: dict,
-    row: dict,
-    stats,
-    commits: list[str],
-    status_lines: list[str],
-    last_error: dict | None,
-    stderr_tail: list[str],
-    last_texts: list[str],
-    cli_compactions: int = 0,
-) -> str:
-    lines: list[str] = []
-    lines.append(f"# Attempt {n} summary")
-    lines.append("")
-    lines.append(f"- kind: {launch.get('kind', 'work')}")
-    lines.append(f"- launch mode: {launch.get('mode', 'unknown')}")
-    lines.append(f"- coder/model: {row.get('coder')}/{row.get('model')}")
-    lines.append(f"- started: {row.get('started_at')}")
-    lines.append(f"- ended: {row.get('ended_at')}")
-    lines.append(f"- duration_sec: {row.get('duration_sec')}")
-    lines.append(f"- outcome: {row.get('outcome')} ({row.get('reason')})")
-    lines.append(f"- exit_code: {row.get('exit_code')}")
-    lines.append(f"- cli_compactions: {cli_compactions}")
-    lines.append(
-        f"- peak_context_tokens: {stats.peak_context_tokens} "
-        f"({stats.output_tokens} output tokens)"
-    )
-    lines.append("")
-    lines.append("## Files touched")
-    if stats.files_touched:
-        for path, counts in sorted(stats.files_touched.items()):
-            lines.append(f"- {path}: read={counts.read} edit={counts.edit} write={counts.write}")
-    else:
-        lines.append("(none)")
-    lines.append("")
-    lines.append("## Tool calls")
-    if stats.tool_counts:
-        for name, count in sorted(stats.tool_counts.items()):
-            lines.append(f"- {name}: {count}")
-    else:
-        lines.append("(none)")
-    lines.append("")
-    lines.append("## Commits")
-    if commits:
-        lines.extend(f"- {c}" for c in commits)
-    else:
-        lines.append("(none)")
-    lines.append("")
-    lines.append("## git status --short")
-    if status_lines:
-        lines.extend(status_lines)
-    else:
-        lines.append("(clean or not a git repo)")
-    lines.append("")
-    lines.append("## Last error event")
-    lines.append(json.dumps(last_error)[:_LAST_TEXT_MAX_CHARS] if last_error else "(none)")
-    lines.append("")
-    lines.append(f"## Last {_STDERR_TAIL_LINES} lines of log.stderr")
-    if stderr_tail:
-        lines.extend(stderr_tail)
-    else:
-        lines.append("(empty)")
-    lines.append("")
-    lines.append(f"## Last {_LAST_TEXT_EVENTS} assistant_text events")
-    if last_texts:
-        for i, t in enumerate(last_texts, 1):
-            lines.append(f"{i}. {t[:_LAST_TEXT_MAX_CHARS]}")
-    else:
-        lines.append("(none)")
-    return "\n".join(lines)
-
-
-def write_summary(task_dir: Path, n: int, workdir: Path | None) -> Path:
-    """Render and write `attempts/<n>/SUMMARY.md`; return its path.
-
-    Deterministic and side-effect-free besides the write: no model call, no
-    network. Truncated to ~4 KB as a final safety net regardless of how much
-    the sections above produced.
-    """
+def summarize(task_dir: Path, n: int) -> AttemptSummary:
+    """Compute the derived summary for attempt *n*. Pure read path."""
     attempt_dir = state_attempts.attempt_dir(task_dir, n)
-    attempt_dir.mkdir(parents=True, exist_ok=True)
-
-    launch = _read_json(attempt_dir / "launch.json")
+    run = _read_json(attempt_dir / "run.json")
+    launch = run.get("launch")
+    if not isinstance(launch, dict):
+        launch = {}
     row = _attempt_row(task_dir, n)
     stats = scan_rows(iter_attempt_events(task_dir, n))
 
     events = list(iter_attempt_events(task_dir, n))
-    last_error = next(
-        (e for e in reversed(events) if e.get("kind") == "error"), None
-    )
-    last_texts = [
-        _extract_text(e) for e in events if e.get("kind") == "assistant_text"
-    ][-_LAST_TEXT_EVENTS:]
+    last_error = next((e for e in reversed(events) if e.get("kind") == "error"), None)
+    last_texts = [_extract_text(e) for e in events if e.get("kind") == "assistant_text"][
+        -_LAST_TEXT_EVENTS:
+    ]
 
-    commits = _git_commits(workdir, row.get("started_at"), row.get("ended_at"))
-    status_lines = _git_status_short(workdir)
     stderr_tail = _read_stderr_tail(attempt_dir, _STDERR_TAIL_LINES)
     # CLI-side auto-compactions: the claude PreCompact hook touches
     # .compacted in the attempt dir each time it fires.
     cli_compactions = 1 if (attempt_dir / ".compacted").exists() else 0
+    result = _read_json(attempt_dir / "RESULT.json") or None
 
-    text = _render(
+    return AttemptSummary(
         n=n,
-        launch=launch,
-        row=row,
-        stats=stats,
-        commits=commits,
-        status_lines=status_lines,
+        kind=str(launch.get("kind") or row.get("kind") or "work"),
+        mode=str(launch.get("mode") or "unknown"),
+        coder=row.get("coder"),
+        model=row.get("model"),
+        started_at=row.get("started_at"),
+        ended_at=row.get("ended_at"),
+        duration_sec=row.get("duration_sec"),
+        outcome=row.get("outcome"),
+        reason=row.get("reason"),
+        exit_code=row.get("exit_code"),
+        cli_compactions=cli_compactions,
+        peak_context_tokens=stats.peak_context_tokens,
+        output_tokens=stats.output_tokens,
+        files_touched=dict(stats.files_touched),
+        tool_counts=dict(stats.tool_counts),
+        result=result,
         last_error=last_error,
         stderr_tail=stderr_tail,
         last_texts=last_texts,
-        cli_compactions=cli_compactions,
     )
-    text = text[:_MAX_CHARS]
 
-    out_path = attempt_dir / "SUMMARY.md"
-    write_text_atomic(out_path, text)
-    return out_path
+
+def render_markdown(summary: AttemptSummary) -> str:
+    """Render *summary* as markdown, hard-capped at ~4 KB."""
+    lines: list[str] = []
+    lines.append(f"# Attempt {summary.n} summary")
+    lines.append("")
+    lines.append(f"- kind: {summary.kind}")
+    lines.append(f"- launch mode: {summary.mode}")
+    lines.append(f"- coder/model: {summary.coder}/{summary.model}")
+    lines.append(f"- started: {summary.started_at}")
+    lines.append(f"- ended: {summary.ended_at}")
+    lines.append(f"- duration_sec: {summary.duration_sec}")
+    lines.append(f"- outcome: {summary.outcome} ({summary.reason})")
+    lines.append(f"- exit_code: {summary.exit_code}")
+    lines.append(f"- cli_compactions: {summary.cli_compactions}")
+    lines.append(
+        f"- peak_context_tokens: {summary.peak_context_tokens} "
+        f"({summary.output_tokens} output tokens)"
+    )
+    if summary.result is not None:
+        lines.append(
+            f"- declared result: {summary.result.get('status')}: "
+            f"{summary.result.get('summary')}"
+        )
+    lines.append("")
+    lines.append("## Files touched")
+    if summary.files_touched:
+        for path, counts in sorted(summary.files_touched.items()):
+            lines.append(
+                f"- {path}: read={counts.read} edit={counts.edit} write={counts.write}"
+            )
+    else:
+        lines.append("(none)")
+    lines.append("")
+    lines.append("## Tool calls")
+    if summary.tool_counts:
+        for name, count in sorted(summary.tool_counts.items()):
+            lines.append(f"- {name}: {count}")
+    else:
+        lines.append("(none)")
+    lines.append("")
+    lines.append("## Declared RESULT.json")
+    if summary.result is not None:
+        lines.append(json.dumps(summary.result)[:_LAST_TEXT_MAX_CHARS])
+    else:
+        lines.append("(none)")
+    lines.append("")
+    lines.append("## Last error event")
+    lines.append(
+        json.dumps(summary.last_error)[:_LAST_TEXT_MAX_CHARS]
+        if summary.last_error
+        else "(none)"
+    )
+    lines.append("")
+    lines.append(f"## Last {_STDERR_TAIL_LINES} lines of log.stderr")
+    if summary.stderr_tail:
+        lines.extend(summary.stderr_tail)
+    else:
+        lines.append("(empty)")
+    lines.append("")
+    lines.append(f"## Last {_LAST_TEXT_EVENTS} assistant_text events")
+    if summary.last_texts:
+        for i, t in enumerate(summary.last_texts, 1):
+            lines.append(f"{i}. {t[:_LAST_TEXT_MAX_CHARS]}")
+    else:
+        lines.append("(none)")
+    return "\n".join(lines)[:_MAX_CHARS]

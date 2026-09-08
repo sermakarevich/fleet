@@ -177,20 +177,16 @@ export const api = {
     return result.results;
   },
 
-  getArtifactPlan(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/plan`);
-  },
-
-  getArtifactHandoff(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/handoff`);
-  },
-
-  getArtifactKnowledge(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/knowledge`);
+  getArtifactState(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/state`);
   },
 
   getArtifactResult(id: string): Promise<{ content: string; mtime: number; path: string }> {
     return request(`/api/tasks/${id}/artifacts/result`);
+  },
+
+  getArtifactOutputs(id: string): Promise<{ files: string[] }> {
+    return request(`/api/tasks/${id}/artifacts/outputs`);
   },
 
   getArtifactResearch(id: string): Promise<{ content: string; mtime: number; path: string }> {
@@ -216,8 +212,8 @@ export const api = {
     return request(`/api/tasks/${id}/attempts/${n}/summary`);
   },
 
-  getAttemptHandoff(id: string, n: number): Promise<{ content: string }> {
-    return request(`/api/tasks/${id}/attempts/${n}/handoff`);
+  getAttemptPrompt(id: string, n: number): Promise<{ content: string }> {
+    return request(`/api/tasks/${id}/attempts/${n}/prompt`);
   },
 
   getAttemptLog(id: string, n: number): Promise<{ content: string }> {

@@ -64,7 +64,6 @@ def render_prompt(
     treated the same as a fresh, empty-pack plan. *mode* overrides
     `plan.mode` when given (the observer worker launches in "validate").
     """
-    artifacts_dir = task_dir / "artifacts"
     worktree = isolation_workdir(task_dir)
     workdir = worktree or task.cwd
     invocation_line = f"Invocation directory: {workdir}" if workdir else ""
@@ -75,7 +74,6 @@ def render_prompt(
             task_title=task.title,
             task_description=task.description or "",
             task_dir=task_dir,
-            artifacts_dir=artifacts_dir,
             invocation_line=invocation_line,
         )
         .strip()
@@ -144,7 +142,7 @@ class Coder(ABC):
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         """Return env-var overlay merged over os.environ when spawning.
 
-        MUST include FLEET_TASK_ID, FLEET_TASK_DIR, FLEET_ARTIFACT_DIR.
+        MUST include FLEET_TASK_ID, FLEET_TASK_DIR.
         MUST NOT include ANTHROPIC_API_KEY (owned by the CLI).
 
         FLEET_ATTEMPT_N, FLEET_ATTEMPT_DIR, FLEET_LAUNCH_MODE are NOT this

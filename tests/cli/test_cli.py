@@ -706,26 +706,25 @@ def test_tasks_beads_error_exits_nonzero() -> None:
     assert "bd boom" in result.output
 
 
-def test_task_plan_prints_plan_file(tmp_path, monkeypatch) -> None:
+def test_task_state_prints_state_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _seed_task_dir(tmp_path, "t-001")
-    body = "# t-001 — PLAN_AND_STATUS\n\nstuff\n"
-    (task_dir / "artifacts" / "PLAN_AND_STATUS.md").write_text(body, encoding="utf-8")
+    body = "# t-001 — STATE\n\n## Next\ndo the thing\n"
+    (task_dir / "STATE.md").write_text(body, encoding="utf-8")
 
-    result = runner.invoke(app, ["task", "t-001", "plan"])
+    result = runner.invoke(app, ["task", "t-001", "state"])
     assert result.exit_code == 0, result.output + (result.stderr or "")
     assert result.output == body
 
 
-def test_task_knowledge_prints_knowledge_file(tmp_path, monkeypatch) -> None:
+def test_task_state_falls_back_to_legacy_view(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _seed_task_dir(tmp_path, "t-001")
-    body = "# t-001 — KNOWLEDGE\n\nthings\n"
-    (task_dir / "artifacts" / "KNOWLEDGE.md").write_text(body, encoding="utf-8")
+    (task_dir / "artifacts" / "KNOWLEDGE.md").write_text("old fact\n", encoding="utf-8")
 
-    result = runner.invoke(app, ["task", "t-001", "knowledge"])
+    result = runner.invoke(app, ["task", "t-001", "state"])
     assert result.exit_code == 0, result.output + (result.stderr or "")
-    assert result.output == body
+    assert "old fact" in result.output
 
 
 def test_task_log_prints_log_file(tmp_path, monkeypatch) -> None:
@@ -741,46 +740,24 @@ def test_task_log_prints_log_file(tmp_path, monkeypatch) -> None:
 
 def test_task_missing_task_dir_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    result = runner.invoke(app, ["task", "t-missing", "plan"])
+    result = runner.invoke(app, ["task", "t-missing", "state"])
     assert result.exit_code != 0
     assert "No task directory" in result.output
 
 
-def test_task_plan_missing_file_errors(tmp_path, monkeypatch) -> None:
+def test_task_state_missing_file_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _seed_task_dir(tmp_path, "t-001")
-    result = runner.invoke(app, ["task", "t-001", "plan"])
+    result = runner.invoke(app, ["task", "t-001", "state"])
     assert result.exit_code != 0
-    assert "PLAN.md" in result.output
-
-
-def test_task_plan_falls_back_to_plan_and_status(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    task_dir = _seed_task_dir(tmp_path, "t-001")
-    body = "# t-001 — old plan\n\nstuff\n"
-    (task_dir / "artifacts" / "PLAN_AND_STATUS.md").write_text(body, encoding="utf-8")
-
-    result = runner.invoke(app, ["task", "t-001", "plan"])
-    assert result.exit_code == 0, result.output + (result.stderr or "")
-    assert result.output == body
-
-
-def test_task_handoff_prints_handoff_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    task_dir = _seed_task_dir(tmp_path, "t-001")
-    body = "# t-001 — HANDOFF\n\n## Next\ndo the thing\n"
-    (task_dir / "artifacts" / "HANDOFF.md").write_text(body, encoding="utf-8")
-
-    result = runner.invoke(app, ["task", "t-001", "handoff"])
-    assert result.exit_code == 0, result.output + (result.stderr or "")
-    assert result.output == body
+    assert "STATE.md" in result.output
 
 
 def test_task_result_prints_result_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _seed_task_dir(tmp_path, "t-001")
     body = '{"schema": 1, "status": "done", "summary": "shipped"}'
-    (task_dir / "artifacts" / "RESULT.json").write_text(body, encoding="utf-8")
+    (task_dir / "RESULT.json").write_text(body, encoding="utf-8")
 
     result = runner.invoke(app, ["task", "t-001", "result"])
     assert result.exit_code == 0, result.output + (result.stderr or "")

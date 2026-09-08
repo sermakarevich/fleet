@@ -112,7 +112,6 @@ class CodexCoder(Coder):
         return {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
             # Isolate the worker from the operator's ~/.codex/config.toml:
             # codex resolves its config under $CODEX_HOME.
             "CODEX_HOME": str(_codex_home_path(task_dir)),

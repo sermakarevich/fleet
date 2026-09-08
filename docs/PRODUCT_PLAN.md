@@ -115,7 +115,7 @@ The product framing needs nouns that fleet does not have yet. These are the tabl
 |---|---|---|
 | Tenant | Billing and isolation boundary. Owns users, projects, quotas, secrets. | Nothing today |
 | Project | A repository or working area with its own sandbox policy and allowed paths. | The `cwd` field in task.json |
-| Employee | A persistent agent identity: role description, coder and model, skills and MCP servers, standing instructions, persistent memory, cost budget. | Per-task coder/model overrides plus `KNOWLEDGE.md` |
+| Employee | A persistent agent identity: role description, coder and model, skills and MCP servers, standing instructions, persistent memory, cost budget. | Per-task coder/model overrides plus `STATE.md` |
 | Playbook | A parameterized task template with acceptance criteria and required outputs. | Ad hoc titles and descriptions |
 | Schedule | Cron or interval trigger that instantiates a playbook for an employee. | Nothing today |
 | Task | One unit of work with state, priority, dependencies, deadline. | A beads issue |
@@ -210,7 +210,7 @@ Seven phases, numbered 0 to 6. Estimates assume one senior engineer full time, u
 ### Phase 6. The employee layer
 
 *4+ weeks, iterative*
-- Employee records with role instructions, skills (MCP servers and tools), persistent memory that outlives tasks, and budgets. Migrate per-task `KNOWLEDGE.md` into per-employee and per-project memory.
+- Employee records with role instructions, skills (MCP servers and tools), persistent memory that outlives tasks, and budgets. Migrate per-task `STATE.md` into per-employee and per-project memory.
 - Playbook library with acceptance criteria, required outputs, and review gates (auto-merge, human approval, second-agent review).
 - Intake channels beyond Telegram: Slack, email, GitHub issues, webhooks. Each maps to a project and employee by rules.
 - Reporting: per-employee weekly summary, throughput, quality signals (rework rate, blocked rate), spend.

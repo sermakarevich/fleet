@@ -27,8 +27,7 @@ class RuntimeConfig:
     stall_block_after: int = 2
     max_attempt_minutes: int = 120
     continue_pack_max_bytes: int = 8192
-    handoff_max_bytes: int = 2048
-    knowledge_max_bytes: int = 4096
+    state_max_bytes: int = 6144
     compaction_enabled: bool = True
     compaction_coder: str = "claude"
     compaction_model: str = "haiku"

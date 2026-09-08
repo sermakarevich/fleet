@@ -6,28 +6,31 @@ file instead of re-describing the contract.
 
 ## What the worker gets
 
-- **Environment**: `FLEET_TASK_DIR` (the task directory), `FLEET_ARTIFACT_DIR`
-  (`$FLEET_TASK_DIR/artifacts`), `FLEET_ATTEMPT_N` (this attempt's number),
-  `FLEET_ATTEMPT_DIR` (`$FLEET_TASK_DIR/attempts/<n>`), `FLEET_LAUNCH_MODE`
-  (`fresh` or `continue`, see "Launch modes" below), plus whatever the
-  coder's `env()` adds (e.g. `BEADS_DIR`). The three `FLEET_ATTEMPT_*` /
-  `FLEET_LAUNCH_MODE` variables are layered on by `workers/llm_session.py`
-  after calling the coder's `env()` — no coder needs to know about them.
+- **Environment**: `FLEET_TASK_DIR` (the task directory), `FLEET_ATTEMPT_N`
+  (this attempt's number), `FLEET_ATTEMPT_DIR`
+  (`$FLEET_TASK_DIR/attempts/<n>`), `FLEET_LAUNCH_MODE` (`fresh` or
+  `continue`, see "Launch modes" below), plus whatever the coder's `env()`
+  adds (e.g. `BEADS_DIR`). The three `FLEET_ATTEMPT_*` / `FLEET_LAUNCH_MODE`
+  variables are layered on by `workers/llm_session.py` after calling the
+  coder's `env()` — no coder needs to know about them.
 - **Prompt**: built once by `coders/base.py::render_prompt(task, task_dir,
   plan)`, called by all five coders: `templates/coder_header.md.tmpl` (task
-  id, title, description, task/artifact directory paths), then the launch
-  pack (empty on a fresh start), then `templates/INSTRUCTION_FRESH.md` or
+  id, title, description, task directory path), then the launch pack (empty
+  on a fresh start), then `templates/INSTRUCTION_FRESH.md` or
   `templates/INSTRUCTION_CONTINUE.md` depending on `plan.mode`, then the
   shared `templates/INSTRUCTION_COMMON.md`, then — for isolated (worktree)
-  tasks — `templates/ISOLATED_PROTOCOL.md`.
-- **No `--resume`**: fleet never resumes a session. The files under
-  `artifacts/` are the worker's only continuation state across attempts.
-- **Pre-seeded artifacts**: fleet creates `PLAN.md`, `HANDOFF.md`,
-  `KNOWLEDGE.md` (from `templates/*.md.tmpl`) and `outputs/` before every
-  spawn, but never overwrites them once they exist. Any `RESULT.json` left
-  by the previous attempt is rotated to `RESULT.prev.json` before the new
-  attempt starts, so a stale file can't be mistaken for this attempt's
-  outcome.
+  tasks — `templates/ISOLATED_PROTOCOL.md`. The exact prompt sent is
+  recorded at `attempts/<n>/prompt.md` before spawning (the `log.jsonl`
+  argv line keeps `<see prompt.md>` instead of the text).
+- **No `--resume`**: fleet never resumes a session. `STATE.md` (plus the
+  bounded continue pack) is the worker's only continuation state across
+  attempts.
+- **Pre-seeded state**: fleet creates `STATE.md` (from
+  `templates/STATE.md.tmpl`) and `outputs/` before every spawn, but never
+  overwrites them once they exist. Reap snapshots `STATE.md` and
+  `RESULT.json` into `attempts/<n>/` and then removes the task-level
+  `RESULT.json`, so a stale file can never be mistaken for the next
+  attempt's outcome.
 
 ## Tools available to the worker
 
@@ -47,7 +50,7 @@ bundled ask_human server module cannot be imported.
 
 ## What the worker must produce
 
-Before exiting, on every attempt, write `artifacts/RESULT.json`:
+Before exiting, on every attempt, write `$FLEET_TASK_DIR/RESULT.json`:
 
 ```json
 {"schema": 1, "status": "done|partial|blocked", "summary": "<1-3 sentences>",
@@ -69,12 +72,10 @@ Field notes:
   into failure comments (rc≠0 exits).
 
 Also, every attempt:
-- Overwrite `HANDOFF.md` completely (hard cap 2 KB — fleet truncates on
-  read): Done / In flight / Next / Do-not-redo.
-- Update `KNOWLEDGE.md` only when something durable changed; keep it
-  small (~4 KB), rewriting stale sections rather than appending forever.
-- Update `PLAN.md` rarely — it's the restatement and plan, not a status
-  log.
+- Rewrite `STATE.md` completely (hard cap 6 KB — fleet truncates on
+  read): fill `## Plan` once, move finished items to `## Done`, keep
+  durable findings in `## Facts`, and leave the single next action in
+  `## Next`.
 - Never read `events.jsonl`, `log.jsonl`, `log.stderr`, or anything under
   `attempts/` — those are for humans and tooling.
 
@@ -159,8 +160,8 @@ Git-aware worktree isolation, decided at spawn (`orchestrator/spawn.py`):
 - `core/result.py` — `Result` dataclass, `parse_result(text) -> Result | None`. Pure, no I/O.
 - `core/task.py` — `TaskOutcome.PARTIAL`, `TaskOutcomeRecord.close_reason`.
 - `core/retry_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
-- `orchestrator/reap.py` — reads `artifacts/RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
-- `workers/task.py::PrepareArtifacts` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
+- `orchestrator/reap.py` — reads task-level `RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
+- `workers/task.py::_ensure_state` — seeds the STATE.md stub, records the launch in `run.json["launch"]`.
 - `workers/compact.py::Compact` — the compaction step (see "Compaction").
 - `core/compaction_fallback.py` — pure deterministic fallback (see "Compaction").
 - `templates/COMPACTION.md` — the compaction prompt.
@@ -175,30 +176,28 @@ inferred by the model. `core/launch.py::plan_launch` (pure) takes this
 task's attempt history and an `ArtifactSnapshot` (`state/artifacts.py::read_artifacts`,
 the I/O side) and returns a `LaunchPlan`:
 
-- **`fresh`** — no prior attempts AND `PLAN.md`/`HANDOFF.md`/`KNOWLEDGE.md`
-  are all still their seeded stubs. The prompt gets `INSTRUCTION_FRESH.md`
-  and no pack; the worker plans from the task text and writes `PLAN.md` first.
-- **`continue`** — everything else (any prior attempt, or any artifact
-  edited). The prompt gets `INSTRUCTION_CONTINUE.md` and a bounded text
-  "pack": "Attempt N of this task. Previous attempt ended: `<outcome>`:
-  `<reason>`." followed by labelled sections for the previous `HANDOFF.md`,
-  the previous `RESULT.json`'s `next_step`/`open_questions`, the latest
-  attempt's `SUMMARY.md`, and `KNOWLEDGE.md`. The worker is told **not** to
-  re-plan or re-read logs — the pack is its only history.
+- **`fresh`** — no prior attempts AND `STATE.md` is still its seeded stub.
+  The prompt gets `INSTRUCTION_FRESH.md` and no pack; the worker fills in
+  the `## Plan` section of `STATE.md` first.
+- **`continue`** — everything else (any prior attempt, or STATE.md edited).
+  The prompt gets `INSTRUCTION_CONTINUE.md` and a bounded text "pack":
+  "Attempt N of this task. Previous attempt ended: `<outcome>`:
+  `<reason>`." followed by `STATE.md` and the previous `RESULT.json`'s
+  `summary` / `next_step` / `open_questions` / `tests`. The worker is told
+  **not** to re-plan or re-read logs — the pack is its only history.
 - **`needs_compaction`** — recorded on the `LaunchPlan` (and in this
-  attempt's `launch.json`) when the pack exceeds `continue_pack_max_bytes`,
-  `KNOWLEDGE.md` exceeds `knowledge_max_bytes`, or the previous attempt has
-  no parseable `RESULT.json` / no non-stub `HANDOFF.md` (it died without
-  handing off). This spec only truncates each section to its cap as a
-  deterministic fallback so the launch still works; a later worker
-  (`ContinueLargeTask`) acts on the flag by compacting artifacts first.
+  attempt's `run.json["launch"]`) when `STATE.md` exceeds
+  `state_max_bytes` or the pack exceeds `continue_pack_max_bytes`. This
+  spec only truncates to the cap as a deterministic fallback so the launch
+  still works; a later worker (`ContinueLargeTask`) acts on the flag by
+  compacting STATE.md first.
 
 `workers/task.py::PrepareContinue` calls `plan_launch` and stores the
 result in `ctx.scratch["launch_plan"]` for `LlmSession` to read; `plan_task`
 runs the same computation once more, purely to choose between the
 `FreshTask`, `ContinueTask`, and `ContinueLargeTask` workers (see "Steps and
-workers" below). Both prepare steps write `attempts/<n>/launch.json` before
-spawning.
+workers" below). Both prepare steps record the decision in this attempt's
+`run.json["launch"]` before spawning.
 
 ## Compaction
 
@@ -209,26 +208,28 @@ PrepareContinue(), LlmSession()))`: a `workers/compact.py::Compact` step runs
 the compacted artifacts and `LlmSession` launches in `continue` mode as usual
 (same worker run, same attempt).
 
-- **Bounded inputs, by construction** — never raw logs: current `HANDOFF.md`,
-  `KNOWLEDGE.md`, `PLAN.md`, the last 3 attempt `SUMMARY.md` files (4 KB
-  each), the last `RESULT.json`, and `git log --oneline -30` + `git status
-  --short` (first 30 lines) of the workdir. Total input cap ~24 KB; oldest
-  summaries are dropped first.
+- **Bounded inputs, by construction** — never raw logs: current `STATE.md`
+  (8 KB cap), the last 3 attempt summaries derived via
+  `state/attempt_summary.py` (4 KB each), the last `RESULT.json`, and
+  `git log --oneline -30` + `git status --short` (first 30 lines) of the
+  workdir. Total input cap ~24 KB; oldest summaries are dropped first.
 - **Cheap model call** through the existing coder machinery
   (`compaction_coder`, default `claude`; `compaction_model`, default `haiku`;
   prompt from `templates/COMPACTION.md`; hard turn cap `--max-turns 2` for
-  claude; 3-minute timeout). The two fenced `HANDOFF`/`KNOWLEDGE` blocks are
-  parsed from the `assistant_text` events.
-- **Atomic writes** to `artifacts/HANDOFF.md` (2 KB cap) and
-  `artifacts/KNOWLEDGE.md` (4 KB cap). Any failure, timeout, or over-cap
-  output falls back to the deterministic pure truncation in
-  `core/compaction_fallback.py` and logs `compaction_fallback`.
+  claude; 3-minute timeout). The one fenced `STATE` block is parsed from
+  the `assistant_text` events.
+- **Atomic write** to task-level `STATE.md` (`state_max_bytes` cap,
+  default 6 KB). Any failure, timeout, or over-cap output falls back to
+  the deterministic section-by-section truncation in
+  `core/compaction_fallback.py` (Facts first, Done second, never Next) and
+  logs `compaction_fallback`.
 - **Visible and costed**: the compaction journals its own `kind="compact"`
   attempt row in `attempts.jsonl` (with its own `attempts/<n>/` folder:
-  events, `launch.json` `{"mode":"compact"}`, `SUMMARY.md`), so it shows in
-  the Attempts timeline with a distinct "compaction" row style. A compaction
-  counts against the coder's concurrency cap like any attempt. Retry streaks
-  skip `kind="compact"` rows. Disable with `compaction_enabled=false`.
+  events, `run.json["launch"]` `{"mode":"compact"}`, recorded `prompt.md`),
+  so it shows in the Attempts timeline with a distinct "compaction" row
+  style. A compaction counts against the coder's concurrency cap like any
+  attempt. Retry streaks skip `kind="compact"` rows. Disable with
+  `compaction_enabled=false`.
 - After the run the next worker must never re-read huge logs — and neither
   may the compaction job itself.
 
@@ -251,7 +252,7 @@ default 75; `context_kill_pct`, default 90):
   `attempts/<n>/.checkpoint_requested` once. The claude-only
   `PostToolUse` hook (`coders/hooks/posttool_checkpoint.sh`, matcher `""`)
   fires on the next tool use: it tells the model to stop new work now
-  (update `HANDOFF.md`, commit WIP, write partial `RESULT.json`, exit 0) and
+  (rewrite `STATE.md`, commit WIP, write partial `RESULT.json`, exit 0) and
   touches `.checkpoint_sent` so it fires once. Other coders rely on the kill
   threshold below. The hook injects guidance via
   `hookSpecificOutput.additionalContext`.
@@ -260,7 +261,8 @@ default 75; `context_kill_pct`, default 90):
   process group and reports `CONTEXT_PRESSURE` (a real outcome branch, no
   marker file; analytics read it from `attempts.jsonl`).
 - The claude `PreCompact` hook touches `$FLEET_ATTEMPT_DIR/.compacted` so
-  `SUMMARY.md` can count CLI-side auto-compactions (`cli_compactions`).
+  the derived attempt summary can count CLI-side auto-compactions
+  (`cli_compactions`).
 - Policy: `CONTEXT_PRESSURE` releases immediately (never counted as failure),
   with a bead comment per round (`context limit round k/3; compaction +
   continue`); after 3 rounds the bead blocks with "too large for one worker;
@@ -345,8 +347,8 @@ Steps:
   (`"k of n children still running"`), which covers the race where an epic
   is claimed while a child still runs.
 - `CollectChildren` (Python, no model): digests each child
-  (`artifacts/RESULT.json` status+summary, latest `attempts/<n>/SUMMARY.md`
-  commits/files, bead status, `blocked_reason`) into
+  (task-level `RESULT.json` status+summary, latest derived attempt
+  summary's files-touched count, bead status, `blocked_reason`) into
   `artifacts/CHILDREN.md`, bounded by construction (≤ 8 KB total, ≤ 600
   chars per child, oldest sections dropped first). Child ids and the
   blocked count go to `ctx.scratch`; the validate `LaunchPlan` (with the

@@ -12,7 +12,7 @@ from fleet.state.task_summary import (
 
 def _task_dir(tmp_path: Path, task_id: str = "t-001") -> Path:
     task_dir = tmp_path / "tasks" / task_id
-    (task_dir / "artifacts").mkdir(parents=True)
+    task_dir.mkdir(parents=True)
     return task_dir
 
 
@@ -28,7 +28,7 @@ def test_result_is_none_when_no_result_json(tmp_path: Path) -> None:
 
 def test_result_parses_result_json(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
-    (task_dir / "artifacts" / "RESULT.json").write_text(
+    (task_dir / "RESULT.json").write_text(
         json.dumps({"schema": 1, "status": "done", "summary": "shipped"})
     )
     summary = build_task_summary(task_dir, _data(), tmp_path)
@@ -38,29 +38,42 @@ def test_result_parses_result_json(tmp_path: Path) -> None:
 
 def test_result_is_none_when_result_json_invalid(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
-    (task_dir / "artifacts" / "RESULT.json").write_text("not json")
+    (task_dir / "RESULT.json").write_text("not json")
     summary = build_task_summary(task_dir, _data(), tmp_path)
     assert summary["result"] is None
 
 
-def test_handoff_excerpt_is_none_when_missing(tmp_path: Path) -> None:
+def test_result_falls_back_to_attempt_snapshot(tmp_path: Path) -> None:
+    """Post-reap the live file is gone; the snapshot still reports."""
+    from tests.helpers.task_dir import make_attempt
+
+    task_dir = _task_dir(tmp_path)
+    attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
+    (attempt_dir / "RESULT.json").write_text(
+        json.dumps({"schema": 1, "status": "done", "summary": "from snapshot"})
+    )
+    summary = build_task_summary(task_dir, _data(), tmp_path)
+    assert summary["result"]["summary"] == "from snapshot"
+
+
+def test_state_excerpt_is_none_when_missing(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
     summary = build_task_summary(task_dir, _data(), tmp_path)
-    assert summary["handoff_excerpt"] is None
+    assert summary["state_excerpt"] is None
 
 
-def test_handoff_excerpt_reads_handoff_md(tmp_path: Path) -> None:
+def test_state_excerpt_reads_state_md(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
-    (task_dir / "artifacts" / "HANDOFF.md").write_text("## Next\ndo the thing")
+    (task_dir / "STATE.md").write_text("## Next\ndo the thing")
     summary = build_task_summary(task_dir, _data(), tmp_path)
-    assert summary["handoff_excerpt"] == "## Next\ndo the thing"
+    assert summary["state_excerpt"] == "## Next\ndo the thing"
 
 
-def test_handoff_excerpt_truncated_to_cap(tmp_path: Path) -> None:
+def test_state_excerpt_truncated_to_cap(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
-    (task_dir / "artifacts" / "HANDOFF.md").write_text("x" * 3000)
+    (task_dir / "STATE.md").write_text("x" * 7000)
     summary = build_task_summary(task_dir, _data(), tmp_path)
-    assert len(summary["handoff_excerpt"]) == 2048
+    assert len(summary["state_excerpt"]) == 6144
 
 
 def _task_dir_with_usage(tmp_path: Path, input_tokens: int) -> Path:
@@ -113,6 +126,30 @@ def test_context_windows_override_from_runtime_toml(tmp_path: Path) -> None:
 
 def test_context_overrides_missing_file_is_empty(tmp_path: Path) -> None:
     assert context_overrides_for_home(tmp_path) == {}
+
+
+def test_attempt_row_reads_launch_from_run_json(tmp_path: Path) -> None:
+    """Attempt rows take kind/mode from run.json["launch"], not launch.json."""
+    import json as _json
+
+    from tests.helpers.task_dir import make_attempt
+
+    task_dir = _task_dir(tmp_path)
+    attempt_dir = make_attempt(task_dir, 1, outcome="partial", reason="x")
+    (attempt_dir / "run.json").write_text(
+        _json.dumps({"launch": {"mode": "continue", "pack_bytes": 10, "kind": "work"}})
+    )
+    (attempt_dir / "prompt.md").write_text("the prompt", encoding="utf-8")
+    (attempt_dir / "RESULT.json").write_text(
+        _json.dumps({"schema": 1, "status": "partial", "summary": "wip"})
+    )
+    summary = build_task_summary(task_dir, _data(), tmp_path)
+    (row,) = summary["attempts"]
+    assert row["mode"] == "continue"
+    assert row["kind"] == "work"
+    assert row["has_summary"] is True
+    assert row["has_prompt"] is True
+    assert row["result"]["summary"] == "wip"
 
 
 def test_coder_context_limit_unknown_coder_falls_back(tmp_path: Path) -> None:

@@ -28,8 +28,9 @@ from fleet.core.limits import (
     SHUTDOWN_GRACE_SEC,
 )
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
+from fleet.state.atomic import write_text_atomic
 from fleet.state.journal import append_event, open_task_log
-from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER, RUN_JSON
+from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER, PROMPT_MD, RUN_JSON
 
 from .base import StepContext, StepResult, write_run_json
 
@@ -241,6 +242,12 @@ class LlmSession:
             stderr_path = Path(task_log.stderr_file.name)
 
             argv = coder.build_argv(task, task_dir, plan)
+            # Record the exact prompt sent (coders always put it last) so
+            # debugging and prompt tuning never have to fish it out of logs.
+            try:
+                write_text_atomic(attempt_dir / PROMPT_MD, argv[-1] if argv else "")
+            except OSError as exc:
+                ctx.log.warning("prompt_write_failed", error=str(exc))
             extra_env = coder.env(task, task_dir)
             extra_env = {
                 **extra_env,
@@ -255,7 +262,9 @@ class LlmSession:
             task_log.log.info(
                 "subprocess_started",
                 task_id=task.id,
-                argv=argv,
+                # The prompt text lives in attempts/<n>/prompt.md; the
+                # log line keeps the argv shape but stays small.
+                argv=[*argv[:-1], "<see prompt.md>"] if argv else [],
             )
 
             proc = await asyncio.create_subprocess_exec(

@@ -1,21 +1,24 @@
-"""Tests for `state.attempt_summary.write_summary`: the deterministic,
-no-LLM SUMMARY.md rendered from one attempt's events/launch.json/attempts row.
+"""Tests for `state.attempt_summary`: the derived, no-LLM per-attempt summary.
+
+`summarize` computes an `AttemptSummary` from one attempt's run.json /
+events.jsonl / attempts.jsonl row / RESULT.json snapshot; `render_markdown`
+renders it (capped at ~4 KB). Nothing is ever written to disk.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
-from fleet.state.attempt_summary import write_summary
+from fleet.state.attempt_summary import render_markdown, summarize
 from tests.helpers.task_dir import make_attempt, make_task_dir
 
 
-def _write_launch(attempt_dir: Path, mode: str = "fresh", pack_bytes: int = 0) -> None:
-    (attempt_dir / "launch.json").write_text(
-        json.dumps({"mode": mode, "pack_bytes": pack_bytes, "kind": "work"}), encoding="utf-8"
-    )
+def _write_run(attempt_dir: Path, launch: dict | None = None) -> None:
+    payload: dict = {}
+    if launch is not None:
+        payload["launch"] = launch
+    (attempt_dir / "run.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _write_events(attempt_dir: Path, rows: list[dict]) -> None:
@@ -24,40 +27,44 @@ def _write_events(attempt_dir: Path, rows: list[dict]) -> None:
             f.write(json.dumps(row) + "\n")
 
 
-def test_write_summary_creates_file_and_returns_path(tmp_path: Path) -> None:
+def test_summarize_reads_run_launch_and_attempt_row(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-1")
     attempt_dir = make_attempt(
-        task_dir, 1, outcome="done", reason="finished", exit_code=0, ended_at="2026-01-01T00:05:00+00:00"
+        task_dir, 1, coder="claude", model="sonnet", outcome="done",
+        reason="finished", exit_code=0, ended_at="2026-01-01T00:05:00+00:00",
     )
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir, {"mode": "fresh", "pack_bytes": 0, "kind": "work"})
 
-    out_path = write_summary(task_dir, 1, workdir=None)
+    summary = summarize(task_dir, 1)
 
-    assert out_path == attempt_dir / "SUMMARY.md"
-    assert out_path.exists()
-    text = out_path.read_text(encoding="utf-8")
-    assert "Attempt 1 summary" in text
-    assert "outcome: done (finished)" in text
+    assert summary.n == 1
+    assert summary.mode == "fresh"
+    assert summary.kind == "work"
+    assert summary.coder == "claude"
+    assert summary.model == "sonnet"
+    assert summary.outcome == "done"
+    assert summary.exit_code == 0
 
 
-def test_summary_reports_launch_mode_and_coder_model(tmp_path: Path) -> None:
+def test_summarize_continue_mode_from_run_json(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-2")
     attempt_dir = make_attempt(
         task_dir, 1, coder="claude", model="sonnet", outcome="partial", reason="next_step: x"
     )
-    _write_launch(attempt_dir, mode="continue", pack_bytes=123)
+    _write_run(attempt_dir, {"mode": "continue", "pack_bytes": 123, "kind": "work"})
 
-    write_summary(task_dir, 1, workdir=None)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    summary = summarize(task_dir, 1)
+    text = render_markdown(summary)
 
+    assert summary.mode == "continue"
     assert "launch mode: continue" in text
     assert "claude/sonnet" in text
 
 
-def test_summary_includes_files_touched_and_tool_counts(tmp_path: Path) -> None:
+def test_summarize_includes_files_touched_and_tool_counts(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-3")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir)
     _write_events(
         attempt_dir,
         [
@@ -65,28 +72,30 @@ def test_summary_includes_files_touched_and_tool_counts(tmp_path: Path) -> None:
                 "ts": "2026-01-01T00:00:00Z",
                 "kind": "tool_use",
                 "tool_name": "Read",
-                "raw": {"part": {"type": "tool", "state": {"input": {"path": "/x.py"}}}},
+                "raw": {"input": {"file_path": "/x.py"}},
             },
             {
                 "ts": "2026-01-01T00:00:01Z",
                 "kind": "tool_use",
                 "tool_name": "Edit",
-                "raw": {"part": {"type": "tool", "state": {"input": {"path": "/x.py"}}}},
+                "raw": {"input": {"file_path": "/x.py"}},
             },
         ],
     )
 
-    write_summary(task_dir, 1, workdir=None)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    summary = summarize(task_dir, 1)
+    text = render_markdown(summary)
 
+    assert summary.tool_counts == {"Read": 1, "Edit": 1}
+    assert set(summary.files_touched) == {"/x.py"}
     assert "Files touched" in text
     assert "Tool calls" in text
 
 
-def test_summary_includes_last_error_and_stderr_tail(tmp_path: Path) -> None:
+def test_summarize_includes_last_error_and_stderr_tail(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-4")
     attempt_dir = make_attempt(task_dir, 1, outcome="failure", reason="crash")
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir)
     _write_events(
         attempt_dir,
         [
@@ -95,18 +104,18 @@ def test_summary_includes_last_error_and_stderr_tail(tmp_path: Path) -> None:
     )
     (attempt_dir / "log.stderr").write_bytes(b"line1\nline2\nline3\n")
 
-    write_summary(task_dir, 1, workdir=None)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    summary = summarize(task_dir, 1)
+    text = render_markdown(summary)
 
     assert "Last error event" in text
     assert "boom" in text
     assert "line1" in text and "line3" in text
 
 
-def test_summary_includes_last_assistant_texts(tmp_path: Path) -> None:
+def test_summarize_includes_last_assistant_texts(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-5")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir)
     _write_events(
         attempt_dir,
         [
@@ -118,57 +127,39 @@ def test_summary_includes_last_assistant_texts(tmp_path: Path) -> None:
         ],
     )
 
-    write_summary(task_dir, 1, workdir=None)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    text = render_markdown(summarize(task_dir, 1))
 
     assert "assistant_text events" in text
     assert "hello there" in text
 
 
-def test_summary_includes_git_commits_when_workdir_is_a_repo(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "a@b.c"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
-    (repo / "f.txt").write_text("hi", encoding="utf-8")
-    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "add f"], cwd=repo, check=True)
-
+def test_summarize_includes_declared_result_snapshot(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-6")
-    attempt_dir = make_attempt(
-        task_dir,
-        1,
-        outcome="done",
-        reason="ok",
-        started_at="2000-01-01T00:00:00+00:00",
-        ended_at="2035-01-01T00:00:00+00:00",
+    attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
+    _write_run(attempt_dir)
+    (attempt_dir / "RESULT.json").write_text(
+        '{"schema": 1, "status": "done", "summary": "shipped it"}', encoding="utf-8"
     )
-    _write_launch(attempt_dir)
 
-    write_summary(task_dir, 1, workdir=repo)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    summary = summarize(task_dir, 1)
 
-    assert "add f" in text
+    assert summary.result == {"schema": 1, "status": "done", "summary": "shipped it"}
+    assert "shipped it" in render_markdown(summary)
 
 
-def test_summary_handles_no_git_repo_gracefully(tmp_path: Path) -> None:
-    not_a_repo = tmp_path / "plain"
-    not_a_repo.mkdir()
+def test_summarize_counts_cli_compactions(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-7")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir)
+    (attempt_dir / ".compacted").touch()
 
-    write_summary(task_dir, 1, workdir=not_a_repo)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
-
-    assert "clean or not a git repo" in text or "(none)" in text
+    assert summarize(task_dir, 1).cli_compactions == 1
 
 
-def test_summary_hard_capped_at_4096_chars(tmp_path: Path) -> None:
+def test_render_hard_capped_at_4096_chars(tmp_path: Path) -> None:
     task_dir = make_task_dir(tmp_path, "t-8")
     attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
-    _write_launch(attempt_dir)
+    _write_run(attempt_dir)
     # Lots of files touched and long assistant texts to try to blow past the cap.
     events = []
     for i in range(200):
@@ -195,22 +186,18 @@ def test_summary_hard_capped_at_4096_chars(tmp_path: Path) -> None:
         )
     _write_events(attempt_dir, events)
 
-    write_summary(task_dir, 1, workdir=None)
-    text = (attempt_dir / "SUMMARY.md").read_text(encoding="utf-8")
+    text = render_markdown(summarize(task_dir, 1))
 
     assert len(text) <= 4096
 
 
-def test_write_summary_creates_missing_attempt_dir(tmp_path: Path) -> None:
-    """write_summary is defensive: it mkdirs the attempt dir if reap.py calls
-    it before anything else has created it."""
+def test_summarize_writes_nothing_to_disk(tmp_path: Path) -> None:
+    """Derived summaries leave no files behind."""
     task_dir = make_task_dir(tmp_path, "t-9")
-    (task_dir / "attempts.jsonl").write_text(
-        json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00",
-                     "coder": "claude", "model": "sonnet", "worker": "task.fresh"}) + "\n",
-        encoding="utf-8",
-    )
+    attempt_dir = make_attempt(task_dir, 1, outcome="done", reason="ok")
+    _write_run(attempt_dir)
 
-    out_path = write_summary(task_dir, 1, workdir=None)
+    render_markdown(summarize(task_dir, 1))
 
-    assert out_path.exists()
+    assert not (attempt_dir / "SUMMARY.md").exists()
+    assert (attempt_dir / "run.json").exists()

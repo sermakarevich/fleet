@@ -25,17 +25,14 @@ from fleet.workers.compact import (
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.task import ContinueLargeTask, ContinueTask, PrepareContinue, plan_task
 
-_HANDOFF_BODY = "## Done\n- shipped x\n\n## In flight\n- y\n\n## Next\n- z\n\n## Do not redo\n- w\n"
-_KNOWLEDGE_BODY = "## Facts\n- fleet uses beads\n"
+_STATE_BODY = "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n## Next\n- z\n\n## Facts\n- fleet uses beads\n"
 
 _SUCCESS_LINES = [
-    json.dumps({"text": "```HANDOFF\n" + _HANDOFF_BODY + "\n```"}),
-    json.dumps({"text": "```KNOWLEDGE\n" + _KNOWLEDGE_BODY + "\n```"}),
+    json.dumps({"text": "```STATE\n" + _STATE_BODY + "\n```"}),
 ]
 
 _OVERSIZE_LINES = [
-    json.dumps({"text": "```HANDOFF\n" + "x" * 5000 + "\n```"}),
-    json.dumps({"text": "```KNOWLEDGE\n" + _KNOWLEDGE_BODY + "\n```"}),
+    json.dumps({"text": "```STATE\n" + "x" * 20000 + "\n```"}),
 ]
 
 
@@ -73,7 +70,6 @@ class FakeCompactionCoder:
         return {
             "FLEET_TASK_ID": task.id,
             "FLEET_TASK_DIR": str(task_dir),
-            "FLEET_ARTIFACT_DIR": str(task_dir / "artifacts"),
         }
 
     def normalize_event(self, raw_line: str) -> Event | None:
@@ -94,11 +90,8 @@ class _Gauge:
 def _setup_task_dir(tmp_path: Path, task_id: str = "t-compact") -> tuple[Task, Path]:
     task = Task(id=task_id, title="T", description=None, status="in_progress")
     task_dir = _task_dir_path(tmp_path, task_id)
-    artifacts = task_dir / "artifacts"
-    artifacts.mkdir(parents=True)
-    (artifacts / "HANDOFF.md").write_text("# H\n\n" + _HANDOFF_BODY)
-    (artifacts / "KNOWLEDGE.md").write_text("# K\n\n" + _KNOWLEDGE_BODY)
-    (artifacts / "PLAN.md").write_text("# Plan\nrestatement\n")
+    task_dir.mkdir(parents=True)
+    (task_dir / "STATE.md").write_text(f"# {task_id} — STATE\n\n" + _STATE_BODY)
     return task, task_dir
 
 
@@ -131,22 +124,21 @@ def _patch_coder(monkeypatch, lines: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_fenced_blocks() -> None:
-    text = "```HANDOFF\nhandoff-body\n```\n\n```KNOWLEDGE\nknowledge-body\n```"
-    assert parse_compaction_output(text) == ("handoff-body", "knowledge-body")
+def test_parse_single_state_block() -> None:
+    assert parse_compaction_output("```STATE\nstate-body\n```") == "state-body"
 
 
 def test_parse_missing_block_returns_none() -> None:
-    assert parse_compaction_output("```HANDOFF\nonly one\n```") is None
+    assert parse_compaction_output("```HANDOFF\nold style\n```") is None
     assert parse_compaction_output("no fences at all") is None
 
 
 # ---------------------------------------------------------------------------
-# Happy path: fake coder emitting fenced blocks
+# Happy path: fake coder emitting one STATE block
 # ---------------------------------------------------------------------------
 
 
-def test_compact_writes_artifacts_and_compact_row(tmp_path: Path, monkeypatch) -> None:
+def test_compact_writes_state_and_compact_row(tmp_path: Path, monkeypatch) -> None:
     _patch_coder(monkeypatch, _SUCCESS_LINES)
     task, task_dir = _setup_task_dir(tmp_path)
     outer_n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
@@ -156,16 +148,16 @@ def test_compact_writes_artifacts_and_compact_row(tmp_path: Path, monkeypatch) -
 
     assert result.status == "ok"
     assert result.reason == "compacted"
-    assert (task_dir / "artifacts" / "HANDOFF.md").read_text() == _HANDOFF_BODY.strip()
-    assert (task_dir / "artifacts" / "KNOWLEDGE.md").read_text() == _KNOWLEDGE_BODY.strip()
+    assert (task_dir / "STATE.md").read_text() == _STATE_BODY.strip()
 
     rows = state_attempts.load_attempts(task_dir)
     compact_rows = [r for r in rows if r.get("kind") == "compact"]
     assert len(compact_rows) == 1
     assert compact_rows[0]["outcome"] == "success"
     compact_dir = state_attempts.attempt_dir(task_dir, compact_rows[0]["n"])
-    assert json.loads((compact_dir / "launch.json").read_text())["mode"] == "compact"
-    assert (compact_dir / "SUMMARY.md").exists()
+    run = json.loads((compact_dir / "run.json").read_text(encoding="utf-8"))
+    assert run["launch"] == {"mode": "compact", "pack_bytes": 0, "kind": "compact"}
+    assert not (compact_dir / "launch.json").exists()
     assert (compact_dir / "events.jsonl").exists()
 
 
@@ -184,12 +176,9 @@ def test_oversize_output_falls_back(tmp_path: Path, monkeypatch) -> None:
 
     assert result.status == "ok"
     assert result.reason.startswith("compaction_fallback")
-    handoff = (task_dir / "artifacts" / "HANDOFF.md").read_text()
-    assert len(handoff.encode("utf-8")) <= ctx.config.handoff_max_bytes
-    rows = state_attempts.load_attempts(task_dir)
-    compact_n = next(r["n"] for r in rows if r.get("kind") == "compact")
-    summary = (state_attempts.attempt_dir(task_dir, compact_n) / "SUMMARY.md").read_text()
-    assert "compaction_fallback" in summary
+    state = (task_dir / "STATE.md").read_text()
+    assert len(state.encode("utf-8")) <= ctx.config.state_max_bytes
+    assert "## Next" in state
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +201,7 @@ def test_timeout_falls_back(tmp_path: Path, monkeypatch) -> None:
 
     assert result.status == "ok"
     assert result.reason.startswith("compaction_fallback")
-    assert (task_dir / "artifacts" / "HANDOFF.md").exists()
-    assert (task_dir / "artifacts" / "KNOWLEDGE.md").exists()
+    assert (task_dir / "STATE.md").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -222,21 +210,51 @@ def test_timeout_falls_back(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_inputs_exclude_events_and_logs(tmp_path: Path) -> None:
+    """Raw events/log lines are never pasted wholesale; only the derived,
+    bounded summary (tool counts, capped tails) feeds the prompt."""
     task, task_dir = _setup_task_dir(tmp_path)
     n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     adir = state_attempts.attempt_dir(task_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
-    (adir / "events.jsonl").write_text('{"kind": "tool_use", "secret": "SUPERSECRET-EVENTS-MARKER"}\n')
-    (adir / "log.stderr").write_text("SUPERSECRET-STDERR-MARKER\n")
-    (adir / "SUMMARY.md").write_text("# Attempt 1 summary\n- did things\n")
+    (adir / "events.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "kind": "tool_use",
+                    "tool_name": "Read",
+                    "raw": {"blob": "SUPERSECRET-EVENTS-MARKER-" + "x" * 500},
+                }
+            )
+            for _ in range(50)
+        )
+        + "\n"
+    )
+    (adir / "run.json").write_text(
+        json.dumps({"launch": {"mode": "fresh", "pack_bytes": 0, "kind": "work"}})
+    )
 
     material = collect_material(task_dir, None, before_n=n + 1)
     prompt = render_compaction_prompt(material)
 
     assert "SUPERSECRET-EVENTS-MARKER" not in prompt
-    assert "SUPERSECRET-STDERR-MARKER" not in prompt
-    assert "shipped x" in prompt  # real handoff material is present
+    assert "shipped x" in prompt  # real state material is present
     assert len(prompt.encode("utf-8")) <= compact_mod.TOTAL_INPUT_CAP_BYTES
+
+
+def test_summaries_are_derived_not_stored(tmp_path: Path) -> None:
+    """collect_material computes summaries; stale stored files are ignored."""
+    task, task_dir = _setup_task_dir(tmp_path)
+    n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
+    adir = state_attempts.attempt_dir(task_dir, n)
+    adir.mkdir(parents=True, exist_ok=True)
+    (adir / "run.json").write_text(
+        json.dumps({"launch": {"mode": "continue", "pack_bytes": 5, "kind": "work"}})
+    )
+
+    material = collect_material(task_dir, None, before_n=n + 1)
+
+    assert len(material.summaries) == 1
+    assert "launch mode: continue" in material.summaries[0]
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +264,8 @@ def test_inputs_exclude_events_and_logs(tmp_path: Path) -> None:
 
 def test_plan_task_returns_continue_large_when_needs_compaction(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
-    # Oversized KNOWLEDGE.md trips LaunchPlan.needs_compaction.
-    (task_dir / "artifacts" / "KNOWLEDGE.md").write_text("k" * 5000)
+    # Oversized STATE.md trips LaunchPlan.needs_compaction.
+    (task_dir / "STATE.md").write_text("s" * 20000)
     state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     ctx = _ctx(task, task_dir, 2)
 
@@ -259,7 +277,7 @@ def test_plan_task_returns_continue_large_when_needs_compaction(tmp_path: Path) 
 
 def test_plan_task_skips_compaction_when_disabled(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
-    (task_dir / "artifacts" / "KNOWLEDGE.md").write_text("k" * 5000)
+    (task_dir / "STATE.md").write_text("s" * 20000)
     state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     cfg = RuntimeConfig(compaction_enabled=False)
     ctx = _ctx(task, task_dir, 2, config=cfg)

@@ -76,23 +76,34 @@ def _write_child(
     child_id: str,
     *,
     result: dict | None = None,
-    summary_commits: list[str] | None = None,
+    touch_files: list[str] | None = None,
     blocked_reason: str | None = None,
 ) -> None:
     child_dir = _task_dir(tmp_path, child_id)
-    (child_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    child_dir.mkdir(parents=True, exist_ok=True)
     if result is not None:
-        (child_dir / "artifacts" / "RESULT.json").write_text(json.dumps(result))
+        (child_dir / "RESULT.json").write_text(json.dumps(result))
     n = attempts.record_start(child_dir, coder="c", model="m", worker="task.fresh")
     attempts.record_end(
         child_dir, outcome="success", exit_code=0, reason="", action="close", n=n
     )
-    commits = "\n".join(f"- {c} subject" for c in (summary_commits or [])) or "(none)"
     adir = attempts.attempt_dir(child_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
-    (adir / "SUMMARY.md").write_text(
-        f"# Attempt {n} summary\n\n## Files touched\n- a.py: read=1 edit=0 write=0\n\n## Commits\n{commits}\n"
+    (adir / "run.json").write_text(
+        json.dumps({"launch": {"mode": "fresh", "pack_bytes": 0, "kind": "work"}})
     )
+    events = [
+        {
+            "ts": "2026-01-01T00:00:00Z",
+            "kind": "tool_use",
+            "tool_name": "Read",
+            "raw": {"input": {"file_path": p}},
+        }
+        for p in (touch_files or [])
+    ]
+    with (adir / "events.jsonl").open("w", encoding="utf-8") as f:
+        for row in events:
+            f.write(json.dumps(row) + "\n")
     meta: dict = {"id": child_id}
     if blocked_reason:
         meta["blocked_reason"] = blocked_reason
@@ -125,16 +136,14 @@ def test_wait_children_returns_waiting_while_running(tmp_path: Path) -> None:
     assert result.outcome.reason == "1 of 2 children still running"
 
 
-def test_wait_children_rotates_stale_result(tmp_path: Path) -> None:
+def test_wait_children_leaves_live_result_alone(tmp_path: Path) -> None:
+    """No rotation: reap snapshots the live RESULT.json and unlinks it."""
     queue = FakeQueue([BeadSummary("c-1", "closed")])
     ctx, _ = _ctx(tmp_path, queue=queue)
-    artifacts = ctx.task_dir / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "RESULT.json").write_text('{"schema": 1, "status": "done"}')
+    (ctx.task_dir / "RESULT.json").write_text('{"schema": 1, "status": "done"}')
     result = asyncio.run(WaitChildren(_factory(queue)).run(ctx))
     assert result.status == "ok"
-    assert not (artifacts / "RESULT.json").exists()
-    assert (artifacts / "RESULT.prev.json").exists()
+    assert (ctx.task_dir / "RESULT.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +156,7 @@ def test_collect_children_writes_bounded_digest(tmp_path: Path) -> None:
         tmp_path,
         "c-1",
         result={"schema": 1, "status": "done", "summary": "shipped feature"},
-        summary_commits=["abc1234"],
+        touch_files=["/a.py"],
     )
     _write_child(
         tmp_path,
@@ -157,15 +166,19 @@ def test_collect_children_writes_bounded_digest(tmp_path: Path) -> None:
     )
     queue = FakeQueue([BeadSummary("c-1", "closed"), BeadSummary("c-2", "blocked")])
     ctx, _ = _ctx(tmp_path, queue=queue)
+    ctx.attempt_dir = attempts.attempt_dir(ctx.task_dir, 1)
+    ctx.attempt_n = 1
     result = asyncio.run(CollectChildren(_factory(queue)).run(ctx))
     assert result.status == "ok"
     body = (ctx.task_dir / "artifacts" / "CHILDREN.md").read_text(encoding="utf-8")
     assert len(body.encode("utf-8")) <= CHILDREN_MD_MAX_BYTES
-    assert "c-1" in body and "shipped feature" in body and "abc1234" in body
+    assert "c-1" in body and "shipped feature" in body and "files touched: 1" in body
     assert "needs creds" in body
     assert ctx.scratch["child_ids"] == ["c-1", "c-2"]
     assert ctx.scratch["blocked_children"] == 1
     assert ctx.scratch["launch_plan"].mode == "validate"
+    run = json.loads((ctx.attempt_dir / "run.json").read_text(encoding="utf-8"))
+    assert run["launch"]["mode"] == "validate"
 
 
 def test_collect_children_truncates_oldest_first(tmp_path: Path) -> None:
@@ -192,9 +205,7 @@ def test_collect_children_truncates_oldest_first(tmp_path: Path) -> None:
 
 
 def _write_partial_result(ctx: StepContext, followups: list) -> None:
-    artifacts = ctx.task_dir / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    (artifacts / "RESULT.json").write_text(
+    (ctx.task_dir / "RESULT.json").write_text(
         json.dumps({"schema": 1, "status": "partial", "summary": "more work", "followups": followups})
     )
 
@@ -257,7 +268,7 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
     assert "needs creds" in body
 
     # The validator then declares blocked; reap must BLOCK the epic.
-    (ctx.task_dir / "artifacts" / "RESULT.json").write_text(
+    (ctx.task_dir / "RESULT.json").write_text(
         json.dumps(
             {"schema": 1, "status": "blocked", "summary": "stuck", "blocked_reason": "needs creds"}
         )

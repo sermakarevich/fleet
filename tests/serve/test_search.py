@@ -18,22 +18,14 @@ def _make_task(
     title: str = "Task",
     description: str = "",
     *,
-    handoff: str = "",
-    knowledge: str = "",
-    plan: str = "",
+    state: str = "",
 ) -> Path:
     task_dir = tasks_root / task_id
     task_dir.mkdir(parents=True)
     data = {"id": task_id, "title": title, "description": description, "status": "in_progress"}
     (task_dir / "task.json").write_text(json.dumps(data))
-    artifacts = task_dir / "artifacts"
-    artifacts.mkdir()
-    if handoff:
-        (artifacts / "HANDOFF.md").write_text(handoff)
-    if knowledge:
-        (artifacts / "KNOWLEDGE.md").write_text(knowledge)
-    if plan:
-        (artifacts / "PLAN.md").write_text(plan)
+    if state:
+        (task_dir / "STATE.md").write_text(state)
     return task_dir
 
 
@@ -58,32 +50,26 @@ def test_search_tasks_description_match(tmp_path: Path) -> None:
     assert any(r.source == "description" for r in results)
 
 
-def test_search_tasks_knowledge_match(tmp_path: Path) -> None:
-    """Searching KNOWLEDGE.md content returns result with source=knowledge."""
+def test_search_tasks_state_match(tmp_path: Path) -> None:
+    """Searching STATE.md content returns result with source=state."""
     tasks_root = tmp_path / "tasks"
-    _make_task(tasks_root, "t1", title="task one", knowledge="refactor auth is needed")
+    _make_task(tasks_root, "t1", title="task one", state="## Facts\nrefactor auth is needed")
 
     results = search_tasks(tmp_path, "auth")
-    assert any(r.source == "knowledge" for r in results)
+    assert any(r.source == "state" for r in results)
     assert results[0].task_id == "t1"
 
 
-def test_search_tasks_handoff_match(tmp_path: Path) -> None:
-    """Searching HANDOFF.md content returns result with source=handoff."""
+def test_search_tasks_legacy_dir_match(tmp_path: Path) -> None:
+    """Old task dirs (no STATE.md) are still searchable via the legacy view."""
     tasks_root = tmp_path / "tasks"
-    _make_task(tasks_root, "t1", title="task one", handoff="## Next\nneeds auth fix")
+    task_dir = _make_task(tasks_root, "t1", title="task one")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "KNOWLEDGE.md").write_text("refactor auth is needed")
 
     results = search_tasks(tmp_path, "auth")
-    assert any(r.source == "handoff" for r in results)
-
-
-def test_search_tasks_plan_match(tmp_path: Path) -> None:
-    """Searching PLAN.md content returns result with source=plan."""
-    tasks_root = tmp_path / "tasks"
-    _make_task(tasks_root, "t1", title="task one", plan="## Plan\n## auth notes")
-
-    results = search_tasks(tmp_path, "auth")
-    assert any(r.source == "plan" for r in results)
+    assert any(r.source == "state" for r in results)
 
 
 def test_search_tasks_limit_20(tmp_path: Path) -> None:

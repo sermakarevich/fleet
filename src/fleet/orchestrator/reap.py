@@ -17,7 +17,7 @@ from fleet.core.retry_policy import (
 )
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts
-from fleet.state.attempt_summary import write_summary
+from fleet.state.paths import RESULT_JSON, STATE_MD
 from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
@@ -59,16 +59,6 @@ def _read_isolation_info(task_dir: Path) -> dict | None:
                 }
     except OSError:
         pass
-    return None
-
-
-def _resolve_workdir(task: Task, task_dir: Path) -> Path | None:
-    """Best-effort workdir for summaries: isolated worktree, else task.cwd."""
-    info = _read_isolation_info(task_dir)
-    if info and info.get("worktree_path"):
-        return Path(info["worktree_path"])
-    if task.cwd:
-        return Path(task.cwd)
     return None
 
 
@@ -134,8 +124,8 @@ class ReapMixin:
             return None
 
     def _read_declared_result(self, task_dir: Path) -> Result | None:
-        """Parse artifacts/RESULT.json, the worker's declared outcome, if present."""
-        result_file = task_dir / "artifacts" / "RESULT.json"
+        """Parse the task-level RESULT.json, the worker's declared outcome, if present."""
+        result_file = task_dir / RESULT_JSON
         try:
             text = result_file.read_text(encoding="utf-8")
         except OSError:
@@ -405,38 +395,40 @@ class ReapMixin:
         self._log.info("task_released", task_id=task.id, **fleet_ctx)
 
     def _snapshot_attempt_artifacts(self, task: Task, task_dir: Path, n: int) -> None:
-        """Copy this attempt's RESULT.json/HANDOFF.md into its attempts/<n>/
-        folder and render SUMMARY.md, so the attempts timeline has a
-        self-contained per-attempt record even after `artifacts/` moves on.
+        """Copy this attempt's STATE.md/RESULT.json into its attempts/<n>/
+        folder, then remove the task-level RESULT.json, so the attempts
+        timeline has a self-contained per-attempt record and a stale
+        declaration can never leak into the next attempt.
         """
         attempt_dir = attempts.attempt_dir(task_dir, n)
         attempt_dir.mkdir(parents=True, exist_ok=True)
-        artifacts_dir = task_dir / "artifacts"
 
-        result_src = artifacts_dir / "RESULT.json"
+        state_src = task_dir / STATE_MD
+        if state_src.exists():
+            try:
+                (attempt_dir / STATE_MD).write_bytes(state_src.read_bytes())
+            except OSError as exc:
+                self._log.warning(
+                    "attempt_snapshot_failed", task_id=task.id, file=STATE_MD, error=str(exc)
+                )
+
+        result_src = task_dir / RESULT_JSON
         if result_src.exists():
             try:
-                (attempt_dir / "RESULT.json").write_bytes(result_src.read_bytes())
+                (attempt_dir / RESULT_JSON).write_bytes(result_src.read_bytes())
             except OSError as exc:
                 self._log.warning(
-                    "attempt_snapshot_failed", task_id=task.id, file="RESULT.json", error=str(exc)
+                    "attempt_snapshot_failed",
+                    task_id=task.id,
+                    file=RESULT_JSON,
+                    error=str(exc),
                 )
-
-        handoff_src = artifacts_dir / "HANDOFF.md"
-        if handoff_src.exists():
             try:
-                (attempt_dir / "HANDOFF.md").write_bytes(handoff_src.read_bytes())
+                result_src.unlink(missing_ok=True)
             except OSError as exc:
                 self._log.warning(
-                    "attempt_snapshot_failed", task_id=task.id, file="HANDOFF.md", error=str(exc)
+                    "attempt_result_unlink_failed", task_id=task.id, error=str(exc)
                 )
-
-        workdir = _resolve_workdir(task, task_dir)
-
-        try:
-            write_summary(task_dir, n, workdir)
-        except OSError as exc:
-            self._log.warning("attempt_summary_failed", task_id=task.id, error=str(exc))
 
     def _is_observer_run(self, task: Task, history: list[dict]) -> bool:
         """True when this attempt ran the observer worker (epic validation).

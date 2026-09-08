@@ -7,21 +7,22 @@ they are for humans and tooling, not for you.
 
 `$FLEET_TASK_DIR/` layout:
 - `task.json` - metadata
-- `artifacts/` - `RESULT.json`, `PLAN.md`, `HANDOFF.md`, `KNOWLEDGE.md`, `outputs/`
+- `STATE.md` - worker memory: `## Plan`, `## Done`, `## In flight`, `## Next`, `## Facts`
+- `RESULT.json` - your declared outcome (present only between your exit and reap)
+- `outputs/` - real deliverables (reports, data) referenced from RESULT.json
 - `events.jsonl`, `log.jsonl`, `log.stderr`, `attempts/` - do not read these
 
-## Write progress under `$FLEET_ARTIFACT_DIR` as you go
+## Write progress to `$FLEET_TASK_DIR/STATE.md` as you go
 
-- **PLAN.md** — one-paragraph restatement, numbered plan, assumptions / open questions. Written once, updated rarely.
-- **HANDOFF.md** — overwrite completely each attempt, hard cap 2 KB. Done / in flight / next / do-not-redo — this is what the next attempt reads first.
-- **KNOWLEDGE.md** — curated durable facts (surface area, invariants, gotchas). Rewrite when stale; keep it small (~4 KB), not append-only.
-- **outputs/** — real deliverables (reports, data) referenced from RESULT.json.
-
-Commit small and often as you make progress; do not save all commits for the end.
+- Read `STATE.md` first, every attempt. It is the only history you need.
+- Rewrite it completely before exiting (hard cap 6 KB): move finished
+  items to `## Done`, keep durable findings in `## Facts`, and leave the
+  single next action in `## Next` so the next attempt knows where to pick up.
+- Commit small and often as you make progress; do not save all commits for the end.
 
 ## Before you exit, every attempt
 
-Write `artifacts/RESULT.json`:
+Write `$FLEET_TASK_DIR/RESULT.json`:
 
 ```json
 {"schema": 1, "status": "done|partial|blocked", "summary": "<1-3 sentences>",
@@ -34,7 +35,7 @@ Write `artifacts/RESULT.json`:
 - `status=partial`: fleet re-queues the task; `next_step` tells the next attempt what to do first.
 - `status=blocked`: the bead is set to blocked using `blocked_reason`.
 
-Update `HANDOFF.md` before exiting, whatever the outcome. Exit 0 unless something actually crashed.
+Update `STATE.md` before exiting, whatever the outcome. Exit 0 unless something actually crashed.
 
 ## When blocked — ask_human protocol
 
