@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.serve.state import AppState, StateDep
-from fleet.state.attempts import latest_attempt_dir
+from fleet.state.artifact_locator import locate
 from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
@@ -33,7 +33,7 @@ async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
     task_dir = TaskIndex(state.home).find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = task_dir / "STATE.md"
+    f = locate(state.home, task_id, "state")
     if f.exists():
         return _file_response(f)
     legacy = legacy_state_text(task_dir)
@@ -48,13 +48,7 @@ async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
     task_dir = TaskIndex(state.home).find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = task_dir / "RESULT.json"
-    if f.exists():
-        return _file_response(f)
-    attempt_dir = latest_attempt_dir(task_dir)
-    if attempt_dir is not None and (attempt_dir / "RESULT.json").exists():
-        return _file_response(attempt_dir / "RESULT.json")
-    f = task_dir / "artifacts" / "RESULT.json"
+    f = locate(state.home, task_id, "result")
     if not f.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return _file_response(f)

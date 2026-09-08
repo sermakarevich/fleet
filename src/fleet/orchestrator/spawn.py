@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from fleet.coders import get_coder
 from fleet.coders.base import Coder
+from fleet.core.effective import effective_coder_model
 from fleet.core.task import Task, TaskOutcome
 from fleet.orchestrator.state import RunningWorker
 from fleet.state import attempts
@@ -52,8 +53,9 @@ def resolve_coder(st: SupervisorState, task: Task) -> tuple[Coder, str, str | No
             st.coder_pin.name,
             getattr(st.coder_pin, "model", None),
         )
-    coder_name = task.coder or st.config.coder
-    model = task.model or st.config.model
+    coder_name, model = effective_coder_model(
+        task.coder, task.model, st.config.coder, st.config.model
+    )
     coder_cls = get_coder(coder_name)
     kwargs: dict = {}
     if coder_name in ("opencode", "pi"):

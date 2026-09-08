@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
-from fleet.serve.api.task_summary import build_summary, fetch_beads_info
+from fleet.serve.api.task_summary import build_summary, config_defaults, fetch_beads_info
 from fleet.serve.state import AppState, StateDep
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
@@ -30,7 +30,12 @@ async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     beads_info = await asyncio.to_thread(fetch_beads_info, task_id, state.home)
     if beads_info is not None:
         data = {**data, **beads_info}
-    return JSONResponse(build_summary(task_dir, data, state.home))
+    default_coder, default_model = config_defaults(state.config)
+    return JSONResponse(
+        build_summary(
+            task_dir, data, state.home, default_coder=default_coder, default_model=default_model
+        )
+    )
 
 
 @router.get("/tasks/{task_id}/attempts")
@@ -40,7 +45,14 @@ async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     task_dir = index.find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    summary = build_summary(task_dir, index.read_raw(task_id) or {}, state.home)
+    default_coder, default_model = config_defaults(state.config)
+    summary = build_summary(
+        task_dir,
+        index.read_raw(task_id) or {},
+        state.home,
+        default_coder=default_coder,
+        default_model=default_model,
+    )
     return JSONResponse({"attempts": summary["attempts"]})
 
 

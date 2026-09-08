@@ -35,13 +35,13 @@ def _run_job(tmp_path, task, children=None, pending=None):
     store = MagicMock()
     store.fetch_pending_for_task.return_value = pending or []
     with (
-        patch("fleet.cli.tasks.BeadsQueue", return_value=queue),
+        patch("fleet.cli.bootstrap.BeadsQueue", return_value=queue),
         patch("fleet.cli.tasks.QuestionStore", return_value=store),
     ):
         old = os.environ.get("FLEET_HOME")
         os.environ["FLEET_HOME"] = str(tmp_path)
         try:
-            return runner.invoke(app, ["job", task.id])
+            return runner.invoke(app, ["job", "view", task.id])
         finally:
             if old is None:
                 del os.environ["FLEET_HOME"]
@@ -77,11 +77,11 @@ def test_job_missing_bead_exits_nonzero(tmp_path) -> None:
 
     queue = MagicMock()
     queue.get.side_effect = BdError("no such bead")
-    with patch("fleet.cli.tasks.BeadsQueue", return_value=queue):
+    with patch("fleet.cli.bootstrap.BeadsQueue", return_value=queue):
         old = os.environ.get("FLEET_HOME")
         os.environ["FLEET_HOME"] = str(tmp_path)
         try:
-            result = runner.invoke(app, ["job", "ghost"])
+            result = runner.invoke(app, ["job", "view", "ghost"])
         finally:
             if old is None:
                 del os.environ["FLEET_HOME"]

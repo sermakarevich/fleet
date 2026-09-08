@@ -62,7 +62,7 @@ def test_gc_dry_run_moves_nothing(tmp_path: Path) -> None:
 
 def test_gc_cli_reports_archived(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-cli", "closed", old=True)
-    with patch("fleet.cli.tasks.fleet_home", return_value=tmp_path):
+    with patch("fleet.cli.bootstrap.home", return_value=tmp_path):
         result = runner.invoke(app, ["gc", "--days", "30"])
     assert result.exit_code == 0, result.output
     assert "archived" in result.output
@@ -134,7 +134,7 @@ def test_find_stale_worktrees_disabled(tmp_path: Path) -> None:
 
 def test_gc_cli_purge_flag(tmp_path: Path) -> None:
     _make_archive(tmp_path, "fleet-purge-me", old=True, age_days=100)
-    with patch("fleet.cli.tasks.fleet_home", return_value=tmp_path):
+    with patch("fleet.cli.bootstrap.home", return_value=tmp_path):
         result = runner.invoke(app, ["gc", "--days", "30", "--purge"])
     assert result.exit_code == 0, result.output
     assert "purged 1" in result.output

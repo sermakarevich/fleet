@@ -16,7 +16,8 @@ import fleet.cli.daemons as climod
 from fleet.beads.client import BdError
 from fleet.cli.main import app
 from fleet.core.task import Task
-from fleet.observability.daemon import DaemonStatus, StartResult
+from fleet.observability.daemon import StartResult
+from fleet.observability.process import ServiceStatus
 from tests.helpers.task_dir import make_attempt
 
 runner = CliRunner()
@@ -78,7 +79,7 @@ def test_config_help_lists_show_and_set() -> None:
 
 
 def test_show_missing_task_exits_nonzero() -> None:
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.get.side_effect = BdError("task not found: missing-task")
@@ -87,7 +88,7 @@ def test_show_missing_task_exits_nonzero() -> None:
 
 
 def test_show_missing_task_prints_error_message() -> None:
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.get.side_effect = BdError("task not found: missing-task")
@@ -97,7 +98,7 @@ def test_show_missing_task_prints_error_message() -> None:
 
 def test_show_existing_task_prints_fields() -> None:
     task = Task(id="t-001", title="My task", description="A desc", status="open")
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.get.return_value = task
@@ -118,7 +119,7 @@ def test_run_foreground_invalid_config_coder_exits_nonzero(tmp_path, monkeypatch
     cfg_dir = tmp_path
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "runtime.toml").write_text('coder = "does-not-exist"\n')
-    with patch("fleet.cli.daemons.BeadsQueue"):
+    with patch("fleet.cli.bootstrap.BeadsQueue"):
         result = runner.invoke(app, ["run", "foreground"])
     assert result.exit_code != 0
     assert "Available" in result.output or "claude" in result.output
@@ -127,7 +128,7 @@ def test_run_foreground_invalid_config_coder_exits_nonzero(tmp_path, monkeypatch
 def test_run_foreground_uses_configured_coder(tmp_path, monkeypatch) -> None:
     """`fleet run foreground` constructs Supervisor with no per-run coder override."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.BeadsQueue"), patch("fleet.cli.daemons.Supervisor") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue"), patch("fleet.cli.daemons.Supervisor") as mock_cls:
         mock_sup = MagicMock()
         mock_sup.run = AsyncMock(return_value=0)
         mock_cls.return_value = mock_sup
@@ -200,9 +201,9 @@ def test_run_stop_reports_stopped(tmp_path, monkeypatch) -> None:
 
 def test_run_status_running(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        DaemonCls.return_value.status.return_value = DaemonStatus(
-            running=True, pid=555, started_at="2026-06-04T00:00:00+00:00", extra={}
+    with patch("fleet.cli.daemons.service_status") as mock_status:
+        mock_status.return_value = ServiceStatus(
+            pid=555, alive=True, since="2026-06-04T00:00:00+00:00", fingerprint="abc123"
         )
         result = runner.invoke(app, ["run", "status"])
     assert result.exit_code == 0, result.output
@@ -212,9 +213,9 @@ def test_run_status_running(tmp_path, monkeypatch) -> None:
 
 def test_run_status_stopped_exits_nonzero(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        DaemonCls.return_value.status.return_value = DaemonStatus(
-            running=False, pid=None, started_at=None, extra={}
+    with patch("fleet.cli.daemons.service_status") as mock_status:
+        mock_status.return_value = ServiceStatus(
+            pid=None, alive=False, since=None, fingerprint=None
         )
         result = runner.invoke(app, ["run", "status"])
     assert result.exit_code != 0
@@ -310,7 +311,7 @@ def test_build_ui_skips_when_just_missing(tmp_path, monkeypatch) -> None:
 
 
 def test_ready_no_tasks_prints_message() -> None:
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_ready.return_value = []
@@ -623,7 +624,7 @@ def test_log_rejects_non_positive_tail(tmp_path, monkeypatch) -> None:
 
 
 def test_tasks_no_running_prints_message() -> None:
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.return_value = []
@@ -646,7 +647,7 @@ def test_tasks_lists_in_progress_tasks(tmp_path, monkeypatch) -> None:
             model="opus",
         ),
     ]
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.return_value = tasks
@@ -724,7 +725,7 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
     events.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     tasks = [Task(id=task_id, title="Hello", description=None, status="in_progress")]
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.return_value = tasks
@@ -742,7 +743,7 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
 
 
 def test_tasks_beads_error_exits_nonzero() -> None:
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.side_effect = BdError("bd boom")
@@ -830,7 +831,7 @@ def test_task_help_lists_running_task_ids() -> None:
         Task(id="t-aaa", title="Alpha title", description=None, status="in_progress"),
         Task(id="t-bbb", title="Bravo title", description=None, status="in_progress"),
     ]
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.return_value = tasks
@@ -848,7 +849,7 @@ def test_task_help_lists_running_task_ids() -> None:
 
 def test_task_help_shows_none_when_no_running_tasks() -> None:
     """`fleet task --help` shows a "none" placeholder when nothing is running."""
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.return_value = []
@@ -860,7 +861,7 @@ def test_task_help_shows_none_when_no_running_tasks() -> None:
 
 def test_task_help_tolerates_beads_error() -> None:
     """`fleet task --help` still exits 0 if bd queue query blows up."""
-    with patch("fleet.cli.tasks.BeadsQueue") as mock_cls:
+    with patch("fleet.cli.bootstrap.BeadsQueue") as mock_cls:
         mock_q = MagicMock()
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.side_effect = BdError("bd unavailable")

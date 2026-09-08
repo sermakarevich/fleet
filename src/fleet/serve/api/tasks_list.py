@@ -12,7 +12,11 @@ from fleet.beads.client import BdError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
-from fleet.serve.api.task_summary import build_all_summaries, recency_key
+from fleet.serve.api.task_summary import (
+    build_all_summaries,
+    config_defaults,
+    recency_key,
+)
 from fleet.serve.state import StateDep
 from fleet.state.task_index import TaskIndex
 
@@ -38,7 +42,15 @@ async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     closed.sort(key=recency_key, reverse=True)
     if closed_limit > 0:
         closed = closed[:closed_limit]
-    summaries = await asyncio.to_thread(build_all_summaries, active + closed, home, beads_map)
+    default_coder, default_model = config_defaults(state.config)
+    summaries = await asyncio.to_thread(
+        build_all_summaries,
+        active + closed,
+        home,
+        beads_map,
+        default_coder=default_coder,
+        default_model=default_model,
+    )
     summaries.sort(key=lambda s: recency_key(s) or "", reverse=True)
     return JSONResponse({"tasks": summaries})
 

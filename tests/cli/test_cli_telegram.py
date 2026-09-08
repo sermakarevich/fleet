@@ -15,7 +15,7 @@ runner = CliRunner()
 
 
 def _patch_root(tmp_path: Path):
-    return patch("fleet.cli.telegram.fleet_home", return_value=tmp_path)
+    return patch("fleet.cli.bootstrap.home", return_value=tmp_path)
 
 
 def _init_config(tmp_path: Path, **kwargs) -> Path:

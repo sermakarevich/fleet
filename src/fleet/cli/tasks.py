@@ -1,4 +1,10 @@
-"""Task-management commands: init, ready, show, tasks, task, kill, gc, tail, log."""
+"""Task-management commands: init, ready, show, tasks, task, kill, gc, tail, log, job.
+
+Every command is a thin closure (at most a few lines): it parses input via
+typer, calls a module-level helper that computes, and prints through
+``cli/render.py``. Artifact paths come from ``state/artifact_locator``;
+fleet-home/queue/config dependencies come from ``cli/bootstrap``.
+"""
 
 from __future__ import annotations
 
@@ -6,79 +12,151 @@ import sys
 import time
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
-from rich.console import Console
 from typer.core import TyperCommand
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
-from fleet.beads.queue import BeadsQueue
-from fleet.cli.format import render_tasks_table
+from fleet.cli import bootstrap, render
+from fleet.cli.render import ChildRow, JobView
+from fleet.core.effective import effective_coder_model
 from fleet.core.job_phase import phase
 from fleet.core.job_snapshot import JobSnapshot
-from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.observability import tailview
 from fleet.state import runtime_stats as _runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
-from fleet.state.artifacts import ResultFile, StateFile
-from fleet.state.attempts import latest_attempt_dir
-from fleet.state.config_file import load as load_config
+from fleet.state.artifact_locator import locate
 from fleet.state.legacy import legacy_state_text
-from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.tail import read_new_bytes
 
+if TYPE_CHECKING:
+    from fleet.beads.queue import BeadsQueue
+    from fleet.core.task import Task
+
 
 class TaskAction(StrEnum):
+    """Which artifact `fleet task <id>` prints."""
+
     log = "log"
     state = "state"
     result = "result"
 
 
-def _resolve_log_dir() -> Path:
-    log_root = Path(LOG_ROOT)
-    if not log_root.is_absolute():
-        log_root = fleet_home() / log_root
-    return log_root
+def _fetch_ready(q: BeadsQueue, limit: int) -> list[Task]:
+    """Ready tasks, exiting 1 when the queue is unreadable."""
+    try:
+        return q.list_ready(limit=limit)
+    except BdError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
-def _print_file_or_exit(path: Path, missing_msg: str) -> None:
-    if not path.exists():
-        typer.echo(missing_msg, err=True)
-        raise typer.Exit(1)
-    sys.stdout.write(path.read_text(encoding="utf-8"))
+def _fetch_in_progress(q: BeadsQueue, limit: int) -> list[Task]:
+    """Running tasks, exiting 1 when the queue is unreadable."""
+    try:
+        return q.list_in_progress(limit=limit)
+    except BdError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _fetch_ignored(q: BeadsQueue, limit: int) -> list[tuple[Task, str]]:
+    """Triage-ignored tasks with their ignore-until stamps."""
+    try:
+        return q.list_ignored(limit=limit)
+    except BdError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _fetch_job(q: BeadsQueue, job_id: str) -> Task:
+    """One bead, exiting 1 when bd cannot show it."""
+    try:
+        return q.get(job_id)
+    except BdError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+
+def _fetch_children(q: BeadsQueue, job_id: str) -> list[Any]:
+    """Child beads, best-effort (empty when bd cannot list them)."""
+    try:
+        return q.list_children(job_id)
+    except BdError:
+        return []
+
+
+def _pending_gate(job_id: str) -> list[dict]:
+    """Pending job-gate questions, best-effort (empty when the store is unreadable)."""
+    try:
+        return QuestionStore().fetch_pending_for_task(job_id, "job_gate")
+    except Exception:
+        return []
+
+
+def _child_row(child: Any) -> ChildRow:
+    """Normalize a Task-like or raw-dict child into an id/status row."""
+    if isinstance(child, dict):
+        return ChildRow(id=str(child.get("id")), status=child.get("status"))
+    return ChildRow(id=str(getattr(child, "id", "")), status=getattr(child, "status", None))
+
+
+def _gate_row(question: dict) -> tuple[str, str]:
+    """(id, first prompt line) for one pending gate question."""
+    prompt = question.get("prompt") or ""
+    first_line = prompt.splitlines()[0] if prompt else ""
+    return (str(question.get("id")), first_line)
+
+
+def _build_job_view(home: Path, task: Task, children: list[Any], pending: list[dict]) -> JobView:
+    """Assemble the JobSnapshot-backed view one `fleet job view` prints."""
+    artifacts = _task_dir(home, task.id) / "artifacts"
+    snapshot = JobSnapshot(
+        has_research=(artifacts / "RESEARCH.md").exists(),
+        has_tasks=(artifacts / "tasks.json").exists(),
+        gate_enabled=(task.job_gate or "") != "off",
+        approved=(artifacts / "APPROVED").exists(),
+        has_children=len(children) > 0,
+    )
+    return JobView(
+        task_id=task.id,
+        title=task.title,
+        status=task.status,
+        phase=str(phase(snapshot)),
+        snapshot=snapshot,
+        has_design=(artifacts / "DESIGN.md").exists(),
+        children=tuple(_child_row(c) for c in children),
+        gate=tuple(_gate_row(q) for q in pending),
+    )
+
+
+def _help_row(task: Task, width: int, default_coder: str, default_model: str) -> str:
+    """One `fleet task --help` epilog line with the task's effective coder/model."""
+    coder, model = effective_coder_model(task.coder, task.model, default_coder, default_model)
+    return f"  {task.id:<{width}}[{coder}/{model}]  {task.title}"
 
 
 def _running_tasks_help_text() -> str:
-    """Build the dynamic `--help` epilog for `fleet task`.
-
-    Lists currently running tasks so users running `fleet task --help` can
-    immediately see which task IDs are valid arguments, plus the effective
-    coder/model for each (per-task override or current config default).
-    """
+    """Dynamic `--help` epilog for `fleet task`: running tasks and their coders."""
     header = "Currently running tasks (run `fleet tasks` for full details):"
+    home = bootstrap.home()
     try:
-        tasks = BeadsQueue(fleet_home()).list_in_progress(limit=50)
+        tasks = bootstrap.queue(home).list_in_progress(limit=50)
     except BdError:
         return f"{header}\n\n  (unable to query bd queue)"
     if not tasks:
         return f"{header}\n\n  (none)"
     try:
-        cfg = load_config(fleet_home() / "runtime.toml")
-        default_coder = cfg.coder
-        default_model = cfg.model
+        cfg = bootstrap.config(home)
+        default_coder, default_model = cfg.coder, cfg.model
     except OSError:
-        default_coder = "claude"
-        default_model = "sonnet"
+        default_coder, default_model = "claude", "sonnet"
     width = max(len(t.id) for t in tasks) + 2
-    rows = []
-    for t in tasks:
-        coder = t.coder or default_coder
-        model = t.model or default_model
-        rows.append(f"  {t.id:<{width}}[{coder}/{model}]  {t.title}")
+    rows = [_help_row(t, width, default_coder, default_model) for t in tasks]
     # Double newlines preserve line breaks through typer's rich epilog renderer,
     # which collapses single newlines within a paragraph to spaces.
     return header + "\n\n" + "\n\n".join(rows)
@@ -98,7 +176,6 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
         offset = events_path.stat().st_size
     except OSError:
         return
-
     remainder = ""
     try:
         while True:
@@ -106,26 +183,191 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
             new_bytes, offset = read_new_bytes(events_path, offset)
             if not new_bytes:
                 continue
-
             chunk = remainder + new_bytes.decode("utf-8", errors="replace")
             if "\n" in chunk:
                 lines_part, remainder = chunk.rsplit("\n", 1)
             else:
                 lines_part, remainder = chunk, ""
-
             if not lines_part.strip():
                 continue
-
             rendered = tailview.render_lines(lines_part.splitlines())
             if rendered:
-                display = rendered[-buffer_n:] if buffer_n > 0 else rendered
-                for line in display:
-                    typer.echo(line)
+                render.print_lines(rendered[-buffer_n:] if buffer_n > 0 else rendered)
     except KeyboardInterrupt:
         sys.exit(0)
 
 
-def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
+def run_init(home: Path, force: bool) -> None:
+    """Create the fleet home (beads + defaults + tasks dir)."""
+    home.mkdir(parents=True, exist_ok=True)
+    if force or not (home / ".beads").exists():
+        try:
+            beads_client.run(["init"], cwd=home)
+        except BdError as exc:
+            if "already" not in str(exc).lower():
+                typer.echo(f"bd init failed: {exc}", err=True)
+                raise typer.Exit(1) from exc
+    bootstrap.config(home)  # writes defaults if missing
+    (home / "tasks").mkdir(exist_ok=True)
+    render.print_init_done(home)
+
+
+def run_show(home: Path, task_id: str, json_output: bool) -> None:
+    """Print one task as raw bd JSON (--json) or as detail lines."""
+    if json_output:
+        result = beads_client.run(["show", task_id, "--json"], cwd=home, check=False)
+        if result.returncode != 0:
+            typer.echo(result.stderr.strip(), err=True)
+            raise typer.Exit(result.returncode)
+        typer.echo(result.stdout, nl=False)
+        return
+    task = _fetch_job(bootstrap.queue(home), task_id)
+    cfg = bootstrap.config(home)
+    coder, model = effective_coder_model(task.coder, task.model, cfg.coder, cfg.model)
+    render.print_task_show(task, coder, model, task.coder is None, task.model is None)
+
+
+def run_kill(home: Path, task_id: str) -> None:
+    """Interrupt a running task via its .kill sentinel."""
+    task_dir = _task_dir(home, task_id)
+    if not (task_dir / "task.json").exists():
+        typer.echo(f"Task {task_id} not found.", err=True)
+        raise typer.Exit(1)
+    (task_dir / ".kill").touch()
+    render.print_kill_sent(task_id)
+
+
+def run_tasks(home: Path, limit: int, ignored: bool) -> None:
+    """Print running tasks (table) or triage-ignored tasks (list)."""
+    q = bootstrap.queue(home)
+    if ignored:
+        render.print_ignored_tasks(_fetch_ignored(q, limit))
+        return
+    tasks = _fetch_in_progress(q, limit)
+    cfg = bootstrap.config(home)
+    render.print_tasks_table(tasks, home, cfg.coder, cfg.model)
+
+
+def run_gc(home: Path, days: int, dry_run: bool, purge: bool) -> None:
+    """Archive closed task dirs (and optionally purge old archives)."""
+    result = gc_tasks(home, days, dry_run)
+    render.print_gc_result(
+        len(result.archived),
+        result.bytes_moved / (1024 * 1024),
+        home / "archive" / "tasks",
+        result.skipped,
+        dry_run,
+    )
+    if purge:
+        cfg = bootstrap.config(home)
+        purged = purge_archive(home, cfg.gc_archive_days, dry_run)
+        render.print_gc_purged(
+            len(purged.deleted), purged.bytes_freed / (1024 * 1024), purged.skipped, dry_run
+        )
+
+
+def _print_state(home: Path, task_id: str, task_dir: Path) -> None:
+    """Print STATE.md, or the legacy view for old task dirs without one."""
+    state_path = locate(home, task_id, "state")
+    if state_path.exists():
+        render.print_file_or_exit(state_path, f"No STATE.md for task {task_id}")
+        return
+    legacy = legacy_state_text(task_dir)
+    if legacy is None:
+        typer.echo(f"No STATE.md for task {task_id}", err=True)
+        raise typer.Exit(1)
+    render.print_text(legacy)
+
+
+def run_task_artifact(home: Path, task_id: str, action: TaskAction) -> None:
+    """Print a task's log, STATE.md, or RESULT.json artifact."""
+    task_dir = _task_dir(home, task_id)
+    if not task_dir.exists():
+        typer.echo(f"No task directory at {task_dir}", err=True)
+        raise typer.Exit(1)
+    if action is TaskAction.state:
+        _print_state(home, task_id, task_dir)
+    elif action is TaskAction.result:
+        render.print_file_or_exit(
+            locate(home, task_id, "result"), f"No RESULT.json for task {task_id}"
+        )
+    else:
+        render.print_file_or_exit(locate(home, task_id, "log"), f"No log for task {task_id}")
+
+
+def run_job_view(home: Path, job_id: str) -> None:
+    """Render one job's phase, children table, and pending gate questions."""
+    q = bootstrap.queue(home)
+    task = _fetch_job(q, job_id)
+    children = _fetch_children(q, job_id)
+    render.print_job_view(_build_job_view(home, task, children, _pending_gate(job_id)))
+
+
+def _print_tail_events(events_path: Path, n: int, follow: bool) -> None:
+    """Print the last *n* rendered events, then follow when asked."""
+    try:
+        raw_lines = events_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        typer.echo(f"Error: cannot read {events_path}", err=True)
+        raise typer.Exit(1) from exc
+    rendered = tailview.render_lines(raw_lines)
+    if not rendered:
+        typer.echo("(no renderable events)")
+        return
+    render.print_lines(rendered[-n:] if n > 0 else rendered)
+    if follow:
+        _tail_follow(events_path, n)
+
+
+def run_tail(home: Path, task_id: str, n: int, follow: bool) -> None:
+    """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
+    task_dir = _task_dir(home, task_id)
+    if not task_dir.exists():
+        typer.echo(f"No task directory for {task_id} at {task_dir}", err=True)
+        raise typer.Exit(1)
+    events_path = locate(home, task_id, "events")
+    # If events.jsonl does not exist yet, still print header; --follow will wait.
+    if not events_path.exists():
+        typer.echo(f"{task_id}  events=0  last_event=-  context_tokens=-")
+        typer.echo("(events.jsonl does not exist yet)")
+        if not follow:
+            return
+        while not events_path.exists():
+            time.sleep(1)
+    render.print_tail_header(task_id, _runtime_stats.task_runtime_stats(task_id))
+    _print_tail_events(events_path, n, follow)
+
+
+def _latest_supervisor_log(log_dir: Path) -> Path:
+    """Newest fleet-*.jsonl file, exiting 1 when the dir is missing or empty."""
+    if not log_dir.exists():
+        typer.echo(f"No log directory at {log_dir}", err=True)
+        raise typer.Exit(1)
+    candidates = sorted(log_dir.glob("fleet-*.jsonl"), key=lambda p: p.stat().st_mtime)
+    if not candidates:
+        typer.echo(f"No log files in {log_dir}", err=True)
+        raise typer.Exit(1)
+    return candidates[-1]
+
+
+def run_log(home: Path, lines: int | None) -> None:
+    """Print the newest supervisor log in full, or only its last N lines."""
+    latest = _latest_supervisor_log(bootstrap.log_dir(home))
+    if lines is None:
+        render.print_text(latest.read_text(encoding="utf-8"))
+        return
+    if lines <= 0:
+        typer.echo("Error: lines must be a positive integer.", err=True)
+        raise typer.Exit(1)
+    with latest.open("r", encoding="utf-8") as fh:
+        render.print_text("".join(fh.readlines()[-lines:]))
+
+
+def register(app: typer.Typer) -> None:
+    """Wire every task command as a thin closure over the helpers above."""
+    job_app = typer.Typer(no_args_is_help=True, help="Inspect job (epic) beads.")
+    app.add_typer(job_app, name="job")
+
     @app.command()
     def init(
         force: Annotated[
@@ -133,41 +375,14 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ] = False,
     ) -> None:
         """Initialize the fleet home directory (beads + defaults)."""
-
-        home = fleet_home()
-        home.mkdir(parents=True, exist_ok=True)
-
-        beads_dir = home / ".beads"
-        if force or not beads_dir.exists():
-            try:
-                beads_client.run(["init"], cwd=home)
-            except BdError as exc:
-                if "already" not in str(exc).lower():
-                    typer.echo(f"bd init failed: {exc}", err=True)
-                    raise typer.Exit(1) from exc
-
-        load_config(home / "runtime.toml")  # writes defaults if missing
-        (home / "tasks").mkdir(exist_ok=True)
-        typer.echo(f"Fleet home initialized at {home}")
+        run_init(bootstrap.home(), force)
 
     @app.command()
     def ready(
         limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
     ) -> None:
         """List ready tasks."""
-        q = BeadsQueue(fleet_home())
-        try:
-            tasks = q.list_ready(limit=limit)
-        except BdError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(1) from exc
-        if not tasks:
-            typer.echo("No ready tasks.")
-            return
-        width = max(len(t.id) for t in tasks) + 2
-        for t in tasks:
-            cwd_suffix = f"  [{t.cwd}]" if t.cwd else ""
-            typer.echo(f"{t.id:<{width}}{t.title}{cwd_suffix}")
+        render.print_ready_tasks(_fetch_ready(bootstrap.queue(bootstrap.home()), limit))
 
     @app.command()
     def show(
@@ -177,48 +392,14 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ] = False,
     ) -> None:
         """Show one task."""
-
-        root = fleet_home()
-        if json_output:
-            result = beads_client.run(["show", task_id, "--json"], cwd=root, check=False)
-            if result.returncode != 0:
-                typer.echo(result.stderr.strip(), err=True)
-                raise typer.Exit(result.returncode)
-            typer.echo(result.stdout, nl=False)
-            return
-        q = BeadsQueue(root)
-        try:
-            task = q.get(task_id)
-        except BdError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(1) from exc
-        cfg = load_config(root / "runtime.toml")
-        effective_coder = task.coder or cfg.coder
-        effective_model = task.model or cfg.model
-        typer.echo(f"id:     {task.id}")
-        typer.echo(f"title:  {task.title}")
-        typer.echo(f"status: {task.status}")
-        if task.cwd:
-            typer.echo(f"cwd:    {task.cwd}")
-        coder_suffix = " (default)" if task.coder is None else ""
-        model_suffix = " (default)" if task.model is None else ""
-        typer.echo(f"coder:  {effective_coder}{coder_suffix}")
-        typer.echo(f"model:  {effective_model}{model_suffix}")
-        if task.description:
-            typer.echo(f"desc:   {task.description}")
+        run_show(bootstrap.home(), task_id, json_output)
 
     @app.command("kill")
     def kill_cmd(
         task_id: Annotated[str, typer.Argument(help="Task ID to kill.")],
     ) -> None:
         """Interrupt a running task (supervisor terminates it and marks it manually interrupted)."""
-        home = fleet_home()
-        task_dir = _task_dir(home, task_id)
-        if not (task_dir / "task.json").exists():
-            typer.echo(f"Task {task_id} not found.", err=True)
-            raise typer.Exit(1)
-        (task_dir / ".kill").touch()
-        typer.echo(f"Kill signal sent for task {task_id}.")
+        run_kill(bootstrap.home(), task_id)
 
     @app.command("tasks")
     def tasks_cmd(
@@ -229,33 +410,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ] = False,
     ) -> None:
         """List currently running tasks with start time, elapsed, idle, context usage, events."""
-        home = fleet_home()
-        q = BeadsQueue(home)
-        if ignored:
-            try:
-                rows = q.list_ignored(limit=limit)
-            except BdError as exc:
-                typer.echo(str(exc), err=True)
-                raise typer.Exit(1) from exc
-            if not rows:
-                typer.echo("No ignored tasks.")
-                return
-            width = max(len(t.id) for t, _ in rows) + 2
-            for t, until in rows:
-                typer.echo(f"{t.id:<{width}}{t.title}  [ignored until {until}]")
-            return
-        try:
-            tasks = q.list_in_progress(limit=limit)
-        except BdError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(1) from exc
-        if not tasks:
-            typer.echo("No running tasks.")
-            return
-
-        cfg = load_config(home / "runtime.toml")
-        table = render_tasks_table(tasks, home, cfg.coder, cfg.model)
-        Console(soft_wrap=False).print(table)
+        run_tasks(bootstrap.home(), limit, ignored)
 
     @app.command("gc")
     def gc_cmd(
@@ -274,23 +429,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ] = False,
     ) -> None:
         """Archive closed task directories older than N days to archive/tasks."""
-        home = fleet_home()
-        result = gc_tasks(home, days, dry_run)
-        mb = result.bytes_moved / (1024 * 1024)
-        archive_dir = home / "archive" / "tasks"
-        prefix = "dry-run: " if dry_run else ""
-        typer.echo(
-            f"{prefix}archived {len(result.archived)} task dirs "
-            f"({mb:.1f} MB) -> {archive_dir}; skipped {result.skipped}"
-        )
-        if purge:
-            cfg = load_config(home / "runtime.toml")
-            purged = purge_archive(home, cfg.gc_archive_days, dry_run)
-            freed_mb = purged.bytes_freed / (1024 * 1024)
-            typer.echo(
-                f"{prefix}purged {len(purged.deleted)} archived task dirs "
-                f"({freed_mb:.1f} MB freed); skipped {purged.skipped}"
-            )
+        run_gc(bootstrap.home(), days, dry_run, purge)
 
     @app.command("task", cls=_TaskHelpCommand)
     def task_cmd(
@@ -301,109 +440,14 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ],
     ) -> None:
         """Print a task's log, STATE.md, or RESULT.json artifact."""
-        task_dir = _task_dir(fleet_home(), task_id)
-        if not task_dir.exists():
-            typer.echo(f"No task directory at {task_dir}", err=True)
-            raise typer.Exit(1)
+        run_task_artifact(bootstrap.home(), task_id, action)
 
-        if action is TaskAction.state:
-            state_path = StateFile.path(task_dir)
-            if state_path.exists():
-                _print_file_or_exit(state_path, f"No STATE.md for task {task_id}")
-                return
-            # Old task dirs without STATE.md: render the legacy view on demand.
-            legacy = legacy_state_text(task_dir)
-            if legacy is None:
-                typer.echo(f"No STATE.md for task {task_id}", err=True)
-                raise typer.Exit(1)
-            sys.stdout.write(legacy)
-            return
-
-        if action is TaskAction.result:
-            result_path = ResultFile.path(task_dir)
-            if not result_path.exists():
-                # Post-reap only the attempt snapshot remains.
-                latest = latest_attempt_dir(task_dir)
-                snapshot = ResultFile.snapshot_path(latest) if latest is not None else None
-                if snapshot is not None and snapshot.exists():
-                    result_path = snapshot
-                else:
-                    result_path = task_dir / "artifacts" / "RESULT.json"
-            _print_file_or_exit(
-                result_path,
-                f"No RESULT.json for task {task_id}",
-            )
-            return
-
-        # action == TaskAction.log
-        attempt_dir = latest_attempt_dir(task_dir)
-        log_path = attempt_dir / "log.jsonl" if attempt_dir is not None else None
-        if log_path is None or not log_path.exists():
-            typer.echo(f"No log for task {task_id}", err=True)
-            raise typer.Exit(1)
-        sys.stdout.write(log_path.read_text(encoding="utf-8"))
-
-    @app.command("job")
-    def job_cmd(
+    @job_app.command("view")
+    def job_view_cmd(
         job_id: Annotated[str, typer.Argument(help="Job (epic) bead ID.")],
     ) -> None:
         """Show a job's phase, children table, and pending gate question."""
-
-        home = fleet_home()
-        q = BeadsQueue(home)
-        try:
-            task = q.get(job_id)
-        except BdError as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(1) from exc
-        task_dir = _task_dir(home, job_id)
-        artifacts = task_dir / "artifacts"
-        has_research = (artifacts / "RESEARCH.md").exists()
-        has_tasks = (artifacts / "tasks.json").exists()
-        approved = (artifacts / "APPROVED").exists()
-        try:
-            children = q.list_children(job_id)
-        except BdError:
-            children = []
-        try:
-            pending = QuestionStore().fetch_pending_for_task(job_id, "job_gate")
-        except Exception:
-            pending = []
-        snapshot = JobSnapshot(
-            has_research=has_research,
-            has_tasks=has_tasks,
-            gate_enabled=(task.job_gate or "") != "off",
-            approved=approved,
-            has_children=len(children) > 0,
-        )
-        typer.echo(f"id:     {task.id}")
-        typer.echo(f"title:  {task.title}")
-        typer.echo(f"status: {task.status}")
-        typer.echo(f"phase:  {phase(snapshot)}")
-        typer.echo(
-            "artifacts: "
-            f"research={'yes' if has_research else 'no'} "
-            f"design={'yes' if (artifacts / 'DESIGN.md').exists() else 'no'} "
-            f"tasks={'yes' if has_tasks else 'no'} "
-            f"approved={'yes' if approved else 'no'}"
-        )
-        if not children:
-            typer.echo("children: (none)")
-        else:
-            typer.echo(f"children: {len(children)}")
-            for child in children:
-                child_dict = child if isinstance(child, dict) else {}
-                cid = getattr(child, "id", None) or child_dict.get("id")
-                cstatus = getattr(child, "status", None) or child_dict.get("status")
-                typer.echo(f"  {cid}  [{cstatus}]")
-        if pending:
-            typer.echo(f"gate: {len(pending)} pending question(s)")
-            for question in pending:
-                prompt = question.get("prompt") or ""
-                first_line = prompt.splitlines()[0] if prompt else ""
-                typer.echo(f"  {question.get('id')}: {first_line}")
-        else:
-            typer.echo("gate: no pending questions")
+        run_job_view(bootstrap.home(), job_id)
 
     @app.command("tail")
     def tail_cmd(
@@ -418,57 +462,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         ] = False,
     ) -> None:
         """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
-
-        home = fleet_home()
-        task_dir_path = _task_dir(home, task_id)
-
-        if not task_dir_path.exists():
-            typer.echo(f"No task directory for {task_id} at {task_dir_path}", err=True)
-            raise typer.Exit(1)
-
-        attempt_dir = latest_attempt_dir(task_dir_path)
-        events_path = (
-            attempt_dir / "events.jsonl"
-            if attempt_dir is not None
-            else task_dir_path / "attempts" / "1" / "events.jsonl"
-        )
-
-        # If events.jsonl does not exist yet, still print header; --follow will wait.
-        if not events_path.exists():
-            typer.echo(f"{task_id}  events=0  last_event=-  context_tokens=-")
-            typer.echo("(events.jsonl does not exist yet)")
-            if not follow:
-                return
-            while not events_path.exists():
-                time.sleep(1)
-
-        stats = _runtime_stats.task_runtime_stats(task_id)
-        last_event_str = (
-            stats.last_event_at.strftime("%H:%M:%S") if stats.last_event_at is not None else "-"
-        )
-        ctx = stats.context_tokens if stats.context_tokens is not None else "-"
-        typer.echo(
-            f"{task_id}  events={stats.events}  last_event={last_event_str}  context_tokens={ctx}"
-        )
-
-        try:
-            raw_lines = events_path.read_text(encoding="utf-8").splitlines()
-        except OSError as exc:
-            typer.echo(f"Error: cannot read {events_path}", err=True)
-            raise typer.Exit(1) from exc
-
-        rendered = tailview.render_lines(raw_lines)
-
-        if not rendered:
-            typer.echo("(no renderable events)")
-            return
-
-        display = rendered[-n:] if n > 0 else rendered
-        for line in display:
-            typer.echo(line)
-
-        if follow:
-            _tail_follow(events_path, n)
+        run_tail(bootstrap.home(), task_id, n, follow)
 
     @app.command("log")
     def log_cmd(
@@ -485,28 +479,4 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         With no argument, prints the most recently modified `fleet-*.jsonl` file
         in full. With a positive integer N, prints only the last N lines.
         """
-        log_dir = _resolve_log_dir()
-        if not log_dir.exists():
-            typer.echo(f"No log directory at {log_dir}", err=True)
-            raise typer.Exit(1)
-
-        candidates = sorted(
-            log_dir.glob("fleet-*.jsonl"),
-            key=lambda p: p.stat().st_mtime,
-        )
-        if not candidates:
-            typer.echo(f"No log files in {log_dir}", err=True)
-            raise typer.Exit(1)
-
-        latest = candidates[-1]
-        if lines is None:
-            sys.stdout.write(latest.read_text(encoding="utf-8"))
-            return
-
-        if lines <= 0:
-            typer.echo("Error: lines must be a positive integer.", err=True)
-            raise typer.Exit(1)
-
-        with latest.open("r", encoding="utf-8") as fh:
-            tail = fh.readlines()[-lines:]
-        sys.stdout.write("".join(tail))
+        run_log(bootstrap.home(), lines)

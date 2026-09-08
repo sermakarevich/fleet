@@ -20,6 +20,8 @@ from fastapi import Request
 from fleet.beads import client as beads_client
 from fleet.beads.cache import get_beads_status_map
 from fleet.coders import context_limit_for
+from fleet.core.config import RuntimeConfig
+from fleet.core.effective import effective_coder_model
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
@@ -40,12 +42,27 @@ def recency_key(data: dict) -> str:
     return ""
 
 
+def config_defaults(config: RuntimeConfig | None) -> tuple[str | None, str | None]:
+    """(coder, model) defaults from the loaded runtime config, if any."""
+    if config is None:
+        return None, None
+    return config.coder, config.model
+
+
 def build_summary(
-    task_dir: Path, data: dict, home: Path, beads_map: dict[str, dict] | None = None
+    task_dir: Path,
+    data: dict,
+    home: Path,
+    beads_map: dict[str, dict] | None = None,
+    default_coder: str | None = None,
+    default_model: str | None = None,
 ) -> dict:
     """One task summary with caller-resolved context limit and notes."""
     overrides = context_overrides_for_home(home)
-    limit = context_limit_for(data.get("coder"), data.get("model"), overrides)
+    coder, model = effective_coder_model(
+        data.get("coder"), data.get("model"), default_coder, default_model
+    )
+    limit = context_limit_for(coder, model, overrides)
     notes: str | None = None
     if data.get("blocked_reason") is None and data.get("status") == "blocked":
         resolved = beads_map if beads_map is not None else get_beads_status_map(home)
@@ -54,11 +71,23 @@ def build_summary(
 
 
 def build_all_summaries(
-    tasks: list[dict], home: Path, beads_map: dict[str, dict] | None = None
+    tasks: list[dict],
+    home: Path,
+    beads_map: dict[str, dict] | None = None,
+    default_coder: str | None = None,
+    default_model: str | None = None,
 ) -> list[dict]:
     """Summaries for raw task.json dicts (dir resolved from the id)."""
     return [
-        build_summary(resolve_task_dir(home, d.get("id", "")), d, home, beads_map) for d in tasks
+        build_summary(
+            resolve_task_dir(home, d.get("id", "")),
+            d,
+            home,
+            beads_map,
+            default_coder,
+            default_model,
+        )
+        for d in tasks
     ]
 
 
