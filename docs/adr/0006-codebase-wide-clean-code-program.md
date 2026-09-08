@@ -132,7 +132,7 @@ and is the model.
   `bot.py` each lose more than half their length.
 - New contributors can answer "who writes this file" and "where is the
   list of X" by opening one module.
-- Cost: one serial chain of 15 beads after the ADR 0005 chain (same working
+- Cost: one serial chain of 31 beads after the ADR 0005 chain (15 structural beads, then a second batch of 15 from the composition/typing/naming/runtime audits, then the docs bead) (same working
   tree, shared files, so serial). UI work is the last two beads because
   generated types need the pydantic models first.
 - Risk: renames break external scripts that import private names. The
@@ -140,6 +140,11 @@ and is the model.
   checked by hand in the tooling bead.
 
 ## Chain (one bead each; each spec names its files, tests and DoD)
+
+Beads 1–15 come from the first structural audit. Beads 16–30 come from a
+second audit (inheritance vs composition, typing, naming, Python runtime
+practice, serve/integrations hardening, UI runtime, tests). The docs bead runs
+last so every path it documents exists.
 
 | # | Bead | Packages |
 |---|---|---|
@@ -157,7 +162,22 @@ and is the model.
 | 12 | cli: render.py, artifact locator, effective_coder_model, bootstrap.py, job view; no command > 25 lines | cli, state, orchestrator |
 | 13 | API models + generated UI types (`just ui-types`) | serve/api, ui/shared |
 | 14 | UI structure: styles recipes, BeadsPage split, diff.ts, useBeadFilters, ChatPage; vitest + eslint in `just check` | ui |
-| 15 | Docs: ARCHITECTURE layout and rules updated, OVERVIEW, PRODUCT_PLAN; this ADR Accepted | docs |
+| 16 | Composition over inheritance — coders: `Coder` Protocol + frozen `CoderSpec`, lazy registry, env reads in one place | coders |
+| 17 | Composition over inheritance — `FnStep`, `PeriodicService` as data, `Service` Protocol, `StartupCheckSpec`, no `Daemon` class, closures instead of `_DualSink`/`TaskLog` | workers, orchestrator, state, observability |
+| 18 | Typed domain: `EventKind`/`TaskStatus`/`ResultStatus`/`StepStatus` StrEnums, `TaskSummary`/`Question`/`AttemptRow` types, frozen+slots value objects, `core/errors.py` | core, state, workers, integrations |
+| 19 | Naming: `fleet_home` everywhere, no private cross-module imports, no single-letter params, dry-run flags → plan/apply, module renames | all |
+| 20 | Orchestrator seams: `GitRepo`/`TaskWorktree` + pure `classify_status`, `classify_lease`, reap `APPLY` table, injected `Clock`, dedupes | orchestrator, core |
+| 21 | Workers/coders seams: `ProcessRunner`, `child_env`, steps hold queue/store (no factories), `PlanInput`, `coder_factory` | workers, coders, orchestrator |
+| 22 | Runtime hygiene: subprocess timeouts, no blocking I/O in `async def`, one UTC clock, supervised background tasks, poller backoff | serve, integrations, state |
+| 23 | Serve hardening: `require_token` (constant-time, covers healthz/ws), bounded `Query` params, one error shape, CORS field, artifact route table | serve, core |
+| 24 | Integrations hardening: sqlite `user_version` migrations + per-thread connection, `TelegramApi.call`, `TunnelSettings` + tunnel as a daemon, fleet root resolution | integrations, cli |
+| 25 | Observability: `PidFile` record, start lock + liveness window, log rotation, memoised fingerprint, tailview timestamp fix | observability, state |
+| 26 | CLI polish: `errors.py` + `ExitCode`, shared options, `serve_host/port` config, bd passthrough via `BdClient`, help epilogs | cli, core |
+| 27 | UI runtime: `POLL` constants gated on socket, `useEventSocket` with backoff, `useTaskMutation` (every failure toasts), `ApiError` body parsing, react-query everywhere, `useNow` | ui, cli/render |
+| 28 | UI accessibility + naming: `Modal`/`Tabs`/`Clickable` primitives, jsx-a11y, consistent component/format names | ui |
+| 29 | Tests hygiene: split files > 500 lines, fakes (`FakeTelegramApi`, `FakeProcessRunner`, `FakeClock`, `FakeQueue`), no sleeps, no private patching, hygiene test | tests |
+| 30 | Configuration surface: field metadata → generated `docs/CONFIG.md` + `runtime.toml.header`, documented env vars and tunables | core, cli, docs |
+| final | Docs: ARCHITECTURE layout and rules updated, OVERVIEW, PRODUCT_PLAN; this ADR Accepted | docs |
 
 ## Affects
 

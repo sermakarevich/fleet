@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Restart the fleet supervisor between beads of a self-modifying chain.
 
-Every bead in the "Worker n/12" chain changes fleet's own code, and the
+Every bead in the "Clean n/30" chain changes fleet's own code, and the
 running supervisor keeps old code in memory. This watcher keeps the *next*
 bead deferred (so the stale supervisor cannot claim it), and when the
 current bead closes it restarts the supervisor and un-defers the next one.
@@ -31,21 +31,36 @@ CHAIN = [
     "fleet-t97gn",  # Runner 4/5 reap/stall/leases/triage
     "fleet-sh3hm",  # Runner 5/5 tests + docs
     # ADR 0006 codebase-wide clean-code program (serial, after the runner chain)
-    "fleet-w2mc1",  # Clean 1/15 tooling: just check, strict ruff, mypy, CI
-    "fleet-0yd8z",  # Clean 2/15 state owners: TaskMeta, AttemptJournal, RunRecord
-    "fleet-6onqj",  # Clean 3/15 layer fixes + tests/test_layering.py
-    "fleet-fmoxq",  # Clean 4/15 beads: Queue, claim, _FLAGS, BdClient
-    "fleet-ropuo",  # Clean 5/15 core policy tables
-    "fleet-c2kja",  # Clean 6/15 workers/session
-    "fleet-7vhe4",  # Clean 7/15 coders + prompts/
-    "fleet-hkmr2",  # Clean 8/15 workers job/observe
-    "fleet-4j9xv",  # Clean 9/15 serve core
-    "fleet-ksw0h",  # Clean 10/15 serve analytics metrics
-    "fleet-zjq7z",  # Clean 11/15 integrations
-    "fleet-mlb4c",  # Clean 12/15 cli
-    "fleet-q9ijr",  # Clean 13/15 API models + generated UI types
-    "fleet-l203y",  # Clean 14/15 UI structure + vitest/eslint
-    "fleet-4jsuo",  # Clean 15/15 docs, ADR 0006 accepted
+    "fleet-w2mc1",  # Clean 1/30 tooling: just check, strict ruff, mypy, CI
+    "fleet-0yd8z",  # Clean 2/30 state owners: TaskMeta, AttemptJournal, RunRecord
+    "fleet-6onqj",  # Clean 3/30 layer fixes + tests/test_layering.py
+    "fleet-fmoxq",  # Clean 4/30 beads: Queue, claim, _FLAGS, BdClient
+    "fleet-ropuo",  # Clean 5/30 core policy tables
+    "fleet-c2kja",  # Clean 6/30 workers/session
+    "fleet-7vhe4",  # Clean 7/30 coders + prompts/
+    "fleet-hkmr2",  # Clean 8/30 workers job/observe
+    "fleet-4j9xv",  # Clean 9/30 serve core
+    "fleet-ksw0h",  # Clean 10/30 serve analytics metrics
+    "fleet-zjq7z",  # Clean 11/30 integrations
+    "fleet-mlb4c",  # Clean 12/30 cli
+    "fleet-q9ijr",  # Clean 13/30 API models + generated UI types
+    "fleet-l203y",  # Clean 14/30 UI structure + vitest/eslint
+    "fleet-alu0c",  # Clean 16/30 coders composition
+    "fleet-m7woy",  # Clean 17/30 workers composition
+    "fleet-m67ug",  # Clean 18/30 typed domain
+    "fleet-u8vk2",  # Clean 19/30 naming
+    "fleet-4jydr",  # Clean 20/30 orchestrator seams
+    "fleet-ee664",  # Clean 21/30 workers/coders seams
+    "fleet-pfafj",  # Clean 22/30 runtime hygiene
+    "fleet-6ss6o",  # Clean 23/30 serve hardening
+    "fleet-4uxnb",  # Clean 24/30 integrations hardening
+    "fleet-t3ose",  # Clean 25/30 observability
+    "fleet-p9fgq",  # Clean 26/30 cli polish
+    "fleet-ajavd",  # Clean 27/30 UI runtime
+    "fleet-5vv61",  # Clean 28/30 UI a11y
+    "fleet-9b7aj",  # Clean 29/30 tests hygiene
+    "fleet-1ywc8",  # Clean 30/30 config surface
+    "fleet-4jsuo",  # Clean 30/30 (final): docs, ADR 0006 accepted
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
