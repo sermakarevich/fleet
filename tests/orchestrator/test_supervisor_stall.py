@@ -8,6 +8,7 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.state.journal import setup_supervisor_logger
+from tests.conftest import make_running_worker
 from tests.helpers.task_dir import make_attempt
 from tests.orchestrator.test_supervisor_status_log import _make_supervisor
 
@@ -36,7 +37,7 @@ def test_stalled_task_enters_stall_warned_no_duplicate(tmp_path: Path) -> None:
     old_time = time.time() - 120  # 2 minutes ago
     os.utime(events_file, (old_time, old_time))
 
-    s.in_flight["t-stalled"] = object()
+    s.state.running["t-stalled"] = make_running_worker("t-stalled", tmp_path)
 
     s._log_status_snapshot()
 
@@ -60,7 +61,7 @@ def test_mtime_refresh_removes_from_stall_warned(tmp_path: Path) -> None:
 
     events_file = _create_events_file(tmp_path, "t-recover")
 
-    s.in_flight["t-recover"] = object()
+    s.state.running["t-recover"] = make_running_worker("t-recover", tmp_path)
 
     # Age it first
     old_time = time.time() - 120
@@ -93,7 +94,7 @@ def test_stall_warning_zero_disables_check(tmp_path: Path) -> None:
     old_time = time.time() - 600
     os.utime(events_file, (old_time, old_time))
 
-    s.in_flight["t-disabled"] = object()
+    s.state.running["t-disabled"] = make_running_worker("t-disabled", tmp_path)
 
     s._log_status_snapshot()
     assert len(s._stall_warned) == 0
@@ -114,7 +115,7 @@ def test_missing_events_jsonl_no_exception(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "t-no-events"
     task_dir.mkdir(parents=True)
 
-    s.in_flight["t-no-events"] = object()
+    s.state.running["t-no-events"] = make_running_worker("t-no-events", tmp_path)
 
     s._log_status_snapshot()
     assert "t-no-events" not in s._stall_warned

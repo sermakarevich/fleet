@@ -10,6 +10,7 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
+from fleet.orchestrator.spawn import spawn_worker
 from fleet.orchestrator.supervisor import Supervisor
 
 
@@ -95,12 +96,11 @@ def _git_init(path: Path) -> None:
     )
 
 
-def _spawn(s: Supervisor, task: Task) -> None:
-    async def _run() -> None:
-        asyncio.create_task(asyncio.sleep(9999))
-        s._spawn_worker(task)
+def _spawn(s: Supervisor, task: Task):
+    async def _run():
+        return spawn_worker(s.state, task)
 
-    asyncio.run(_run())
+    return asyncio.run(_run())
 
 
 def test_git_task_isolates_by_default(tmp_path: Path) -> None:
@@ -113,16 +113,16 @@ def test_git_task_isolates_by_default(tmp_path: Path) -> None:
     task = Task(
         id="t-wt-1", title="X", description=None, status="in_progress", cwd=str(repo)
     )
-    _spawn(s, task)
+    worker = _spawn(s, task)
 
     assert "t-wt-1" in queue.isolation_infos
     repo_root, base_ref, wt_path = queue.isolation_infos["t-wt-1"]
     assert repo_root == str(repo)
     assert base_ref == "main"
     assert Path(wt_path).is_dir()
-    runner = s._runners.get("t-wt-1")
-    assert runner is not None
-    assert runner._ctx.project_root == Path(wt_path)
+    assert worker is not None
+    assert worker.run._ctx.project_root == Path(wt_path)
+    assert "t-wt-1" not in s.state.running
 
 
 def test_non_git_task_runs_in_place(tmp_path: Path) -> None:
@@ -134,12 +134,11 @@ def test_non_git_task_runs_in_place(tmp_path: Path) -> None:
     task = Task(
         id="t-wt-2", title="X", description=None, status="in_progress", cwd=str(plain)
     )
-    _spawn(s, task)
+    worker = _spawn(s, task)
 
     assert "t-wt-2" not in queue.isolation_infos
-    runner = s._runners.get("t-wt-2")
-    assert runner is not None
-    assert runner._ctx.project_root == plain
+    assert worker is not None
+    assert worker.run._ctx.project_root == plain
 
 
 def test_opt_out_metadata_runs_in_place(tmp_path: Path) -> None:

@@ -1,15 +1,26 @@
+"""Claim service: poll the queue, enforce per-coder caps, spawn workers.
+
+One periodic service with one job — turn a claimable bead into a running
+worker. Merge validation used to ride along at the end of this loop; it is
+now the separate `merge_validation` module.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import json
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
-from fleet.state.paths import tasks_root as _tasks_root
-from fleet.state.validation_marker import clear_needs_validation, needs_validation
+from fleet.orchestrator.service import PeriodicService, ServiceOrder, emit
+from fleet.orchestrator.spawn import spawn_worker
 
-from . import worktree
+if TYPE_CHECKING:
+    from fleet.core.task import Task
+    from fleet.orchestrator.state import SupervisorState
 
 
 def parse_overrides(raw: str) -> dict[str, int]:
@@ -86,200 +97,86 @@ def read_isolation_info(task_dir: Path) -> dict | None:
     return None
 
 
-class ClaimMixin:
-    async def _claim_and_spawn_loop(self) -> None:
-        while not self._shutting_down:
-            await asyncio.sleep(CLAIM_POLL_INTERVAL_SEC)
-            if self._shutting_down:
-                break
+def can_claim(st: SupervisorState, coder: str | None) -> bool:
+    """True when another worker under `coder` fits below its cap."""
+    running = running_by_coder(
+        (rw.task for rw in st.running.values()), st.config.coder
+    )
+    effective = coder or st.config.coder
+    cap = cap_for_coder(
+        effective, st.config.max_concurrent, st.config.max_concurrent_overrides
+    )
+    return running.get(effective, 0) < cap
 
-            now = datetime.now(tz=UTC)
-            if self._paused_until is not None:
-                if now < self._paused_until:
-                    continue
-                self._paused_until = None
 
-            if (self._project_root / ".pause").exists():
-                continue
-
-            def _can_claim(coder: str | None) -> bool:
-                running = running_by_coder(self.in_flight_tasks.values(), self.config.coder)
-                effective = coder or self.config.coder
-                cap = cap_for_coder(
-                    effective,
-                    self.config.max_concurrent,
-                    self.config.max_concurrent_overrides,
-                )
-                return running.get(effective, 0) < cap
-
-            # bd is a subprocess; run it in a worker thread
-            # so the event loop keeps tailing runner output.
-            task = await asyncio.to_thread(
-                self._queue.claim_next, "supervisor", can_claim=_can_claim
-            )
-            if task is not None:
-                if task.id in self.in_flight:
-                    # The task was flipped back to claimable externally
-                    # (UI unblock, `bd update`) while our runner is still
-                    # alive. Spawning again would orphan the live runner
-                    # and put two agents on the same working tree.
-                    self._log.warning(
-                        "task_already_in_flight",
-                        task_id=task.id,
-                        in_flight=len(self.in_flight),
-                    )
-                    continue
-                self._log.info(
-                    "task_claimed",
-                    task_id=task.id,
-                    title=task.title[:80],
-                    in_flight=len(self.in_flight) + 1,
-                    cap=self.config.max_concurrent,
-                    usage_pct=self.rate_gauge.current_pct(),
-                )
-                try:
-                    self._spawn_worker(task)
-                except Exception as exc:  # noqa: BLE001
-                    # A bug between claim and spawn (half-edited coder code,
-                    # bad config attribute) must not kill this loop: the task
-                    # would stay in_progress forever and nothing else would
-                    # ever be claimed again. Hand the bead back and carry on.
-                    self._log.exception("spawn_failed", task_id=task.id, error=str(exc))
-                    try:
-                        await asyncio.to_thread(
-                            self._queue.release,
-                            task.id,
-                            reason=f"spawn failed: {exc}",
-                            wait_sec=60,
-                        )
-                    except Exception:  # noqa: BLE001
-                        self._log.exception("spawn_failed_release", task_id=task.id)
-
-            await self._run_pending_validations()
-
-    def _finish_validation(self, task_dir: Path, task_id: str) -> None:
-        """Clear validation state and drop isolation info after a terminal merge."""
-        clear_needs_validation(task_dir)
-        (task_dir / ".worktree").unlink(missing_ok=True)
-        try:
-            self._queue.clear_isolation_info(task_id)
-        except AttributeError:
-            pass
-        except Exception:
-            pass
-
-    async def _run_pending_validations(self) -> None:
-        tasks_root = _tasks_root(self._project_root)
-        if not tasks_root.exists():
-            return
-        for task_dir in sorted(tasks_root.iterdir()):
-            task_id = task_dir.name
-            if task_id in self.in_flight:
-                continue
-            if not needs_validation(task_dir):
-                continue
-            await self._validate_one(task_dir, task_id)
-            return  # ONE per tick
-
-    async def _validate_one(self, task_dir: Path, task_id: str) -> None:
-        """Merge one validated worktree into its base ref, generically."""
-        info = read_isolation_info(task_dir)
-        if info is None or not info.get("repo_root"):
-            await asyncio.to_thread(
-                self._queue.set_blocked,
-                task_id,
-                "validation failed: missing isolation info; merge manually",
-            )
-            self._log.warning("task.validation_no_info", task_id=task_id)
-            clear_needs_validation(task_dir)
-            return
-        repo_root = Path(info["repo_root"])
-        base_ref = info.get("base_ref") or "main"
-        wt_path = Path(info["worktree_path"])
-
-        if not repo_root.is_dir():
-            await asyncio.to_thread(
-                self._queue.set_blocked,
-                task_id,
-                f"validation failed: repo_root gone ({repo_root}); merge manually",
-            )
-            clear_needs_validation(task_dir)
-            return
-
-        # Never touch a dirty base checkout.
-        if worktree.is_repo_dirty(repo_root):
-            await asyncio.to_thread(
-                self._queue.set_blocked, task_id, "base repo dirty; merge manually"
-            )
-            self._log.warning("task.validation_dirty_base", task_id=task_id)
-            clear_needs_validation(task_dir)
-            return
-
-        # Worktree must still be clean and ahead of base.
-        if not wt_path.is_dir() or not worktree.is_committed_clean(
-            wt_path, base_ref=base_ref
-        ):
-            await asyncio.to_thread(
-                self._queue.set_blocked,
-                task_id,
-                f"validation failed: worktree not clean/ahead of {base_ref}; merge manually",
-            )
-            self._log.warning("task.validation_not_clean", task_id=task_id)
-            worktree.cleanup_worktree(
-                repo_root, task_id, wt_path, fleet_home=self._project_root
-            )
-            self._finish_validation(task_dir, task_id)
-            return
-
-        result = worktree.merge_to_base(repo_root, task_id, base_ref=base_ref)
-        if not result.ok:
-            reason = (
-                f"merge conflict into {base_ref}; resolve on branch fleet/{task_id} then close"
-                if result.conflict
-                else f"validation merge failed: {result.message}"
-            )
-            await asyncio.to_thread(self._queue.set_blocked, task_id, reason)
-            self._log.warning(
-                "task.validation_failed",
-                task_id=task_id,
-                conflict=result.conflict,
-            )
-            worktree.cleanup_worktree(
-                repo_root, task_id, wt_path, fleet_home=self._project_root
-            )
-            self._finish_validation(task_dir, task_id)
-            return
-
-        # Generic post-merge step (fleet's own repo sets this to `make ui-build`).
-        post_cmd = getattr(self.config, "post_merge_command", "") or ""
-        if post_cmd.strip():
-            ok, tail = await asyncio.to_thread(
-                worktree.run_post_merge_command, post_cmd, repo_root
-            )
-            if not ok:
-                await asyncio.to_thread(
-                    self._queue.set_blocked,
-                    task_id,
-                    f"post-merge command failed:\n{tail}",
-                )
-                self._log.warning("task.post_merge_failed", task_id=task_id)
-                worktree.cleanup_worktree(
-                    repo_root, task_id, wt_path, fleet_home=self._project_root
-                )
-                self._finish_validation(task_dir, task_id)
-                return
-
+async def release_after_spawn_failure(
+    st: SupervisorState, task: Task, exc: Exception
+) -> None:
+    """Hand the bead back after an unexpected spawn error; never raises."""
+    st.log.exception("spawn_failed", task_id=task.id, error=str(exc))
+    try:
         await asyncio.to_thread(
-            self._queue.close,
-            task_id,
-            reason=f"validated: merged fleet/{task_id} into {base_ref}",
+            st.queue.release, task.id, reason=f"spawn failed: {exc}", wait_sec=60
         )
-        self._log.info("task.validated", task_id=task_id)
-        worktree.cleanup_worktree(
-            repo_root, task_id, wt_path, fleet_home=self._project_root
+    except Exception:  # noqa: BLE001 - the loop must survive a broken queue
+        st.log.exception("spawn_failed_release", task_id=task.id)
+
+
+class Claim(PeriodicService):
+    """Poll the queue and spawn one worker per tick when a cap allows."""
+
+    order = ServiceOrder.Claim
+    name = "claim"
+
+    def __init__(self, interval_sec: float | None = None) -> None:
+        super().__init__(
+            interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
+        )
+
+    def _paused(self, st: SupervisorState) -> bool:
+        """True while the rate-limit pause holds; clears it once it passes.
+
+        Claim is the only service that clears `paused_until` (Reap sets it).
+        """
+        if st.paused_until is None:
+            return False
+        if datetime.now(tz=UTC) < st.paused_until:
+            return True
+        st.paused_until = None
+        return False
+
+    async def tick(self, st: SupervisorState) -> None:
+        """Claim one bead and spawn its worker, or do nothing this tick."""
+        if self._paused(st):
+            return
+        if (st.project_root / ".pause").exists():
+            return
+        # bd is a subprocess; run it in a worker thread
+        # so the event loop keeps tailing runner output.
+        task = await asyncio.to_thread(
+            st.queue.claim_next, "supervisor", can_claim=partial(can_claim, st)
+        )
+        if task is None:
+            return
+        if task.id in st.running:
+            st.log.warning(
+                "task_already_in_flight", task_id=task.id, in_flight=len(st.running)
+            )
+            return
+        st.log.info(
+            "task_claimed",
+            task_id=task.id,
+            title=task.title[:80],
+            in_flight=len(st.running) + 1,
+            cap=st.config.max_concurrent,
+            usage_pct=st.rate_gauge.current_pct(),
         )
         try:
-            await asyncio.to_thread(worktree.delete_branch, repo_root, task_id)
-        except Exception:
-            pass
-        self._finish_validation(task_dir, task_id)
+            worker = spawn_worker(st, task)
+        except Exception as exc:  # noqa: BLE001 - a spawn bug must not kill the loop
+            await release_after_spawn_failure(st, task, exc)
+            return
+        if worker is None:
+            return
+        st.running[task.id] = worker
+        await emit(st.services, "on_worker_started", st, worker)

@@ -9,8 +9,12 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.retry_policy import FAILURE_MAX_ROUNDS, NOCLOSE_MAX_ROUNDS
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator import claim as claim_mod
+from fleet.orchestrator.claim import Claim
+from fleet.orchestrator.spawn import spawn_worker
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts
+from tests.conftest import make_running_worker
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -396,13 +400,16 @@ def test_invalid_default_coder_blocks_task(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_worker(_task("t-001"))
+    async def _run():
+        return spawn_worker(s.state, _task("t-001"))
+
+    assert asyncio.run(_run()) is None
 
     assert len(queue.blocked) == 1
     assert queue.blocked[0][0] == "t-001"
     assert "invalid coder" in queue.blocked[0][1]
     assert "bogus_typo" in queue.blocked[0][1]
-    assert "t-001" not in s.in_flight
+    assert "t-001" not in s.state.running
 
 
 def test_invalid_task_override_blocks_task(tmp_path: Path) -> None:
@@ -417,19 +424,25 @@ def test_invalid_task_override_blocks_task(tmp_path: Path) -> None:
         coder="nope",
     )
 
-    s._spawn_worker(task)
+    async def _run():
+        return spawn_worker(s.state, task)
+
+    assert asyncio.run(_run()) is None
 
     assert len(queue.blocked) == 1
     assert queue.blocked[0][0] == "t-002"
     assert "nope" in queue.blocked[0][1]
-    assert "t-002" not in s.in_flight
+    assert "t-002" not in s.state.running
 
 
 def test_invalid_coder_writes_operator_comment(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_worker(_task("t-003"))
+    async def _run():
+        return spawn_worker(s.state, _task("t-003"))
+
+    assert asyncio.run(_run()) is None
 
     assert len(queue.comments) == 1
     assert queue.comments[0][0] == "t-003"
@@ -439,7 +452,11 @@ def test_invalid_coder_writes_operator_comment(tmp_path: Path) -> None:
 def test_invalid_coder_journals_terminal_attempt(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
-    s._spawn_worker(_task("t-004"))
+
+    async def _run():
+        return spawn_worker(s.state, _task("t-004"))
+
+    assert asyncio.run(_run()) is None
     outcomes = _history_outcomes(tmp_path, "t-004")
     assert outcomes == ["terminal"]
 
@@ -451,7 +468,10 @@ def test_invalid_coder_does_not_freeze_task_meta(tmp_path: Path) -> None:
     queue.freeze_coder_model = lambda tid, c, m: frozen.append((tid, c, m))  # type: ignore[attr-defined]
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_worker(_task("t-004"))
+    async def _run():
+        return spawn_worker(s.state, _task("t-004"))
+
+    assert asyncio.run(_run()) is None
 
     assert frozen == []
 
@@ -474,45 +494,30 @@ class _ClaimOnceQueue(StubQueue):
         return self._task if self.claims == 1 else None
 
 
-def _run_claim_loop_briefly(s: Supervisor, pre_in_flight: str | None) -> None:
-    async def _run() -> None:
-        fake_runner: asyncio.Task | None = None
-        if pre_in_flight is not None:
-            fake_runner = asyncio.create_task(asyncio.sleep(9999))
-            s.in_flight[pre_in_flight] = fake_runner
-        loop_task = asyncio.create_task(s._claim_and_spawn_loop())
-        await asyncio.sleep(0.1)
-        s._shutting_down = True
-        await asyncio.wait_for(loop_task, timeout=2)
-        if fake_runner is not None:
-            fake_runner.cancel()
-
-    asyncio.run(_run())
-
-
-def test_claim_loop_skips_task_already_in_flight(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
+def test_claim_tick_skips_task_already_running(tmp_path: Path, monkeypatch) -> None:
     queue = _ClaimOnceQueue(_task("t-dup"))
     s = _make_supervisor(tmp_path, queue)
+    s.state.running["t-dup"] = make_running_worker("t-dup", tmp_path)
     spawned: list[str] = []
-    s._spawn_worker = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id)
+    )
 
-    _run_claim_loop_briefly(s, pre_in_flight="t-dup")
+    asyncio.run(Claim(interval_sec=0.01).tick(s.state))
 
     assert queue.claims >= 1
     assert spawned == []
 
 
-def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
+def test_claim_tick_spawns_task_not_running(tmp_path: Path, monkeypatch) -> None:
     queue = _ClaimOnceQueue(_task("t-new"))
     s = _make_supervisor(tmp_path, queue)
-    spawned: list[str] = []
-    s._spawn_worker = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+    worker = make_running_worker("t-new", tmp_path)
+    monkeypatch.setattr(claim_mod, "spawn_worker", lambda st, t: worker)
 
-    _run_claim_loop_briefly(s, pre_in_flight=None)
+    asyncio.run(Claim(interval_sec=0.01).tick(s.state))
 
-    assert spawned == ["t-new"]
+    assert s.state.running["t-new"] is worker
 
 
 class _ClaimTwiceQueue(_ClaimOnceQueue):
@@ -523,22 +528,22 @@ class _ClaimTwiceQueue(_ClaimOnceQueue):
         return self._task if self.claims <= 2 else None
 
 
-def test_claim_loop_survives_spawn_exception_and_releases(tmp_path: Path, monkeypatch) -> None:
-    """Regression: an AttributeError inside _spawn_worker (half-edited coder or
+def test_claim_tick_survives_spawn_exception_and_releases(tmp_path: Path, monkeypatch) -> None:
+    """Regression: an AttributeError inside spawn_worker (half-edited coder or
     config code) used to kill the claim loop silently, leaving the bead
     in_progress forever and the supervisor unable to claim anything else."""
-    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
     queue = _ClaimTwiceQueue(_task("t-boom"))
     s = _make_supervisor(tmp_path, queue)
     calls: list[str] = []
 
-    def _boom(t):
+    def _boom(st, t):
         calls.append(t.id)
         raise AttributeError("'RuntimeConfig' object has no attribute 'opencode_context_limit'")
 
-    s._spawn_worker = _boom  # type: ignore[method-assign]
+    monkeypatch.setattr(claim_mod, "spawn_worker", _boom)
 
-    _run_claim_loop_briefly(s, pre_in_flight=None)
+    asyncio.run(Claim(interval_sec=0.01).tick(s.state))
+    asyncio.run(Claim(interval_sec=0.01).tick(s.state))
 
     # The loop kept running: it came back for the second claim.
     assert calls == ["t-boom", "t-boom"]

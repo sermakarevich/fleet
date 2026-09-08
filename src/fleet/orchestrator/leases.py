@@ -182,7 +182,7 @@ class LeasesMixin:
             ]
             keep = any(
                 task_id == tid or task_id.endswith(f"-{tid}")
-                for tid in self.in_flight
+                for tid in self.state.running
             )
             if not keep:
                 for cand in [task_id, *matched]:
@@ -221,7 +221,7 @@ class LeasesMixin:
             self._log.warning("reconcile_list_failed", error=str(exc))
             return
         for task in in_progress:
-            if task.id in self.in_flight:
+            if task.id in self.state.running:
                 continue
             try:
                 self._reconcile_one_lease(task)

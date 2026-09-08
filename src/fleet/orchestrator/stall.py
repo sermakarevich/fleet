@@ -44,7 +44,7 @@ class StallMixin:
         if self.config.stall_warning_minutes <= 0:
             return
         now = datetime.now(tz=UTC).timestamp()
-        for task_id in list(self.in_flight):
+        for task_id in list(self.state.running):
             task_dir = _task_dir(self._project_root, task_id)
             attempt_dir = latest_attempt_dir(task_dir)
             if attempt_dir is None:
@@ -65,7 +65,8 @@ class StallMixin:
                     )
                     self._stall_warned.add(task_id)
                     if self.config.stall_action == "kill" and task_id not in self._stall_killed:
-                        runner = self._runners.get(task_id)
+                        worker = self.state.running.get(task_id)
+                        runner = worker.run if worker is not None else None
                         if runner is not None:
                             self._stall_killed.add(task_id)
                             self._log.warning("task_stall_kill", task_id=task_id, idle_seconds=int(idle))

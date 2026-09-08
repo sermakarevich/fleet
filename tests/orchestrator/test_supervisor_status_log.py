@@ -12,6 +12,7 @@ from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.status_log import StatusLog, fleet_log_context
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.journal import setup_supervisor_logger
+from tests.conftest import make_running_worker
 from tests.helpers.task_dir import make_attempt
 
 # ---------------------------------------------------------------------------
@@ -107,8 +108,8 @@ def test_runtime_config_status_log_interval_override() -> None:
 
 def test_fleet_log_context_includes_in_flight_count(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path, config=RuntimeConfig(max_concurrent=5))
-    s.in_flight["t-001"] = None  # type: ignore[assignment]
-    s.in_flight["t-002"] = None  # type: ignore[assignment]
+    s.state.running["t-001"] = make_running_worker("t-001", tmp_path)
+    s.state.running["t-002"] = make_running_worker("t-002", tmp_path)
     ctx = fleet_log_context(s.state)
     assert ctx["in_flight"] == 2
     assert ctx["cap"] == 5
@@ -136,9 +137,9 @@ def test_fleet_log_context_paused_until_null_when_unpaused(tmp_path: Path) -> No
 
 def test_fleet_log_context_task_ids_sorted(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path)
-    s.in_flight["t-z"] = None  # type: ignore[assignment]
-    s.in_flight["t-a"] = None  # type: ignore[assignment]
-    s.in_flight["t-m"] = None  # type: ignore[assignment]
+    s.state.running["t-z"] = make_running_worker("t-z", tmp_path)
+    s.state.running["t-a"] = make_running_worker("t-a", tmp_path)
+    s.state.running["t-m"] = make_running_worker("t-m", tmp_path)
     assert fleet_log_context(s.state)["task_ids"] == ["t-a", "t-m", "t-z"]
 
 
@@ -270,7 +271,7 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
 
 def test_fleet_log_context_includes_context_tokens_key(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path)
-    s.in_flight["t-001"] = None  # type: ignore[assignment]
+    s.state.running["t-001"] = make_running_worker("t-001", tmp_path)
     ctx = fleet_log_context(s.state)
     assert "context_tokens" in ctx
     assert isinstance(ctx["context_tokens"], dict)
@@ -312,8 +313,7 @@ def test_stall_warn_action_never_kills(tmp_path: Path) -> None:
             self.kill_calls += 1
 
     fake = FakeRunner()
-    s.in_flight["t-warn"] = object()  # type: ignore[assignment]
-    s._runners["t-warn"] = fake  # type: ignore[assignment]
+    s.state.running["t-warn"] = make_running_worker("t-warn", tmp_path, run=fake)
 
     s._log_status_snapshot()
 
@@ -345,8 +345,7 @@ def test_stall_kill_action_schedules_runner_kill(tmp_path: Path) -> None:
                 self.kill_calls += 1
 
         fake = FakeRunner()
-        s.in_flight["t-kill"] = object()  # type: ignore[assignment]
-        s._runners["t-kill"] = fake  # type: ignore[assignment]
+        s.state.running["t-kill"] = make_running_worker("t-kill", tmp_path, run=fake)
 
         s._log_status_snapshot()
         # Let the scheduled kill() coroutine execute.

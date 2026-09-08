@@ -14,7 +14,7 @@ from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.task import Event
 from fleet.orchestrator.status_log import StatusLog, fleet_log_context
 from fleet.state.journal import setup_supervisor_logger
-from tests.conftest import make_supervisor
+from tests.conftest import make_running_worker, make_supervisor
 
 
 def _read_fleet_log(log_root: Path) -> list[dict]:
@@ -43,8 +43,8 @@ def test_fleet_log_context_in_flight_and_tokens(tmp_path: Path) -> None:
     sup = make_supervisor(
         tmp_path, services=[], checks=[], config=RuntimeConfig(max_concurrent=5)
     )
-    sup.state.in_flight["t-z"] = None  # type: ignore[assignment]
-    sup.state.in_flight["t-a"] = None  # type: ignore[assignment]
+    sup.state.running["t-z"] = make_running_worker("t-z", tmp_path)
+    sup.state.running["t-a"] = make_running_worker("t-a", tmp_path)
     ctx = fleet_log_context(sup.state)
     assert ctx["in_flight"] == 2
     assert ctx["cap"] == 5

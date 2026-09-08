@@ -16,17 +16,17 @@ def fleet_log_context(st: SupervisorState) -> dict:
     """Snapshot of live fleet stats — in-flight count, rate-limit usage."""
     usage_pct = st.rate_gauge.current_pct()  # may trigger auto-reset
     return {
-        "in_flight": len(st.in_flight),
+        "in_flight": len(st.running),
         "cap": st.config.max_concurrent,
         "usage_pct": usage_pct,
         "paused_until": (
             st.paused_until.isoformat() if st.paused_until is not None else None
         ),
         "rate_limit_resets_at": st.rate_gauge.resets_at,
-        "task_ids": sorted(st.in_flight.keys()),
+        "task_ids": sorted(st.running.keys()),
         "context_tokens": {
             tid: (task_runtime_stats(tid).context_tokens or 0)
-            for tid in st.in_flight
+            for tid in st.running
         },
     }
 

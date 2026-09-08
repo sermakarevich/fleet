@@ -1,3 +1,5 @@
+"""Tests for orchestrator/merge_validation.py (moved from test_validation.py)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,8 +8,11 @@ import subprocess
 from pathlib import Path
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.orchestrator import worktree
-from fleet.orchestrator.supervisor import Supervisor
+from fleet.orchestrator.merge_validation import MergeValidation
+from fleet.orchestrator.service import ServiceOrder
+from tests.conftest import make_running_worker, make_supervisor
 
 
 class StubCoder:
@@ -16,7 +21,7 @@ class StubCoder:
     def build_argv(self, task, task_dir, plan=None):
         return ["echo"]
 
-    def env(self, task, task_dir):
+    def env(self, task, artifact_dir):
         return {}
 
     def normalize_event(self, raw_line):
@@ -31,7 +36,7 @@ class StubQueue:
         self.blocked: list[tuple[str, str]] = []
         self.comments: list[tuple[str, str]] = []
 
-    def claim_next(self, claimer_id):
+    def claim_next(self, claimer_id, *, can_claim=None):
         return None
 
     def release(self, task_id, reason="", wait_sec=0):
@@ -58,18 +63,12 @@ class StubQueue:
         pass
 
 
-def _make_supervisor(
-    tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
-) -> Supervisor:
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=tmp_path / "runtime.toml",
-        project_root=tmp_path / ".fleet",
-        log=__import__("structlog").get_logger(),
-    )
-    s.config = config or RuntimeConfig()
-    return s
+def _make_state(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None):
+    sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+    sup.state.project_root = tmp_path / ".fleet"
+    if config is not None:
+        sup.state.config = config
+    return sup.state
 
 
 def _git(path: Path, *args: str) -> None:
@@ -132,24 +131,39 @@ def _isolate(
     return task_dir, wt
 
 
+def _setup_repo(tmp_path: Path) -> tuple[Path, Path]:
+    fleet_home = tmp_path / ".fleet"
+    fleet_home.mkdir(exist_ok=True)
+    repo = tmp_path / "repo"
+    repo.mkdir(exist_ok=True)
+    if not (repo / ".git").exists():
+        _git_init(repo)
+    return fleet_home, repo
+
+
+def _run(st) -> None:
+    asyncio.run(MergeValidation().tick(st))
+
+
+def test_order_and_default_interval() -> None:
+    assert MergeValidation.order == ServiceOrder.Claim
+    assert MergeValidation().interval_sec == CLAIM_POLL_INTERVAL_SEC
+    assert MergeValidation(interval_sec=0.01).interval_sec == 0.01
+
+
 # ===== CLEAN MERGE =====
 
 
 class TestCleanMerge:
     def test_close_called_with_validated_reason(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
-
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-val-1"
-        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "feature.txt", "feature content")
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert len(queue.closed) == 1
         assert queue.closed[0][0] == task_id
@@ -157,36 +171,26 @@ class TestCleanMerge:
         assert (repo / "feature.txt").read_text() == "feature content"
 
     def test_needs_validation_cleared_on_success(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
-
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-val-2"
         task_dir, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "feature2.txt", "feature2")
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert not (task_dir / ".needs_validation").exists()
 
     def test_worktree_removed_on_success(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
-
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-val-3"
-        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "feat3.txt", "f3")
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert not wt.exists()
 
@@ -227,17 +231,13 @@ class TestConflict:
         return task_dir, wt
 
     def test_set_blocked_not_close_on_conflict(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-conflict-1"
         self._setup_conflict(fleet_home, repo, task_id)
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert queue.closed == []
         assert len(queue.blocked) == 1
@@ -245,32 +245,24 @@ class TestConflict:
         assert "merge conflict" in queue.blocked[0][1]
 
     def test_needs_validation_cleared_on_conflict(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-conflict-2"
         task_dir, _ = self._setup_conflict(fleet_home, repo, task_id)
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert not (task_dir / ".needs_validation").exists()
 
     def test_main_tree_clean_after_conflict(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-conflict-3"
         self._setup_conflict(fleet_home, repo, task_id)
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         status = subprocess.run(
             ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"],
@@ -282,13 +274,9 @@ class TestConflict:
 
 class TestDirtyBase:
     def test_dirty_base_blocks_without_touching(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-dirty-1"
-        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "f.txt", "work")
         (repo / "uncommitted.txt").write_text("x")
         _git(repo, "add", "uncommitted.txt")
@@ -300,8 +288,8 @@ class TestDirtyBase:
         ).stdout.strip()
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        _run(st)
 
         assert queue.closed == []
         assert len(queue.blocked) == 1
@@ -316,11 +304,7 @@ class TestDirtyBase:
 
 class TestPostMergeCommand:
     def test_post_merge_failure_blocks_with_tail(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-post-1"
         _, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "f.txt", "work")
@@ -329,59 +313,98 @@ class TestPostMergeCommand:
         cfg = RuntimeConfig(
             post_merge_command="python3 -c 'import sys; print(\"gate-boom\"); sys.exit(1)'"
         )
-        s = _make_supervisor(tmp_path, queue, config=cfg)
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue, config=cfg)
+        _run(st)
 
         assert queue.closed == []
         assert len(queue.blocked) == 1
         assert "gate-boom" in queue.blocked[0][1]
 
     def test_post_merge_empty_skips(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-post-2"
         _, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "f.txt", "work")
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue, config=RuntimeConfig(post_merge_command=""))
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue, config=RuntimeConfig(post_merge_command=""))
+        _run(st)
 
         assert len(queue.closed) == 1
+
+    def test_command_runs_and_closes_on_success(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-pm-1"
+        _, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "f.txt", "work")
+
+        queue = StubQueue(status="in_progress")
+        cfg = RuntimeConfig(post_merge_command="python3 -c 'import sys; sys.exit(0)'")
+        st = _make_state(tmp_path, queue, config=cfg)
+        _run(st)
+
+        assert len(queue.closed) == 1
+
+    def test_empty_command_skips_without_subprocess(self, tmp_path: Path, monkeypatch):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-pm-2"
+        _, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "f.txt", "work")
+
+        queue = StubQueue(status="in_progress")
+        st = _make_state(tmp_path, queue, config=RuntimeConfig(post_merge_command=""))
+        called = []
+        orig = worktree.run_post_merge_command
+        monkeypatch.setattr(
+            worktree, "run_post_merge_command", lambda *a, **k: (called.append(1), orig(*a, **k))[1]
+        )
+        _run(st)
+        assert len(queue.closed) == 1
+        assert called == []
+
+    def test_failure_blocks_with_tail(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-pm-3"
+        _, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "f.txt", "work")
+
+        queue = StubQueue(status="in_progress")
+        cfg = RuntimeConfig(
+            post_merge_command="python3 -c 'import sys; print(\"gate-tail-marker\"); sys.exit(2)'"
+        )
+        st = _make_state(tmp_path, queue, config=cfg)
+        _run(st)
+
+        assert queue.closed == []
+        assert len(queue.blocked) == 1
+        assert "gate-tail-marker" in queue.blocked[0][1]
+
+    def test_no_ui_prefix_special_case(self, tmp_path: Path):
+        """Any file type merges the same; no src/fleet/ui diff special-casing remains."""
+        import inspect
+
+        from fleet.orchestrator import merge_validation as mv_mod
+
+        src = inspect.getsource(mv_mod)
+        assert "src/fleet/ui" not in src
+        assert "create_subprocess_exec" not in src
+        assert "post_merge_command" in src
 
 
 # ===== IN-FLIGHT SKIP =====
 
 
 class TestInFlightSkip:
-    def test_in_flight_task_skipped(self, tmp_path: Path):
-        fleet_home = tmp_path / ".fleet"
-        fleet_home.mkdir()
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
+    def test_running_task_skipped(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
         task_id = "test-inflight-1"
         task_dir, wt = _isolate(fleet_home, repo, task_id)
         _commit(wt, "feature_inflight.txt", "inflight")
 
         queue = StubQueue(status="in_progress")
-        s = _make_supervisor(tmp_path, queue)
-
-        async def _make_task():
-            await asyncio.sleep(0)
-            return "done"
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            s.in_flight[task_id] = loop.create_task(_make_task())
-        finally:
-            loop.close()
-
-        asyncio.run(s._run_pending_validations())
+        st = _make_state(tmp_path, queue)
+        st.running[task_id] = make_running_worker(task_id, tmp_path)
+        _run(st)
 
         assert queue.closed == []
         assert queue.blocked == []

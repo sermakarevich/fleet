@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fleet.orchestrator.kill_sentinel import KillSentinel
 from fleet.state.paths import task_dir
-from tests.conftest import make_supervisor
+from tests.conftest import make_running_worker, make_supervisor
 
 
 class _FakeRun:
@@ -25,7 +25,7 @@ def test_tick_deletes_kill_file_and_kills_once(tmp_path: Path) -> None:
     sup = make_supervisor(tmp_path, services=[], checks=[])
     st = sup.state
     fake = _FakeRun()
-    st.runners["t-kill"] = fake  # type: ignore[assignment]
+    st.running["t-kill"] = make_running_worker("t-kill", tmp_path, run=fake)
     kill_file = task_dir(tmp_path, "t-kill") / ".kill"
     kill_file.parent.mkdir(parents=True, exist_ok=True)
     kill_file.touch()
@@ -41,7 +41,7 @@ def test_tick_without_kill_file_kills_nothing(tmp_path: Path) -> None:
     sup = make_supervisor(tmp_path, services=[], checks=[])
     st = sup.state
     fake = _FakeRun()
-    st.runners["t-idle"] = fake  # type: ignore[assignment]
+    st.running["t-idle"] = make_running_worker("t-idle", tmp_path, run=fake)
     task_dir(tmp_path, "t-idle").mkdir(parents=True, exist_ok=True)
 
     asyncio.run(KillSentinel().tick(st))

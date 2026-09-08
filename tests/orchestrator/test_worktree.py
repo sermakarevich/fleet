@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from fleet.core.task import Task
 from fleet.orchestrator import worktree
 
 
@@ -234,49 +233,6 @@ class TestRemoveAndBranch:
 
     def test_remove_safe_when_gone(self, git_repo: Path, fleet_home: Path):
         worktree.remove_worktree(git_repo, "nope", fleet_home / "worktrees" / "x")
-
-
-class TestShouldIsolate:
-    def _task(self, **kw) -> Task:
-        base = {"id": "t", "title": "T", "description": None, "status": "open"}
-        base.update(kw)
-        return Task(**base)
-
-    def test_non_git_dir_runs_in_place(self, tmp_path: Path):
-        from fleet.orchestrator.spawn import SpawnMixin
-
-        mixin = SpawnMixin.__new__(SpawnMixin)
-        mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert mixin._should_isolate(self._task(), None) is False
-
-    def test_opt_out_metadata_runs_in_place(self, git_repo: Path):
-        from fleet.orchestrator.spawn import SpawnMixin
-
-        mixin = SpawnMixin.__new__(SpawnMixin)
-        mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert mixin._should_isolate(self._task(isolation="none"), git_repo) is False
-
-    def test_config_none_runs_in_place(self, git_repo: Path):
-        from fleet.orchestrator.spawn import SpawnMixin
-
-        mixin = SpawnMixin.__new__(SpawnMixin)
-        mixin.config = type("C", (), {"isolation": "none"})()
-        assert mixin._should_isolate(self._task(), git_repo) is False
-
-    def test_git_task_isolates_by_default(self, git_repo: Path):
-        from fleet.orchestrator.spawn import SpawnMixin
-
-        mixin = SpawnMixin.__new__(SpawnMixin)
-        mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert mixin._should_isolate(self._task(cwd=str(git_repo)), git_repo) is True
-
-    def test_task_without_cwd_never_isolates(self, git_repo: Path):
-        """No cwd means the task fell back to fleet's home; never worktree that."""
-        from fleet.orchestrator.spawn import SpawnMixin
-
-        mixin = SpawnMixin.__new__(SpawnMixin)
-        mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert mixin._should_isolate(self._task(cwd=None), git_repo) is False
 
 
 def test_has_uncommitted_changes_tracks_real_git_state(tmp_path):
