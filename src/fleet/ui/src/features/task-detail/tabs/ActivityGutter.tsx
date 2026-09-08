@@ -3,6 +3,7 @@ import { Sparkline } from '../../../shared/ui/Sparkline';
 import type { FleetEvent, TaskDetail } from '../../../shared/types';
 import { useKillTask } from '../../../shared/hooks/useApi';
 import { eventKindColor } from '../../../shared/status';
+import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
   task: TaskDetail;
@@ -82,7 +83,7 @@ export function ActivityGutter({ task, events }: Props) {
       {lastEventKind && (
         <div style={styles.section}>
           <div style={styles.label}>last event</div>
-          <span style={{ ...styles.kindChip, background: eventKindColor(lastEventKind) }}>
+          <span style={merge(styles.kindChip, { background: eventKindColor(lastEventKind) })}>
             {lastEventKind}
           </span>
         </div>
@@ -105,7 +106,7 @@ export function ActivityGutter({ task, events }: Props) {
             </div>
           )}
           {(isPending || isStopping) && (
-            <button style={{ ...styles.killBtn, opacity: 0.5 }} disabled>
+            <button style={merge(styles.killBtn, { opacity: 0.5 })} disabled>
               {isPending ? 'Killing…' : 'Stopping…'}
             </button>
           )}

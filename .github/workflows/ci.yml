@@ -38,5 +38,7 @@ jobs:
       - run: uv sync --group dev
       - run: npm ci
       - run: just ui-types-check
-      - run: npx tsc --noEmit
+        working-directory: ../..
+      - run: just ui-check
+        working-directory: ../..
       - run: npm run build

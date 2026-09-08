@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
+import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
   rows: {
@@ -37,7 +38,7 @@ export function NeedsAttention({ rows }: Props) {
   const navigate = useNavigate();
 
   return (
-    <div style={{ ...P.panel, flex: '1 1 30rem', minWidth: 0 }}>
+    <div style={merge(P.panel, { flex: '1 1 30rem', minWidth: 0 })}>
       <div style={P.panelTitle}>
         <span>Needs attention</span>
       </div>
@@ -67,17 +68,17 @@ export function NeedsAttention({ rows }: Props) {
                     style={styles.tr}
                   >
                     <td style={styles.td}>
-                      <span style={{ ...styles.chip, background: chipColor + '20', color: chipColor }}>
+                      <span style={merge(styles.chip, { background: chipColor + '20', color: chipColor })}>
                         {(r.outcome || '—').replace(/_/g, ' ')}
                       </span>
                     </td>
-                    <td style={{ ...styles.td, ...styles.monospace, color: '#60a5fa' }}>
+                    <td style={merge(styles.td, styles.monospace, { color: '#60a5fa' })}>
                       {r.id.slice(0, 8)}
                     </td>
-                    <td style={{ ...styles.td, ...styles.ellipsis }}>
+                    <td style={merge(styles.td, styles.ellipsis)}>
                       {r.title}
                     </td>
-                    <td style={{ ...styles.td, ...styles.monospace, color: T.colors.textDim, whiteSpace: 'nowrap' }}>
+                    <td style={merge(styles.td, styles.monospace, { color: T.colors.textDim, whiteSpace: 'nowrap' })}>
                       {fmtEnded(r.ended_at)}
                     </td>
                   </tr>

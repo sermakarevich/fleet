@@ -5,6 +5,7 @@ import { ConfigEditor } from './ConfigEditor';
 import { useNativeNotifications } from '../../shared/hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
+import { merge } from '../../shared/styles/recipes';
 
 interface SaveResult { ok: boolean; text: string }
 
@@ -38,7 +39,7 @@ export function ConfigPage() {
       <div style={styles.pageHeader}>
         <h1 style={styles.heading}>config</h1>
         {saveResult && (
-          <span style={{ ...styles.saveBanner, ...(saveResult.ok ? styles.saveBannerOk : styles.saveBannerErr) }}>
+          <span style={merge(styles.saveBanner, (saveResult.ok ? styles.saveBannerOk : styles.saveBannerErr))}>
             {saveResult.text}
           </span>
         )}
@@ -105,7 +106,7 @@ export function ConfigPage() {
                 {coders.map(c => (
                   <li key={c.name} style={styles.coderItem}>
                     <strong>{c.name}</strong>
-                    <span style={{ color: T.colors.textDim, marginLeft: '0.5rem' }}>
+                    <span style={styles.coderMeta}>
                       {Math.round(c.context_limit / 1000)}k ctx — {c.default_model}
                     </span>
                   </li>
@@ -213,6 +214,10 @@ const styles = {
     color: T.colors.textSecondary,
     fontSize: '0.8125rem',
     fontFamily: 'monospace',
+  } as React.CSSProperties,
+  coderMeta: {
+    color: T.colors.textDim,
+    marginLeft: '0.5rem',
   } as React.CSSProperties,
   notifNote: {
     color: T.colors.textMuted,

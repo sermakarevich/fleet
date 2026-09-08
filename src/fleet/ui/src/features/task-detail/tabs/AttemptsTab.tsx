@@ -10,6 +10,7 @@ function fmtContextPct(pct: number | null): string {
   return `${Math.round(pct)}%`;
 }
 import { useAttemptSummary, useAttemptPrompt } from '../../../shared/hooks/useApi';
+import { merge, when } from '../../../shared/styles/recipes';
 
 interface Props {
   taskId: string;
@@ -65,11 +66,7 @@ function AttemptRow({
   return (
     <div style={styles.row}>
       <button
-        style={{
-          ...styles.header,
-          ...(attempt.kind === 'compact' ? styles.compactRow : {}),
-          ...(attempt.outcome === 'waiting' ? styles.waitingRow : {}),
-        }}
+        style={merge(styles.header, when(attempt.kind === 'compact', styles.compactRow), when(attempt.outcome === 'waiting', styles.waitingRow), {  })}
         onClick={onToggle}
       >
         <span style={styles.chevron}>{isOpen ? '▾' : '▸'}</span>
@@ -85,7 +82,7 @@ function AttemptRow({
         <span style={styles.cell}>{fmtContextPct(attempt.peak_context_pct)}</span>
         <span style={styles.cell}>{attempt.files_touched} files</span>
         <span style={styles.cell}>{attempt.commits.length} commits</span>
-        <span style={{ ...styles.cell, ...styles.reasonCell }} title={attempt.reason ?? undefined}>
+        <span style={merge(styles.cell, styles.reasonCell)} title={attempt.reason ?? undefined}>
           {attempt.reason ?? '—'}
         </span>
       </button>

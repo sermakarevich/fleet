@@ -1,5 +1,6 @@
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
+import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
   events: { ts: string; task_id: string }[];
@@ -22,7 +23,7 @@ export function RateLimitTimeline({ events }: Props) {
   const display = truncated ? events.slice(-MAX_VISIBLE) : events;
 
   return (
-    <div style={{ ...P.panel, flex: '1 1 30rem', minWidth: 0 }}>
+    <div style={merge(P.panel, { flex: '1 1 30rem', minWidth: 0 })}>
       <div style={P.panelTitle}>
         <span>Rate-limit rejections</span>
         {events.length > 0 && <span style={P.panelTitleAside}>{events.length} total</span>}

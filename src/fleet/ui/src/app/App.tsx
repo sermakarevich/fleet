@@ -17,7 +17,7 @@ import { GlobalEvents } from './GlobalEvents';
 
 function NotFound() {
   return (
-    <div style={{ padding: '2rem', textAlign: 'center' }}>
+    <div style={styles.notFound}>
       <h2>404 — Page not found</h2>
       <p>
         <Link to="/tasks">← Back to Tasks</Link>
@@ -36,7 +36,7 @@ function AppInner() {
     <>
       <GlobalEvents onConnectedChange={setConnected} />
       <NavBar connected={connected} onNewTask={() => setShowNewTask(true)} />
-      <main style={{ fontFamily: 'system-ui, sans-serif' }}>
+      <main style={styles.main}>
         <Routes>
           <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
@@ -74,3 +74,12 @@ export function App() {
     </QueryClientProvider>
   );
 }
+
+const styles = {
+  notFound: {
+    padding: '2rem', textAlign: 'center' as const,
+  } as React.CSSProperties,
+  main: {
+    fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+};

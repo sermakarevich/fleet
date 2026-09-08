@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtCount } from '../../../shared/format';
+import { merge } from '../../../shared/styles/recipes';
 
 interface ActivityHeatmapProps {
   heatmap: number[][];
@@ -28,7 +29,7 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
   }, [heatmap]);
 
   return (
-    <div style={{ ...P.panel, flex: '1 1 420px', overflowX: 'auto' }}>
+    <div style={merge(P.panel, { flex: '1 1 420px', overflowX: 'auto' })}>
       <div style={P.panelTitle}>
         <span>Activity by hour</span>
       </div>
@@ -55,10 +56,7 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
                 return (
                   <div
                     key={ci}
-                    style={{
-                      ...cell,
-                      background: bg,
-                    }}
+                    style={merge(cell, { background: bg,  })}
                     title={`${DAYS[ri]} ${String(ci).padStart(2, '0')}:00 — ${fmtCount(count)}`}
                   />
                 );

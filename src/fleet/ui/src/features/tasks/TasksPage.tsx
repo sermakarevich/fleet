@@ -5,6 +5,7 @@ import { useTasksState } from '../../shared/hooks/useTasksState';
 import { useWebSocket } from '../../shared/hooks/useWebSocket';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import type { TaskSummary } from '../../shared/types';
+import * as R from '../../shared/styles/recipes';
 import { TaskRow } from './TaskRow';
 import { TaskCard } from './TaskCard';
 import { styles } from './itemStyles';
@@ -98,30 +99,30 @@ export function TasksPage() {
   };
 
   if (isLoading && tasks.length === 0) {
-    return <p style={styles.msg}>Loading…</p>;
+    return <p style={R.msgStyle()}>Loading…</p>;
   }
   if (error && tasks.length === 0) {
-    return <p style={{ ...styles.msg, color: '#ef4444' }}>Error: {String(error)}</p>;
+    return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   }
 
   return (
-    <div style={{ ...styles.page, padding: isMobile ? '0.75rem' : '1rem 1.5rem' }}>
-      <div style={styles.topBar}>
-        <h1 style={styles.heading}>tasks <span style={styles.count}>({sortedFiltered.length})</span></h1>
+    <div style={R.pageStyle(isMobile)}>
+      <div style={R.topBarStyle()}>
+        <h1 style={R.headingStyle()}>tasks <span style={R.countStyle()}>({sortedFiltered.length})</span></h1>
         <input
           type="search"
-          style={{ ...styles.searchInput, width: isMobile ? '100%' : '13rem' }}
+          style={R.searchInputStyle(isMobile ? '100%' : '13rem')}
           placeholder="Search…"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
         />
-        <div style={styles.filterRow}>
+        <div style={R.filterRowStyle()}>
           {FILTERS.map(({ key, label }) => {
             const hasAlert = ALERT_FILTERS.has(key) && (alertCounts[key] ?? 0) > 0;
             return (
               <button
                 key={key}
-                style={{ ...styles.filterBtn, ...(filter === key ? styles.filterBtnActive : {}) }}
+                style={R.filterBtnStyle(filter === key)}
                 onClick={() => setFilter(key)}
               >
                 <span style={styles.filterBtnInner}>
@@ -134,9 +135,9 @@ export function TasksPage() {
         </div>
       </div>
 
-      <div style={styles.panel}>
+      <div style={R.panelStyle()}>
         {!isMobile && (
-          <div style={styles.colHeader}>
+          <div style={R.colHeaderStyle()}>
             <span style={styles.colStatus}>Status</span>
             <span style={styles.colId}>ID</span>
             <span style={styles.colTitle}>Title</span>
@@ -151,7 +152,7 @@ export function TasksPage() {
         )}
 
         {sortedFiltered.length === 0 ? (
-          <p style={styles.empty}>No tasks match this filter.</p>
+          <p style={R.emptyStyle()}>No tasks match this filter.</p>
         ) : (
           pageItems.map(task => isMobile ? (
             <TaskCard
@@ -180,19 +181,19 @@ export function TasksPage() {
       </div>
 
       {totalPages > 1 && (
-        <div style={styles.pagination}>
+        <div style={R.paginationStyle()}>
           <button
-            style={{ ...styles.pageBtn, ...(safePage === 0 ? styles.pageBtnDisabled : {}) }}
+            style={R.pageBtnStyle(safePage === 0)}
             disabled={safePage === 0}
             onClick={() => setPage(p => Math.max(0, p - 1))}
           >
             ← Prev
           </button>
-          <span style={styles.pageInfo}>
+          <span style={R.pageInfoStyle()}>
             {safePage + 1} / {totalPages}
           </span>
           <button
-            style={{ ...styles.pageBtn, ...(safePage >= totalPages - 1 ? styles.pageBtnDisabled : {}) }}
+            style={R.pageBtnStyle(safePage >= totalPages - 1)}
             disabled={safePage >= totalPages - 1}
             onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
           >

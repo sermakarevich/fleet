@@ -1,4 +1,5 @@
 import type { TaskSummary } from '../types';
+import { merge } from '../styles/recipes';
 
 export function getStatusDotColor(
   task: TaskSummary,
@@ -34,14 +35,14 @@ export function StatusDot({ task, thresholdPct = 90 }: Props) {
   return (
     <span
       title={`${color}: idle ${idle}s, ctx ${ctx}%`}
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        background: DOT_COLORS[color],
-        flexShrink: 0,
-      }}
+      style={merge(styles.dot, { background: DOT_COLORS[color] })}
     />
   );
 }
+
+const styles = {
+  dot: {
+    display: 'inline-block', width: 8, height: 8,
+    borderRadius: '50%', flexShrink: 0,
+  } as React.CSSProperties,
+};

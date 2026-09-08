@@ -3,6 +3,7 @@ import type { AnalyticsByModelRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
+import { altRowStyle, merge } from '../../../shared/styles/recipes';
 
 interface Props {
   rows: AnalyticsByModelRow[];
@@ -69,7 +70,7 @@ export function LeaderboardTable({ rows }: Props) {
     return (
       <span style={styles.successCell}>
         <span style={styles.track}>
-          <span style={{ ...styles.fill, width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' }} />
+          <span style={merge(styles.fill, { width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' })} />
         </span>
         <span style={styles.pctText}>{fmtPct(rate)}</span>
       </span>
@@ -77,7 +78,7 @@ export function LeaderboardTable({ rows }: Props) {
   };
 
   return (
-    <div style={{ ...P.panel, flex: '1.5 1 520px' }}>
+    <div style={merge(P.panel, { flex: '1.5 1 520px' })}>
       <div style={P.panelTitle}>
         <span>By model</span>
       </div>
@@ -92,7 +93,7 @@ export function LeaderboardTable({ rows }: Props) {
                   <th
                     key={col.key}
                     onClick={() => handleSort(col.key)}
-                    style={{ ...styles.th, cursor: 'pointer' }}
+                    style={merge(styles.th, { cursor: 'pointer' })}
                   >
                     {col.label} {sortIndicator(col.key)}
                   </th>
@@ -101,18 +102,18 @@ export function LeaderboardTable({ rows }: Props) {
             </thead>
             <tbody>
               {sorted.map((r, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : T.colors.bgElevated }}>
-                  <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                <tr key={i} style={altRowStyle(i)}>
+                  <td style={merge(styles.td, { whiteSpace: 'nowrap' })}>
                     {r.coder ? <span style={styles.coderPrefix}>{r.coder} · </span> : null}
                     <span style={styles.modelName}>{r.model || '—'}</span>
                   </td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{r.total}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{r.total}</td>
                   <td style={styles.td}>{successBarFor(r.success_rate)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtDuration(r.median_run_sec)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(r.mean_peak_context_tokens)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(r.output_tokens)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{r.avg_segments != null ? r.avg_segments.toFixed(1) : '—'}</td>
-                  <td style={{ ...styles.td, textAlign: 'right', color: r.errors > 0 ? P.seriesColors.failed : undefined }}>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtDuration(r.median_run_sec)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtTokens(r.mean_peak_context_tokens)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtTokens(r.output_tokens)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{r.avg_segments != null ? r.avg_segments.toFixed(1) : '—'}</td>
+                  <td style={merge(styles.td, { textAlign: 'right', color: r.errors > 0 ? P.seriesColors.failed : undefined })}>
                     {r.errors}
                   </td>
                 </tr>

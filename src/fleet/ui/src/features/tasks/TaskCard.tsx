@@ -1,12 +1,11 @@
 import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
 import { fmtTs } from '../../shared/format';
-import { chipFor } from './statusChip';
+import { StatusChip } from '../../shared/ui/StatusChip';
 import { styles, cardStyles } from './itemStyles';
 import type { TaskRowProps } from './TaskRow';
 
 export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: TaskRowProps) {
   const isStopping = stoppingIds.has(task.id) && task.status === 'in_progress';
-  const chip = chipFor(task.status, isStopping);
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
   const isConfirming = confirmingId === task.id;
   const killEligible = new Set(['in_progress', 'blocked', 'open', 'ready']).has(task.status);
@@ -23,9 +22,7 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
       onClick={() => onRowClick(task.id)}
     >
       <div style={cardStyles.cardHead}>
-        <span style={{ ...styles.chip, ...cardStyles.chipInCard, background: chip.bg, color: chip.fg }}>
-          {chip.label}
-        </span>
+        <StatusChip status={task.status} stopping={isStopping} width="auto" />
         <span style={cardStyles.cardId}>{task.id}</span>
         <span style={cardStyles.cardActions} onClick={e => e.stopPropagation()}>
           {isBlocked && (

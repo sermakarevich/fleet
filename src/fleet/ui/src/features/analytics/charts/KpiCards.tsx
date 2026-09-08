@@ -1,5 +1,6 @@
 import type { AnalyticsKpis } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
+import { merge } from '../../../shared/styles/recipes';
 import { seriesColors } from '../chartTheme';
 import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
 
@@ -69,19 +70,13 @@ export function KpiCards({ kpis }: CardProps) {
     <div className="kpi-grid">
       {items.map(card => (
         <div key={card.label} style={CARD}>
-          <div style={{
-            fontSize: '1.25rem',
-            fontWeight: 600,
-            color: card.color ?? T.colors.textPrimary,
-            lineHeight: 1.2,
-            whiteSpace: 'nowrap' as const,
-          }}>
+          <div style={merge(styles.value, { color: card.color ?? T.colors.textPrimary })}>
             {card.value}
           </div>
-          <div style={{ fontSize: '0.6875rem', color: T.colors.textMuted, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
+          <div style={styles.label}>
             {card.label}
             {card.sub && (
-              <span style={{ color: T.colors.textDim, textTransform: 'none' as const, letterSpacing: 'normal', marginLeft: '0.375rem' }}>
+              <span style={styles.sub}>
                 · {card.sub}
               </span>
             )}
@@ -91,3 +86,18 @@ export function KpiCards({ kpis }: CardProps) {
     </div>
   );
 }
+
+const styles = {
+  value: {
+    fontSize: '1.25rem', fontWeight: 600, lineHeight: 1.2,
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  label: {
+    fontSize: '0.6875rem', color: T.colors.textMuted,
+    letterSpacing: '0.04em', textTransform: 'uppercase' as const,
+  } as React.CSSProperties,
+  sub: {
+    color: T.colors.textDim, textTransform: 'none' as const,
+    letterSpacing: 'normal', marginLeft: '0.375rem',
+  } as React.CSSProperties,
+};

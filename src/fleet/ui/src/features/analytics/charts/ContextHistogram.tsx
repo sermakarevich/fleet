@@ -1,5 +1,6 @@
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
+import { merge } from '../../../shared/styles/recipes';
 import { fmtCount } from '../../../shared/format';
 
 const BUCKET_LABELS = ['0-25', '25-50', '50-75', '75-100', '100+'];
@@ -37,13 +38,7 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
               <div style={countLabel}>{fmtCount(count)}</div>
               <div style={barContainer}>
                 <div
-                  style={{
-                    width: '100%',
-                    height: `${heightPct}%`,
-                    minHeight: `${MIN_HEIGHT_PX}px`,
-                    background: color,
-                    borderRadius: '4px 4px 0 0',
-                  }}
+                  style={merge(styles.bar, { height: `${heightPct}%`, minHeight: `${MIN_HEIGHT_PX}px`, background: color })}
                 />
               </div>
               <div style={bucketLabel}>{BUCKET_LABELS[i]}%</div>
@@ -106,4 +101,11 @@ const bucketLabel: React.CSSProperties = {
   height: '1rem',
   lineHeight: '1rem',
   whiteSpace: 'nowrap' as const,
+};
+
+const styles = {
+  bar: {
+    width: '100%',
+    borderRadius: '4px 4px 0 0',
+  } as React.CSSProperties,
 };

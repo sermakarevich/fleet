@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '../../../shared/api';
 import type { TaskResult } from '../../../shared/types';
+import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
   taskId: string;
@@ -18,7 +19,7 @@ const RESULT_BADGE_COLOR: Record<TaskResult['status'], string> = {
 function ResultBadge({ result }: { result: TaskResult }) {
   return (
     <div style={styles.resultBadge}>
-      <span style={{ ...styles.resultDot, background: RESULT_BADGE_COLOR[result.status] }} />
+      <span style={merge(styles.resultDot, { background: RESULT_BADGE_COLOR[result.status] })} />
       <span style={styles.resultStatus}>{result.status}</span>
       {result.summary && <span style={styles.resultSummary}>{result.summary}</span>}
     </div>

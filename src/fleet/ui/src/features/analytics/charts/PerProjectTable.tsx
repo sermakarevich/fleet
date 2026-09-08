@@ -3,6 +3,7 @@ import type { AnalyticsByProjectRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
+import { altRowStyle, merge } from '../../../shared/styles/recipes';
 
 interface Props {
   rows: AnalyticsByProjectRow[];
@@ -69,7 +70,7 @@ export function PerProjectTable({ rows }: Props) {
     return (
       <span style={styles.successCell}>
         <span style={styles.track}>
-          <span style={{ ...styles.fill, width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' }} />
+          <span style={merge(styles.fill, { width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' })} />
         </span>
         <span style={styles.pctText}>{fmtPct(rate)}</span>
       </span>
@@ -77,7 +78,7 @@ export function PerProjectTable({ rows }: Props) {
   };
 
   return (
-    <div style={{ ...P.panel, flex: '1 1 380px' }}>
+    <div style={merge(P.panel, { flex: '1 1 380px' })}>
       <div style={P.panelTitle}>
         <span>By project</span>
       </div>
@@ -92,7 +93,7 @@ export function PerProjectTable({ rows }: Props) {
                   <th
                     key={col.key}
                     onClick={() => handleSort(col.key)}
-                    style={{ ...styles.th, cursor: 'pointer' }}
+                    style={merge(styles.th, { cursor: 'pointer' })}
                   >
                     {col.label} {sortIndicator(col.key)}
                   </th>
@@ -101,14 +102,14 @@ export function PerProjectTable({ rows }: Props) {
             </thead>
             <tbody>
               {sorted.map((r, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : T.colors.bgElevated }}>
+                <tr key={i} style={altRowStyle(i)}>
                   <td style={styles.td} title={r.cwd || ''}>
                     {projectFromCwd(r)}
                   </td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{r.total}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{r.total}</td>
                   <td style={styles.td}>{successBarFor(r.success_rate)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtDuration(r.median_run_sec)}</td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(r.output_tokens)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtDuration(r.median_run_sec)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtTokens(r.output_tokens)}</td>
                 </tr>
               ))}
             </tbody>

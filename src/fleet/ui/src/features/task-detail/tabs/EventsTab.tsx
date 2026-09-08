@@ -4,6 +4,7 @@ import { api } from '../../../shared/api';
 import type { StreamEvent } from '../../../shared/types';
 import { fmtClockTime } from '../../../shared/format';
 import { eventKindColor } from '../../../shared/status';
+import { merge, when } from '../../../shared/styles/recipes';
 
 interface Props {
   taskId: string;
@@ -45,12 +46,12 @@ export function EventsTab({ taskId, status }: Props) {
   const events: StreamEvent[] = data?.events ?? [];
   const total: number = data?.total ?? 0;
 
-  // Auto-scroll to bottom when data changes
+  // Auto-scroll to bottom when new data arrives
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [events]);
+  }, [data]);
 
   function handleLoadOlder() {
     if (data) {
@@ -73,7 +74,7 @@ export function EventsTab({ taskId, status }: Props) {
           {KIND_FILTERS.map((f, i) => (
             <button
               key={i}
-              style={{ ...styles.chip, ...(activeFilter === i ? styles.chipActive : {}) }}
+              style={merge(styles.chip, when(activeFilter === i, styles.chipActive))}
               onClick={() => { setActiveFilter(i); setOffset(null); setExpandedIdx(null); }}
             >
               {f.label}
@@ -97,20 +98,12 @@ export function EventsTab({ taskId, status }: Props) {
             <div key={i}>
               {showSeparator && <div style={styles.separator} />}
               <div
-                style={{
-                  ...styles.row,
-                  ...(evt.kind === 'error' ? styles.rowError : {}),
-                }}
+                style={merge(styles.row, when(evt.kind === 'error', styles.rowError), {  })}
                 onClick={() => handleToggleExpand(i)}
               >
                 <span style={styles.ts}>{fmtClockTime(evt.ts)}</span>
                 <span
-                  style={{
-                    ...styles.badge,
-                    background: eventKindColor(evt.kind) + '22',
-                    color: eventKindColor(evt.kind),
-                    borderColor: eventKindColor(evt.kind) + '66',
-                  }}
+                  style={merge(styles.badge, { background: eventKindColor(evt.kind) + '22', color: eventKindColor(evt.kind), borderColor: eventKindColor(evt.kind) + '66',  })}
                 >
                   {evt.kind}
                 </span>

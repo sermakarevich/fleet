@@ -31,7 +31,7 @@ typecheck:
     uv run mypy src
 
 # one command that says "green": lint + format check + types + unit tests
-check: lint fmt-check typecheck ui-types-check
+check: lint fmt-check typecheck ui-types-check ui-check-if-present
     uv run pytest -q -p no:cacheprovider tests --ignore=tests/integration
 
 # check plus the integration suite
@@ -90,9 +90,13 @@ ui-build: ui-install
     cp -r src/fleet/ui/dist "{{FLEET_HOME}}/ui_dist"
     @echo "UI built → {{FLEET_HOME}}/ui_dist"
 
-# typecheck the web UI without emitting output
+# typecheck, lint and unit-test the web UI
 ui-check:
-    cd src/fleet/ui && npx tsc --noEmit
+    cd src/fleet/ui && npx tsc --noEmit && npm run lint && npm run test -- --run
+
+# ui-check when node deps are installed, skip with a message otherwise
+ui-check-if-present:
+    @if [ -d src/fleet/ui/node_modules ]; then just ui-check; else echo "ui-check skipped: node_modules missing (run just ui-install)"; fi
 
 # regenerate the UI's typed API client from the serve OpenAPI schema
 ui-types:

@@ -1,7 +1,8 @@
 import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
 import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
-import { chipFor } from './statusChip';
+import * as R from '../../shared/styles/recipes';
+import { StatusChip } from '../../shared/ui/StatusChip';
 import { styles } from './itemStyles';
 
 const KILL_ELIGIBLE = new Set(['in_progress', 'blocked', 'open', 'ready']);
@@ -22,7 +23,6 @@ export interface TaskRowProps {
 
 export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: TaskRowProps) {
   const isStopping = stoppingIds.has(task.id) && task.status === 'in_progress';
-  const chip = chipFor(task.status, isStopping);
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
   const isConfirming = confirmingId === task.id;
   const killEligible = KILL_ELIGIBLE.has(task.status);
@@ -38,12 +38,10 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
     && Number(new Date(task.lease.lease_until)) < Date.now();
 
   return (
-    <div style={styles.row} className="row-interactive" tabIndex={0} onClick={() => onRowClick(task.id)}>
-      <span style={{ ...styles.chip, background: chip.bg, color: chip.fg }}>
-        {chip.label}
-      </span>
-      <span style={styles.idCell}>{task.id}</span>
-      <span style={styles.titleCell}>
+    <div style={R.rowStyle(false)} className="row-interactive" tabIndex={0} onClick={() => onRowClick(task.id)}>
+      <StatusChip status={task.status} stopping={isStopping} />
+      <span style={R.idCellStyle()}>{task.id}</span>
+      <span style={styles.titleCol}>
         <span style={styles.titleText} title={task.title}>{task.title}</span>
         {task.description && (
           <span style={styles.descText} title={task.description}>{task.description}</span>
@@ -67,7 +65,7 @@ export function TaskRow({ task, confirmingId, stoppingIds, onKillClick, onKillCo
       <span style={styles.coderCell}>
         {coderModelStr
           ? coderModelStr
-          : <span style={styles.dim}>(default)</span>}
+          : <span style={R.dimStyle()}>(default)</span>}
       </span>
       <span style={styles.contextCell} title={fmtContextTitle(task.context_tokens, task.context_limit)}>{fmtTokens(task.context_tokens, task.context_pct)}</span>
       <span style={styles.runsCell}>

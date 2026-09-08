@@ -13,6 +13,7 @@ import { RateLimitTimeline } from './charts/RateLimitTimeline';
 import { fillBuckets } from './timeBuckets';
 import type { AnalyticsKpis } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
+import { merge, when } from '../../shared/styles/recipes';
 
 const RANGE_OPTIONS = [
   { label: '24h', days: 1 },
@@ -101,7 +102,7 @@ export function AnalyticsPage() {
           {RANGE_OPTIONS.map(opt => (
             <button
               key={opt.label}
-              style={{ ...styles.filterBtn, ...(days === opt.days ? styles.filterBtnActive : {}) }}
+              style={merge(styles.filterBtn, when(days === opt.days, styles.filterBtnActive))}
               onClick={() => setDays(opt.days)}
             >
               {opt.label}

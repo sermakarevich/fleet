@@ -1,62 +1,12 @@
-// Shared style objects for TasksPage, TaskRow and TaskCard.
+/**
+ * Styles only the tasks table and cards need.
+ * Generic page/row/chip recipes live in shared/styles/recipes.ts;
+ * this module keeps task-specific cells, badges and action buttons.
+ * Called by TasksPage, TaskRow and TaskCard.
+ */
 import * as T from '../../shared/styles/tokens';
 
 export const styles = {
-  page: {
-    padding: '1rem 1.5rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  msg: {
-    padding: '1rem',
-    color: T.colors.textDim,
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  topBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    marginBottom: '0.875rem',
-    flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  heading: {
-    margin: 0,
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: T.colors.textPrimary,
-  } as React.CSSProperties,
-  count: {
-    fontWeight: 400,
-    color: T.colors.textDim,
-    fontSize: '0.875rem',
-  } as React.CSSProperties,
-  searchInput: {
-    padding: '0.2rem 0.625rem',
-    background: T.colors.bgDeep,
-    border: `1px solid ${T.colors.border}`,
-    borderRadius: 4,
-    color: T.colors.textPrimary,
-    fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
-    outline: 'none',
-    width: '13rem',
-  } as React.CSSProperties,
-  filterRow: {
-    display: 'flex',
-    gap: '0.375rem',
-    flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  filterBtn: {
-    ...T.btnGhost,
-    padding: '0.2rem 0.625rem',
-    fontSize: '0.8125rem',
-    color: T.colors.textDim,
-    lineHeight: 1.4,
-  } as React.CSSProperties,
-  filterBtnActive: {
-    background: T.colors.accent,
-    borderColor: T.colors.accent,
-    color: '#fff',
-  } as React.CSSProperties,
   filterBtnInner: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -70,22 +20,6 @@ export const styles = {
     background: T.colors.danger,
     flexShrink: 0,
   } as React.CSSProperties,
-  panel: {
-    ...T.panel,
-    overflow: 'hidden',
-  } as React.CSSProperties,
-  colHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0.4rem 1rem',
-    borderBottom: `1px solid ${T.colors.borderSubtle}`,
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    color: T.colors.textDim,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    gap: '0.75rem',
-  } as React.CSSProperties,
   colStatus:  { width: '5rem', flexShrink: 0 } as React.CSSProperties,
   colId:      { width: '6rem', flexShrink: 0 } as React.CSSProperties,
   colTitle:   { flex: 1, minWidth: 0 } as React.CSSProperties,
@@ -95,34 +29,7 @@ export const styles = {
   colTs:      { width: '8.5rem', flexShrink: 0 } as React.CSSProperties,
   colCwd:     { width: '7rem', flexShrink: 0 } as React.CSSProperties,
   colAction:  { width: '10rem', flexShrink: 0 } as React.CSSProperties,
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    padding: '0.5rem 1rem',
-    gap: '0.75rem',
-    borderBottom: `1px solid ${T.colors.borderSubtle}`,
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    color: '#d4d4d8',
-    transition: 'background 0.1s',
-  } as React.CSSProperties,
-  chip: {
-    ...T.badge,
-    width: '5rem',
-    flexShrink: 0,
-    letterSpacing: '0.01em',
-  } as React.CSSProperties,
-  idCell: {
-    width: '6rem',
-    flexShrink: 0,
-    fontFamily: 'monospace',
-    color: '#60a5fa',
-    fontSize: '0.8125rem',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  titleCell: {
+  titleCol: {
     flex: 1,
     minWidth: 0,
     display: 'flex',
@@ -270,39 +177,6 @@ export const styles = {
     ...T.btnGhost,
     padding: '0.2rem 0.5rem',
     fontSize: '0.8125rem',
-  } as React.CSSProperties,
-  empty: {
-    padding: '1.5rem 1rem',
-    color: T.colors.textMuted,
-    fontSize: '0.875rem',
-    margin: 0,
-    textAlign: 'center' as const,
-  } as React.CSSProperties,
-  dim: {
-    color: T.colors.textMuted,
-  } as React.CSSProperties,
-  pagination: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.75rem',
-    padding: '0.625rem 0',
-    marginTop: '0.5rem',
-  } as React.CSSProperties,
-  pageBtn: {
-    ...T.btnGhost,
-    padding: '0.2rem 0.75rem',
-    fontSize: '0.8125rem',
-  } as React.CSSProperties,
-  pageBtnDisabled: {
-    opacity: 0.35,
-    cursor: 'default',
-  } as React.CSSProperties,
-  pageInfo: {
-    fontSize: '0.8125rem',
-    color: T.colors.textDim,
-    minWidth: '4rem',
-    textAlign: 'center' as const,
   } as React.CSSProperties,
 };
 

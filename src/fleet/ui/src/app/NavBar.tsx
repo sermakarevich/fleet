@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { useIsMobile } from '../shared/hooks/useIsMobile';
 import { useChatQuestions, useSupervisor, useHealthz } from '../shared/hooks/useApi';
 import { colors } from '../shared/styles/tokens';
+import { merge } from '../shared/styles/recipes';
 
 // Always-visible circle next to the Chat tab: green when there are unanswered
 // (pending) ask_human questions, dim gray when the queue is empty.
@@ -18,7 +19,7 @@ function ChatIndicator() {
           ? `${count} unanswered question${count === 1 ? '' : 's'}`
           : 'No pending questions'
       }
-      style={{ ...styles.chatDot, ...(active ? styles.chatDotActive : styles.chatDotIdle) }}
+      style={merge(styles.chatDot, (active ? styles.chatDotActive : styles.chatDotIdle))}
     />
   );
 }
@@ -78,7 +79,7 @@ export function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask
             fleet
           </Link>
           <StalenessChip />
-          <span style={{ ...styles.dot, marginLeft: 'auto', fontSize: '0.7rem', color: connected ? colors.success : colors.danger }}>
+          <span style={merge(styles.dot, { marginLeft: 'auto', fontSize: '0.7rem', color: connected ? colors.success : colors.danger })}>
             {connected ? '●' : '○'}
           </span>
           <button style={styles.newTaskBtn} onClick={onNewTask}>+ New</button>
@@ -98,7 +99,7 @@ export function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask
       {navLinks}
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <StalenessChip />
-      <span style={{ ...styles.dot, color: connected ? colors.success : colors.danger }}>
+      <span style={merge(styles.dot, { color: connected ? colors.success : colors.danger })}>
         {connected ? '● connected' : '○ disconnected'}
       </span>
     </nav>

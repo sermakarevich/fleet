@@ -17,7 +17,7 @@ export function Sparkline({ value }: Props) {
   }, [value]);
 
   if (history.length === 0) {
-    return <span style={{ display: 'inline-block', width: 60, height: 20 }} />;
+    return <span style={styles.placeholder} />;
   }
 
   const data = history.map(v => ({ v }));
@@ -32,3 +32,9 @@ export function Sparkline({ value }: Props) {
     </BarChart>
   );
 }
+
+const styles = {
+  placeholder: {
+    display: 'inline-block', width: 60, height: 20,
+  } as React.CSSProperties,
+};

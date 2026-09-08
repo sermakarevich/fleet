@@ -4,6 +4,7 @@ import * as T from '../../shared/styles/tokens';
 import { useUnblockTask } from '../../shared/hooks/useApi';
 import { statusColor, statusLabel } from '../../shared/status';
 import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
+import { merge } from '../../shared/styles/recipes';
 
 interface Props {
   task: TaskDetail;
@@ -51,11 +52,7 @@ export function Header({ task, config }: Props) {
       <div style={styles.row}>
         <span style={styles.id}>{task.id}</span>
         <span
-          style={{
-            ...styles.pill,
-            background: statusColor(task.status).bg,
-            color: statusColor(task.status).fg,
-          }}
+          style={merge(styles.pill, { background: statusColor(task.status).bg, color: statusColor(task.status).fg,  })}
         >
           {statusLabel(task.status)}
         </span>
@@ -89,11 +86,7 @@ export function Header({ task, config }: Props) {
       {desc && (
         <div style={styles.descContainer}>
           <span
-            style={{
-              ...styles.desc,
-              maxHeight: descVisible ? 'none' : `${12 * 16}px`,
-              overflow: 'hidden',
-            }}
+            style={merge(styles.desc, { maxHeight: descVisible ? 'none' : `${12 * 16}px`, overflow: 'hidden',  })}
           >
             {desc}
           </span>

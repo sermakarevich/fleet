@@ -16,6 +16,7 @@ import { FilesTab } from './tabs/FilesTab';
 import { EventsTab } from './tabs/EventsTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import type { FleetEvent } from '../../shared/types';
+import { merge, when } from '../../shared/styles/recipes';
 
 type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
@@ -66,7 +67,7 @@ export function TaskDetailPage() {
   }
 
   if (error || !task) {
-    return <p style={{ ...styles.msg, color: '#ef4444' }}>Task not found.</p>;
+    return <p style={merge(styles.msg, { color: '#ef4444' })}>Task not found.</p>;
   }
 
   function renderTab() {
@@ -94,10 +95,7 @@ export function TaskDetailPage() {
             {TABS.map(tab => (
               <button
                 key={tab.id}
-                style={{
-                  ...styles.tabBtn,
-                  ...(activeTab === tab.id ? styles.tabBtnActive : {}),
-                }}
+                style={merge(styles.tabBtn, when(activeTab === tab.id, styles.tabBtnActive), {  })}
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}

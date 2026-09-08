@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import type { LogLine } from '../../../shared/types';
+import { merge, when } from '../../../shared/styles/recipes';
 
 interface Props {
   taskId: string;
@@ -49,7 +50,7 @@ export function LogTab({ taskId, status }: Props) {
           {LEVELS.map(l => (
             <button
               key={l}
-              style={{ ...styles.chip, ...(levelFilter === l ? styles.chipActive : {}) }}
+              style={merge(styles.chip, when(levelFilter === l, styles.chipActive))}
               onClick={() => setLevelFilter(l)}
             >
               {l}
@@ -63,7 +64,7 @@ export function LogTab({ taskId, status }: Props) {
         {!isLoading && lines.length === 0 && <p style={styles.msg}>No log entries.</p>}
         {lines.map((line, i) => (
           <div key={i} style={styles.row}>
-            <span style={{ ...styles.level, color: levelColor(line.level) }}>{line.level}</span>
+            <span style={merge(styles.level, { color: levelColor(line.level) })}>{line.level}</span>
             <span style={styles.ts}>{line.ts.slice(0, 19).replace('T', ' ')}</span>
             <span style={styles.msg2}>{line.message}</span>
           </div>

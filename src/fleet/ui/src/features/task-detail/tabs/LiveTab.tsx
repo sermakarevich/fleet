@@ -1,63 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FleetEvent } from '../../../shared/types';
+import { computeLineDiff } from '../../../shared/diff';
 import * as T from '../../../shared/styles/tokens';
+import { DIFF_LINE_STYLE, merge } from '../../../shared/styles/recipes';
 import { eventKindColor } from '../../../shared/status';
-
-type DiffLine = { type: 'equal' | 'remove' | 'add'; text: string };
-
-function computeLineDiff(oldStr: string, newStr: string): DiffLine[] {
-  const oldLines = oldStr === '' ? [] : oldStr.split('\n');
-  const newLines = newStr === '' ? [] : newStr.split('\n');
-  const MAX = 400;
-  if (oldLines.length > MAX || newLines.length > MAX) {
-    return [
-      ...oldLines.map(t => ({ type: 'remove' as const, text: t })),
-      ...newLines.map(t => ({ type: 'add' as const, text: t })),
-    ];
-  }
-  const m = oldLines.length;
-  const n = newLines.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-  }
-  const result: DiffLine[] = [];
-  let i = m, j = n;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-      result.unshift({ type: 'equal', text: oldLines[i - 1] });
-      i--; j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      result.unshift({ type: 'add', text: newLines[j - 1] });
-      j--;
-    } else {
-      result.unshift({ type: 'remove', text: oldLines[i - 1] });
-      i--;
-    }
-  }
-  return result;
-}
 
 function DiffView({ oldStr, newStr }: { oldStr: string; newStr: string }) {
   const lines = computeLineDiff(oldStr, newStr);
   return (
-    <pre style={{ ...styles.detail, padding: 0, overflow: 'auto' }}>
+    <pre style={merge(styles.detail, styles.diffReset)}>
       {lines.map((line, idx) => (
         <div
           key={idx}
-          style={{
-            background: line.type === 'remove' ? '#3f1010' : line.type === 'add' ? '#0f2e18' : 'transparent',
-            color: line.type === 'remove' ? '#f87171' : line.type === 'add' ? '#4ade80' : '#71717a',
-            padding: '0 0.4rem',
-            whiteSpace: 'pre',
-            lineHeight: '1.45',
-          }}
+          style={merge(styles.diffLine, DIFF_LINE_STYLE[line.type])}
         >
           {line.type === 'remove' ? '-' : line.type === 'add' ? '+' : ' '} {line.text}
         </div>
@@ -84,18 +39,7 @@ const ALL_FILTER = 'all';
 
 function KindBadge({ kind, label }: { kind: string; label: string }) {
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '0.05rem 0.35rem',
-        borderRadius: 3,
-        fontSize: '0.65rem',
-        fontWeight: 700,
-        color: '#fff',
-        background: eventKindColor(kind),
-        flexShrink: 0,
-      }}
-    >
+    <span style={merge(styles.kindBadge, { background: eventKindColor(kind) })}>
       {label}
     </span>
   );
@@ -153,7 +97,7 @@ export function LiveTab({ events }: Props) {
         {kinds.map(k => (
           <button
             key={k}
-            style={{ ...styles.chip, ...(activeFilter === k ? styles.chipActive : {}) }}
+            style={merge(styles.chip, activeFilter === k && styles.chipActive)}
             onClick={() => setActiveFilter(k)}
           >
             {k}
@@ -319,5 +263,23 @@ const styles: Record<string, React.CSSProperties> = {
     maxHeight: 200,
     fontSize: '0.7rem',
     boxSizing: 'border-box',
+  },
+  diffReset: {
+    padding: 0,
+    overflow: 'auto',
+  },
+  diffLine: {
+    padding: '0 0.4rem',
+    whiteSpace: 'pre',
+    lineHeight: '1.45',
+  },
+  kindBadge: {
+    display: 'inline-block',
+    padding: '0.05rem 0.35rem',
+    borderRadius: 3,
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    color: '#fff',
+    flexShrink: 0,
   },
 };

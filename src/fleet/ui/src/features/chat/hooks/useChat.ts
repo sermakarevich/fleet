@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import { useChatQuestions } from '../../../shared/hooks/useApi';
@@ -6,7 +6,7 @@ import { useToast } from '../../../shared/contexts/ToastContext';
 
 export function useChat() {
   const { data } = useChatQuestions();
-  const questions = data?.pending ?? [];
+  const questions = useMemo(() => data?.pending ?? [], [data]);
   const serverOffset = data ? data.now - Date.now() / 1000 : 0;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { addToast } = useToast();
@@ -17,7 +17,6 @@ export function useChat() {
       if (prev && questions.some(q => q.id === prev)) return prev;
       return questions.length > 0 ? questions[0].id : null;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions]);
 
   const answerMutation = useMutation({

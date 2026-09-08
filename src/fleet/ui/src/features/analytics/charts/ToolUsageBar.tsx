@@ -2,6 +2,7 @@ import type { AnalyticsToolRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtCount } from '../../../shared/format';
+import { merge } from '../../../shared/styles/recipes';
 
 interface ToolUsageBarProps {
   tools: { total: number; rows: AnalyticsToolRow[] };
@@ -35,30 +36,17 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
           {top.map(row => (
             <div key={row.name} style={rowContainer}>
               <span
-                style={{
-                  fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
-                  fontSize: '0.75rem',
-                  color: T.colors.textSecondary,
-                  width: MAX_NAME_WIDTH,
-                  textAlign: 'right' as const,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
+                style={styles.toolName}
                 title={row.name}
               >
                 {row.name}
               </span>
               <div style={track}>
                 <div
-                  style={{
-                    ...fill,
-                    width: `${(row.count / maxCount) * 100}%`,
-                  }}
+                  style={merge(fill, { width: `${(row.count / maxCount) * 100}%`,  })}
                 />
               </div>
-              <span style={{ fontSize: '0.75rem', color: T.colors.textDim, width: '3.5rem', textAlign: 'right' as const, flexShrink: 0 }}>
+              <span style={styles.toolCount}>
                 {fmtCount(row.count)}
               </span>
             </div>
@@ -104,4 +92,22 @@ const more: React.CSSProperties = {
   fontStyle: 'italic' as const,
   marginTop: '0.25rem',
   textAlign: 'right' as const,
+};
+
+const styles = {
+  toolName: {
+    fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
+    fontSize: '0.75rem',
+    color: T.colors.textSecondary,
+    width: MAX_NAME_WIDTH,
+    textAlign: 'right' as const,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
+  } as React.CSSProperties,
+  toolCount: {
+    fontSize: '0.75rem', color: T.colors.textDim, width: '3.5rem',
+    textAlign: 'right' as const, flexShrink: 0,
+  } as React.CSSProperties,
 };

@@ -1,4 +1,5 @@
 import { useTaskChildren } from '../../../shared/hooks/useApi';
+import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
   taskId: string;
@@ -30,7 +31,7 @@ export function ChildrenTab({ taskId }: Props) {
             <span style={styles.id}>{c.id}</span>
             <span style={styles.cell}>{c.status ?? '—'}</span>
             <span style={styles.cell}>{c.result_status ?? '—'}</span>
-            <span style={{ ...styles.cell, ...styles.summary }} title={c.result_summary ?? c.title ?? undefined}>
+            <span style={merge(styles.cell, styles.summary)} title={c.result_summary ?? c.title ?? undefined}>
               {c.result_summary || c.title || '—'}
             </span>
           </div>
