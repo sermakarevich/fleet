@@ -6,7 +6,7 @@ from pathlib import Path
 
 import structlog
 
-import fleet.workers.llm_session as llm_session_mod
+import fleet.workers.session.monitors as monitors_mod
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
@@ -609,27 +609,35 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
     reports a provider error, the runner kills the process group and returns
     that outcome instead of waiting for the process to exit on its own."""
 
-    monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
-    monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)
-    monkeypatch.setattr(llm_session_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", -1)
+    monkeypatch.setattr(monitors_mod, "MONITOR_TICK_SEC", 0.01)
+    monkeypatch.setattr(monitors_mod, "PROBE_SILENCE_SEC", -1)
+    monkeypatch.setattr(monitors_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", -1)
 
     class _FakeStdout:
         _limit = 0
 
+        def __init__(self, proc: "_FakeProc") -> None:
+            self._proc = proc
+
         async def readline(self) -> bytes:
-            await asyncio.sleep(3600)
+            while self._proc.returncode is None:
+                await asyncio.sleep(0.01)
             return b""
 
     class _FakeProc:
         pid = 987654
         returncode: int | None = None
-        stdout = _FakeStdout()
+
+        def __init__(self) -> None:
+            self.stdout = _FakeStdout(self)
 
         def send_signal(self, sig) -> None:
             self.returncode = -sig
 
         async def wait(self) -> int:
-            return self.returncode if self.returncode is not None else 0
+            while self.returncode is None:
+                await asyncio.sleep(0.01)
+            return self.returncode
 
     async def _fake_create(*args, **kwargs):
         return _FakeProc()
@@ -677,9 +685,9 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
     RATE_LIMIT_PROBE_SILENCE_SEC, the step keeps waiting and the session is
     allowed to recover and finish on its own."""
 
-    monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
-    monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)
-    monkeypatch.setattr(llm_session_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", 3600)
+    monkeypatch.setattr(monitors_mod, "MONITOR_TICK_SEC", 0.01)
+    monkeypatch.setattr(monitors_mod, "PROBE_SILENCE_SEC", -1)
+    monkeypatch.setattr(monitors_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", 3600)
 
     class _FakeStdout:
         _limit = 0
@@ -688,8 +696,8 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
         async def readline(self) -> bytes:
             self.calls += 1
             if self.calls <= 3:
-                await asyncio.sleep(0.05)  # longer than PROBE_INTERVAL_SEC -> probes fire
-                raise TimeoutError  # never reached; wait_for raises first
+                await asyncio.sleep(0.05)  # longer than MONITOR_TICK_SEC -> probes fire
+                return b"not-json\n"
             return b""
 
     class _FakeProc:

@@ -14,11 +14,8 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome
 from fleet.state.paths import task_dir as _task_dir_path
 from fleet.workers.base import StepContext
-from fleet.workers.llm_session import (
-    LlmSession,
-    error_text_of,
-    is_context_error_text,
-)
+from fleet.workers.llm_session import LlmSession
+from fleet.workers.session.classify import error_text_of, is_context_error_text
 
 
 class StubCoder:

@@ -12,23 +12,25 @@ pure ``core.compaction_fallback`` truncation so the launch still works.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders import get_coder
+from fleet.coders.base import isolation_workdir
 from fleet.core.compaction_fallback import compact_fallback
 from fleet.state import attempts as state_attempts
 from fleet.state.artifacts import StateFile
 from fleet.state.attempt_summary import render_markdown, summarize
-from fleet.state.journal import append_event
 from fleet.state.paths import RUN_JSON
 
 from .base import StepContext, StepResult, write_run_json
+from .session.process import KILL_GRACE_SEC, CoderProcess
+from .session.stream import EventStream
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -84,22 +86,10 @@ def _git_lines(workdir: Path | None, args: list[str], limit: int) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()][:limit]
 
 
-def _resolve_workdir(ctx: StepContext) -> Path | None:
-    try:
-        meta = json.loads((ctx.task_dir / "task.json").read_text(encoding="utf-8"))
-        if isinstance(meta, dict) and meta.get("worktree_path"):
-            return Path(meta["worktree_path"])
-    except (OSError, ValueError):
-        pass
-    wt_marker = ctx.task_dir / ".worktree"
-    if wt_marker.exists():
-        try:
-            return Path(wt_marker.read_text(encoding="utf-8").strip())
-        except OSError:
-            return None
-    if ctx.task.cwd:
-        return Path(ctx.task.cwd)
-    return None
+def _workdir_of(ctx: StepContext) -> Path | None:
+    """Workdir for git context: the isolated worktree, else the task cwd."""
+    raw = isolation_workdir(ctx.task_dir) or ctx.task.cwd
+    return Path(raw) if raw else None
 
 
 def collect_material(
@@ -225,53 +215,26 @@ async def _run_compaction_model(
     Returns the concatenated assistant_text output. Raises ``TimeoutError``
     on timeout, ``OSError`` when the CLI binary is missing.
     """
-    env = {**os.environ, **coder.env(task, task_dir)}  # type: ignore[attr-defined]
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        env=env,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-        stdin=asyncio.subprocess.DEVNULL,
-        start_new_session=True,
+    env = {**os.environ, **coder.env(task, task_dir)}  # type: ignore[attr-defined]  # duck-typed Coder double
+    proc = await CoderProcess.start(list(argv), env, None)
+    stream = EventStream(
+        proc,
+        coder,  # type: ignore[arg-type]  # duck-typed Coder double
+        attempt_dir=compact_dir,
+        started_at=datetime.now(tz=UTC),
     )
-    assert proc.stdout is not None
-    proc.stdout._limit = 100 * 1024 * 1024  # type: ignore[attr-defined]  # private asyncio buffer knob; bead 6 owns the session runner
     texts: list[str] = []
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout_sec
     try:
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise TimeoutError("compaction timed out")
-            try:
-                raw_bytes = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
-            except TimeoutError:
-                raise TimeoutError("compaction timed out") from None
-            if not raw_bytes:
-                break
-            raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
-            evt = coder.normalize_event(raw_line)  # type: ignore[attr-defined]
-            if evt is None:
-                continue
-            with contextlib.suppress(OSError):
-                append_event(compact_dir, evt)
-            if evt.kind == "assistant_text":
-                text = _extract_text(evt.raw)
-                if text:
-                    texts.append(text)
+        async with asyncio.timeout(timeout_sec):
+            async for evt in stream:
+                if evt.kind == "assistant_text":
+                    text = _extract_text(evt.raw)
+                    if text:
+                        texts.append(text)
+    except TimeoutError as exc:
+        raise TimeoutError("compaction timed out") from exc
     finally:
-        if proc.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                proc.terminate()
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=5.0)
-            except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-                await proc.wait()
-        else:
-            await proc.wait()
+        await proc.terminate_group(KILL_GRACE_SEC)
     return "\n".join(texts)
 
 
@@ -300,7 +263,7 @@ class Compact:
             return self._fallback(ctx, f"unknown coder: {exc}")
 
         coder = coder_cls(model=ctx.config.compaction_model)  # type: ignore[call-arg]  # Coder subclasses take model=; bead 21 adds coder_factory
-        material = collect_material(task_dir, _resolve_workdir(ctx), before_n=ctx.attempt_n)
+        material = collect_material(task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
         prompt = render_compaction_prompt(material)
         try:
             argv = _compaction_argv(coder, ctx.task, task_dir, prompt)
@@ -356,7 +319,7 @@ class Compact:
         return StepResult(status="ok", reason=outcome_reason)
 
     def _fallback(self, ctx: StepContext, reason: str) -> StepResult:
-        material = collect_material(ctx.task_dir, _resolve_workdir(ctx), before_n=ctx.attempt_n)
+        material = collect_material(ctx.task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
         state = compact_fallback(
             material.state,
             material.summaries,
