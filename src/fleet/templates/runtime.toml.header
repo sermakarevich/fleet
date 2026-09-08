@@ -68,3 +68,11 @@
 # triage_interval_minutes: How often the supervisor scans blocked beads and
 #   posts/answers triage questions via the ask_human store. Defaults to 15.
 #   0 disables triage.
+#
+# gc_retention_days: Closed tasks older than this many days are archived to
+#   archive/tasks/ (and their worktrees removed) by the supervisor's daily
+#   retention pass. Defaults to 30. 0 disables archiving.
+#
+# gc_archive_days: Archived task dirs older than this many days are deleted
+#   permanently by the retention pass (and by `fleet gc --purge`).
+#   Defaults to 90. 0 disables purging.

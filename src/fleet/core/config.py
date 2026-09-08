@@ -37,6 +37,8 @@ class RuntimeConfig:
     isolation: str = "worktree"
     post_merge_command: str = ""
     triage_interval_minutes: int = 15
+    gc_retention_days: int = 30
+    gc_archive_days: int = 90
 
 
 _KEY_TYPES: dict[str, type] = {

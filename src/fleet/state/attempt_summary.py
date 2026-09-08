@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 from fleet.state import attempts as state_attempts
+from fleet.state.atomic import write_text_atomic
 from fleet.state.events import iter_attempt_events, scan_rows
 
 _MAX_CHARS = 4096
@@ -233,5 +234,5 @@ def write_summary(task_dir: Path, n: int, workdir: Path | None) -> Path:
     text = text[:_MAX_CHARS]
 
     out_path = attempt_dir / "SUMMARY.md"
-    out_path.write_text(text, encoding="utf-8")
+    write_text_atomic(out_path, text)
     return out_path

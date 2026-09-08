@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import signal
 from datetime import datetime
 from pathlib import Path
@@ -10,12 +11,18 @@ import structlog
 from fleet.beads.queue import Queue
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig, load, reload_if_changed
-from fleet.core.limits import CONFIG_POLL_INTERVAL_SEC, SHUTDOWN_GRACE_SEC
+from fleet.core.limits import (
+    CONFIG_POLL_INTERVAL_SEC,
+    GC_INTERVAL_SEC,
+    SHUTDOWN_GRACE_SEC,
+)
 from fleet.core.task import Task
 from fleet.serve.stats import task_runtime_stats
+from fleet.state.archive import find_stale_worktrees, gc_tasks, purge_archive
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers.base import WorkerRun
 
+from . import worktree as worktree_mod
 from .claim import ClaimMixin
 from .leases import LeasesMixin
 from .rate_gauge import RateGauge
@@ -95,6 +102,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         check_ask_human_server(self._log)
         self._sweep_orphan_worktrees()
         self.reconcile_leases()
+        self._run_retention_gc()
 
         bg = [
             asyncio.create_task(self._claim_and_spawn_loop(), name="claim_and_spawn"),
@@ -102,6 +110,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
             asyncio.create_task(self._config_poll_loop(), name="config_poll"),
             asyncio.create_task(self._status_log_loop(), name="status_log"),
             asyncio.create_task(self._kill_poll_loop(), name="kill_poll"),
+            asyncio.create_task(self._gc_loop(), name="retention_gc"),
         ]
 
         await self._done.wait()
@@ -111,6 +120,73 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         await asyncio.gather(*bg, return_exceptions=True)
 
         return 0
+
+    async def _gc_loop(self) -> None:
+        """Run the retention pass on a daily cadence (startup ran it once)."""
+        while not self._shutting_down:
+            await asyncio.sleep(GC_INTERVAL_SEC)
+            if self._shutting_down:
+                break
+            try:
+                self._run_retention_gc()
+            except Exception as exc:  # noqa: BLE001 - gc must not kill the loop
+                self._log.warning("retention_gc_failed", error=str(exc))
+
+    def _run_retention_gc(self) -> None:
+        """Archive old closed tasks, purge old archives, drop stale worktrees.
+
+        Retention windows come from the live config; 0 disables that step.
+        Never raises: per-step handling is guarded so one bad directory
+        cannot break the pass.
+        """
+        home = self._project_root
+        try:
+            stale = find_stale_worktrees(home, days=self.config.gc_retention_days)
+        except Exception as exc:  # noqa: BLE001 - selection failed, skip step
+            self._log.warning("retention_worktrees_failed", error=str(exc))
+            stale = []
+        try:
+            gc = gc_tasks(home, days=self.config.gc_retention_days)
+            self._log.info(
+                "retention_gc_tasks",
+                archived=len(gc.archived),
+                skipped=gc.skipped,
+                bytes_moved=gc.bytes_moved,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
+            self._log.warning("retention_gc_tasks_failed", error=str(exc))
+        try:
+            purged = purge_archive(home, days=self.config.gc_archive_days)
+            self._log.info(
+                "retention_purge_archive",
+                deleted=len(purged.deleted),
+                skipped=purged.skipped,
+                bytes_freed=purged.bytes_freed,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
+            self._log.warning("retention_purge_failed", error=str(exc))
+        removed = 0
+        for item in stale:
+            try:
+                worktree_mod.cleanup_worktree(
+                    item.repo_root or home,
+                    item.task_id,
+                    worktree_path_arg=item.path,
+                    fleet_home=home,
+                )
+                if item.path.exists():
+                    # Not a git-registered worktree (or its repo is gone):
+                    # fall back to a plain recursive delete.
+                    shutil.rmtree(item.path, ignore_errors=True)
+                removed += 1
+            except Exception as exc:  # noqa: BLE001 - one bad dir, rest continue
+                self._log.warning(
+                    "retention_worktree_failed",
+                    task_id=item.task_id,
+                    error=str(exc),
+                )
+        if stale:
+            self._log.info("retention_worktrees", found=len(stale), removed=removed)
 
     async def _config_poll_loop(self) -> None:
         while not self._shutting_down:

@@ -18,7 +18,7 @@ from fleet.cli.format import render_tasks_table
 from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
 from fleet.observability import tailview
-from fleet.state.archive import gc_tasks
+from fleet.state.archive import gc_tasks, purge_archive
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
@@ -266,6 +266,13 @@ def register(app: typer.Typer) -> None:
         dry_run: Annotated[
             bool, typer.Option("--dry-run", help="List what would be archived without moving.")
         ] = False,
+        purge: Annotated[
+            bool,
+            typer.Option(
+                "--purge",
+                help="Also permanently delete archived tasks older than gc_archive_days.",
+            ),
+        ] = False,
     ) -> None:
         """Archive closed task directories older than N days to archive/tasks."""
         home = fleet_home()
@@ -277,6 +284,14 @@ def register(app: typer.Typer) -> None:
             f"{prefix}archived {len(result.archived)} task dirs "
             f"({mb:.1f} MB) -> {archive_dir}; skipped {result.skipped}"
         )
+        if purge:
+            cfg = load_config(home / "runtime.toml")
+            purged = purge_archive(home, cfg.gc_archive_days, dry_run)
+            freed_mb = purged.bytes_freed / (1024 * 1024)
+            typer.echo(
+                f"{prefix}purged {len(purged.deleted)} archived task dirs "
+                f"({freed_mb:.1f} MB freed); skipped {purged.skipped}"
+            )
 
     @app.command("task", cls=_TaskHelpCommand)
     def task_cmd(

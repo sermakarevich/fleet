@@ -342,6 +342,7 @@ Prints the most recently modified `fleet-<date>.jsonl` from
 fleet gc                         # archive closed tasks older than 30 days
 fleet gc --days 7                # shorter retention window
 fleet gc --dry-run               # report without moving anything
+fleet gc --purge                 # also delete archives older than gc_archive_days (90)
 ```
 
 Moves closed task directories under `$FLEET_HOME/tasks` whose modification
@@ -350,6 +351,22 @@ printing how many directories were archived, how much space moved, and how
 many were skipped. Open tasks, recent tasks, and directories without a
 readable `task.json` are always skipped. Pass `--dry-run` to preview what
 would be archived without moving anything.
+
+### Retention
+
+Disk use stays bounded without manual cleanup. The supervisor runs a
+retention pass once at startup (after lease reconciliation) and then every
+24 hours, and `fleet gc --purge` runs the same steps on demand:
+
+1. **Archive** — closed tasks older than `gc_retention_days` (default 30,
+   `0` disables) move to `$FLEET_HOME/archive/tasks/`.
+2. **Purge** — archived task dirs older than `gc_archive_days` (default 90,
+   `0` disables) are deleted permanently.
+3. **Worktrees** — worktree dirs under `$FLEET_HOME/worktrees/` whose task
+   is closed and older than `gc_retention_days` are removed.
+
+Each step logs counts and bytes (`retention_gc_tasks`,
+`retention_purge_archive`, `retention_worktrees` in the supervisor log).
 
 ### `fleet bd <args...>`
 
@@ -568,6 +585,8 @@ directly in the file.
 | `context_windows` | `""` | Per-model context windows as comma-separated `model:tokens` pairs, e.g. `muse-spark-1.3-contributor:1048576`. The one denominator for the context-usage display and the checkpoint/kill thresholds, shared by supervisor and UI. Empty string uses the built-in table in `core/context_window.py`. |
 | `isolation` | `"worktree"` | Git worktree isolation mode: `"worktree"` runs tasks whose cwd is inside a git repo in `$FLEET_HOME/worktrees/<repo>-<task_id>` on branch `fleet/<task_id>`; `"none"` runs everything in place. Per-task opt-out: `fleet bd create --isolation none`. |
 | `post_merge_command` | `""` | Shell command run in the repo root after a clean merge (10-minute timeout). Empty skips the step. Fleet's own repo sets `make ui-build` via config. On failure the bead blocks with the last 40 lines of output. |
+| `gc_retention_days` | `30` | Closed tasks older than this many days are archived to `archive/tasks/` (and their worktrees removed) by the daily retention pass. `0` disables. See [Retention](#retention). |
+| `gc_archive_days` | `90` | Archived task dirs older than this many days are deleted permanently by the retention pass and `fleet gc --purge`. `0` disables. |
 
 ---
 

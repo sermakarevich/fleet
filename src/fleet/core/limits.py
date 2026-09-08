@@ -12,6 +12,9 @@ STATUS_LOG_INTERVAL_SEC: int = 30
 # slow event-loop tick can never trigger a reclaim.
 HEARTBEAT_SEC: int = 30
 LEASE_RECONCILE_INTERVAL_SEC: int = 60
+# Retention (gc) pass: archive closed tasks, purge old archives, drop
+# stale worktrees. Runs once at supervisor startup, then on this cadence.
+GC_INTERVAL_SEC: int = 86400
 PROBE_INTERVAL_SEC: int = 30
 PROBE_SILENCE_SEC: int = 60
 # opencode retries provider rate limits itself with growing back-off; streaks
