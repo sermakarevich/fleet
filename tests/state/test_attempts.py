@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from fleet.state import attempts
+from fleet.state.attempts import latest_attempt_dir, record_end, record_start
 
 
 def test_start_end_round_trip(tmp_path: Path) -> None:
@@ -94,7 +95,7 @@ def test_last_attempt_none_when_empty(tmp_path: Path) -> None:
 def test_record_unblock_adds_row_and_keeps_numbering(tmp_path: Path) -> None:
     """An unblock row gets its own n, loads as kind "unblock"/outcome
     "unblocked", and the next start continues numbering after it."""
-    from fleet.state.attempts import load_attempts, record_end, record_start, record_unblock
+    from fleet.state.attempts import load_attempts, record_unblock
 
     n1 = record_start(tmp_path, coder="c", model="m")
     record_end(tmp_path, outcome="failure", exit_code=1, reason="boom", action="block")
@@ -109,3 +110,24 @@ def test_record_unblock_adds_row_and_keeps_numbering(tmp_path: Path) -> None:
     assert row["outcome"] == "unblocked"
     assert row["reason"] == "looks fine"
     assert row["started_at"] == row["ended_at"]
+
+
+def test_latest_attempt_dir_prefers_the_running_work_attempt(tmp_path: Path) -> None:
+    """A compaction row (n=3) is recorded after the work attempt (n=2) starts
+    and finishes long before it; while n=2 runs, n=2 is the latest."""
+    task_dir = tmp_path / "t"
+    task_dir.mkdir()
+    record_start(task_dir, coder="opencode", model="m")  # n=1
+    record_end(task_dir, outcome="failure", exit_code=-15, reason="x", action="release")
+    n_work = record_start(task_dir, coder="opencode", model="m")  # n=2, still running
+    n_compact = record_start(task_dir, coder="claude", model="haiku", kind="compact")  # n=3
+    record_end(
+        task_dir, outcome="success", exit_code=0, reason="compacted", action="close", n=n_compact
+    )
+
+    assert latest_attempt_dir(task_dir).name == str(n_work)
+
+    record_end(
+        task_dir, outcome="killed", exit_code=-15, reason="stalled", action="release", n=n_work
+    )
+    assert latest_attempt_dir(task_dir).name == str(n_compact)

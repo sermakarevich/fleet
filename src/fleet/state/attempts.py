@@ -115,12 +115,20 @@ def latest_attempt_dir(task_dir: Path, before_n: int | None = None) -> Path | No
     tailing/log/stall/leases, which want "the currently running or most
     recently run attempt").
     """
-    candidates = [a["n"] for a in load_attempts(task_dir)]
+    rows = load_attempts(task_dir)
     if before_n is not None:
-        candidates = [n for n in candidates if n < before_n]
-    if not candidates:
+        rows = [a for a in rows if a["n"] < before_n]
+    if not rows:
         return None
-    return attempt_dir_path(task_dir, max(candidates))
+    # A compaction job records its own row *after* the work attempt it serves
+    # has started, so the highest number can belong to an already finished
+    # helper while the real session is still writing to a lower-numbered
+    # directory. Whoever is still running is "the latest" for tailing, stall
+    # detection and leases; fall back to the highest number otherwise.
+    running = [a["n"] for a in rows if a.get("started_at") and not a.get("ended_at")]
+    if running:
+        return attempt_dir_path(task_dir, max(running))
+    return attempt_dir_path(task_dir, max(a["n"] for a in rows))
 
 
 def record_start(

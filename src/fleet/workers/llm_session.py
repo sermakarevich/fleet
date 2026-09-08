@@ -410,6 +410,10 @@ class LlmSession:
                 evt = coder.normalize_event(raw_line)
                 if evt is None:
                     continue
+                if evt.session_id:
+                    # Lets probe_health tell this run's provider errors apart
+                    # from other sessions sharing the same CLI log file.
+                    coder.current_session_id = evt.session_id
 
                 append_event(attempt_dir, evt)
 

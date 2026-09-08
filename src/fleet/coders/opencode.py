@@ -22,6 +22,7 @@ _LOG_TAIL_BYTES = 256 * 1024
 _TIMESTAMP_RE = re.compile(r"timestamp=(\S+)")
 _LEVEL_RE = re.compile(r"level=(\S+)")
 _MODEL_ID_RE = re.compile(r"modelID=(\S+)")
+_SESSION_ID_RE = re.compile(r"session\.id=(\S+)")
 
 _RATE_LIMIT_MARKERS = ("rate_limit_exceeded", "Rate limit exceeded")
 _CONNECT_ERROR_MARKERS = ("Cannot connect to API", "socket connection was closed")
@@ -35,20 +36,26 @@ def _strip_provider_prefix(model: str) -> str:
 
 
 def classify_opencode_log_lines(
-    lines: list[str], *, since: datetime, model: str
+    lines: list[str], *, since: datetime, model: str, session_id: str | None = None
 ) -> TaskOutcomeRecord | None:
     """Classify tailed opencode.log lines for provider rate-limit/connect errors.
 
-    The log file is shared by every opencode session running on the machine,
-    so the time window (`since`) plus model filter (`model`) is only a
-    heuristic to attribute a line to this task's run. A false positive only
-    causes the runner to release-and-retry the task; it never blocks it.
+    The log file is shared by every opencode session running on the machine.
+    When this task's opencode ``session_id`` is known, lines tagged with a
+    different ``session.id`` are another task's problem and are skipped;
+    otherwise the time window (`since`) plus model filter (`model`) is the
+    only heuristic. A false positive only causes the runner to
+    release-and-retry the task; it never blocks it.
     """
     target_model = _strip_provider_prefix(model)
     for line in lines:
         level_match = _LEVEL_RE.search(line)
         if not level_match or level_match.group(1) != "ERROR":
             continue
+        if session_id:
+            sess_match = _SESSION_ID_RE.search(line)
+            if sess_match and sess_match.group(1) != session_id:
+                continue
 
         ts_match = _TIMESTAMP_RE.search(line)
         if not ts_match:
@@ -399,4 +406,9 @@ class OpencodeCoder(Coder):
 
         lines = tail.splitlines()
         model = task.model or self.model
-        return classify_opencode_log_lines(lines, since=since, model=model)
+        # LlmSession records the session id it sees in this run's events so a
+        # sibling task's rate-limit errors are never attributed to us.
+        session_id = getattr(self, "current_session_id", None)
+        return classify_opencode_log_lines(
+            lines, since=since, model=model, session_id=session_id
+        )
