@@ -35,6 +35,7 @@ class RuntimeConfig:
     context_checkpoint_pct: int = 75
     context_kill_pct: int = 90
     isolation: str = "worktree"
+    isolation_exclude: str = ""
     post_merge_command: str = ""
     triage_interval_minutes: int = 15
     gc_retention_days: int = 30

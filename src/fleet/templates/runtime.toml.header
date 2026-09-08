@@ -58,6 +58,11 @@
 #   fleet/<task_id>; tasks outside a repo always run in place.
 #   Set via: fleet config set isolation=none
 #
+# isolation_exclude: Comma-separated repo roots that never get a worktree
+#   even when isolation is "worktree" (e.g. a repo that auto-commits from
+#   cron, where a branch would only diverge). Empty (default) excludes none.
+#   Set via: fleet config set isolation_exclude=/Users/me/.ai
+#
 # post_merge_command: Shell command run in the repo root after a worktree
 #   branch merges cleanly into its base branch (10-minute timeout).
 #   Empty string (default) skips the step. A repo that needs a build gate

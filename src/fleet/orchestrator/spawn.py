@@ -13,6 +13,16 @@ from fleet.workers.base import StepContext, WorkerRun
 from . import worktree
 
 
+def _repo_excluded(repo_root: Path, exclude: str) -> bool:
+    """True when *repo_root* matches an entry of the comma-separated *exclude* list."""
+    root = repo_root.expanduser().resolve()
+    for raw in exclude.split(","):
+        raw = raw.strip()
+        if raw and Path(raw).expanduser().resolve() == root:
+            return True
+    return False
+
+
 class SpawnMixin:
     def _resolve_coder(self, task: Task):
         """Pick (coder, coder_name, model) for a task.
@@ -74,11 +84,16 @@ class SpawnMixin:
         never isolates either: it only fell back to fleet's home, and a
         worktree of fleet's home is never the repo the task works on.
         Isolation also stays off when the global `isolation` config is
-        "none" or the bead opted out via `fleet_isolation: "none"` metadata.
+        "none", when the repo root is listed in `isolation_exclude` (a
+        comma-separated list of repo paths, for repos that auto-commit and
+        make a worktree pointless), or the bead opted out via
+        `fleet_isolation: "none"` metadata.
         """
         if repo_root is None or task.cwd is None:
             return False
         if getattr(self.config, "isolation", "worktree") == "none":
+            return False
+        if _repo_excluded(repo_root, getattr(self.config, "isolation_exclude", "")):
             return False
         if (task.isolation or "") == "none":
             return False

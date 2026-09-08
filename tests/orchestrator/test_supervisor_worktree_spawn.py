@@ -177,6 +177,24 @@ def test_config_none_runs_in_place(tmp_path: Path) -> None:
     assert "t-wt-4" not in queue.isolation_infos
 
 
+def test_config_exclude_repo_runs_in_place(tmp_path: Path) -> None:
+    """isolation_exclude listing the repo root -> no worktree for that repo only."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    other = tmp_path / "other"
+    other.mkdir()
+    _git_init(other)
+    queue = StubQueue(status="in_progress")
+    cfg = RuntimeConfig(isolation_exclude=f"{tmp_path / 'unrelated'}, {repo}")
+    s = _make_supervisor(tmp_path, queue, config=cfg)
+    _spawn(s, Task(id="t-wt-x1", title="X", description=None, status="in_progress", cwd=str(repo)))
+    _spawn(s, Task(id="t-wt-x2", title="X", description=None, status="in_progress", cwd=str(other)))
+
+    assert "t-wt-x1" not in queue.isolation_infos
+    assert "t-wt-x2" in queue.isolation_infos
+
+
 def test_invalid_coder_leaves_no_worktree(tmp_path: Path) -> None:
     """Coder resolves FIRST: unknown coder blocks without creating a worktree."""
     repo = tmp_path / "repo"
