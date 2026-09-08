@@ -1,25 +1,32 @@
+"""The step that spawns the coder subprocess, streams stdout, classifies the exit.
+
+This is the only step that talks to a model: it is the only place in the
+worker layer that occupies a concurrency slot. Steps that wait or do pure
+Python work take no slot — accounting for that stays in the orchestrator
+(``rate_gauge`` / ``config.max_concurrent``), unchanged by this module.
+
+Makes no queue calls: it returns a ``StepResult`` wrapping a
+``TaskOutcomeRecord`` describing what happened (exit code, rate limit, kill
+reason, ...) and leaves the caller (``orchestrator/reap.py``) to consult bead
+status and drive the queue.
+"""
+
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import signal
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
 
-import structlog
-
-from fleet.coders.base import Coder
-from fleet.core.config import RuntimeConfig
 from fleet.core.limits import PROBE_INTERVAL_SEC, PROBE_SILENCE_SEC, SHUTDOWN_GRACE_SEC
-from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state.journal import append_event, open_task_log
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import RUN_JSON
+
+from .base import StepContext, StepResult, write_run_json
 
 _STDERR_TAIL_BYTES = 2048
-
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
 def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
@@ -46,87 +53,42 @@ def _input_tokens(usage: dict) -> int:
     )
 
 
-def _ensure_artifact_stubs(artifacts_dir: Path, task_id: str) -> None:
-    """Create PLAN.md, HANDOFF.md, KNOWLEDGE.md stubs and outputs/ if missing.
-
-    Never overwrites existing content — agents own these files after the
-    first run.
-    """
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    (artifacts_dir / "outputs").mkdir(parents=True, exist_ok=True)
-    for name in ("PLAN.md", "HANDOFF.md", "KNOWLEDGE.md"):
-        target = artifacts_dir / name
-        if target.exists():
-            continue
-        tmpl = (_TEMPLATES_DIR / f"{name}.tmpl").read_text(encoding="utf-8")
-        target.write_text(tmpl.format(task_id=task_id))
+def _read_file_tail(path: Path, max_bytes: int = _STDERR_TAIL_BYTES) -> str | None:
+    if not path.exists():
+        return None
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        f.seek(max(0, size - max_bytes))
+        return f.read().decode("utf-8", errors="replace")
 
 
-def _rotate_result(artifacts_dir: Path) -> None:
-    """Move a previous attempt's RESULT.json aside before spawning a new one.
+class LlmSession:
+    """Spawn the coder subprocess for this attempt and turn its exit into an outcome."""
 
-    Spec 2 will move RESULT.json into per-attempt folders; for now the
-    previous attempt's declaration is kept at RESULT.prev.json so it does
-    not leak into the next attempt's outcome.
-    """
-    result_file = artifacts_dir / "RESULT.json"
-    if not result_file.exists():
-        return
-    result_file.replace(artifacts_dir / "RESULT.prev.json")
+    name = "llm_session"
 
-
-class RateGauge(Protocol):
-    def update(self, evt: Event) -> None: ...
-
-
-class TaskRunner:
-    """Spawns the coder subprocess, streams stdout, classifies the exit.
-
-    Makes no queue calls: it returns a ``TaskOutcomeRecord`` describing what
-    happened (exit code, rate limit, kill reason, ...) and leaves the caller
-    (``orchestrator/reap.py``) to consult bead status and drive the queue.
-    """
-
-    def __init__(
-        self,
-        task: Task,
-        coder: Coder,
-        config: RuntimeConfig,
-        rate_gauge: RateGauge,
-        project_root: Path,
-        fleet_home: Path,
-        log: structlog.BoundLogger,
-    ) -> None:
-        self._task = task
-        self._coder = coder
-        self._config = config
-        self._rate_gauge = rate_gauge
-        self._project_root = project_root
-        self._fleet_home = fleet_home
-        self._log = log
+    def __init__(self) -> None:
         self._proc: asyncio.subprocess.Process | None = None
         self._cancelled = False
         self._killed = False
         self._kill_reason = "manual_kill"
 
-    async def run(self) -> TaskOutcomeRecord:
-        task = self._task
-
-        task_dir = _task_dir(self._fleet_home, task.id)
-        artifacts_dir = task_dir / "artifacts"
+    async def run(self, ctx: StepContext) -> StepResult:
+        task = ctx.task
+        coder = ctx.coder
+        assert coder is not None
+        task_dir = ctx.task_dir
         task_dir.mkdir(parents=True, exist_ok=True)
-        _ensure_artifact_stubs(artifacts_dir, task.id)
-        _rotate_result(artifacts_dir)
-        self._coder.write_runtime_config(self._project_root, task)
 
         with open_task_log(task_dir, task.id) as task_log:
             stderr_path = Path(task_log.stderr_file.name)
 
-            argv = self._coder.build_argv(task, task_dir)
-            extra_env = self._coder.env(task, task_dir)
+            argv = coder.build_argv(task, task_dir)
+            extra_env = coder.env(task, task_dir)
             proc_env = {**os.environ, **extra_env}
             if "BEADS_DIR" not in proc_env:
-                proc_env["BEADS_DIR"] = str(self._fleet_home / ".beads")
+                proc_env["BEADS_DIR"] = str(ctx.fleet_home / ".beads")
 
             task_log.log.info(
                 "subprocess_started",
@@ -137,7 +99,7 @@ class TaskRunner:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 env=proc_env,
-                cwd=self._project_root,
+                cwd=ctx.project_root,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=task_log.stderr_file,
                 stdin=asyncio.subprocess.DEVNULL,
@@ -145,24 +107,21 @@ class TaskRunner:
             )
             self._proc = proc
             started_at = datetime.now(tz=UTC)
-            run_file = task_dir / "run.json"
-            run_data: dict = {}
+            run_file = task_dir / RUN_JSON
             try:
                 try:
                     pgid = os.getpgid(proc.pid)
                 except OSError:
                     pgid = proc.pid
-                run_data = {
-                    "pid": proc.pid,
-                    "pgid": pgid,
-                    "started_at": started_at.isoformat(),
-                    "coder": self._coder.__class__.__name__,
-                }
-                tmp = run_file.with_suffix(".json.tmp")
-                tmp.write_text(json.dumps(run_data), encoding="utf-8")
-                tmp.replace(run_file)
+                write_run_json(
+                    run_file,
+                    pid=proc.pid,
+                    pgid=pgid,
+                    started_at=started_at.isoformat(),
+                    coder=coder.__class__.__name__,
+                )
             except OSError as exc:
-                self._log.warning("run_file_write_failed", error=str(exc))
+                ctx.log.warning("run_file_write_failed", error=str(exc))
 
             # cancel() may have run while we were awaiting create_subprocess_exec
             # — at that moment `self._proc` was still None, so cancel() returned
@@ -198,7 +157,7 @@ class TaskRunner:
                         continue
                     last_probe_at = now
                     probe_outcome = await asyncio.to_thread(
-                        self._coder.probe_health, task, task_dir, started_at
+                        coder.probe_health, task, task_dir, started_at
                     )
                     if probe_outcome is None:
                         continue
@@ -216,7 +175,7 @@ class TaskRunner:
                     outcome = probe_outcome
                     break
                 except asyncio.LimitOverrunError as exc:
-                    self._log.warning(
+                    ctx.log.warning(
                         "stdout_line_overrun",
                         task_id=task.id,
                         consumed=exc.consumed,
@@ -226,7 +185,7 @@ class TaskRunner:
                     break
                 last_event_at = datetime.now(tz=UTC)
                 raw_line = raw_bytes.decode("utf-8", errors="replace").rstrip("\n")
-                evt = self._coder.normalize_event(raw_line)
+                evt = coder.normalize_event(raw_line)
                 if evt is None:
                     continue
 
@@ -234,31 +193,31 @@ class TaskRunner:
 
                 if evt.kind == "session_started" and not _logged_session_started:
                     _logged_session_started = True
-                    self._log.info("agent_session_started")
+                    ctx.log.info("agent_session_started")
                 elif evt.kind == "tool_use":
-                    self._log.info(
+                    ctx.log.info(
                         "agent_tool_use",
                         tool=evt.tool_name
                         or evt.raw.get("tool_name")
                         or evt.raw.get("name"),
                     )
                 elif evt.kind == "session_ended":
-                    self._log.info("agent_session_ended")
+                    ctx.log.info("agent_session_ended")
 
                 if evt.kind == "rate_limit_info":
-                    self._rate_gauge.update(evt)
+                    ctx.rate_gauge.update(evt)
                 elif evt.usage is not None and evt.kind != "session_ended":
                     prompt = _input_tokens(evt.usage)
                     if prompt > 0:
                         peak_context_tokens = max(peak_context_tokens, prompt)
-                        pct = peak_context_tokens / self._coder.context_limit * 100
+                        pct = peak_context_tokens / coder.context_limit * 100
                         bucket = int(pct // 10)
                         if bucket > last_logged_bucket:
                             task_log.log.info(
                                 "context_usage",
                                 task_id=task.id,
                                 context_tokens=peak_context_tokens,
-                                context_limit=self._coder.context_limit,
+                                context_limit=coder.context_limit,
                                 pct=round(pct, 1),
                             )
                             last_logged_bucket = bucket
@@ -295,13 +254,13 @@ class TaskRunner:
 
             exit_code = await proc.wait()
             try:
-                run_data["exit_code"] = exit_code
-                run_data["ended_at"] = datetime.now(tz=UTC).isoformat()
-                tmp = run_file.with_suffix(".json.tmp")
-                tmp.write_text(json.dumps(run_data), encoding="utf-8")
-                tmp.replace(run_file)
+                write_run_json(
+                    run_file,
+                    exit_code=exit_code,
+                    ended_at=datetime.now(tz=UTC).isoformat(),
+                )
             except OSError as exc:
-                self._log.warning("run_file_write_failed", error=str(exc))
+                ctx.log.warning("run_file_write_failed", error=str(exc))
 
             if outcome is None:
                 cp_flag = task_dir / ".context_pressure"
@@ -345,17 +304,20 @@ class TaskRunner:
                 exit_code=exit_code,
                 outcome=outcome.outcome.value,
             )
-            return outcome
+            return StepResult(status="outcome", outcome=outcome)
 
-    async def kill(self, reason: str = "manual_kill") -> None:
-        """Mark as manually killed and terminate the subprocess."""
-        self._killed = True
-        self._kill_reason = reason
-        await self.cancel()
+    async def cancel(self, reason: str) -> None:
+        """Signal the child's process group; escalate to SIGKILL after grace period.
 
-    async def cancel(self) -> None:
-        """Send SIGTERM to the child; escalate to SIGKILL after grace period."""
-        self._cancelled = True
+        ``reason == "supervisor_shutdown"`` marks the run as a shutdown
+        (-> FAILURE); any other reason marks it as a manual/stall kill
+        (-> KILLED with that reason).
+        """
+        if reason == "supervisor_shutdown":
+            self._cancelled = True
+        else:
+            self._killed = True
+            self._kill_reason = reason
         proc = self._proc
         if proc is None or proc.returncode is not None:
             return
@@ -368,13 +330,3 @@ class TaskRunner:
         except TimeoutError:
             _signal_group(proc, signal.SIGKILL)
             await proc.wait()
-
-
-def _read_file_tail(path: Path, max_bytes: int = _STDERR_TAIL_BYTES) -> str | None:
-    if not path.exists():
-        return None
-    with path.open("rb") as f:
-        f.seek(0, 2)
-        size = f.tell()
-        f.seek(max(0, size - max_bytes))
-        return f.read().decode("utf-8", errors="replace")

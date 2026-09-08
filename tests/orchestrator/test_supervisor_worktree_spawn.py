@@ -7,11 +7,9 @@ from pathlib import Path
 
 import structlog
 
-from fleet.core.task import Task
-
 from fleet.core.config import RuntimeConfig
+from fleet.core.task import Task
 from fleet.orchestrator.supervisor import Supervisor
-
 
 # ------ helpers -----------------------------------------------------------------
 
@@ -105,12 +103,12 @@ def test_isolation_disabled_explicitly_off(tmp_path: Path, monkeypatch) -> None:
 
 # The key assertion is that create_worktree is called with the right args
 # and that a .worktree marker file appears.  We run in an event loop because
-# _spawn_runner calls asyncio.create_task internally.
+# _spawn_worker calls asyncio.create_task internally.
 
 
-async def _spawn_runner_async(s: Supervisor, task: Task) -> None:
-    r"""Helper: invoke _spawn_runner inside a running event loop."""
-    s._spawn_runner(task)
+async def _spawn_worker_async(s: Supervisor, task: Task) -> None:
+    r"""Helper: invoke _spawn_worker inside a running event loop."""
+    s._spawn_worker(task)
 
 
 def test_isolation_enabled_creates_worktree_and_marker(
@@ -139,7 +137,7 @@ def test_isolation_enabled_creates_worktree_and_marker(
 
     async def _run() -> None:
         asyncio.create_task(asyncio.sleep(9999))
-        await _spawn_runner_async(s, task)
+        await _spawn_worker_async(s, task)
 
     asyncio.run(_run())
 
@@ -154,7 +152,7 @@ def test_isolation_enabled_creates_worktree_and_marker(
 
     runner = s._runners.get("t-wt-3")
     assert runner is not None
-    assert runner._project_root == fake_wt
+    assert runner._ctx.project_root == fake_wt
 
 
 # ------ isolation enabled + cwd != project_root (non-fleet task) ------
@@ -194,7 +192,7 @@ def test_isolation_enabled_with_non_fleet_cwd_no_worktree(
 
     async def _run() -> None:
         asyncio.create_task(asyncio.sleep(9999))
-        await _spawn_runner_async(s, task)
+        await _spawn_worker_async(s, task)
 
     asyncio.run(_run())
 
@@ -202,4 +200,4 @@ def test_isolation_enabled_with_non_fleet_cwd_no_worktree(
     assert not (tmp_path / "tasks" / "t-wt-4" / ".worktree").exists()
     runner = s._runners.get("t-wt-4")
     assert runner is not None
-    assert runner._project_root == invest_path
+    assert runner._ctx.project_root == invest_path

@@ -30,7 +30,7 @@ export function RunsTab({ attempts }: Props) {
         <table style={styles.table}>
           <thead>
             <tr>
-              {['#', 'Started', 'Duration', 'Coder / model', 'Outcome', 'Fleet action', 'Reason'].map(h => (
+              {['#', 'Started', 'Duration', 'Worker', 'Coder / model', 'Outcome', 'Fleet action', 'Reason'].map(h => (
                 <th key={h} style={styles.th}>{h}</th>
               ))}
             </tr>
@@ -41,6 +41,7 @@ export function RunsTab({ attempts }: Props) {
                 <td style={styles.td}>{a.n}</td>
                 <td style={styles.td}>{fmtClockTime(a.started_at)}</td>
                 <td style={styles.td}>{formatDuration(a.duration_sec, a.ended_at)}</td>
+                <td style={styles.td}>{a.worker ?? '—'}</td>
                 <td style={styles.td}>{[a.coder, a.model].filter(Boolean).join(' / ') || '—'}</td>
                 <td style={styles.td}>{a.outcome ?? '—'}</td>
                 <td style={styles.td}>{a.action ?? '—'}</td>

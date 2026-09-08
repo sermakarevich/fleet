@@ -16,8 +16,11 @@ and find the single place where a concept is defined.
    directory lives, how `bd` is called, how an outcome is handled) is
    defined in exactly one module. Everyone else imports it.
 2. **Lower layers never import higher ones.** The order, low to high:
-   `core` → `state` → `beads` → `orchestrator` / `coders` /
+   `core` → `state` → `beads` → `workers` → `orchestrator` /
    `integrations` / `observability` → `serve` → `cli`.
+   `coders` sits beside `workers` and is imported by it; `coders` never
+   imports `workers`. See `docs/adr/0003-workers-as-step-pipelines.md` for
+   why workers exist as a layer of their own.
    `serve` and `cli` are entry points. They hold no domain logic.
 3. **Entry points are thin.** A route or a command parses input, calls a
    library function, formats output. If a helper in a route or command
@@ -57,11 +60,16 @@ src/fleet/
     reconcile.py         # the one rule for merging bd status with task.json
     cache.py             # TTL cache for list_all                   (was serve/beads_info.py)
 
+  workers/               # step pipelines: what runs for a task, as composable steps
+    __init__.py          # select_worker(task, ctx) -> Worker; family routing by bead type / metadata
+    base.py              # Step protocol, StepContext, StepResult, Worker, WorkerRun, run_worker()
+    llm_session.py       # LlmSession step: spawn the coder subprocess, stream stdout, classify exit
+    task.py              # PrepareArtifacts step, FreshTask worker, plan_task(ctx)
+
   orchestrator/          # the supervisor process, split by concern
     supervisor.py        # wires the loops below; owns in_flight; signal handling
     claim.py             # claim loop + per-coder concurrency caps (absorbs concurrency.py)
-    spawn.py             # resolve coder/model, build TaskRunner, record attempt start
-    runner.py            # spawn subprocess, stream stdout, classify exit. No queue calls.
+    spawn.py             # resolve coder/model, select_worker, build WorkerRun, record attempt start
     reap.py              # collect finished runners, call outcome_policy, apply the action
     stall.py             # stall detection and kill
     orphans.py           # startup reconciliation of run.json vs live pids
@@ -141,7 +149,7 @@ src/fleet/ui/src/
 | `queue.py::_bd`, `routes/beads.py::_run_bd`, `beads_info.py`, `routes/tasks.py` bd calls, `cli.py` bd calls | `beads/client.py` |
 | `routes/tasks.py` and `routes/analytics.py` beads-status merge | `beads/reconcile.py` |
 | `supervisor.py` (rest), `supervisor_spawn.py` (delete), `concurrency.py` | `orchestrator/*` |
-| `runner.py` | `orchestrator/runner.py`, minus queue calls |
+| `runner.py` | `workers/llm_session.py` (LlmSession step), minus queue calls |
 | `worktree.py` + `supervisor_worktree.py` | `orchestrator/worktree.py` |
 | `telegram.py`, `cli.py` telegram wizard | `integrations/telegram/` |
 | `ask_human_db.py` + `ask_human/store.py` | `integrations/ask_human/store.py` |
@@ -156,7 +164,7 @@ src/fleet/ui/src/
 ```
 $FLEET_HOME/tasks/<id>/
   task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at
-  run.json           # pid, started_at of the current attempt
+  run.json           # pid, started_at, worker name, per-step status of the current attempt
   events.jsonl       # normalized coder events, append-only
   attempts.jsonl     # start/end per worker attempt, append-only
   log.jsonl  log.stderr

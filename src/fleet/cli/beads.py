@@ -39,8 +39,10 @@ def register(app: typer.Typer) -> None:
         },
         help=(
             "Run a `bd` command against the centralized fleet database in $FLEET_HOME. "
-            "For `bd create`/`bd new`, `--coder`, `--model`, and `--cwd` are intercepted and "
-            "stored as per-task overrides instead of being forwarded to bd. "
+            "For `bd create`/`bd new`, `--coder`, `--model`, `--worker`, and `--cwd` are "
+            "intercepted and stored as per-task overrides instead of being forwarded to bd. "
+            "`--worker` names the worker family that should run this bead (see "
+            "workers/__init__.py::FAMILIES), overriding the type-based default. "
             "Use `--cwd <path>` to set the task working directory explicitly instead of "
             "using the shell's current directory — useful when creating tasks from a "
             "centralized location for multiple projects."
@@ -51,8 +53,8 @@ def register(app: typer.Typer) -> None:
 
         For `bd create` / `bd new`, also captures the task working directory and persists
         it into the task's `task.json` so downstream agents see where to run.
-        `--coder`, `--model`, and `--cwd` flags are intercepted (not forwarded to bd) and
-        persisted as per-task overrides on task.json.
+        `--coder`, `--model`, `--worker`, and `--cwd` flags are intercepted (not forwarded
+        to bd) and persisted as per-task overrides on task.json.
 
         `--cwd <path>` overrides the shell's working directory for the task cwd.
         When omitted, the shell cwd at invocation time is used (existing behaviour).
@@ -76,6 +78,7 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1) from exc
         coder_override = overrides["coder"]
         model_override = overrides["model"]
+        worker_override = overrides["worker"]
         invocation_cwd = overrides["cwd"]
 
         user_wants_json = "--json" in bd_args
@@ -110,7 +113,9 @@ def register(app: typer.Typer) -> None:
         if task_id and not user_wants_dry_run:
             queue = BeadsQueue(home)
             queue.set_cwd(task_id, invocation_cwd)
-            queue.set_overrides(task_id, coder=coder_override, model=model_override)
+            queue.set_overrides(
+                task_id, coder=coder_override, model=model_override, worker=worker_override
+            )
             # Also snapshot title/description so the UI can show them before the
             # supervisor claims the task (claim is when the full snapshot lands).
             queue.set_bd_fields(task_id, body)
@@ -123,6 +128,8 @@ def register(app: typer.Typer) -> None:
                 extras.append(f"coder: {coder_override}")
             if model_override:
                 extras.append(f"model: {model_override}")
+            if worker_override:
+                extras.append(f"worker: {worker_override}")
             typer.echo(f"Created {task_id}: {task_title or ''}  [{', '.join(extras)}]")
         else:
             typer.echo(result.stdout, nl=False)

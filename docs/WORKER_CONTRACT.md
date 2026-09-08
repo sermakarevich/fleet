@@ -82,5 +82,42 @@ Independent of RESULT.json:
 - `core/task.py` — `TaskOutcome.PARTIAL`, `TaskOutcomeRecord.close_reason`.
 - `core/outcome_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
 - `orchestrator/reap.py` — reads `artifacts/RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
-- `orchestrator/runner.py` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
+- `workers/task.py::PrepareArtifacts` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
 - `templates/INSTRUCTION.md`, `templates/ISOLATED_PROTOCOL.md` — the protocol text handed to the worker.
+
+## Steps and workers
+
+See `docs/adr/0003-workers-as-step-pipelines.md` for the full rationale.
+A **step** is atomic (`Step.run(ctx) -> StepResult`); a **worker** is a
+named, ordered tuple of steps (`Worker(name, steps)`). `run_worker` drives
+one worker run: it executes steps in order, stops at the first `fail`
+(-> `FAILURE`) or `outcome` (-> that outcome), and treats an all-`ok` run
+as `SUCCESS`. Each step's `{name, started_at, ended_at, status, reason}`
+is appended to `run.json["steps"]`; `run.json["worker"]` records the
+worker's name.
+
+Family routing picks *which* worker runs, before the worker plans its own
+variant:
+
+1. **Family, from the bead**: an input, never inferred. Bead type
+   `task`/`bug`/`feature`/`chore` route to the task family; `epic` routes
+   to the observer family. The optional metadata field `fleet_worker`
+   overrides. `workers/__init__.py::select_worker` does one dictionary
+   lookup — an unrecognised family raises `ValueError`, which blocks the
+   bead the same way an unknown coder does.
+2. **Variant, from the task directory**: each family exposes
+   `plan(ctx) -> Worker`, a pure function over its own artifacts and
+   attempt history (fresh vs. continue vs. needs-compaction; research vs.
+   design vs. spawn vs. observe for a job).
+
+Rules worth repeating here:
+- One attempt equals one worker run; steps live inside that attempt's
+  `run.json`.
+- Retries and blocking stay in the orchestrator; workers never decide
+  their own retries.
+- Only the orchestrator changes the status of the bead being worked on.
+- `llm_session` is the only step that holds a concurrency slot.
+- Compose lists of steps in Python; no YAML pipelines or string-keyed
+  step registries. Branching lives in `plan`, not inside a step.
+- A step earns its existence with its own test and a second user;
+  otherwise it's a function inside another step.

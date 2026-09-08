@@ -39,13 +39,13 @@ class Coder(ABC):
         """Inject coder-managed config (hooks, settings) into project root before spawn.
 
         Default is a no-op; coders that need to write config should override this.
-        Called by TaskRunner.run before the subprocess is spawned.
+        Called by LlmSession.run before the subprocess is spawned.
         """
 
     def probe_health(
         self, task: Task, task_dir: Path, started_at: datetime
     ) -> TaskOutcomeRecord | None:
-        """Called periodically by TaskRunner while the subprocess is silent.
+        """Called periodically by LlmSession while the subprocess is silent.
 
         Return a TaskOutcomeRecord to make the runner kill the process and
         report that outcome; None means healthy (or unsupported by this coder).

@@ -479,7 +479,7 @@ def test_invalid_default_coder_blocks_task(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_runner(_task("t-001"))
+    s._spawn_worker(_task("t-001"))
 
     assert len(queue.blocked) == 1
     assert queue.blocked[0][0] == "t-001"
@@ -500,7 +500,7 @@ def test_invalid_task_override_blocks_task(tmp_path: Path) -> None:
         coder="nope",
     )
 
-    s._spawn_runner(task)
+    s._spawn_worker(task)
 
     assert len(queue.blocked) == 1
     assert queue.blocked[0][0] == "t-002"
@@ -512,7 +512,7 @@ def test_invalid_coder_writes_operator_comment(tmp_path: Path) -> None:
     queue = StubQueue()
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_runner(_task("t-003"))
+    s._spawn_worker(_task("t-003"))
 
     assert len(queue.comments) == 1
     assert queue.comments[0][0] == "t-003"
@@ -527,7 +527,7 @@ def test_invalid_coder_does_not_freeze_task_meta(tmp_path: Path) -> None:
     queue.freeze_coder_model = lambda tid, c, m: frozen.append((tid, c, m))  # type: ignore[attr-defined]
     s = _unpinned_supervisor(tmp_path, queue, RuntimeConfig(coder="bogus_typo"))
 
-    s._spawn_runner(_task("t-004"))
+    s._spawn_worker(_task("t-004"))
 
     assert frozen == []
 
@@ -572,7 +572,7 @@ def test_claim_loop_skips_task_already_in_flight(tmp_path: Path, monkeypatch) ->
     queue = _ClaimOnceQueue(_task("t-dup"))
     s = _make_supervisor(tmp_path, queue)
     spawned: list[str] = []
-    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+    s._spawn_worker = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
 
     _run_claim_loop_briefly(s, pre_in_flight="t-dup")
 
@@ -585,7 +585,7 @@ def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> No
     queue = _ClaimOnceQueue(_task("t-new"))
     s = _make_supervisor(tmp_path, queue)
     spawned: list[str] = []
-    s._spawn_runner = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
+    s._spawn_worker = lambda t: spawned.append(t.id)  # type: ignore[method-assign]
 
     _run_claim_loop_briefly(s, pre_in_flight=None)
 

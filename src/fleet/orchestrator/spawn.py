@@ -7,9 +7,10 @@ from fleet.coders import get_coder
 from fleet.core.task import Task
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
+from fleet.workers import select_worker
+from fleet.workers.base import StepContext, WorkerRun
 
 from . import worktree
-from .runner import TaskRunner
 
 
 class SpawnMixin:
@@ -39,7 +40,7 @@ class SpawnMixin:
             kwargs["bedrock_context_limit"] = self.config.opencode_bedrock_context_limit
         return coder_cls(model=model, **kwargs), coder_name, model
 
-    def _spawn_runner(self, task: Task) -> None:
+    def _spawn_worker(self, task: Task) -> None:
         # Purge any stale .kill sentinel from a previous run before registering
         # the runner — the kill_poll_loop only checks self._runners, so clearing
         # the file here (before the runner is added) is race-free.
@@ -97,19 +98,43 @@ class SpawnMixin:
             coder=coder_name,
             model=model,
         )
-        attempts.record_start(
-            self._task_dir_for(task), coder=coder_name, model=model
-        )
-        runner = TaskRunner(
+
+        ctx = StepContext(
             task=task,
+            task_dir=self._task_dir_for(task),
+            project_root=task_root,
+            fleet_home=self._project_root,
             coder=coder,
             config=self.config,
             rate_gauge=self.rate_gauge,
-            project_root=task_root,
-            fleet_home=self._project_root,
             log=self._log.bind(task_id=task.id),
         )
-        async_task = asyncio.create_task(runner.run(), name=f"runner:{task.id}")
+        try:
+            worker = select_worker(task, ctx)
+        except ValueError as exc:
+            # Unknown worker family — a typo in fleet_worker metadata or an
+            # unroutable bead type. claim_next has already flipped the task
+            # to in_progress, so block it explicitly so the supervisor
+            # doesn't re-claim it on every poll.
+            self._log.error(
+                "task_worker_invalid",
+                task_id=task.id,
+                task_worker=task.worker,
+                task_type=task.type,
+                error=str(exc),
+            )
+            self._queue.set_blocked(task.id, reason=f"invalid worker: {exc}")
+            self._queue.comment(
+                task.id,
+                f"[fleet] {exc}. Fix `fleet_worker` metadata or the bead type.",
+            )
+            return
+
+        attempts.record_start(
+            self._task_dir_for(task), coder=coder_name, model=model, worker=worker.name
+        )
+        run = WorkerRun(worker, ctx)
+        async_task = asyncio.create_task(run.run(), name=f"worker:{task.id}")
         self.in_flight[task.id] = async_task
         self.in_flight_tasks[task.id] = task
-        self._runners[task.id] = runner
+        self._runners[task.id] = run

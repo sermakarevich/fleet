@@ -13,6 +13,11 @@ class Task:
     cwd: str | None = None
     coder: str | None = None
     model: str | None = None
+    # Bead type ("task", "bug", "feature", "epic", "chore", ...); routes to a
+    # worker family in workers/__init__.py::FAMILIES.
+    type: str | None = None
+    # Optional metadata override (fleet_worker) naming the family directly.
+    worker: str | None = None
 
 
 EventKind = Literal[

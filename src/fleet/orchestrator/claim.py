@@ -103,7 +103,7 @@ class ClaimMixin:
                     cap=self.config.max_concurrent,
                     usage_pct=self.rate_gauge.current_pct(),
                 )
-                self._spawn_runner(task)
+                self._spawn_worker(task)
 
             await self._run_pending_validations()
 

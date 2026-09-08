@@ -29,6 +29,17 @@ export interface TaskSummary {
   last_action: string | null;
   result: TaskResult | null;
   handoff_excerpt: string | null;
+  worker: string | null;
+  steps: RunStep[];
+}
+
+// One entry from the current attempt's run.json["steps"].
+export interface RunStep {
+  name: string;
+  started_at: string | null;
+  ended_at: string | null;
+  status: 'ok' | 'fail' | 'outcome';
+  reason: string;
 }
 
 // The worker's declared outcome, parsed from artifacts/RESULT.json.
@@ -49,6 +60,7 @@ export interface TaskAttempt {
   ended_at: string | null;
   coder: string | null;
   model: string | null;
+  worker: string | null;
   outcome: string | null;
   exit_code: number | null;
   reason: string | null;

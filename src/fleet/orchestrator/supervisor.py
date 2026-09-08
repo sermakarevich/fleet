@@ -14,12 +14,12 @@ from fleet.core.limits import CONFIG_POLL_INTERVAL_SEC, SHUTDOWN_GRACE_SEC
 from fleet.core.task import Task
 from fleet.serve.stats import task_runtime_stats
 from fleet.state.paths import task_dir as _task_dir
+from fleet.workers.base import WorkerRun
 
 from .claim import ClaimMixin
 from .orphans import OrphansMixin
 from .rate_gauge import RateGauge
 from .reap import ReapMixin
-from .runner import TaskRunner
 from .spawn import SpawnMixin
 from .stall import StallMixin
 
@@ -47,7 +47,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, OrphansMixin):
 
         self.in_flight: dict[str, asyncio.Task] = {}
         self.in_flight_tasks: dict[str, Task] = {}
-        self._runners: dict[str, TaskRunner] = {}
+        self._runners: dict[str, WorkerRun] = {}
 
         self.rate_gauge = RateGauge(log=log)
 

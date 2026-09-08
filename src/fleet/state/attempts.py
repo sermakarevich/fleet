@@ -61,7 +61,9 @@ def _current_n(task_dir: Path) -> int:
     return current
 
 
-def record_start(task_dir: Path, *, coder: str | None, model: str | None) -> int:
+def record_start(
+    task_dir: Path, *, coder: str | None, model: str | None, worker: str | None = None
+) -> int:
     """Append a start line and return its attempt number."""
     task_dir.mkdir(parents=True, exist_ok=True)
     n = _count_starts(task_dir) + 1
@@ -71,6 +73,7 @@ def record_start(task_dir: Path, *, coder: str | None, model: str | None) -> int
         "ts": _utc_now_iso(),
         "coder": coder,
         "model": model,
+        "worker": worker,
     }
     with _attempts_path(task_dir).open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
@@ -143,6 +146,7 @@ def load_attempts(task_dir: Path) -> list[dict]:
             entry["started_at"] = obj.get("ts")
             entry["coder"] = obj.get("coder")
             entry["model"] = obj.get("model")
+            entry["worker"] = obj.get("worker")
         elif event == "end":
             entry["ended_at"] = obj.get("ts")
             entry["outcome"] = obj.get("outcome")
@@ -160,6 +164,7 @@ def load_attempts(task_dir: Path) -> list[dict]:
             "ended_at": entry.get("ended_at"),
             "coder": entry.get("coder"),
             "model": entry.get("model"),
+            "worker": entry.get("worker"),
             "outcome": entry.get("outcome"),
             "exit_code": entry.get("exit_code"),
             "reason": entry.get("reason"),

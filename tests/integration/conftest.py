@@ -286,7 +286,7 @@ def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("fleet.orchestrator.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
     monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 3)
     monkeypatch.setattr("fleet.core.outcome_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
-    monkeypatch.setattr("fleet.orchestrator.runner.SHUTDOWN_GRACE_SEC", 3)
+    monkeypatch.setattr("fleet.workers.llm_session.SHUTDOWN_GRACE_SEC", 3)
 
 
 def fast_config(**overrides: object) -> RuntimeConfig:

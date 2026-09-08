@@ -55,6 +55,7 @@ class Queue(ABC):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        worker: str | None = None,
         extra_args: str | None = None,
     ) -> Task: ...
 
@@ -97,19 +98,22 @@ class BeadsQueue(Queue):
         task_id: str,
         coder: str | None = None,
         model: str | None = None,
+        worker: str | None = None,
     ) -> None:
-        """Persist per-task coder/model overrides into task.json.
+        """Persist per-task coder/model/worker overrides into task.json.
 
         Only the non-None fields are written; existing meta keys are preserved.
         Distinct from freeze_coder_model, which writes both fields at spawn time.
         """
-        if coder is None and model is None:
+        if coder is None and model is None and worker is None:
             return
         meta = self._load_meta(task_id) or {"id": task_id}
         if coder is not None:
             meta["coder"] = coder
         if model is not None:
             meta["model"] = model
+        if worker is not None:
+            meta["worker"] = worker
         self._write_meta(task_id, meta)
 
     def set_bd_fields(self, task_id: str, body: dict) -> None:
@@ -143,6 +147,7 @@ class BeadsQueue(Queue):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        worker: str | None = None,
         depends_on: list[str] | None = None,
     ) -> dict:
         """Build a task.json payload from a bd body, preserving prior fleet fields."""
@@ -156,6 +161,9 @@ class BeadsQueue(Queue):
             "coder": coder if coder is not None else existing.get("coder"),
             "model": model if model is not None else existing.get("model"),
         }
+        eff_worker = worker if worker is not None else existing.get("worker")
+        if eff_worker is not None:
+            result["worker"] = eff_worker
         priority = (
             body.get("priority")
             if body.get("priority") is not None
@@ -206,6 +214,8 @@ class BeadsQueue(Queue):
             cwd=meta.get("cwd") or bd_meta.get("fleet_cwd"),
             coder=meta.get("coder") or bd_meta.get("fleet_coder"),
             model=meta.get("model") or bd_meta.get("fleet_model"),
+            type=body.get("issue_type"),
+            worker=meta.get("worker") or bd_meta.get("fleet_worker"),
         )
 
     def claim_next(self, claimer_id: str, *, can_claim=None) -> Task | None:
@@ -323,6 +333,7 @@ class BeadsQueue(Queue):
         cwd: str | None = None,
         coder: str | None = None,
         model: str | None = None,
+        worker: str | None = None,
         extra_args: str | None = None,
     ) -> Task:
         args = ["create", "--title", title, "--json"]
@@ -347,6 +358,7 @@ class BeadsQueue(Queue):
                 cwd=cwd,
                 coder=coder,
                 model=model,
+                worker=worker,
                 depends_on=depends_on,
             ),
         )

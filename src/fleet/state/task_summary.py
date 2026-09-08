@@ -7,6 +7,7 @@ same numbers for the same task.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,19 @@ def _read_result(task_dir: Path) -> dict | None:
         return None
     result = parse_result(text)
     return asdict(result) if result is not None else None
+
+
+def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
+    """Read the worker name and step timeline from the latest attempt's run.json."""
+    run_file = task_dir / "run.json"
+    try:
+        data = json.loads(run_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, []
+    if not isinstance(data, dict):
+        return None, []
+    steps = data.get("steps")
+    return data.get("worker"), steps if isinstance(steps, list) else []
 
 
 def _read_handoff_excerpt(task_dir: Path) -> str | None:
@@ -86,6 +100,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         blocked_reason = beads_status.get(task_id, {}).get("notes")
 
     last_attempt = attempts.last_attempt(task_dir)
+    worker, steps = _read_run_info(task_dir)
 
     return {
         "id": task_id,
@@ -118,4 +133,6 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "last_action": last_attempt.get("action") if last_attempt else None,
         "result": _read_result(task_dir),
         "handoff_excerpt": _read_handoff_excerpt(task_dir),
+        "worker": worker,
+        "steps": steps,
     }
