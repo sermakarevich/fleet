@@ -81,7 +81,7 @@ def _max_n(task_dir: Path) -> int:
             obj = json.loads(line)
         except (ValueError, json.JSONDecodeError):
             continue
-        if isinstance(obj, dict) and obj.get("event") in ("start", "end"):
+        if isinstance(obj, dict) and obj.get("event") in ("start", "end", "unblock"):
             try:
                 n = int(obj.get("n", 0))
             except (TypeError, ValueError):
@@ -138,7 +138,7 @@ def record_start(
     the Attempts timeline and is costed like any attempt.
     """
     task_dir.mkdir(parents=True, exist_ok=True)
-    n = _count_starts(task_dir) + 1
+    n = _max_n(task_dir) + 1
     entry = {
         "event": "start",
         "n": n,
@@ -186,6 +186,27 @@ def record_end(
     }
     with _attempts_path(task_dir).open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+def record_unblock(task_dir: Path, note: str | None = None) -> int:
+    """Append an "unblock" row: an operator released a blocked task.
+
+    The row gets its own n so it shows in the Attempts timeline
+    (kind "unblock", outcome "unblocked") and, being neither a failure nor
+    any other round category, ends every retry streak in
+    core/retry_policy: the next attempt starts counting from zero.
+    """
+    task_dir.mkdir(parents=True, exist_ok=True)
+    n = _max_n(task_dir) + 1
+    entry = {
+        "event": "unblock",
+        "n": n,
+        "ts": _utc_now_iso(),
+        "reason": note or "unblocked by operator",
+    }
+    with _attempts_path(task_dir).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    return n
 
 
 def _parse_ts(ts: str | None) -> datetime | None:
@@ -238,6 +259,13 @@ def load_attempts(task_dir: Path) -> list[dict]:
             entry["exit_code"] = obj.get("exit_code")
             entry["reason"] = obj.get("reason")
             entry["action"] = obj.get("action")
+        elif event == "unblock":
+            entry["started_at"] = obj.get("ts")
+            entry["ended_at"] = obj.get("ts")
+            entry["kind"] = "unblock"
+            entry["outcome"] = "unblocked"
+            entry["reason"] = obj.get("reason")
+            entry["action"] = "release"
         else:
             continue
     result: list[dict] = []

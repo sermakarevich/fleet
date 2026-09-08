@@ -931,6 +931,9 @@ def test_unblock_task_releases_and_clears_retry_state(
     assert "looks fine" in args[1]
     assert "retry_after" not in (task_dir / "task.json").read_text()
     assert not (task_dir / ".needs_validation").exists()
+    rows = (task_dir / "attempts.jsonl").read_text().splitlines()
+    assert json.loads(rows[-1])["event"] == "unblock"
+    assert "looks fine" in rows[-1]
 
 
 def test_unblock_task_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -22,6 +22,10 @@ from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 # Retry table. "max rounds" counts the current attempt too: round n means
 # this outcome has ended n times in a row (trailing streak in history + 1).
 FAILURE_MAX_ROUNDS = 3
+# A FAILURE carrying this reason is not the worker's fault: the supervisor
+# stopped (restart, deploy). It is re-queued at once and never counts as a
+# round, nor breaks a streak, so a redeploy cannot push a task into BLOCK.
+SHUTDOWN_REASON = "supervisor_shutdown"
 FAILURE_WAIT_SEC = (60, 300, 900)
 FAILURE_JITTER_SEC = 30
 STALL_MAX_ROUNDS = 2
@@ -59,7 +63,8 @@ def _category_of(
     Categories: "failure", "stall", "context", "partial", "noclose".
     RATE_LIMIT is deliberately not counted (unlimited retries).
     Returns None for entries that break every streak (running attempts,
-    terminal outcomes, manual kills, closes).
+    terminal outcomes, manual kills, closes, and the "unblocked" row an
+    operator's unblock appends so old failures stop counting).
     """
     if outcome == TaskOutcome.FAILURE.value:
         return "failure"
@@ -93,6 +98,9 @@ def _trailing_streak(history: list[dict], category: str) -> int:
         if not isinstance(entry, dict):
             break
         if entry.get("kind") == "compact":
+            continue
+        if entry.get("reason") == SHUTDOWN_REASON:
+            # Supervisor restart, not a worker outcome: neither counts nor breaks.
             continue
         if entry.get("outcome") is None:
             # Attempt started but never ended: ignore it, keep scanning back.
@@ -232,6 +240,10 @@ def decide(
         case TaskOutcome.FAILURE:
             if bead_status != "in_progress":
                 return Decision(Action.NOOP, reason="already closed on exit")
+            if record.reason == SHUTDOWN_REASON:
+                return Decision(
+                    Action.RELEASE, reason="supervisor shutdown; re-queued", wait_sec=0
+                )
             rounds = _trailing_streak(history, "failure") + 1
             if rounds >= FAILURE_MAX_ROUNDS:
                 return Decision(

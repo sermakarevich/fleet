@@ -89,3 +89,23 @@ def test_load_attempts_merges_and_computes_duration(tmp_path: Path) -> None:
 
 def test_last_attempt_none_when_empty(tmp_path: Path) -> None:
     assert attempts.last_attempt(tmp_path / "tasks" / "missing") is None
+
+
+def test_record_unblock_adds_row_and_keeps_numbering(tmp_path: Path) -> None:
+    """An unblock row gets its own n, loads as kind "unblock"/outcome
+    "unblocked", and the next start continues numbering after it."""
+    from fleet.state.attempts import load_attempts, record_end, record_start, record_unblock
+
+    n1 = record_start(tmp_path, coder="c", model="m")
+    record_end(tmp_path, outcome="failure", exit_code=1, reason="boom", action="block")
+    n_unblock = record_unblock(tmp_path, "looks fine")
+    n2 = record_start(tmp_path, coder="c", model="m")
+    assert (n1, n_unblock, n2) == (1, 2, 3)
+
+    rows = load_attempts(tmp_path)
+    assert [r["n"] for r in rows] == [1, 2, 3]
+    row = rows[1]
+    assert row["kind"] == "unblock"
+    assert row["outcome"] == "unblocked"
+    assert row["reason"] == "looks fine"
+    assert row["started_at"] == row["ended_at"]

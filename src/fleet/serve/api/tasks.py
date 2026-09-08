@@ -19,7 +19,7 @@ from fleet.coders import list_coders as _list_coders
 from fleet.observability.daemon import _pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
-from fleet.state.attempts import latest_attempt_dir
+from fleet.state.attempts import latest_attempt_dir, record_unblock
 from fleet.state.events import iter_events, scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
@@ -344,6 +344,10 @@ def create_tasks_router() -> APIRouter:
         except (OSError, ValueError):
             pass
         clear_needs_validation(task_dir)
+        try:
+            record_unblock(task_dir, note)
+        except OSError:
+            pass
         return JSONResponse({"ok": True})
 
     @router.post("/tasks/{task_id}/close")

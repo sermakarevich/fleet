@@ -496,8 +496,9 @@ class LlmSession:
         """Signal the child's process group; escalate to SIGKILL after grace period.
 
         ``reason == "supervisor_shutdown"`` marks the run as a shutdown
-        (-> FAILURE); any other reason marks it as a manual/stall kill
-        (-> KILLED with that reason).
+        (-> FAILURE with that reason, which core/retry_policy re-queues at
+        once without counting a round); any other reason marks it as a
+        manual/stall kill (-> KILLED with that reason).
         """
         if reason == "supervisor_shutdown":
             self._cancelled = True

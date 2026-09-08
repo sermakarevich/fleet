@@ -173,3 +173,33 @@ def test_unhandled_outcome_raises() -> None:
 
 def test_failure_constants_match_table() -> None:
     assert FAILURE_MAX_ROUNDS == 3
+
+
+def test_supervisor_shutdown_requeues_and_never_counts() -> None:
+    """A shutdown-killed attempt is released immediately, and shutdown rows in
+    history neither count toward nor break the failure streak."""
+    cfg = RuntimeConfig()
+    rec = _record(TaskOutcome.FAILURE, exit_code=-15, reason="supervisor_shutdown")
+    d = decide(rec, _hist(("failure", "boom"), ("failure", "boom")), "in_progress", cfg)
+    assert d.action == Action.RELEASE
+    assert (d.wait_sec or 0) == 0
+
+    # Two real failures, then a shutdown: the next real failure is round 3 -> BLOCK.
+    real = _record(TaskOutcome.FAILURE, exit_code=1, reason="boom")
+    history = _hist(("failure", "boom"), ("failure", "boom"), ("failure", "supervisor_shutdown"))
+    assert decide(real, history, "in_progress", cfg).action == Action.BLOCK
+    # A shutdown alone in history is not a round either.
+    history = _hist(("failure", "supervisor_shutdown"))
+    d = decide(real, history, "in_progress", cfg)
+    assert d.action == Action.RELEASE
+    assert 60 <= (d.wait_sec or 0) <= 90
+
+
+def test_unblock_row_resets_failure_streak() -> None:
+    """The "unblocked" row appended by an operator unblock ends the streak."""
+    cfg = RuntimeConfig()
+    real = _record(TaskOutcome.FAILURE, exit_code=1, reason="boom")
+    history = _hist(("failure", "boom"), ("failure", "boom"), ("unblocked", "operator"))
+    d = decide(real, history, "in_progress", cfg)
+    assert d.action == Action.RELEASE
+    assert 60 <= (d.wait_sec or 0) <= 90
