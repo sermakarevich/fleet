@@ -41,7 +41,6 @@ class StallMixin:
                     self._log.warning("triage_tick_failed", error=str(exc))
 
     def _log_status_snapshot(self) -> None:
-        self._log.info("supervisor_status", **self._fleet_log_context())
         if self.config.stall_warning_minutes <= 0:
             return
         now = datetime.now(tz=UTC).timestamp()

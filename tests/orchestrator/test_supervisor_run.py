@@ -60,17 +60,18 @@ def test_run_returns_zero_with_no_services(tmp_path) -> None:  # type: ignore[no
 
 
 def test_default_services_cover_six_legacy_loops(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """default_services() wires one adapter per legacy loop plus sweeps."""
+    """default_services() wires the four services plus legacy adapters."""
     sup = make_supervisor(tmp_path, checks=[])
     names = sorted(svc.name for svc in sup.default_services())
     assert names == sorted(
         [
-            "config_poll",
+            "config_reload",
             "startup_sweeps",
             "claim_and_spawn",
             "reap",
-            "status_log",
-            "kill_poll",
+            "legacy_stall_leases_triage",
+            "kill_sentinel",
             "retention_gc",
+            "status_log",
         ]
     )

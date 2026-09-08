@@ -235,44 +235,6 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
     asyncio.run(_run())
 
 
-def test_config_poll_loop_detects_file_change(tmp_path: Path, monkeypatch) -> None:
-    """_config_poll_loop updates self.config when runtime.toml changes on disk."""
-    monkeypatch.setattr("fleet.orchestrator.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
-    queue = TrackingQueue()
-    toml_path = tmp_path / "runtime.toml"
-    write_atomic(toml_path, {"max_concurrent": "3"})
-
-    s = Supervisor(
-        coder=StubCoder(),
-        queue=queue,
-        runtime_toml_path=toml_path,
-        project_root=tmp_path,
-        log=structlog.get_logger(),
-    )
-    s.config = RuntimeConfig(max_concurrent=3)
-
-    async def _run() -> None:
-        s._done = asyncio.Event()
-        poll_task = asyncio.create_task(s._config_poll_loop())
-
-        # Give the loop one tick to start, then update the file
-        await asyncio.sleep(0.05)
-        write_atomic(toml_path, {"max_concurrent": "7"})
-
-        # Wait for the poll interval to fire
-        await asyncio.sleep(1.3)
-
-        assert s.config.max_concurrent == 7
-
-        poll_task.cancel()
-        try:
-            await poll_task
-        except (asyncio.CancelledError, Exception):
-            pass
-
-    asyncio.run(_run())
-
-
 # ---------------------------------------------------------------------------
 # _resolve_coder — opencode kwargs
 # ---------------------------------------------------------------------------

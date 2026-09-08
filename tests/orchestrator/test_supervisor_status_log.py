@@ -9,6 +9,7 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.orchestrator.status_log import StatusLog, fleet_log_context
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.journal import setup_supervisor_logger
 from tests.helpers.task_dir import make_attempt
@@ -108,7 +109,7 @@ def test_fleet_log_context_includes_in_flight_count(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path, config=RuntimeConfig(max_concurrent=5))
     s.in_flight["t-001"] = None  # type: ignore[assignment]
     s.in_flight["t-002"] = None  # type: ignore[assignment]
-    ctx = s._fleet_log_context()
+    ctx = fleet_log_context(s.state)
     assert ctx["in_flight"] == 2
     assert ctx["cap"] == 5
 
@@ -123,14 +124,14 @@ def test_fleet_log_context_includes_usage_pct(tmp_path: Path) -> None:
             rate_info={"usage_pct": 42.5},
         )
     )
-    ctx = s._fleet_log_context()
+    ctx = fleet_log_context(s.state)
     assert ctx["usage_pct"] == 42.5
     assert "threshold_pct" not in ctx  # usage is telemetry only; it gates nothing
 
 
 def test_fleet_log_context_paused_until_null_when_unpaused(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path)
-    assert s._fleet_log_context()["paused_until"] is None
+    assert fleet_log_context(s.state)["paused_until"] is None
 
 
 def test_fleet_log_context_task_ids_sorted(tmp_path: Path) -> None:
@@ -138,7 +139,7 @@ def test_fleet_log_context_task_ids_sorted(tmp_path: Path) -> None:
     s.in_flight["t-z"] = None  # type: ignore[assignment]
     s.in_flight["t-a"] = None  # type: ignore[assignment]
     s.in_flight["t-m"] = None  # type: ignore[assignment]
-    assert s._fleet_log_context()["task_ids"] == ["t-a", "t-m", "t-z"]
+    assert fleet_log_context(s.state)["task_ids"] == ["t-a", "t-m", "t-z"]
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,7 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
         )
     )
 
-    s._log_status_snapshot()
+    asyncio.run(StatusLog().tick(s.state))
 
     records = _read_fleet_log(log_root)
     status_events = [r for r in records if r.get("event") == "supervisor_status"]
@@ -175,19 +176,18 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
 
 
 def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("fleet.orchestrator.stall.STATUS_LOG_INTERVAL_SEC", 1)
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
+    svc = StatusLog(interval_sec=0.05)
 
     async def _run() -> None:
-        loop_task = asyncio.create_task(s._status_log_loop())
+        serve_task = asyncio.create_task(svc.serve(s.state))
         # Wait long enough for two heartbeats to fire
-        await asyncio.sleep(2.2)
-        s._shutting_down = True
-        loop_task.cancel()
+        await asyncio.sleep(0.25)
+        s.state.shutting_down = True
         try:
-            await loop_task
+            await asyncio.wait_for(serve_task, timeout=2.0)
         except (asyncio.CancelledError, Exception):
             pass
 
@@ -200,13 +200,13 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_status_log_loop_exits_on_shutdown(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("fleet.orchestrator.stall.STATUS_LOG_INTERVAL_SEC", 1)
     s = _make_supervisor(tmp_path)
+    svc = StatusLog(interval_sec=0.05)
 
     async def _run() -> bool:
-        s._shutting_down = True
+        s.state.shutting_down = True
         try:
-            await asyncio.wait_for(s._status_log_loop(), timeout=2.0)
+            await asyncio.wait_for(svc.serve(s.state), timeout=2.0)
             return True
         except TimeoutError:
             return False
@@ -271,7 +271,7 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
 def test_fleet_log_context_includes_context_tokens_key(tmp_path: Path) -> None:
     s = _make_supervisor(tmp_path)
     s.in_flight["t-001"] = None  # type: ignore[assignment]
-    ctx = s._fleet_log_context()
+    ctx = fleet_log_context(s.state)
     assert "context_tokens" in ctx
     assert isinstance(ctx["context_tokens"], dict)
     assert "t-001" in ctx["context_tokens"]

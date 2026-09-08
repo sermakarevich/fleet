@@ -21,6 +21,7 @@ from fleet.state.paths import RESULT_JSON, STATE_MD
 from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
+from .status_log import fleet_log_context
 
 _STALE_COUNTER_FILES = (".failures", ".noclose", ".stalls")
 
@@ -469,7 +470,7 @@ class ReapMixin:
         self, task: Task, outcome: TaskOutcomeRecord, attempt_n: int | None = None
     ) -> None:
         task_dir = self._task_dir_for(task)
-        fleet_ctx = self._fleet_log_context()
+        fleet_ctx = fleet_log_context(self.state)
         bead_status = self._bead_status(task.id)
 
         result = self._read_declared_result(task_dir)

@@ -19,6 +19,7 @@ from fleet.workers.base import WorkerRun
 
 if TYPE_CHECKING:
     from fleet.orchestrator.rate_gauge import RateGauge
+    from fleet.orchestrator.service import Service
 
 
 @dataclass
@@ -46,6 +47,15 @@ class SupervisorState:
     running: dict[str, RunningWorker] = field(default_factory=dict)  # writer: Claim adds, Reap removes (beads 3-4)
     paused_until: datetime | None = None  # writer: Reap sets, Claim clears
     shutting_down: bool = False  # writer: Supervisor
+    # Writer: Supervisor runner fills this before on_start so services
+    # (e.g. ConfigReload) can emit events to each other via emit().
+    services: list[Service] = field(default_factory=list)
+    # Legacy parallel dicts, owned by Supervisor until bead 3 replaces
+    # them with `running`. Writers: Spawn fills, Reap removes.
+    in_flight: dict[str, asyncio.Task] = field(default_factory=dict)
+    in_flight_tasks: dict[str, Task] = field(default_factory=dict)
+    runners: dict[str, WorkerRun] = field(default_factory=dict)
+    attempt_n: dict[str, int] = field(default_factory=dict)
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""

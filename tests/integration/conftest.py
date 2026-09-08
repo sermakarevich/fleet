@@ -311,7 +311,7 @@ async def run_until(
 def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch supervisor/runner constants to fast values for all integration tests."""
     monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 1)
-    monkeypatch.setattr("fleet.orchestrator.supervisor.CONFIG_POLL_INTERVAL_SEC", 1)
+    monkeypatch.setattr("fleet.orchestrator.config_reload.CONFIG_POLL_INTERVAL_SEC", 1)
     monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 3)
     monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
     monkeypatch.setattr("fleet.workers.llm_session.SHUTDOWN_GRACE_SEC", 3)

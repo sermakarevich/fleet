@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shutil
 import signal
 from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
@@ -12,28 +11,27 @@ import structlog
 
 from fleet.beads.queue import Queue
 from fleet.coders.base import Coder
-from fleet.core.config import RuntimeConfig, load, reload_if_changed
+from fleet.core.config import RuntimeConfig, load
 from fleet.core.limits import (
-    CONFIG_POLL_INTERVAL_SEC,
-    GC_INTERVAL_SEC,
     SHUTDOWN_GRACE_SEC,
 )
 from fleet.core.task import Task
-from fleet.serve.stats import task_runtime_stats
-from fleet.state.archive import find_stale_worktrees, gc_tasks, purge_archive
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers.base import WorkerRun
 
-from . import worktree as worktree_mod
 from .checks import DEFAULT_CHECKS, StartupCheck, run_startup_checks
 from .claim import ClaimMixin
+from .config_reload import ConfigReload
+from .kill_sentinel import KillSentinel
 from .leases import LeasesMixin
 from .rate_gauge import RateGauge
 from .reap import ReapMixin
+from .retention_gc import RetentionGc
 from .service import LegacyLoop, Service, ServiceOrder, emit
 from .spawn import SpawnMixin
 from .stall import StallMixin
 from .state import SupervisorState
+from .status_log import StatusLog
 from .triage import TriageMixin
 
 
@@ -47,11 +45,10 @@ class StartupSweeps(Service):
         self._supervisor = supervisor
 
     async def on_start(self, st: SupervisorState) -> None:
-        """Sweep orphan worktrees, reconcile leases, run the first gc pass."""
+        """Sweep orphan worktrees and reconcile leases once."""
         sup = self._supervisor
         sup._sweep_orphan_worktrees()
         sup.reconcile_leases()
-        sup._run_retention_gc()
 
 
 class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, TriageMixin):
@@ -80,17 +77,7 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         )
         self._services: list[Service] = services if services is not None else self.default_services()
         self._checks: Sequence[StartupCheck] = checks if checks is not None else list(DEFAULT_CHECKS)
-
-        self._config_mtime: float | None = None
-
-        self.in_flight: dict[str, asyncio.Task] = {}
-        self.in_flight_tasks: dict[str, Task] = {}
-        self._runners: dict[str, WorkerRun] = {}
-        # Outer work-attempt number per in-flight task, recorded at spawn.
-        # Reap closes exactly this attempt: a compaction step journals its own
-        # newer kind="compact" row mid-run, so "latest attempt" would otherwise
-        # misattribute the outer attempt's end line and artifact snapshot.
-        self._attempt_n: dict[str, int] = {}
+        self.state.services = self._services
 
         self._done: asyncio.Event | None = None
         self._stall_warned: set[str] = set()
@@ -174,21 +161,61 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
     def _shutting_down(self, value: bool) -> None:
         self.state.shutting_down = value
 
+    @property
+    def in_flight(self) -> dict[str, asyncio.Task]:
+        """In-flight asyncio tasks by task id (delegates to state)."""
+        return self.state.in_flight
+
+    @in_flight.setter
+    def in_flight(self, value: dict[str, asyncio.Task]) -> None:
+        self.state.in_flight = value
+
+    @property
+    def in_flight_tasks(self) -> dict[str, Task]:
+        """In-flight tasks by task id (delegates to state)."""
+        return self.state.in_flight_tasks
+
+    @in_flight_tasks.setter
+    def in_flight_tasks(self, value: dict[str, Task]) -> None:
+        self.state.in_flight_tasks = value
+
+    @property
+    def _runners(self) -> dict[str, WorkerRun]:
+        return self.state.runners
+
+    @_runners.setter
+    def _runners(self, value: dict[str, WorkerRun]) -> None:
+        self.state.runners = value
+
+    @property
+    def _attempt_n(self) -> dict[str, int]:
+        return self.state.attempt_n
+
+    @_attempt_n.setter
+    def _attempt_n(self, value: dict[str, int]) -> None:
+        self.state.attempt_n = value
+
     def default_services(self) -> list[Service]:
         """Build the production service list (legacy loops behind adapters)."""
         return [
-            LegacyLoop("config_poll", ServiceOrder.Config, lambda: self._config_poll_loop()),
+            ConfigReload(),
             StartupSweeps(self),
             LegacyLoop("claim_and_spawn", ServiceOrder.Claim, lambda: self._claim_and_spawn_loop()),
             LegacyLoop("reap", ServiceOrder.Reap, lambda: self._reap_loop()),
-            LegacyLoop("status_log", ServiceOrder.Stall, lambda: self._status_log_loop()),
-            LegacyLoop("kill_poll", ServiceOrder.Stall, lambda: self._kill_poll_loop()),
-            LegacyLoop("retention_gc", ServiceOrder.Gc, lambda: self._gc_loop()),
+            LegacyLoop(
+                "legacy_stall_leases_triage",
+                ServiceOrder.Stall,
+                lambda: self._status_log_loop(),
+            ),
+            KillSentinel(),
+            RetentionGc(),
+            StatusLog(),
         ]
 
     async def run(self) -> int:
         async with self._signals_to_shutdown():
             run_startup_checks(self.state, self._checks)
+            self.state.services = self._services
             await emit(self._services, "on_start", self.state)
             await self._serve_until_shutdown()
             await emit(self._services, "on_stop", self.state)
@@ -214,123 +241,6 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, LeasesMixin, Tri
         for t in bg:
             t.cancel()
         await asyncio.gather(*bg, return_exceptions=True)
-
-    async def _gc_loop(self) -> None:
-        """Run the retention pass on a daily cadence (startup ran it once)."""
-        while not self._shutting_down:
-            await asyncio.sleep(GC_INTERVAL_SEC)
-            if self._shutting_down:
-                break
-            try:
-                self._run_retention_gc()
-            except Exception as exc:  # noqa: BLE001 - gc must not kill the loop
-                self._log.warning("retention_gc_failed", error=str(exc))
-
-    def _run_retention_gc(self) -> None:
-        """Archive old closed tasks, purge old archives, drop stale worktrees.
-
-        Retention windows come from the live config; 0 disables that step.
-        Never raises: per-step handling is guarded so one bad directory
-        cannot break the pass.
-        """
-        home = self._project_root
-        try:
-            stale = find_stale_worktrees(home, days=self.config.gc_retention_days)
-        except Exception as exc:  # noqa: BLE001 - selection failed, skip step
-            self._log.warning("retention_worktrees_failed", error=str(exc))
-            stale = []
-        try:
-            gc = gc_tasks(home, days=self.config.gc_retention_days)
-            self._log.info(
-                "retention_gc_tasks",
-                archived=len(gc.archived),
-                skipped=gc.skipped,
-                bytes_moved=gc.bytes_moved,
-            )
-        except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
-            self._log.warning("retention_gc_tasks_failed", error=str(exc))
-        try:
-            purged = purge_archive(home, days=self.config.gc_archive_days)
-            self._log.info(
-                "retention_purge_archive",
-                deleted=len(purged.deleted),
-                skipped=purged.skipped,
-                bytes_freed=purged.bytes_freed,
-            )
-        except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
-            self._log.warning("retention_purge_failed", error=str(exc))
-        removed = 0
-        for item in stale:
-            try:
-                worktree_mod.cleanup_worktree(
-                    item.repo_root or home,
-                    item.task_id,
-                    worktree_path_arg=item.path,
-                    fleet_home=home,
-                )
-                if item.path.exists():
-                    # Not a git-registered worktree (or its repo is gone):
-                    # fall back to a plain recursive delete.
-                    shutil.rmtree(item.path, ignore_errors=True)
-                removed += 1
-            except Exception as exc:  # noqa: BLE001 - one bad dir, rest continue
-                self._log.warning(
-                    "retention_worktree_failed",
-                    task_id=item.task_id,
-                    error=str(exc),
-                )
-        if stale:
-            self._log.info("retention_worktrees", found=len(stale), removed=removed)
-
-    async def _config_poll_loop(self) -> None:
-        while not self._shutting_down:
-            await asyncio.sleep(CONFIG_POLL_INTERVAL_SEC)
-            if self._shutting_down:
-                break
-
-            try:
-                result = reload_if_changed(self._runtime_toml_path, self._config_mtime)
-            except OSError:
-                continue
-
-            if result is not None:
-                new_config, new_mtime = result
-                self.config = new_config
-                self._config_mtime = new_mtime
-                self._log.info("config_reloaded", path=str(self._runtime_toml_path))
-
-    async def _kill_poll_loop(self) -> None:
-        """Poll for .kill sentinel files and terminate the matching runner."""
-        while not self._shutting_down:
-            await asyncio.sleep(1.0)
-            if self._shutting_down:
-                break
-            for task_id, runner in list(self._runners.items()):
-                kill_file = _task_dir(self._project_root, task_id) / ".kill"
-                if kill_file.exists():
-                    kill_file.unlink(missing_ok=True)
-                    self._log.info("task_kill_requested", task_id=task_id)
-                    await runner.kill()
-
-    def _fleet_log_context(self) -> dict:
-        """Snapshot of live fleet stats — in-flight count, rate-limit usage."""
-        usage_pct = self.rate_gauge.current_pct()  # may trigger auto-reset
-        return {
-            "in_flight": len(self.in_flight),
-            "cap": self.config.max_concurrent,
-            "usage_pct": usage_pct,
-            "paused_until": (
-                self._paused_until.isoformat()
-                if self._paused_until is not None
-                else None
-            ),
-            "rate_limit_resets_at": self.rate_gauge.resets_at,
-            "task_ids": sorted(self.in_flight.keys()),
-            "context_tokens": {
-                tid: (task_runtime_stats(tid).context_tokens or 0)
-                for tid in self.in_flight
-            },
-        }
 
     def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
