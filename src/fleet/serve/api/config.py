@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from fleet.coders import get_coder
+from fleet.serve.api.models import ConfigView
 from fleet.state.config_file import load as load_config
 from fleet.state.config_file import write as write_config
 from fleet.state.paths import fleet_home as get_fleet_home
@@ -15,7 +16,7 @@ from fleet.state.paths import fleet_home as get_fleet_home
 router = APIRouter(prefix="/api")
 
 
-@router.get("/config")
+@router.get("/config", response_model=ConfigView)
 async def get_config() -> JSONResponse:
     """Full RuntimeConfig as JSON (FR-43)."""
     home = get_fleet_home()
@@ -23,7 +24,7 @@ async def get_config() -> JSONResponse:
     return JSONResponse(asdict(cfg))
 
 
-@router.put("/config")
+@router.put("/config", response_model=ConfigView)
 async def put_config(request: Request) -> JSONResponse:
     """Update runtime.toml atomically; rejects unknown coders/values."""
     home = get_fleet_home()

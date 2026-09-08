@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
-import type { AnalyticsByModelProject } from '../../../shared/types';
+import type { AnalyticsByModelRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
 
 interface Props {
-  rows: AnalyticsByModelProject[];
+  rows: AnalyticsByModelRow[];
 }
 
 type ColumnKey = 'model' | 'total' | 'success_rate' | 'median_run_sec' | 'mean_peak_context_tokens' | 'output_tokens' | 'avg_segments' | 'errors';

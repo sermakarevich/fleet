@@ -10,6 +10,11 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
+from fleet.serve.api.models import (
+    TaskAttemptListResponse,
+    TaskChildren,
+    TaskDetail,
+)
 from fleet.serve.api.task_summary import build_summary, config_defaults, fetch_beads_info
 from fleet.serve.state import AppState, StateDep
 from fleet.state.paths import task_dir as resolve_task_dir
@@ -19,7 +24,7 @@ from fleet.state.task_summary import read_result
 router = APIRouter(prefix="/api")
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", response_model=TaskDetail)
 async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     """One task summary, overlaid with beads status/priority/depends_on."""
     index = TaskIndex(state.home)
@@ -38,7 +43,7 @@ async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     )
 
 
-@router.get("/tasks/{task_id}/attempts")
+@router.get("/tasks/{task_id}/attempts", response_model=TaskAttemptListResponse)
 async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     """Attempt timeline for one task, derived from attempts.jsonl."""
     index = TaskIndex(state.home)
@@ -56,7 +61,7 @@ async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"attempts": summary["attempts"]})
 
 
-@router.get("/tasks/{task_id}/children")
+@router.get("/tasks/{task_id}/children", response_model=TaskChildren)
 async def get_task_children(task_id: str, state: StateDep) -> JSONResponse:
     """Children panel for epics: child id/status/RESULT plus CHILDREN.md."""
     index = TaskIndex(state.home)

@@ -7,6 +7,12 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from fleet.serve.api.models import (
+    ContentResponse,
+    FileListResponse,
+    LogListResponse,
+    TaskEventsResponse,
+)
 from fleet.serve.api.task_summary import event_to_json, parse_log_line
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempts import latest_attempt_dir
@@ -26,7 +32,7 @@ def _latest_log(task_id: str, state: AppState, filename: str) -> Path:
     return task_dir / filename
 
 
-@router.get("/tasks/{task_id}/logs")
+@router.get("/tasks/{task_id}/logs", response_model=LogListResponse)
 async def get_task_logs(task_id: str, state: StateDep, level: str | None = None) -> JSONResponse:
     """Parsed log.jsonl lines, optionally filtered by level (FR-17)."""
     entries: list[dict] = []
@@ -50,14 +56,14 @@ async def get_task_logs(task_id: str, state: StateDep, level: str | None = None)
     return JSONResponse({"lines": entries})
 
 
-@router.get("/tasks/{task_id}/stderr")
+@router.get("/tasks/{task_id}/stderr", response_model=ContentResponse)
 async def get_task_stderr(task_id: str, state: StateDep) -> JSONResponse:
     """Raw stderr content, empty when absent (FR-18)."""
     f = _latest_log(task_id, state, "log.stderr")
     return JSONResponse({"content": f.read_text(encoding="utf-8") if f.exists() else ""})
 
 
-@router.get("/tasks/{task_id}/files")
+@router.get("/tasks/{task_id}/files", response_model=FileListResponse)
 async def get_task_files(task_id: str, state: StateDep) -> JSONResponse:
     """Per-file read/edit/write counts from the event scan (FR-20)."""
     counts = scan_cached(resolve_task_dir(state.home, task_id), _events_cache).files_touched
@@ -68,7 +74,7 @@ async def get_task_files(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"files": files})
 
 
-@router.get("/tasks/{task_id}/events")
+@router.get("/tasks/{task_id}/events", response_model=TaskEventsResponse)
 async def get_task_events(
     task_id: str,
     state: StateDep,

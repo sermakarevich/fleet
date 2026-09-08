@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.observability.daemon import code_fingerprint
 from fleet.observability.process import service_status
+from fleet.serve.api.models import HealthResponse
 from fleet.serve.auth import websocket_authorized
 from fleet.serve.state import StateDep
 from fleet.state.paths import fleet_home
@@ -15,7 +16,7 @@ from fleet.state.paths import task_dir as _task_dir
 router = APIRouter()
 
 
-@router.get("/healthz")
+@router.get("/healthz", response_model=HealthResponse)
 async def healthz() -> JSONResponse:
     """Liveness with fleet home, serve fingerprint and code staleness."""
     home = fleet_home()

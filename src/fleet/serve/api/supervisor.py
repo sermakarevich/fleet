@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.observability.daemon import Daemon, supervisor_spec
 from fleet.observability.process import ServiceRegistry
+from fleet.serve.api.models import PauseResponse, RestartResponse, SupervisorResponse
 from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.task_index import TaskIndex
@@ -22,7 +23,7 @@ def _count_active(home: Path) -> int:
     return sum(1 for _, raw in TaskIndex(home).iter_meta() if raw.get("status") == "in_progress")
 
 
-@router.get("")
+@router.get("", response_model=SupervisorResponse)
 async def get_supervisor_status() -> JSONResponse:
     """Supervisor liveness, slot counts, pause flag, code staleness (FR-42)."""
     home = get_fleet_home()
@@ -47,7 +48,7 @@ async def get_supervisor_status() -> JSONResponse:
     )
 
 
-@router.post("/pause")
+@router.post("/pause", response_model=PauseResponse)
 async def pause_supervisor() -> JSONResponse:
     """Pause claiming (running workers finish)."""
     home = get_fleet_home()
@@ -55,7 +56,7 @@ async def pause_supervisor() -> JSONResponse:
     return JSONResponse({"paused": True})
 
 
-@router.post("/resume")
+@router.post("/resume", response_model=PauseResponse)
 async def resume_supervisor() -> JSONResponse:
     """Clear the pause flag."""
     home = get_fleet_home()
@@ -65,7 +66,7 @@ async def resume_supervisor() -> JSONResponse:
     return JSONResponse({"paused": False})
 
 
-@router.post("/restart")
+@router.post("/restart", response_model=RestartResponse)
 async def restart_supervisor() -> JSONResponse:
     """Restart the supervisor daemon; returns the new pid facts."""
     home = get_fleet_home()

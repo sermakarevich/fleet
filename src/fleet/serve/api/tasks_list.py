@@ -12,6 +12,12 @@ from fleet.beads.client import BdError
 from fleet.beads.reconcile import merge_status
 from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
+from fleet.serve.api.models import (
+    CoderListResponse,
+    CreateTaskResponse,
+    TaskListResponse,
+    TemplateListResponse,
+)
 from fleet.serve.api.task_summary import (
     build_all_summaries,
     config_defaults,
@@ -23,7 +29,7 @@ from fleet.state.task_index import TaskIndex
 router = APIRouter(prefix="/api")
 
 
-@router.get("/tasks")
+@router.get("/tasks", response_model=TaskListResponse)
 async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     """List task summaries, active first then recently-closed (FR-07)."""
     home = state.home
@@ -55,13 +61,13 @@ async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     return JSONResponse({"tasks": summaries})
 
 
-@router.get("/coders")
+@router.get("/coders", response_model=CoderListResponse)
 async def list_coders() -> JSONResponse:
     """Coders the create-task form may offer."""
     return JSONResponse({"coders": _list_coders()})
 
 
-@router.post("/tasks")
+@router.post("/tasks", response_model=CreateTaskResponse)
 async def create_task(request: Request, state: StateDep) -> JSONResponse:
     """Create a task via the queue; 201 with the new id."""
     body = await request.json()
@@ -91,7 +97,7 @@ async def create_task(request: Request, state: StateDep) -> JSONResponse:
     return JSONResponse({"id": task.id}, status_code=201)
 
 
-@router.get("/templates")
+@router.get("/templates", response_model=TemplateListResponse)
 async def list_templates(state: StateDep) -> JSONResponse:
     """Prompt templates stored under the fleet home."""
     templates_dir = state.home / "templates"

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads.client import BdError
 from fleet.observability.process import service_status
+from fleet.serve.api.models import KillResponse, OkResponse
 from fleet.serve.api.task_summary import beads_assignee_clearer, body_note, resolve_status
 from fleet.serve.state import AppState, StateDep
 from fleet.state import task_actions
@@ -33,7 +34,7 @@ async def _queue_call(task_id: str, state: AppState, method: str) -> JSONRespons
     return JSONResponse({"ok": True})
 
 
-@router.post("/tasks/{task_id}/kill")
+@router.post("/tasks/{task_id}/kill", response_model=KillResponse)
 async def kill_task(task_id: str, state: StateDep) -> JSONResponse:
     """Signal a running task (.kill) or close a queued one via the queue."""
     if (missing := _missing(task_id, state)) is not None:
@@ -56,7 +57,7 @@ async def kill_task(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"ok": True, "result": outcome})
 
 
-@router.post("/tasks/{task_id}/requeue")
+@router.post("/tasks/{task_id}/requeue", response_model=OkResponse)
 async def requeue_task(task_id: str, state: StateDep) -> JSONResponse:
     """Release a task back to the queue."""
     try:
@@ -66,7 +67,7 @@ async def requeue_task(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
-@router.post("/tasks/{task_id}/unblock")
+@router.post("/tasks/{task_id}/unblock", response_model=OkResponse)
 async def unblock_task(task_id: str, request: Request, state: StateDep) -> JSONResponse:
     """Release a blocked task, clear retry state, journal the note."""
     note = await body_note(request)
@@ -79,25 +80,25 @@ async def unblock_task(task_id: str, request: Request, state: StateDep) -> JSONR
     return JSONResponse({"ok": True})
 
 
-@router.post("/tasks/{task_id}/unignore")
+@router.post("/tasks/{task_id}/unignore", response_model=OkResponse)
 async def unignore_task(task_id: str, state: StateDep) -> JSONResponse:
     """Clear a task's triage ignore."""
     return await _queue_call(task_id, state, "clear_ignore")
 
 
-@router.post("/tasks/{task_id}/close")
+@router.post("/tasks/{task_id}/close", response_model=OkResponse)
 async def close_task(task_id: str, state: StateDep) -> JSONResponse:
     """Close a task via the queue."""
     return await _queue_call(task_id, state, "close")
 
 
-@router.delete("/tasks/{task_id}")
+@router.delete("/tasks/{task_id}", response_model=OkResponse)
 async def delete_task(task_id: str, state: StateDep) -> JSONResponse:
     """Delete a task via the queue."""
     return await _queue_call(task_id, state, "delete")
 
 
-@router.post("/tasks/{task_id}/remove-assignee")
+@router.post("/tasks/{task_id}/remove-assignee", response_model=OkResponse)
 async def remove_assignee(task_id: str, state: StateDep) -> JSONResponse:
     """Clear the beads assignee and the task.json coder mirror."""
     try:

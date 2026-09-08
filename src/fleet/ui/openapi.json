@@ -1,0 +1,4660 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/tasks": {
+      "get": {
+        "summary": "List Tasks",
+        "description": "List task summaries, active first then recently-closed (FR-07).",
+        "operationId": "list_tasks_api_tasks_get",
+        "parameters": [
+          {
+            "name": "closed_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 300,
+              "title": "Closed Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Task",
+        "description": "Create a task via the queue; 201 with the new id.",
+        "operationId": "create_task_api_tasks_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/coders": {
+      "get": {
+        "summary": "List Coders",
+        "description": "Coders the create-task form may offer.",
+        "operationId": "list_coders_api_coders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoderListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "summary": "List Templates",
+        "description": "Prompt templates stored under the fleet home.",
+        "operationId": "list_templates_api_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}": {
+      "get": {
+        "summary": "Get Task",
+        "description": "One task summary, overlaid with beads status/priority/depends_on.",
+        "operationId": "get_task_api_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Task",
+        "description": "Delete a task via the queue.",
+        "operationId": "delete_task_api_tasks__task_id__delete",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/attempts": {
+      "get": {
+        "summary": "List Task Attempts",
+        "description": "Attempt timeline for one task, derived from attempts.jsonl.",
+        "operationId": "list_task_attempts_api_tasks__task_id__attempts_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskAttemptListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/children": {
+      "get": {
+        "summary": "Get Task Children",
+        "description": "Children panel for epics: child id/status/RESULT plus CHILDREN.md.",
+        "operationId": "get_task_children_api_tasks__task_id__children_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskChildren"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/attempts/{n}/summary": {
+      "get": {
+        "summary": "Get Attempt Summary",
+        "description": "Derived attempt summary, rendered on demand (never stored).",
+        "operationId": "get_attempt_summary_api_tasks__task_id__attempts__n__summary_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/attempts/{n}/state": {
+      "get": {
+        "summary": "Get Attempt State",
+        "description": "STATE.md snapshot taken at reap for one attempt.",
+        "operationId": "get_attempt_state_api_tasks__task_id__attempts__n__state_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/attempts/{n}/prompt": {
+      "get": {
+        "summary": "Get Attempt Prompt",
+        "description": "Recorded prompt.md for one attempt.",
+        "operationId": "get_attempt_prompt_api_tasks__task_id__attempts__n__prompt_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/attempts/{n}/log": {
+      "get": {
+        "summary": "Get Attempt Log",
+        "description": "Raw log.jsonl for one attempt.",
+        "operationId": "get_attempt_log_api_tasks__task_id__attempts__n__log_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/kill": {
+      "post": {
+        "summary": "Kill Task",
+        "description": "Signal a running task (.kill) or close a queued one via the queue.",
+        "operationId": "kill_task_api_tasks__task_id__kill_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KillResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/requeue": {
+      "post": {
+        "summary": "Requeue Task",
+        "description": "Release a task back to the queue.",
+        "operationId": "requeue_task_api_tasks__task_id__requeue_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/unblock": {
+      "post": {
+        "summary": "Unblock Task",
+        "description": "Release a blocked task, clear retry state, journal the note.",
+        "operationId": "unblock_task_api_tasks__task_id__unblock_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/unignore": {
+      "post": {
+        "summary": "Unignore Task",
+        "description": "Clear a task's triage ignore.",
+        "operationId": "unignore_task_api_tasks__task_id__unignore_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/close": {
+      "post": {
+        "summary": "Close Task",
+        "description": "Close a task via the queue.",
+        "operationId": "close_task_api_tasks__task_id__close_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/remove-assignee": {
+      "post": {
+        "summary": "Remove Assignee",
+        "description": "Clear the beads assignee and the task.json coder mirror.",
+        "operationId": "remove_assignee_api_tasks__task_id__remove_assignee_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/state": {
+      "get": {
+        "summary": "Get Artifact State",
+        "description": "STATE.md, or the legacy view for old task dirs without one.",
+        "operationId": "get_artifact_state_api_tasks__task_id__artifacts_state_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/result": {
+      "get": {
+        "summary": "Get Artifact Result",
+        "description": "Live RESULT.json, else the latest attempt snapshot, else legacy.",
+        "operationId": "get_artifact_result_api_tasks__task_id__artifacts_result_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/outputs": {
+      "get": {
+        "summary": "Get Artifact Outputs",
+        "description": "Deliverables under tasks/<id>/outputs/.",
+        "operationId": "get_artifact_outputs_api_tasks__task_id__artifacts_outputs_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/research": {
+      "get": {
+        "summary": "Get Artifact Research",
+        "description": "Job worker's RESEARCH.md (see workers/job.py).",
+        "operationId": "get_artifact_research_api_tasks__task_id__artifacts_research_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/design": {
+      "get": {
+        "summary": "Get Artifact Design",
+        "description": "Job worker's DESIGN.md (see workers/job.py).",
+        "operationId": "get_artifact_design_api_tasks__task_id__artifacts_design_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/diff": {
+      "get": {
+        "summary": "Get Task Diff",
+        "description": "git diff of the task's cwd (empty when not a git repo).",
+        "operationId": "get_task_diff_api_tasks__task_id__diff_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiffResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/logs": {
+      "get": {
+        "summary": "Get Task Logs",
+        "description": "Parsed log.jsonl lines, optionally filtered by level (FR-17).",
+        "operationId": "get_task_logs_api_tasks__task_id__logs_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/stderr": {
+      "get": {
+        "summary": "Get Task Stderr",
+        "description": "Raw stderr content, empty when absent (FR-18).",
+        "operationId": "get_task_stderr_api_tasks__task_id__stderr_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/files": {
+      "get": {
+        "summary": "Get Task Files",
+        "description": "Per-file read/edit/write counts from the event scan (FR-20).",
+        "operationId": "get_task_files_api_tasks__task_id__files_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/events": {
+      "get": {
+        "summary": "Get Task Events",
+        "description": "Whole-task event history across attempts, paged (tail by default).",
+        "operationId": "get_task_events_api_tasks__task_id__events_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskEventsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/beads": {
+      "get": {
+        "summary": "List Beads",
+        "description": "List every bead in the beads DB.",
+        "operationId": "list_beads_api_beads_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeadListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/beads/{bead_id}": {
+      "get": {
+        "summary": "Get Bead",
+        "description": "One bead with description, notes, dependencies, comments.",
+        "operationId": "get_bead_api_beads__bead_id__get",
+        "parameters": [
+          {
+            "name": "bead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bead Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeadDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/beads/{bead_id}/status": {
+      "post": {
+        "summary": "Set Status",
+        "description": "Set a bead status; `closed` goes through `bd close` like queue.close.",
+        "operationId": "set_status_api_beads__bead_id__status_post",
+        "parameters": [
+          {
+            "name": "bead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bead Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/beads/{bead_id}/unblock": {
+      "post": {
+        "summary": "Unblock Bead",
+        "description": "Reopen a bead (`bd update --status open`).",
+        "operationId": "unblock_bead_api_beads__bead_id__unblock_post",
+        "parameters": [
+          {
+            "name": "bead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bead Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/beads/{bead_id}/remove-assignee": {
+      "post": {
+        "summary": "Remove Bead Assignee",
+        "description": "Clear the assignee; the portal targets beads, so a missing task dir is ok.",
+        "operationId": "remove_bead_assignee_api_beads__bead_id__remove_assignee_post",
+        "parameters": [
+          {
+            "name": "bead_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bead Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor": {
+      "get": {
+        "summary": "Get Supervisor Status",
+        "description": "Supervisor liveness, slot counts, pause flag, code staleness (FR-42).",
+        "operationId": "get_supervisor_status_api_supervisor_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupervisorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/pause": {
+      "post": {
+        "summary": "Pause Supervisor",
+        "description": "Pause claiming (running workers finish).",
+        "operationId": "pause_supervisor_api_supervisor_pause_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/resume": {
+      "post": {
+        "summary": "Resume Supervisor",
+        "description": "Clear the pause flag.",
+        "operationId": "resume_supervisor_api_supervisor_resume_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/supervisor/restart": {
+      "post": {
+        "summary": "Restart Supervisor",
+        "description": "Restart the supervisor daemon; returns the new pid facts.",
+        "operationId": "restart_supervisor_api_supervisor_restart_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Healthz",
+        "description": "Liveness with fleet home, serve fingerprint and code staleness.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "summary": "Get Config",
+        "description": "Full RuntimeConfig as JSON (FR-43).",
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Config",
+        "description": "Update runtime.toml atomically; rejects unknown coders/values.",
+        "operationId": "put_config_api_config_put",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analytics/summary": {
+      "get": {
+        "summary": "Get Summary",
+        "description": "Aggregated analytics summary for the trailing *days*.",
+        "operationId": "get_summary_api_analytics_summary_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 7,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "summary": "Search",
+        "description": "Full-text search over task titles, descriptions and STATE.md.",
+        "operationId": "search_api_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/questions": {
+      "get": {
+        "summary": "List Questions",
+        "description": "Pending ask_human questions for the chat tab.",
+        "operationId": "list_questions_api_chat_questions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/questions/{qid}/answer": {
+      "post": {
+        "summary": "Answer Question",
+        "description": "Record the operator's answer to one question.",
+        "operationId": "answer_question_api_chat_questions__qid__answer_post",
+        "parameters": [
+          {
+            "name": "qid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Qid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyticsByModelRow": {
+        "properties": {
+          "coder": {
+            "type": "string",
+            "title": "Coder"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate"
+          },
+          "median_run_sec": {
+            "type": "number",
+            "title": "Median Run Sec"
+          },
+          "mean_peak_context_tokens": {
+            "type": "number",
+            "title": "Mean Peak Context Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "avg_segments": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Segments"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          },
+          "rate_limited": {
+            "type": "integer",
+            "title": "Rate Limited"
+          }
+        },
+        "type": "object",
+        "required": [
+          "coder",
+          "model",
+          "total",
+          "success_rate",
+          "median_run_sec",
+          "mean_peak_context_tokens",
+          "output_tokens",
+          "avg_segments",
+          "errors",
+          "rate_limited"
+        ],
+        "title": "AnalyticsByModelRow",
+        "description": "One per-(coder, model) breakdown row."
+      },
+      "AnalyticsByProjectRow": {
+        "properties": {
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate"
+          },
+          "median_run_sec": {
+            "type": "number",
+            "title": "Median Run Sec"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "success_rate",
+          "median_run_sec",
+          "output_tokens"
+        ],
+        "title": "AnalyticsByProjectRow",
+        "description": "One per-cwd breakdown row."
+      },
+      "AnalyticsContextHistogram": {
+        "properties": {
+          "buckets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buckets"
+        ],
+        "title": "AnalyticsContextHistogram",
+        "description": "Peak-context bucket counts keyed by label."
+      },
+      "AnalyticsErrorRecent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "coder",
+          "model",
+          "outcome",
+          "ended_at"
+        ],
+        "title": "AnalyticsErrorRecent",
+        "description": "One task needing attention."
+      },
+      "AnalyticsKpis": {
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "title": "Completed"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate"
+          },
+          "active_now": {
+            "type": "integer",
+            "title": "Active Now"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "median_run_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Run Sec"
+          },
+          "p90_run_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P90 Run Sec"
+          },
+          "median_queue_wait_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Queue Wait Sec"
+          },
+          "total_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Output Tokens"
+          },
+          "total_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Input Tokens"
+          },
+          "total_cache_read_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cache Read Tokens"
+          },
+          "total_cache_creation_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cache Creation Tokens"
+          },
+          "total_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Steps"
+          },
+          "avg_segments": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Segments"
+          },
+          "error_events": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Events"
+          },
+          "noclose_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Noclose Count"
+          },
+          "rate_limited_tasks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limited Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "completed",
+          "success_rate",
+          "active_now",
+          "queued",
+          "median_run_sec",
+          "p90_run_sec",
+          "median_queue_wait_sec",
+          "total_output_tokens",
+          "total_steps",
+          "avg_segments",
+          "error_events",
+          "noclose_count",
+          "rate_limited_tasks"
+        ],
+        "title": "AnalyticsKpis",
+        "description": "Headline KPIs for the analytics summary."
+      },
+      "AnalyticsRateLimit": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "ts"
+        ],
+        "title": "AnalyticsRateLimit",
+        "description": "One raw rate-limit event."
+      },
+      "AnalyticsSummary": {
+        "properties": {
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/AnalyticsKpis"
+          },
+          "throughput": {
+            "$ref": "#/components/schemas/AnalyticsThroughput"
+          },
+          "token_throughput": {
+            "$ref": "#/components/schemas/AnalyticsTokenThroughput"
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsByModelRow"
+            },
+            "type": "array",
+            "title": "By Model"
+          },
+          "by_project": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsByProjectRow"
+            },
+            "type": "array",
+            "title": "By Project"
+          },
+          "tools": {
+            "$ref": "#/components/schemas/AnalyticsTools"
+          },
+          "context_histogram": {
+            "$ref": "#/components/schemas/AnalyticsContextHistogram"
+          },
+          "heatmap": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Heatmap"
+          },
+          "errors_recent": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsErrorRecent"
+            },
+            "type": "array",
+            "title": "Errors Recent"
+          },
+          "rate_limits": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsRateLimit"
+            },
+            "type": "array",
+            "title": "Rate Limits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_days",
+          "kpis",
+          "throughput",
+          "token_throughput",
+          "by_model",
+          "by_project",
+          "tools",
+          "context_histogram",
+          "heatmap",
+          "errors_recent",
+          "rate_limits"
+        ],
+        "title": "AnalyticsSummary",
+        "description": "Aggregated payload for GET /api/analytics/summary."
+      },
+      "AnalyticsThroughput": {
+        "properties": {
+          "bucket_size": {
+            "type": "string",
+            "title": "Bucket Size"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsThroughputBucket"
+            },
+            "type": "array",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket_size",
+          "buckets"
+        ],
+        "title": "AnalyticsThroughput",
+        "description": "Completion throughput with its bucket size."
+      },
+      "AnalyticsThroughputBucket": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "success": {
+            "type": "integer",
+            "title": "Success"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "blocked": {
+            "type": "integer",
+            "title": "Blocked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "success",
+          "failed",
+          "blocked"
+        ],
+        "title": "AnalyticsThroughputBucket",
+        "description": "Success/failed/blocked counts for one time bucket."
+      },
+      "AnalyticsTokenBucket": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "cache_tokens": {
+            "type": "integer",
+            "title": "Cache Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "output_tokens",
+          "input_tokens",
+          "cache_tokens"
+        ],
+        "title": "AnalyticsTokenBucket",
+        "description": "Output/input/cache tokens for one time bucket."
+      },
+      "AnalyticsTokenThroughput": {
+        "properties": {
+          "bucket_size": {
+            "type": "string",
+            "title": "Bucket Size"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsTokenBucket"
+            },
+            "type": "array",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket_size",
+          "buckets"
+        ],
+        "title": "AnalyticsTokenThroughput",
+        "description": "Token throughput with its bucket size."
+      },
+      "AnalyticsToolRow": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "AnalyticsToolRow",
+        "description": "One tool-usage row."
+      },
+      "AnalyticsTools": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsToolRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "rows"
+        ],
+        "title": "AnalyticsTools",
+        "description": "Tool usage totals with top rows."
+      },
+      "AnswerResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "status"
+        ],
+        "title": "AnswerResponse",
+        "description": "Outcome envelope for POST /api/chat/questions/{id}/answer."
+      },
+      "ArtifactResponse": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "mtime": {
+            "type": "number",
+            "title": "Mtime"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content",
+          "mtime",
+          "path"
+        ],
+        "title": "ArtifactResponse",
+        "description": "File content envelope for the artifact routes."
+      },
+      "Bead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "issue_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Type"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "dependency_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dependency Count"
+          },
+          "dependent_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dependent Count"
+          },
+          "comment_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "priority",
+          "issue_type",
+          "assignee",
+          "created_at",
+          "updated_at",
+          "closed_at",
+          "dependency_count",
+          "dependent_count",
+          "comment_count"
+        ],
+        "title": "Bead",
+        "description": "One beads-DB row for the BD portal list."
+      },
+      "BeadComment": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "author",
+          "text",
+          "created_at"
+        ],
+        "title": "BeadComment",
+        "description": "One comment on a bead detail."
+      },
+      "BeadDependency": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "dependency_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dependency Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "dependency_type"
+        ],
+        "title": "BeadDependency",
+        "description": "One dependency edge on a bead detail."
+      },
+      "BeadDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "issue_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Type"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "close_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Reason"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/BeadDependency"
+            },
+            "type": "array",
+            "title": "Dependencies"
+          },
+          "comments": {
+            "items": {
+              "$ref": "#/components/schemas/BeadComment"
+            },
+            "type": "array",
+            "title": "Comments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "priority",
+          "issue_type",
+          "assignee",
+          "description",
+          "notes",
+          "created_at",
+          "updated_at",
+          "closed_at",
+          "close_reason",
+          "dependencies",
+          "comments"
+        ],
+        "title": "BeadDetail",
+        "description": "One bead with description, notes, dependencies and comments."
+      },
+      "BeadListResponse": {
+        "properties": {
+          "beads": {
+            "items": {
+              "$ref": "#/components/schemas/Bead"
+            },
+            "type": "array",
+            "title": "Beads"
+          }
+        },
+        "type": "object",
+        "required": [
+          "beads"
+        ],
+        "title": "BeadListResponse",
+        "description": "Envelope for GET /api/beads."
+      },
+      "CoderInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "context_limit": {
+            "type": "integer",
+            "title": "Context Limit"
+          },
+          "default_model": {
+            "type": "string",
+            "title": "Default Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "context_limit",
+          "default_model"
+        ],
+        "title": "CoderInfo",
+        "description": "One coder entry for the create-task form."
+      },
+      "CoderListResponse": {
+        "properties": {
+          "coders": {
+            "items": {
+              "$ref": "#/components/schemas/CoderInfo"
+            },
+            "type": "array",
+            "title": "Coders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "coders"
+        ],
+        "title": "CoderListResponse",
+        "description": "Envelope for GET /api/coders."
+      },
+      "ConfigView": {
+        "properties": {
+          "max_concurrent": {
+            "type": "integer",
+            "title": "Max Concurrent"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "coder": {
+            "type": "string",
+            "title": "Coder"
+          },
+          "telegram_chat_id": {
+            "type": "string",
+            "title": "Telegram Chat Id"
+          },
+          "telegram_allowed_ids": {
+            "type": "string",
+            "title": "Telegram Allowed Ids"
+          },
+          "telegram_default_cwd": {
+            "type": "string",
+            "title": "Telegram Default Cwd"
+          },
+          "opencode_ollama_url": {
+            "type": "string",
+            "title": "Opencode Ollama Url"
+          },
+          "max_concurrent_overrides": {
+            "type": "string",
+            "title": "Max Concurrent Overrides"
+          },
+          "context_windows": {
+            "type": "string",
+            "title": "Context Windows"
+          },
+          "opencode_default_model": {
+            "type": "string",
+            "title": "Opencode Default Model"
+          },
+          "opencode_bedrock_region": {
+            "type": "string",
+            "title": "Opencode Bedrock Region"
+          },
+          "opencode_bedrock_profile": {
+            "type": "string",
+            "title": "Opencode Bedrock Profile"
+          },
+          "stall_warning_minutes": {
+            "type": "integer",
+            "title": "Stall Warning Minutes"
+          },
+          "stall_action": {
+            "type": "string",
+            "title": "Stall Action"
+          },
+          "stall_block_after": {
+            "type": "integer",
+            "title": "Stall Block After"
+          },
+          "max_attempt_minutes": {
+            "type": "integer",
+            "title": "Max Attempt Minutes"
+          },
+          "continue_pack_max_bytes": {
+            "type": "integer",
+            "title": "Continue Pack Max Bytes"
+          },
+          "state_max_bytes": {
+            "type": "integer",
+            "title": "State Max Bytes"
+          },
+          "compaction_enabled": {
+            "type": "boolean",
+            "title": "Compaction Enabled"
+          },
+          "compaction_coder": {
+            "type": "string",
+            "title": "Compaction Coder"
+          },
+          "compaction_model": {
+            "type": "string",
+            "title": "Compaction Model"
+          },
+          "context_checkpoint_pct": {
+            "type": "integer",
+            "title": "Context Checkpoint Pct"
+          },
+          "context_kill_pct": {
+            "type": "integer",
+            "title": "Context Kill Pct"
+          },
+          "isolation": {
+            "type": "string",
+            "title": "Isolation"
+          },
+          "isolation_exclude": {
+            "type": "string",
+            "title": "Isolation Exclude"
+          },
+          "post_merge_command": {
+            "type": "string",
+            "title": "Post Merge Command"
+          },
+          "triage_interval_minutes": {
+            "type": "integer",
+            "title": "Triage Interval Minutes"
+          },
+          "gc_retention_days": {
+            "type": "integer",
+            "title": "Gc Retention Days"
+          },
+          "gc_archive_days": {
+            "type": "integer",
+            "title": "Gc Archive Days"
+          },
+          "observer_max_followups": {
+            "type": "integer",
+            "title": "Observer Max Followups"
+          },
+          "observer_max_rounds": {
+            "type": "integer",
+            "title": "Observer Max Rounds"
+          },
+          "job_gate": {
+            "type": "boolean",
+            "title": "Job Gate"
+          },
+          "job_child_coder": {
+            "type": "string",
+            "title": "Job Child Coder"
+          },
+          "job_child_model": {
+            "type": "string",
+            "title": "Job Child Model"
+          },
+          "job_max_children": {
+            "type": "integer",
+            "title": "Job Max Children"
+          },
+          "job_max_phase_attempts": {
+            "type": "integer",
+            "title": "Job Max Phase Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_concurrent",
+          "model",
+          "coder",
+          "telegram_chat_id",
+          "telegram_allowed_ids",
+          "telegram_default_cwd",
+          "opencode_ollama_url",
+          "max_concurrent_overrides",
+          "context_windows",
+          "opencode_default_model",
+          "opencode_bedrock_region",
+          "opencode_bedrock_profile",
+          "stall_warning_minutes",
+          "stall_action",
+          "stall_block_after",
+          "max_attempt_minutes",
+          "continue_pack_max_bytes",
+          "state_max_bytes",
+          "compaction_enabled",
+          "compaction_coder",
+          "compaction_model",
+          "context_checkpoint_pct",
+          "context_kill_pct",
+          "isolation",
+          "isolation_exclude",
+          "post_merge_command",
+          "triage_interval_minutes",
+          "gc_retention_days",
+          "gc_archive_days",
+          "observer_max_followups",
+          "observer_max_rounds",
+          "job_gate",
+          "job_child_coder",
+          "job_child_model",
+          "job_max_children",
+          "job_max_phase_attempts"
+        ],
+        "title": "ConfigView",
+        "description": "Full RuntimeConfig as JSON (mirrors core.config.RuntimeConfig)."
+      },
+      "ContentResponse": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "ContentResponse",
+        "description": "Single-text envelope (attempt summary/prompt/log/state, stderr)."
+      },
+      "CreateTaskResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "CreateTaskResponse",
+        "description": "New task id for POST /api/tasks."
+      },
+      "DiffResponse": {
+        "properties": {
+          "diff": {
+            "type": "string",
+            "title": "Diff"
+          }
+        },
+        "type": "object",
+        "required": [
+          "diff"
+        ],
+        "title": "DiffResponse",
+        "description": "git diff envelope for GET /api/tasks/{id}/diff."
+      },
+      "FileListResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileOp"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "FileListResponse",
+        "description": "Envelope for GET /api/tasks/{id}/files."
+      },
+      "FileOp": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "read": {
+            "type": "integer",
+            "title": "Read"
+          },
+          "edit": {
+            "type": "integer",
+            "title": "Edit"
+          },
+          "write": {
+            "type": "integer",
+            "title": "Write"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "read",
+          "edit",
+          "write"
+        ],
+        "title": "FileOp",
+        "description": "Per-file read/edit/write counts from the event scan."
+      },
+      "FollowupItem": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": ""
+          },
+          "body": {
+            "type": "string",
+            "title": "Body",
+            "default": ""
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Depends On"
+          }
+        },
+        "type": "object",
+        "title": "FollowupItem",
+        "description": "One observer-declared follow-up bead inside a partial result."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "fleet_home": {
+            "type": "string",
+            "title": "Fleet Home"
+          },
+          "version_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Fingerprint"
+          },
+          "current_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Fingerprint"
+          },
+          "stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "fleet_home"
+        ],
+        "title": "HealthResponse",
+        "description": "Liveness payload for GET /healthz."
+      },
+      "JobArtifacts": {
+        "properties": {
+          "research": {
+            "type": "boolean",
+            "title": "Research"
+          },
+          "design": {
+            "type": "boolean",
+            "title": "Design"
+          },
+          "tasks": {
+            "type": "boolean",
+            "title": "Tasks"
+          },
+          "approved": {
+            "type": "boolean",
+            "title": "Approved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "research",
+          "design",
+          "tasks",
+          "approved"
+        ],
+        "title": "JobArtifacts",
+        "description": "Presence flags for the job worker's RESEARCH/DESIGN/tasks/APPROVED."
+      },
+      "KillResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "result": {
+            "type": "string",
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "result"
+        ],
+        "title": "KillResponse",
+        "description": "Outcome envelope for POST /api/tasks/{id}/kill."
+      },
+      "LogLine": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "extra": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Extra"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "level",
+          "message",
+          "extra"
+        ],
+        "title": "LogLine",
+        "description": "One parsed log.jsonl line."
+      },
+      "LogListResponse": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lines"
+        ],
+        "title": "LogListResponse",
+        "description": "Envelope for GET /api/tasks/{id}/logs."
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "title": "OkResponse",
+        "description": "Generic mutation acknowledgement ({\"ok\": true})."
+      },
+      "OutputsResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "OutputsResponse",
+        "description": "Deliverable names for GET /api/tasks/{id}/artifacts/outputs."
+      },
+      "PauseResponse": {
+        "properties": {
+          "paused": {
+            "type": "boolean",
+            "title": "Paused"
+          }
+        },
+        "type": "object",
+        "required": [
+          "paused"
+        ],
+        "title": "PauseResponse",
+        "description": "Envelope for POST /api/supervisor/pause and /resume."
+      },
+      "Question": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
+          "multi_select": {
+            "type": "boolean",
+            "title": "Multi Select"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "answer": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "default_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Answer"
+          },
+          "timeout_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout S"
+          },
+          "answered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By"
+          },
+          "created_at": {
+            "type": "number",
+            "title": "Created At"
+          },
+          "answered_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "agent_id",
+          "session_id",
+          "prompt",
+          "options",
+          "multi_select",
+          "priority",
+          "status",
+          "answer",
+          "note",
+          "default_answer",
+          "timeout_s",
+          "answered_by",
+          "created_at",
+          "answered_at",
+          "task_id",
+          "context"
+        ],
+        "title": "Question",
+        "description": "One ask_human question row for the chat tab."
+      },
+      "QuestionListResponse": {
+        "properties": {
+          "now": {
+            "type": "number",
+            "title": "Now"
+          },
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            },
+            "type": "array",
+            "title": "Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "now",
+          "pending"
+        ],
+        "title": "QuestionListResponse",
+        "description": "Envelope for GET /api/chat/questions."
+      },
+      "RestartResponse": {
+        "properties": {
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "alive": {
+            "type": "boolean",
+            "title": "Alive"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pid",
+          "alive",
+          "started_at"
+        ],
+        "title": "RestartResponse",
+        "description": "New pid facts for POST /api/supervisor/restart."
+      },
+      "RunStep": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "fail",
+              "outcome"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "started_at",
+          "ended_at",
+          "status",
+          "reason"
+        ],
+        "title": "RunStep",
+        "description": "One entry of the current attempt's run.json steps."
+      },
+      "SearchHit": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "task_title": {
+            "type": "string",
+            "title": "Task Title"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "match_context": {
+            "type": "string",
+            "title": "Match Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "task_title",
+          "source",
+          "match_context"
+        ],
+        "title": "SearchHit",
+        "description": "One match: which task, which field, and a snippet around the hit."
+      },
+      "SearchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "SearchResponse",
+        "description": "Envelope for GET /api/search."
+      },
+      "StreamEvent": {
+        "properties": {
+          "i": {
+            "type": "integer",
+            "title": "I"
+          },
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "raw": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "i",
+          "ts",
+          "kind",
+          "session_id",
+          "tool_name",
+          "usage",
+          "summary",
+          "raw"
+        ],
+        "title": "StreamEvent",
+        "description": "One shaped event row for GET /api/tasks/{id}/events."
+      },
+      "SupervisorResponse": {
+        "properties": {
+          "pid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pid"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "max_concurrent": {
+            "type": "integer",
+            "title": "Max Concurrent"
+          },
+          "active_count": {
+            "type": "integer",
+            "title": "Active Count"
+          },
+          "free_slots": {
+            "type": "integer",
+            "title": "Free Slots"
+          },
+          "paused": {
+            "type": "boolean",
+            "title": "Paused"
+          },
+          "version_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Fingerprint"
+          },
+          "stale": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pid",
+          "started_at",
+          "running",
+          "max_concurrent",
+          "active_count",
+          "free_slots",
+          "paused"
+        ],
+        "title": "SupervisorResponse",
+        "description": "Supervisor liveness, slots, pause flag and code staleness."
+      },
+      "TaskAttempt": {
+        "properties": {
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "peak_context_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Context Pct"
+          },
+          "context_badge": {
+            "type": "boolean",
+            "title": "Context Badge"
+          },
+          "files_touched": {
+            "type": "integer",
+            "title": "Files Touched"
+          },
+          "commits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Commits"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_summary": {
+            "type": "boolean",
+            "title": "Has Summary"
+          },
+          "has_prompt": {
+            "type": "boolean",
+            "title": "Has Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n",
+          "kind",
+          "mode",
+          "coder",
+          "model",
+          "started_at",
+          "ended_at",
+          "duration_sec",
+          "outcome",
+          "reason",
+          "peak_context_pct",
+          "context_badge",
+          "files_touched",
+          "commits",
+          "result",
+          "has_summary",
+          "has_prompt"
+        ],
+        "title": "TaskAttempt",
+        "description": "One row of the attempts timeline."
+      },
+      "TaskAttemptListResponse": {
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/TaskAttempt"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempts"
+        ],
+        "title": "TaskAttemptListResponse",
+        "description": "Envelope for GET /api/tasks/{id}/attempts."
+      },
+      "TaskChild": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "result_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Status"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "result_status",
+          "result_summary"
+        ],
+        "title": "TaskChild",
+        "description": "One child bead of an epic."
+      },
+      "TaskChildren": {
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/TaskChild"
+            },
+            "type": "array",
+            "title": "Children"
+          },
+          "children_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Children Md"
+          }
+        },
+        "type": "object",
+        "required": [
+          "children",
+          "children_md"
+        ],
+        "title": "TaskChildren",
+        "description": "Children panel payload for GET /api/tasks/{id}/children."
+      },
+      "TaskDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Depends On"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "elapsed_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Sec"
+          },
+          "idle_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Sec"
+          },
+          "events": {
+            "type": "integer",
+            "title": "Events"
+          },
+          "context_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Tokens"
+          },
+          "context_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Pct"
+          },
+          "context_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Limit"
+          },
+          "last_event_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event Kind"
+          },
+          "last_event_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Event Detail"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "blocked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked At"
+          },
+          "ignore_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ignore Until"
+          },
+          "ignored": {
+            "type": "boolean",
+            "title": "Ignored"
+          },
+          "rounds": {
+            "$ref": "#/components/schemas/TaskRounds"
+          },
+          "restarts": {
+            "type": "integer",
+            "title": "Restarts"
+          },
+          "context_rounds": {
+            "type": "integer",
+            "title": "Context Rounds"
+          },
+          "compactions": {
+            "type": "integer",
+            "title": "Compactions"
+          },
+          "peak_context_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Context Pct"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
+          },
+          "last_outcome_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome Reason"
+          },
+          "last_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Action"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Excerpt"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker"
+          },
+          "job_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Phase"
+          },
+          "job_artifacts": {
+            "$ref": "#/components/schemas/JobArtifacts"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RunStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "lease": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskLease"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/TaskAttempt"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "status",
+          "cwd",
+          "coder",
+          "model",
+          "priority",
+          "depends_on",
+          "created_at",
+          "started_at",
+          "ended_at",
+          "elapsed_sec",
+          "idle_sec",
+          "events",
+          "context_tokens",
+          "context_pct",
+          "context_limit",
+          "last_event_kind",
+          "last_event_detail",
+          "blocked_reason",
+          "blocked_at",
+          "ignore_until",
+          "ignored",
+          "rounds",
+          "restarts",
+          "context_rounds",
+          "compactions",
+          "peak_context_pct",
+          "last_outcome",
+          "last_outcome_reason",
+          "last_action",
+          "result",
+          "state_excerpt",
+          "worker",
+          "job_phase",
+          "job_artifacts",
+          "steps",
+          "lease",
+          "attempts"
+        ],
+        "title": "TaskDetail",
+        "description": "One task with its attempts timeline (GET /api/tasks/{id})."
+      },
+      "TaskEventsResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/StreamEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "offset",
+          "events"
+        ],
+        "title": "TaskEventsResponse",
+        "description": "Paged envelope for GET /api/tasks/{id}/events."
+      },
+      "TaskLease": {
+        "properties": {
+          "heartbeat_at": {
+            "type": "string",
+            "title": "Heartbeat At"
+          },
+          "lease_until": {
+            "type": "string",
+            "title": "Lease Until"
+          },
+          "alive": {
+            "type": "boolean",
+            "title": "Alive"
+          }
+        },
+        "type": "object",
+        "required": [
+          "heartbeat_at",
+          "lease_until",
+          "alive"
+        ],
+        "title": "TaskLease",
+        "description": "Claim lease from the latest attempt's run.json, null when absent."
+      },
+      "TaskListResponse": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskDetail"
+            },
+            "type": "array",
+            "title": "Tasks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tasks"
+        ],
+        "title": "TaskListResponse",
+        "description": "Envelope for GET /api/tasks."
+      },
+      "TaskResult": {
+        "properties": {
+          "schema": {
+            "type": "integer",
+            "title": "Schema"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "partial",
+              "blocked"
+            ],
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "commits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Commits"
+          },
+          "tests": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tests"
+          },
+          "open_questions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Open Questions"
+          },
+          "next_step": {
+            "type": "string",
+            "title": "Next Step"
+          },
+          "blocked_reason": {
+            "type": "string",
+            "title": "Blocked Reason"
+          },
+          "followups": {
+            "items": {
+              "$ref": "#/components/schemas/FollowupItem"
+            },
+            "type": "array",
+            "title": "Followups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema",
+          "status",
+          "summary",
+          "commits",
+          "tests",
+          "open_questions",
+          "next_step",
+          "blocked_reason"
+        ],
+        "title": "TaskResult",
+        "description": "The worker's declared outcome (live RESULT.json or latest snapshot)."
+      },
+      "TaskRounds": {
+        "properties": {
+          "failure": {
+            "type": "integer",
+            "title": "Failure"
+          },
+          "stall": {
+            "type": "integer",
+            "title": "Stall"
+          },
+          "context": {
+            "type": "integer",
+            "title": "Context"
+          },
+          "partial": {
+            "type": "integer",
+            "title": "Partial"
+          },
+          "noclose": {
+            "type": "integer",
+            "title": "Noclose"
+          }
+        },
+        "type": "object",
+        "required": [
+          "failure",
+          "stall",
+          "context",
+          "partial",
+          "noclose"
+        ],
+        "title": "TaskRounds",
+        "description": "Trailing-streak retry rounds, from attempts.jsonl."
+      },
+      "Template": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content"
+        ],
+        "title": "Template",
+        "description": "One prompt template stored under the fleet home."
+      },
+      "TemplateListResponse": {
+        "properties": {
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/Template"
+            },
+            "type": "array",
+            "title": "Templates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "templates"
+        ],
+        "title": "TemplateListResponse",
+        "description": "Envelope for GET /api/templates."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

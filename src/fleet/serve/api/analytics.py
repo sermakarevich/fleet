@@ -8,12 +8,13 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.serve.analytics.summary import compute_summary
+from fleet.serve.api.models import AnalyticsSummary
 from fleet.state.paths import fleet_home as get_fleet_home
 
 router = APIRouter(prefix="/api/analytics")
 
 
-@router.get("/summary")
+@router.get("/summary", response_model=AnalyticsSummary)
 async def get_summary(days: int = 7) -> JSONResponse:
     """Aggregated analytics summary for the trailing *days*."""
     return JSONResponse(await asyncio.to_thread(compute_summary, get_fleet_home(), days))

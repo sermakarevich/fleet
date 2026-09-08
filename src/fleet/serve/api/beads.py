@@ -15,6 +15,11 @@ from fastapi.responses import JSONResponse
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
+from fleet.serve.api.models import (
+    BeadDetail,
+    BeadListResponse,
+    OkResponse,
+)
 from fleet.serve.api.task_summary import beads_assignee_clearer
 from fleet.state import task_actions
 from fleet.state.paths import fleet_home as get_fleet_home
@@ -90,7 +95,7 @@ async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
-@router.get("/beads")
+@router.get("/beads", response_model=BeadListResponse)
 async def list_beads() -> JSONResponse:
     """List every bead in the beads DB."""
     home = get_fleet_home()
@@ -101,7 +106,7 @@ async def list_beads() -> JSONResponse:
     return JSONResponse({"beads": [_summary(it) for it in items if isinstance(it, dict)]})
 
 
-@router.get("/beads/{bead_id}")
+@router.get("/beads/{bead_id}", response_model=BeadDetail)
 async def get_bead(bead_id: str) -> JSONResponse:
     """One bead with description, notes, dependencies, comments."""
     home = get_fleet_home()
@@ -114,7 +119,7 @@ async def get_bead(bead_id: str) -> JSONResponse:
     return JSONResponse(_detail(body))
 
 
-@router.post("/beads/{bead_id}/status")
+@router.post("/beads/{bead_id}/status", response_model=OkResponse)
 async def set_status(bead_id: str, request: Request) -> JSONResponse:
     """Set a bead status; `closed` goes through `bd close` like queue.close."""
     body = await request.json()
@@ -135,13 +140,13 @@ async def set_status(bead_id: str, request: Request) -> JSONResponse:
     return await _update(bead_id, ["--status", status])
 
 
-@router.post("/beads/{bead_id}/unblock")
+@router.post("/beads/{bead_id}/unblock", response_model=OkResponse)
 async def unblock_bead(bead_id: str) -> JSONResponse:
     """Reopen a bead (`bd update --status open`)."""
     return await _update(bead_id, ["--status", "open"])
 
 
-@router.post("/beads/{bead_id}/remove-assignee")
+@router.post("/beads/{bead_id}/remove-assignee", response_model=OkResponse)
 async def remove_bead_assignee(bead_id: str) -> JSONResponse:
     """Clear the assignee; the portal targets beads, so a missing task dir is ok."""
     home = get_fleet_home()

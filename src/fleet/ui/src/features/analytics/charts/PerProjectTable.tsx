@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
-import type { AnalyticsByModelProject } from '../../../shared/types';
+import type { AnalyticsByProjectRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
 
 interface Props {
-  rows: AnalyticsByModelProject[];
+  rows: AnalyticsByProjectRow[];
 }
 
 type ColumnKey = 'cwd' | 'total' | 'success_rate' | 'median_run_sec' | 'output_tokens';
@@ -24,7 +24,7 @@ const COLUMNS: Column[] = [
   { key: 'output_tokens', label: 'Output tok', numeric: true },
 ];
 
-function projectFromCwd(r: AnalyticsByModelProject): string {
+function projectFromCwd(r: AnalyticsByProjectRow): string {
   return (r.cwd || '').split('/').filter(Boolean).pop() ?? (r.cwd || '—');
 }
 

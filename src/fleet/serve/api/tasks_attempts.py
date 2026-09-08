@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from fleet.serve.api.models import ContentResponse
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.legacy import attempt_state_snapshot
@@ -25,7 +26,7 @@ def _attempt_dir(task_id: str, n: int, state: AppState) -> Path | None:
     return adir if adir.is_dir() else None
 
 
-@router.get("/tasks/{task_id}/attempts/{n}/summary")
+@router.get("/tasks/{task_id}/attempts/{n}/summary", response_model=ContentResponse)
 async def get_attempt_summary(task_id: str, n: int, state: StateDep) -> JSONResponse:
     """Derived attempt summary, rendered on demand (never stored)."""
     task_dir = TaskIndex(state.home).find(task_id)
@@ -39,7 +40,7 @@ async def get_attempt_summary(task_id: str, n: int, state: StateDep) -> JSONResp
     return JSONResponse({"content": content})
 
 
-@router.get("/tasks/{task_id}/attempts/{n}/state")
+@router.get("/tasks/{task_id}/attempts/{n}/state", response_model=ContentResponse)
 async def get_attempt_state(task_id: str, n: int, state: StateDep) -> JSONResponse:
     """STATE.md snapshot taken at reap for one attempt."""
     attempt_dir = _attempt_dir(task_id, n, state)
@@ -51,7 +52,7 @@ async def get_attempt_state(task_id: str, n: int, state: StateDep) -> JSONRespon
     return JSONResponse({"content": f.read_text(encoding="utf-8")})
 
 
-@router.get("/tasks/{task_id}/attempts/{n}/prompt")
+@router.get("/tasks/{task_id}/attempts/{n}/prompt", response_model=ContentResponse)
 async def get_attempt_prompt(task_id: str, n: int, state: StateDep) -> JSONResponse:
     """Recorded prompt.md for one attempt."""
     attempt_dir = _attempt_dir(task_id, n, state)
@@ -63,7 +64,7 @@ async def get_attempt_prompt(task_id: str, n: int, state: StateDep) -> JSONRespo
     return JSONResponse({"content": f.read_text(encoding="utf-8")})
 
 
-@router.get("/tasks/{task_id}/attempts/{n}/log")
+@router.get("/tasks/{task_id}/attempts/{n}/log", response_model=ContentResponse)
 async def get_attempt_log(task_id: str, n: int, state: StateDep) -> JSONResponse:
     """Raw log.jsonl for one attempt."""
     attempt_dir = _attempt_dir(task_id, n, state)

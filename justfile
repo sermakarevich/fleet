@@ -31,7 +31,7 @@ typecheck:
     uv run mypy src
 
 # one command that says "green": lint + format check + types + unit tests
-check: lint fmt-check typecheck
+check: lint fmt-check typecheck ui-types-check
     uv run pytest -q -p no:cacheprovider tests --ignore=tests/integration
 
 # check plus the integration suite
@@ -93,6 +93,16 @@ ui-build: ui-install
 # typecheck the web UI without emitting output
 ui-check:
     cd src/fleet/ui && npx tsc --noEmit
+
+# regenerate the UI's typed API client from the serve OpenAPI schema
+ui-types:
+    uv run python -m fleet.serve.openapi_dump > src/fleet/ui/openapi.json
+    cd src/fleet/ui && npx openapi-typescript openapi.json -o src/shared/api-types.gen.ts
+
+# fail when the generated UI types drift from the backend models
+ui-types-check:
+    just ui-types
+    git diff --exit-code src/fleet/ui/src/shared/api-types.gen.ts
 
 # run the Vite dev server with hot reload (for working on the UI itself)
 ui-dev:

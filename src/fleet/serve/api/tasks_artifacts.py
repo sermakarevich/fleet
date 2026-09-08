@@ -8,6 +8,11 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from fleet.serve.api.models import (
+    ArtifactResponse,
+    DiffResponse,
+    OutputsResponse,
+)
 from fleet.serve.state import AppState, StateDep
 from fleet.state.artifact_locator import locate
 from fleet.state.legacy import legacy_state_text
@@ -27,7 +32,7 @@ def _file_response(f: Path) -> JSONResponse:
     )
 
 
-@router.get("/tasks/{task_id}/artifacts/state")
+@router.get("/tasks/{task_id}/artifacts/state", response_model=ArtifactResponse)
 async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
     """STATE.md, or the legacy view for old task dirs without one."""
     task_dir = TaskIndex(state.home).find(task_id)
@@ -42,7 +47,7 @@ async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"content": legacy, "mtime": 0, "path": ""})
 
 
-@router.get("/tasks/{task_id}/artifacts/result")
+@router.get("/tasks/{task_id}/artifacts/result", response_model=ArtifactResponse)
 async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
     """Live RESULT.json, else the latest attempt snapshot, else legacy."""
     task_dir = TaskIndex(state.home).find(task_id)
@@ -54,7 +59,7 @@ async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
     return _file_response(f)
 
 
-@router.get("/tasks/{task_id}/artifacts/outputs")
+@router.get("/tasks/{task_id}/artifacts/outputs", response_model=OutputsResponse)
 async def get_artifact_outputs(task_id: str, state: StateDep) -> JSONResponse:
     """Deliverables under tasks/<id>/outputs/."""
     outputs = resolve_task_dir(state.home, task_id) / "outputs"
@@ -67,13 +72,13 @@ async def get_artifact_outputs(task_id: str, state: StateDep) -> JSONResponse:
     return JSONResponse({"files": files})
 
 
-@router.get("/tasks/{task_id}/artifacts/research")
+@router.get("/tasks/{task_id}/artifacts/research", response_model=ArtifactResponse)
 async def get_artifact_research(task_id: str, state: StateDep) -> JSONResponse:
     """Job worker's RESEARCH.md (see workers/job.py)."""
     return _named_artifact(task_id, state, "RESEARCH.md")
 
 
-@router.get("/tasks/{task_id}/artifacts/design")
+@router.get("/tasks/{task_id}/artifacts/design", response_model=ArtifactResponse)
 async def get_artifact_design(task_id: str, state: StateDep) -> JSONResponse:
     """Job worker's DESIGN.md (see workers/job.py)."""
     return _named_artifact(task_id, state, "DESIGN.md")
@@ -86,7 +91,7 @@ def _named_artifact(task_id: str, state: AppState, filename: str) -> JSONRespons
     return _file_response(f)
 
 
-@router.get("/tasks/{task_id}/diff")
+@router.get("/tasks/{task_id}/diff", response_model=DiffResponse)
 async def get_task_diff(task_id: str, state: StateDep) -> JSONResponse:
     """git diff of the task's cwd (empty when not a git repo)."""
     raw = TaskIndex(state.home).read_raw(task_id) or {}

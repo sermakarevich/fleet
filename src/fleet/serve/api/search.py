@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from fleet.serve.api.models import SearchResponse
 from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import STATE_MD
 from fleet.state.paths import fleet_home as get_fleet_home
@@ -90,7 +91,7 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
     return results[:_MAX_RESULTS]
 
 
-@router.get("/search")
+@router.get("/search", response_model=SearchResponse)
 async def search(q: str = Query(...)) -> JSONResponse:
     """Full-text search over task titles, descriptions and STATE.md."""
     if not q.strip():
