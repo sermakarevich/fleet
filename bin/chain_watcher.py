@@ -38,7 +38,9 @@ HOME = Path.home() / ".fleet"
 LOG = HOME / "logging" / "chain_watcher.log"
 PIDFILE = HOME / "chain_watcher.pid"
 POLL_SEC = 30
-FLEET = str(Path.home() / ".local" / "bin" / "fleet")
+# Bead lookups go straight to `bd` in the fleet home (where .beads lives) so a
+# worker's half-edited fleet CLI cannot blind the watcher. Only the supervisor
+# restart needs the fleet CLI itself.
 
 
 def log(msg: str) -> None:
@@ -51,8 +53,12 @@ def run(*argv: str, timeout: int = 120) -> subprocess.CompletedProcess:
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=REPO)
 
 
+def bd(*argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bd", *argv], capture_output=True, text=True, timeout=60, cwd=HOME)
+
+
 def bead(bead_id: str) -> dict:
-    cp = run(FLEET, "bd", "show", bead_id, "--json")
+    cp = bd("show", bead_id, "--json")
     if cp.returncode != 0:
         raise RuntimeError(f"bd show {bead_id}: {cp.stderr.strip()[:200]}")
     data = json.loads(cp.stdout)
@@ -60,15 +66,15 @@ def bead(bead_id: str) -> dict:
 
 
 def defer(bead_id: str) -> None:
-    cp = run(FLEET, "bd", "update", bead_id, "--defer", "+3d")
+    cp = bd("update", bead_id, "--defer", "+3d")
     log(f"defer {bead_id}: rc={cp.returncode} {cp.stdout.strip()[:80]}{cp.stderr.strip()[:80]}")
 
 
 def undefer(bead_id: str) -> None:
-    cp = run(FLEET, "bd", "update", bead_id, "--defer", "")
+    cp = bd("update", bead_id, "--defer", "")
     log(f"undefer {bead_id}: rc={cp.returncode} {cp.stdout.strip()[:80]}{cp.stderr.strip()[:80]}")
     if bead(bead_id).get("status") == "deferred":
-        cp = run(FLEET, "bd", "update", bead_id, "--status", "open")
+        cp = bd("update", bead_id, "--status", "open")
         log(f"force open {bead_id}: rc={cp.returncode}")
 
 
