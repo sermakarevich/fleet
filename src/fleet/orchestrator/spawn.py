@@ -70,11 +70,13 @@ class SpawnMixin:
     def _should_isolate(self, task: Task, repo_root: Path | None) -> bool:
         """True when a git task should run in an isolated worktree.
 
-        Non-git tasks (repo_root None) never isolate. Isolation also stays
-        off when the global `isolation` config is "none" or the bead opted
-        out via `fleet_isolation: "none"` metadata.
+        Non-git tasks (repo_root None) never isolate. A task without a cwd
+        never isolates either: it only fell back to fleet's home, and a
+        worktree of fleet's home is never the repo the task works on.
+        Isolation also stays off when the global `isolation` config is
+        "none" or the bead opted out via `fleet_isolation: "none"` metadata.
         """
-        if repo_root is None:
+        if repo_root is None or task.cwd is None:
             return False
         if getattr(self.config, "isolation", "worktree") == "none":
             return False

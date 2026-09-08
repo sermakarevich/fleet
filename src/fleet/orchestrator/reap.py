@@ -184,8 +184,12 @@ class ReapMixin:
 
         Isolated tasks need validation only when the worker declared
         RESULT.json status=done AND the worktree is clean and ahead of base.
-        Anything else falls through to the normal retry policy (non-git
-        tasks behave identically except there is never a merge step).
+        A clean worktree with no commits means the task changed nothing in
+        this repo (research, knowledge-base work, a no-op fix): a commit is
+        not required, the worktree is dropped and the task closes like a
+        non-isolated one. Only uncommitted changes left behind trigger the
+        "commit your work" retry rounds, because removing the worktree would
+        discard them. Anything else falls through to the normal retry policy.
         """
         if record.outcome != TaskOutcome.SUCCESS or bead_status != "in_progress":
             return None
@@ -202,19 +206,48 @@ class ReapMixin:
             self._log.info("task.needs_validation", task_id=task.id)
             return Decision(Action.NOOP, reason="needs validation")
 
+        if not worktree.has_uncommitted_changes(wt_path):
+            # Clean and not ahead of base: nothing to merge. Drop the
+            # worktree and let the declared "done" close the task.
+            self._log.info("task.isolated_no_repo_changes", task_id=task.id)
+            self._discard_isolation(task, task_dir, info)
+            return None
+
         history = attempts.load_attempts(task_dir)
         rounds = retry_policy._trailing_streak(history, "noclose") + 1
+        detail = f"uncommitted changes left in {wt_path}"
         if rounds >= NOCLOSE_MAX_ROUNDS:
             reason = (
-                f"isolated task exited without a clean commit "
+                f"isolated task exited without a clean commit ({detail}) "
                 f"({rounds}/{NOCLOSE_MAX_ROUNDS}); needs human review"
             )
             return Decision(Action.BLOCK, reason=reason)
         return Decision(
             Action.RELEASE,
-            reason=f"isolated task exited without a clean commit (#{rounds}/{NOCLOSE_MAX_ROUNDS})",
+            reason=(
+                f"isolated task exited without a clean commit ({detail}) "
+                f"(#{rounds}/{NOCLOSE_MAX_ROUNDS}); commit or revert them"
+            ),
             wait_sec=0,
         )
+
+    def _discard_isolation(self, task: Task, task_dir: Path, info: dict) -> None:
+        """Remove a worktree that carries no work and forget the isolation info."""
+        repo_root = info.get("repo_root") or ""
+        wt_path = Path(info["worktree_path"])
+        if repo_root:
+            worktree.cleanup_worktree(
+                repo_root, task.id, wt_path, fleet_home=self._project_root
+            )
+            try:
+                worktree.delete_branch(repo_root, task.id)
+            except Exception:  # noqa: BLE001
+                pass
+        (task_dir / ".worktree").unlink(missing_ok=True)
+        try:
+            self._queue.clear_isolation_info(task.id)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _apply_decision(
         self,

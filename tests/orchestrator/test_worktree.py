@@ -18,12 +18,8 @@ def _git(path: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def _git_init(path: Path, branch: str = "main") -> None:
-    subprocess.run(
-        ["git", "init", "-b", branch], cwd=path, capture_output=True, check=True
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True
-    )
+    subprocess.run(["git", "init", "-b", branch], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=path, capture_output=True)
     subprocess.run(["git", "config", "user.name", "test"], cwd=path, capture_output=True)
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
@@ -92,16 +88,12 @@ class TestCreateWorktree:
         self, git_repo: Path, fleet_home: Path, monkeypatch: pytest.MonkeyPatch
     ):
         monkeypatch.setenv("FLEET_HOME", str(fleet_home))
-        path = worktree.create_worktree(
-            git_repo, "t-1", base_ref="main", fleet_home=fleet_home
-        )
+        path = worktree.create_worktree(git_repo, "t-1", base_ref="main", fleet_home=fleet_home)
         assert path == fleet_home / "worktrees" / "myrepo-t-1"
         assert path.is_dir()
 
     def test_branch_name(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "t-2", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "t-2", base_ref="main", fleet_home=fleet_home)
         out = subprocess.run(
             ["git", "-C", str(wt), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
@@ -110,12 +102,8 @@ class TestCreateWorktree:
         assert out.stdout.strip() == "fleet/t-2"
 
     def test_reused_across_attempts(self, git_repo: Path, fleet_home: Path):
-        p1 = worktree.create_worktree(
-            git_repo, "t-3", base_ref="main", fleet_home=fleet_home
-        )
-        p2 = worktree.create_worktree(
-            git_repo, "t-3", base_ref="main", fleet_home=fleet_home
-        )
+        p1 = worktree.create_worktree(git_repo, "t-3", base_ref="main", fleet_home=fleet_home)
+        p2 = worktree.create_worktree(git_repo, "t-3", base_ref="main", fleet_home=fleet_home)
         assert p1 == p2
 
     def test_avoids_collisions_across_repos(
@@ -137,22 +125,16 @@ class TestCreateWorktree:
 
 class TestIsCommittedClean:
     def test_false_right_after_create(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "c-1", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "c-1", base_ref="main", fleet_home=fleet_home)
         assert worktree.is_committed_clean(wt, base_ref="main") is False
 
     def test_true_after_commit(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "c-2", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "c-2", base_ref="main", fleet_home=fleet_home)
         _commit(wt, "hello.txt", "hello")
         assert worktree.is_committed_clean(wt, base_ref="main") is True
 
     def test_false_with_dirty_files(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "c-3", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "c-3", base_ref="main", fleet_home=fleet_home)
         _commit(wt, "hello.txt", "hello")
         (wt / "hello.txt").write_text("dirty")
         assert worktree.is_committed_clean(wt, base_ref="main") is False
@@ -160,9 +142,7 @@ class TestIsCommittedClean:
 
 class TestMergeFastForward:
     def test_clean_ff_merge(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "m-1", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "m-1", base_ref="main", fleet_home=fleet_home)
         _commit(wt, "feature.txt", "feature content")
         result = worktree.merge_to_base(git_repo, "m-1", base_ref="main")
         assert result.ok is True
@@ -170,9 +150,7 @@ class TestMergeFastForward:
 
     def test_conflict_blocks(self, git_repo: Path, fleet_home: Path):
         _commit(git_repo, "tracked.txt", "line1\nline2\n", msg="initial")
-        wt = worktree.create_worktree(
-            git_repo, "m-2", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "m-2", base_ref="main", fleet_home=fleet_home)
         (wt / "tracked.txt").write_text("branch version\nline2\n")
         _git(wt, "add", "tracked.txt")
         _git(
@@ -207,12 +185,8 @@ class TestMergeFastForward:
         )
         assert status.stdout.strip() == ""
 
-    def test_dirty_base_refuses_without_touching(
-        self, git_repo: Path, fleet_home: Path
-    ):
-        wt = worktree.create_worktree(
-            git_repo, "m-3", base_ref="main", fleet_home=fleet_home
-        )
+    def test_dirty_base_refuses_without_touching(self, git_repo: Path, fleet_home: Path):
+        wt = worktree.create_worktree(git_repo, "m-3", base_ref="main", fleet_home=fleet_home)
         _commit(wt, "f.txt", "work")
         # Dirty the base checkout (unstaged change).
         (git_repo / "dirty.txt").write_text("uncommitted")
@@ -245,9 +219,7 @@ class TestPostMergeCommand:
 
 class TestRemoveAndBranch:
     def test_remove_then_delete_branch(self, git_repo: Path, fleet_home: Path):
-        wt = worktree.create_worktree(
-            git_repo, "r-1", base_ref="main", fleet_home=fleet_home
-        )
+        wt = worktree.create_worktree(git_repo, "r-1", base_ref="main", fleet_home=fleet_home)
         assert wt.exists()
         worktree.remove_worktree(git_repo, "r-1", wt)
         assert not wt.exists()
@@ -282,9 +254,7 @@ class TestShouldIsolate:
 
         mixin = SpawnMixin.__new__(SpawnMixin)
         mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert (
-            mixin._should_isolate(self._task(isolation="none"), git_repo) is False
-        )
+        assert mixin._should_isolate(self._task(isolation="none"), git_repo) is False
 
     def test_config_none_runs_in_place(self, git_repo: Path):
         from fleet.orchestrator.spawn import SpawnMixin
@@ -298,4 +268,44 @@ class TestShouldIsolate:
 
         mixin = SpawnMixin.__new__(SpawnMixin)
         mixin.config = type("C", (), {"isolation": "worktree"})()
-        assert mixin._should_isolate(self._task(), git_repo) is True
+        assert mixin._should_isolate(self._task(cwd=str(git_repo)), git_repo) is True
+
+    def test_task_without_cwd_never_isolates(self, git_repo: Path):
+        """No cwd means the task fell back to fleet's home; never worktree that."""
+        from fleet.orchestrator.spawn import SpawnMixin
+
+        mixin = SpawnMixin.__new__(SpawnMixin)
+        mixin.config = type("C", (), {"isolation": "worktree"})()
+        assert mixin._should_isolate(self._task(cwd=None), git_repo) is False
+
+
+def test_has_uncommitted_changes_tracks_real_git_state(tmp_path):
+    import subprocess
+
+    from fleet.orchestrator.worktree import has_uncommitted_changes
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+        check=True,
+    )
+    assert has_uncommitted_changes(repo) is False
+    (repo / "new.txt").write_text("x")
+    assert has_uncommitted_changes(repo) is True
+    # Unknown state (not a repo) counts as dirty so work is never discarded.
+    assert has_uncommitted_changes(tmp_path / "nowhere") is True

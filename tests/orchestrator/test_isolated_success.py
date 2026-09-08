@@ -296,3 +296,53 @@ def test_non_isolated_no_worktree_marker_doesnt_interfere_with_noclose(
     assert "needs human review" in queue.blocked[0][1]
     task_dir = tmp_path / "tasks" / task.id
     assert not (task_dir / ".needs_validation").exists()
+
+
+# ====================================================
+# ISOLATED + RESULT done + clean worktree with NO commits: a commit is not
+# required; the task closes like a plain "done" and the worktree is dropped.
+# ====================================================
+
+
+def test_isolated_clean_without_commits_closes_without_requiring_commit(
+    tmp_path: Path,
+) -> None:
+    """Regression: a knowledge-base task that touched nothing in the repo was
+    blocked after three rounds of "exited without a clean commit"."""
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    task = _task()
+    _isolate(tmp_path, task)
+
+    with (
+        mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False),
+        mock.patch("fleet.orchestrator.worktree.has_uncommitted_changes", return_value=False),
+        mock.patch("fleet.orchestrator.worktree.cleanup_worktree") as cleanup,
+    ):
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+
+    task_dir = tmp_path / "tasks" / task.id
+    assert queue.closed and queue.closed[0][0] == task.id
+    assert queue.released == []
+    assert queue.blocked == []
+    assert not (task_dir / ".needs_validation").exists()
+    assert cleanup.called
+
+
+def test_isolated_uncommitted_changes_still_ask_for_a_commit(tmp_path: Path) -> None:
+    """Leftover uncommitted changes are the one case that keeps the retry rounds."""
+    queue = StubQueue(status="in_progress")
+    s = _make_supervisor(tmp_path, queue)
+    task = _task()
+    _isolate(tmp_path, task)
+
+    with (
+        mock.patch("fleet.orchestrator.worktree.is_committed_clean", return_value=False),
+        mock.patch("fleet.orchestrator.worktree.has_uncommitted_changes", return_value=True),
+    ):
+        s._handle_outcome(task, _outcome(TaskOutcome.SUCCESS))
+
+    assert queue.closed == []
+    assert len(queue.released) == 1
+    assert "uncommitted changes" in queue.released[0][1]
+

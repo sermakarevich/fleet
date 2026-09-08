@@ -199,6 +199,25 @@ def is_repo_dirty(repo_root: Path | str) -> bool:
     return bool(result.stdout.strip())
 
 
+def has_uncommitted_changes(worktree_path_arg: Path | str) -> bool:
+    """True when the worktree holds staged, unstaged or untracked changes.
+
+    Anything unknown (not a git checkout, git failed) counts as dirty so a
+    worker's uncommitted work is never treated as "nothing to keep".
+    """
+    try:
+        status_result = subprocess.run(
+            ["git", "-C", str(worktree_path_arg), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return True
+    if status_result.returncode != 0:
+        return True
+    return bool(status_result.stdout.strip())
+
+
 def is_committed_clean(worktree_path_arg: Path | str, base_ref: str = "main") -> bool:
     """True when the worktree is clean AND its HEAD advanced past *base_ref*."""
     wt = str(worktree_path_arg)
