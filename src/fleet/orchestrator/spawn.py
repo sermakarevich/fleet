@@ -33,11 +33,19 @@ class SpawnMixin:
         kwargs: dict = {}
         if coder_name in ("opencode", "pi"):
             kwargs["ollama_url"] = self.config.opencode_ollama_url
-            kwargs["context_limit"] = self.config.opencode_context_limit
             kwargs["default_model"] = self.config.opencode_default_model
             kwargs["bedrock_region"] = self.config.opencode_bedrock_region
             kwargs["bedrock_profile"] = self.config.opencode_bedrock_profile
-            kwargs["bedrock_context_limit"] = self.config.opencode_bedrock_context_limit
+            # Per-backend limits are being replaced by per-model windows
+            # (``context_windows``); when the keys are gone the coder resolves
+            # the window itself, so only pass them if the config still has them.
+            for key, attr in (
+                ("context_limit", "opencode_context_limit"),
+                ("bedrock_context_limit", "opencode_bedrock_context_limit"),
+            ):
+                value = getattr(self.config, attr, None)
+                if value is not None:
+                    kwargs[key] = value
         return coder_cls(model=model, **kwargs), coder_name, model
 
     def _block_terminal(self, task: Task, reason: str) -> None:
@@ -76,13 +84,9 @@ class SpawnMixin:
         if task.cwd is not None and not Path(task.cwd).is_dir():
             self._block_terminal(task, f"terminal: cwd is not a directory: {task.cwd}")
             return
-        use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(
-            base_cwd
-        )
+        use_worktree = worktree.worktree_isolation_enabled() and self._is_fleet_repo(base_cwd)
         if use_worktree:
-            task_root = worktree.create_worktree(
-                self._project_root, task.id, base_ref="main"
-            )
+            task_root = worktree.create_worktree(self._project_root, task.id, base_ref="main")
             task_dir = self._task_dir_for(task)
             task_dir.mkdir(parents=True, exist_ok=True)
             (task_dir / ".worktree").write_text(str(task_root))

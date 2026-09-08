@@ -113,9 +113,7 @@ def _history_outcomes(tmp_path: Path, task_id: str = "t-001") -> list[str]:
 def test_failure_under_limit_calls_release(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(
-        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
-    )
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
     assert len(queue.released) == 1
     assert "rc=1" in queue.released[0][1]
 
@@ -156,9 +154,7 @@ def test_failure_exhausted_reason_in_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
     for _ in range(FAILURE_MAX_ROUNDS):
-        s._handle_outcome(
-            _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash")
-        )
+        s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="crash"))
     assert "retry limit" in queue.blocked[0][1]
 
 
@@ -184,9 +180,7 @@ def test_rate_limit_sets_paused_until(tmp_path: Path, monkeypatch) -> None:
     assert s._paused_until > before
 
 
-def test_rate_limit_paused_until_uses_resets_at_when_later(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_rate_limit_paused_until_uses_resets_at_when_later(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 5)
     queue = StubQueue()
     far_future = int(datetime.now(tz=UTC).timestamp()) + 9999
@@ -386,9 +380,7 @@ def test_blocked_by_agent_still_open_calls_set_blocked(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _unpinned_supervisor(
-    tmp_path: Path, queue: StubQueue, config: RuntimeConfig
-) -> Supervisor:
+def _unpinned_supervisor(tmp_path: Path, queue: StubQueue, config: RuntimeConfig) -> Supervisor:
     """Build a supervisor without a pinned coder so _resolve_coder runs the registry lookup."""
     s = Supervisor(
         queue=queue,
@@ -523,6 +515,37 @@ def test_claim_loop_spawns_task_not_in_flight(tmp_path: Path, monkeypatch) -> No
     assert spawned == ["t-new"]
 
 
+class _ClaimTwiceQueue(_ClaimOnceQueue):
+    """claim_next returns the task on the first two calls, then None."""
+
+    def claim_next(self, claimer_id, *, can_claim=None):
+        self.claims += 1
+        return self._task if self.claims <= 2 else None
+
+
+def test_claim_loop_survives_spawn_exception_and_releases(tmp_path: Path, monkeypatch) -> None:
+    """Regression: an AttributeError inside _spawn_worker (half-edited coder or
+    config code) used to kill the claim loop silently, leaving the bead
+    in_progress forever and the supervisor unable to claim anything else."""
+    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 0.01)
+    queue = _ClaimTwiceQueue(_task("t-boom"))
+    s = _make_supervisor(tmp_path, queue)
+    calls: list[str] = []
+
+    def _boom(t):
+        calls.append(t.id)
+        raise AttributeError("'RuntimeConfig' object has no attribute 'opencode_context_limit'")
+
+    s._spawn_worker = _boom  # type: ignore[method-assign]
+
+    _run_claim_loop_briefly(s, pre_in_flight=None)
+
+    # The loop kept running: it came back for the second claim.
+    assert calls == ["t-boom", "t-boom"]
+    assert queue.released and queue.released[0][0] == "t-boom"
+    assert "spawn failed" in queue.released[0][1]
+
+
 # ---------------------------------------------------------------------------
 # Stall/timeout kill ladder: first KILLED releases, second blocks
 # ---------------------------------------------------------------------------
@@ -533,9 +556,7 @@ def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
     s = _make_supervisor(
         tmp_path,
         queue,
-        config=RuntimeConfig(
-            stall_warning_minutes=1, stall_action="kill", stall_block_after=2
-        ),
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill", stall_block_after=2),
     )
     task = _task("t-stall")
 
@@ -571,9 +592,7 @@ def test_failure_release_writes_attempt_end_line(tmp_path: Path) -> None:
 
     queue = StubQueue(status="in_progress")
     s = _make_supervisor(tmp_path, queue)
-    s._handle_outcome(
-        _task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1")
-    )
+    s._handle_outcome(_task(), _outcome(TaskOutcome.FAILURE, exit_code=1, reason="rc=1"))
     assert len(queue.released) == 1
     attempts_path = tmp_path / "tasks" / "t-001" / "attempts.jsonl"
     assert attempts_path.exists()

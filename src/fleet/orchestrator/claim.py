@@ -67,9 +67,7 @@ class ClaimMixin:
                 continue
 
             def _can_claim(coder: str | None) -> bool:
-                running = running_by_coder(
-                    self.in_flight_tasks.values(), self.config.coder
-                )
+                running = running_by_coder(self.in_flight_tasks.values(), self.config.coder)
                 effective = coder or self.config.coder
                 cap = cap_for_coder(
                     effective,
@@ -103,7 +101,23 @@ class ClaimMixin:
                     cap=self.config.max_concurrent,
                     usage_pct=self.rate_gauge.current_pct(),
                 )
-                self._spawn_worker(task)
+                try:
+                    self._spawn_worker(task)
+                except Exception as exc:  # noqa: BLE001
+                    # A bug between claim and spawn (half-edited coder code,
+                    # bad config attribute) must not kill this loop: the task
+                    # would stay in_progress forever and nothing else would
+                    # ever be claimed again. Hand the bead back and carry on.
+                    self._log.exception("spawn_failed", task_id=task.id, error=str(exc))
+                    try:
+                        await asyncio.to_thread(
+                            self._queue.release,
+                            task.id,
+                            reason=f"spawn failed: {exc}",
+                            wait_sec=60,
+                        )
+                    except Exception:  # noqa: BLE001
+                        self._log.exception("spawn_failed_release", task_id=task.id)
 
             await self._run_pending_validations()
 
@@ -117,9 +131,7 @@ class ClaimMixin:
                 continue
             if not needs_validation(task_dir):
                 continue
-            result = worktree.merge_to_base(
-                self._project_root, task_id, base_ref="main"
-            )
+            result = worktree.merge_to_base(self._project_root, task_id, base_ref="main")
             if result.ok:
                 await asyncio.to_thread(
                     self._queue.close,
@@ -142,10 +154,7 @@ class ClaimMixin:
                     capture_output=True,
                     text=True,
                 )
-                if any(
-                    line.startswith("src/fleet/ui/")
-                    for line in diff.stdout.splitlines()
-                ):
+                if any(line.startswith("src/fleet/ui/") for line in diff.stdout.splitlines()):
                     proc = await asyncio.create_subprocess_exec(
                         "make",
                         "ui-build",
