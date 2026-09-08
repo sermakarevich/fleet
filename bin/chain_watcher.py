@@ -21,18 +21,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CHAIN = [
-    "fleet-l9i2m",  # 3/12 launch modes
-    "fleet-ukh2r",  # 4/12 retry policy
-    "fleet-ul4t5",  # 5/12 compaction
-    "fleet-y4x9w",  # 5b/12 per-model context window
-    "fleet-q16mb",  # 6/12 lease heartbeat
-    "fleet-jojvk",  # 7/12 isolation
-    "fleet-ml2s9",  # 8/12 mcp wiring
-    "fleet-o5xr2",  # 9/12 triage
-    "fleet-bdbk7",  # 10/12 gc
-    "fleet-kc107",  # 11/12 observer
-    "fleet-k7obx",  # 12/12 job
-    "fleet-pltbj",  # 13/13 task dir artifacts (ADR 0004)
+    "fleet-hldrt",  # Runner 1/5 foundation (ADR 0005)
+    "fleet-wrtar",  # Runner 2/5 simple services
+    "fleet-42936",  # Runner 3/5 claim/spawn/RunningWorker
+    "fleet-t97gn",  # Runner 4/5 reap/stall/leases/triage
+    "fleet-sh3hm",  # Runner 5/5 tests + docs
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
@@ -98,7 +91,10 @@ def tick() -> bool:
     statuses = {b: bead(b).get("status") for b in CHAIN}
     pending = [b for b in CHAIN if statuses[b] != "closed"]
     if not pending:
-        log("chain complete")
+        # The last bead also changed fleet's code: restart once more so the
+        # supervisor is not left running stale code after the chain ends.
+        log("chain complete; final supervisor restart")
+        restart_supervisor()
         return False
     cur = pending[0]
     nxt = pending[1] if len(pending) > 1 else None
