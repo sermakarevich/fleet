@@ -1,33 +1,26 @@
 import json
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt
+from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.model_ref import resolve_model
+from fleet.coders.ollama import DEFAULT_OLLAMA_URL, ollama_env
 from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
+from fleet.prompts import render
 
-_DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 # pi reads provider config from <agent-dir>/models.json. The provider id is the
 # first path segment of the --model argument (e.g. "ollama/qwen3.6:latest").
 _PROVIDER_ID = "ollama"
 _BEDROCK_PROVIDER_ID = "amazon-bedrock"
 
-# Fleet's global RuntimeConfig.model defaults to "sonnet" and leaks into every
-# coder via supervisor._resolve_coder; these are Claude aliases, never valid
-# ollama model names.
-_CLAUDE_ALIASES = frozenset({"sonnet", "opus", "haiku"})
 
-
-def _resolve_model(model: str, default: str) -> tuple[str, str]:
-    """Return (full_id, provider_local_key) for the given model string."""
-    if model in _CLAUDE_ALIASES:
-        model = default
-    if "/" in model:
-        prefix, local_key = model.split("/", 1)
-        return model, local_key
-    return f"{_PROVIDER_ID}/{model}", model
+def _model_ref(model: str, default: str):
+    """This coder's ModelRef: bare names route to the ollama provider."""
+    return resolve_model(model, default, default_provider=_PROVIDER_ID)
 
 
 def _pi_agent_dir() -> Path:
@@ -53,6 +46,63 @@ def _map_usage(usage: object) -> dict | None:
     }
 
 
+def _session_started(data: dict) -> Event | None:
+    """Session header: {"type":"session","id":<uuid>,"cwd":...}."""
+    return Event(
+        kind="session_started",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("id"),
+    )
+
+
+def _message_end(data: dict) -> Event | None:
+    """A completed message; user echoes and toolResult duplicates are dropped."""
+    msg = data.get("message", {})
+    if not isinstance(msg, dict) or msg.get("role") != "assistant":
+        return None
+    usage = _map_usage(msg.get("usage"))
+    if msg.get("stopReason") == "length":
+        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), usage=usage)
+    return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC), usage=usage)
+
+
+def _tool_start(data: dict) -> Event | None:
+    """A tool invocation started."""
+    return Event(kind="tool_use", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName"))
+
+
+def _tool_end(data: dict) -> Event | None:
+    """A tool invocation finished; errors surface as error events."""
+    if data.get("isError"):
+        return Event(
+            kind="error", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
+        )
+    return Event(
+        kind="tool_result", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
+    )
+
+
+def _agent_end(data: dict) -> Event | None:
+    """Final event of a run; per-message usage already flowed via message_end."""
+    return Event(kind="session_ended", raw=data, ts=datetime.now(tz=UTC))
+
+
+def _error(data: dict) -> Event | None:
+    """A top-level error envelope."""
+    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+
+
+EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
+    ("session", None): _session_started,
+    ("message_end", None): _message_end,
+    ("tool_execution_start", None): _tool_start,
+    ("tool_execution_end", None): _tool_end,
+    ("agent_end", None): _agent_end,
+    ("error", None): _error,
+}
+
+
 class PiCoder(Coder):
     name = "pi"
     context_limit = 128_000
@@ -72,7 +122,7 @@ class PiCoder(Coder):
     def __init__(
         self,
         model: str = "qwen3.6:latest",
-        ollama_url: str = _DEFAULT_OLLAMA_URL,
+        ollama_url: str = DEFAULT_OLLAMA_URL,
         context_limit: int | None = None,
         default_model: str = "qwen3.6:latest",
         bedrock_region: str = "",
@@ -96,28 +146,26 @@ class PiCoder(Coder):
 
     @property
     def is_bedrock(self) -> bool:
-        full_id, _ = _resolve_model(self.model, self.default_model)
-        return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
+        return _model_ref(self.model, self.default_model).provider == _BEDROCK_PROVIDER_ID
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        prompt = render_prompt(task, task_dir, plan)
-        full_id, _ = _resolve_model(self.model, self.default_model)
+        mode, ctx = prompt_context(task, task_dir, plan)
+        prompt = render(mode, ctx)
+        full_id = _model_ref(self.model, self.default_model).full_id
         # pi emits one NDJSON event per stdout line in --mode json. `-p` selects
         # non-interactive print mode; the prompt is positional. pi works in the
         # process cwd (set by the runner), so there is no --dir flag.
         return ["pi", "-p", "--mode", "json", "--model", full_id, prompt]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        e = {
-            "FLEET_TASK_ID": task.id,
-            "FLEET_TASK_DIR": str(task_dir),
+        return {
+            **base_env(task, task_dir),
+            **ollama_env(
+                is_bedrock=self.is_bedrock,
+                bedrock_profile=self.bedrock_profile,
+                bedrock_region=self.bedrock_region,
+            ),
         }
-        if self.is_bedrock:
-            if self.bedrock_profile:
-                e["AWS_PROFILE"] = self.bedrock_profile
-            if self.bedrock_region:
-                e["AWS_REGION"] = self.bedrock_region
-        return e
 
     def write_runtime_config(self, project: Path, task: Task) -> None:
         """Ensure pi's models.json defines the ollama provider used to route.
@@ -128,13 +176,13 @@ class PiCoder(Coder):
         preserving any other providers or models already configured. The
         `project` argument is unused: pi's provider config is not project-scoped.
         """
-        full_id, local_key = _resolve_model(self.model, self.default_model)
-        provider_prefix = full_id.split("/", 1)[0]
+        ref = _model_ref(self.model, self.default_model)
         # Only the ollama provider is configured here. Bedrock routing for pi is
         # not supported (its models.json schema differs and is unverified); a
         # bedrock model resolves through pi's own config untouched.
-        if provider_prefix != _PROVIDER_ID:
+        if ref.provider != _PROVIDER_ID:
             return
+        local_key = ref.name
 
         agent_dir = _pi_agent_dir()
         agent_dir.mkdir(parents=True, exist_ok=True)
@@ -180,52 +228,21 @@ class PiCoder(Coder):
         tmp.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         tmp.replace(target)
 
-    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line via EVENT_MAP keyed on (type, subtype).
+
+        agent_start / turn_start / turn_end / message_start / message_update
+        have no entry and return None.
+        """
         if not raw_line.strip():
             return None
-
         try:
             data = json.loads(raw_line)
         except (json.JSONDecodeError, ValueError):
             return None
-
         if not isinstance(data, dict):
             return None
-
-        ts = datetime.now(tz=UTC)
-        t = data.get("type", "")
-
-        # Session header: {"type":"session","id":<uuid>,"cwd":...}.
-        if t == "session":
-            return Event(kind="session_started", raw=data, ts=ts, session_id=data.get("id"))
-
-        # A completed message. role/usage/content are nested under .message;
-        # incremental deltas arrive as message_update and are skipped below.
-        if t == "message_end":
-            msg = data.get("message", {})
-            if not isinstance(msg, dict) or msg.get("role") != "assistant":
-                # user echoes and toolResult duplicates (tool_execution_end
-                # already emits the tool_result) are dropped.
-                return None
-            usage = _map_usage(msg.get("usage"))
-            if msg.get("stopReason") == "length":
-                return Event(kind="error", raw=data, ts=ts, usage=usage)
-            return Event(kind="assistant_text", raw=data, ts=ts, usage=usage)
-
-        if t == "tool_execution_start":
-            return Event(kind="tool_use", raw=data, ts=ts, tool_name=data.get("toolName"))
-
-        if t == "tool_execution_end":
-            if data.get("isError"):
-                return Event(kind="error", raw=data, ts=ts, tool_name=data.get("toolName"))
-            return Event(kind="tool_result", raw=data, ts=ts, tool_name=data.get("toolName"))
-
-        # Final event of a run; per-message usage already flowed via message_end.
-        if t == "agent_end":
-            return Event(kind="session_ended", raw=data, ts=ts)
-
-        if t == "error":
-            return Event(kind="error", raw=data, ts=ts)
-
-        # agent_start / turn_start / turn_end / message_start / message_update.
-        return None
+        handler = lookup_handler(EVENT_MAP, (data.get("type", ""), data.get("subtype")))
+        if handler is None:
+            return None
+        return handler(data)

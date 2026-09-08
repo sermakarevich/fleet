@@ -2,18 +2,21 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt, workdir_for
+from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.model_ref import resolve_model
+from fleet.coders.ollama import DEFAULT_OLLAMA_URL, ollama_env
 from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.prompts import render
 from fleet.state.paths import fleet_home
 
-_DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
 _BEDROCK_PROVIDER_ID = "amazon-bedrock"
 
@@ -89,20 +92,100 @@ def classify_opencode_log_lines(
     return None
 
 
-# Fleet's global RuntimeConfig.model defaults to "sonnet" and leaks into every
-# coder via supervisor._resolve_coder; these are Claude aliases, never valid
-# ollama model names.
-_CLAUDE_ALIASES = frozenset({"sonnet", "opus", "haiku"})
+def _model_ref(model: str, default: str):
+    """This coder's ModelRef: bare names route to the ollama-rtx provider."""
+    return resolve_model(model, default, default_provider=_PROVIDER_ID)
 
 
-def _resolve_model(model: str, default: str) -> tuple[str, str]:
-    """Return (full_id, provider_local_key) for the given model string."""
-    if model in _CLAUDE_ALIASES:
-        model = default
-    if "/" in model:
-        prefix, local_key = model.split("/", 1)
-        return model, local_key
-    return f"{_PROVIDER_ID}/{model}", model
+def _session_started(data: dict) -> Event | None:
+    """A step_start fires at the beginning of every LLM step (repeats per step)."""
+    return Event(
+        kind="session_started",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("sessionID"),
+    )
+
+
+def _assistant_text(data: dict) -> Event | None:
+    """A streamed text part."""
+    return Event(
+        kind="assistant_text",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("sessionID"),
+    )
+
+
+def _tool_event(data: dict) -> Event | None:
+    """A tool part: completed and error states map to result/error, else use."""
+    part = data.get("part", {})
+    if not isinstance(part, dict) or part.get("type") != "tool":
+        return None
+    state = part.get("state", {})
+    status = state.get("status") if isinstance(state, dict) else None
+    tool_name = part.get("tool")
+    if status == "completed":
+        return Event(kind="tool_result", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+    if status == "error":
+        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+    return Event(kind="tool_use", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+
+
+def _usage_of(tokens: object) -> dict:
+    """Map opencode's token block to fleet's usage dict."""
+    block = tokens if isinstance(tokens, dict) else {}
+    cache = block.get("cache", {})
+    if not isinstance(cache, dict):
+        cache = {}
+    return {
+        "input_tokens": block.get("input", 0),
+        "output_tokens": block.get("output", 0),
+        "cache_creation_input_tokens": cache.get("write", 0),
+        "cache_read_input_tokens": cache.get("read", 0),
+    }
+
+
+def _step_finish(data: dict) -> Event | None:
+    """A finished step: length is an error, stop ends the session, else usage."""
+    part = data.get("part", {})
+    if not isinstance(part, dict):
+        return None
+    session_id = data.get("sessionID")
+    if part.get("reason") == "length":
+        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), session_id=session_id)
+    if part.get("reason") != "stop":
+        tokens = part.get("tokens", {})
+        if not tokens:
+            return None
+        return Event(
+            kind="assistant_text",
+            raw=data,
+            ts=datetime.now(tz=UTC),
+            session_id=session_id,
+            usage=_usage_of(tokens),
+        )
+    return Event(
+        kind="session_ended",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=session_id,
+        usage=_usage_of(part.get("tokens", {})),
+    )
+
+
+def _error(data: dict) -> Event | None:
+    """A top-level error envelope."""
+    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+
+
+EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
+    ("step_start", None): _session_started,
+    ("text", None): _assistant_text,
+    ("tool_use", None): _tool_event,
+    ("step_finish", None): _step_finish,
+    ("error", None): _error,
+}
 
 
 class OpencodeCoder(Coder):
@@ -124,7 +207,7 @@ class OpencodeCoder(Coder):
     def __init__(
         self,
         model: str = "gpt-oss:20b",
-        ollama_url: str = _DEFAULT_OLLAMA_URL,
+        ollama_url: str = DEFAULT_OLLAMA_URL,
         context_limit: int | None = None,
         default_model: str = "gpt-oss:20b",
         bedrock_region: str = "",
@@ -136,6 +219,7 @@ class OpencodeCoder(Coder):
         self.default_model = default_model
         self.bedrock_region = bedrock_region
         self.bedrock_profile = bedrock_profile
+        self.current_session_id: str | None = None
         resolved = type(self).context_limit_for(model)
         if self.is_bedrock:
             self.context_limit = (
@@ -146,35 +230,32 @@ class OpencodeCoder(Coder):
 
     @property
     def is_bedrock(self) -> bool:
-        full_id, _ = _resolve_model(self.model, self.default_model)
-        return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
+        return _model_ref(self.model, self.default_model).provider == _BEDROCK_PROVIDER_ID
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        prompt = render_prompt(task, task_dir, plan)
-        full_id, _ = _resolve_model(self.model, self.default_model)
+        mode, ctx = prompt_context(task, task_dir, plan)
+        prompt = render(mode, ctx)
+        full_id = _model_ref(self.model, self.default_model).full_id
         argv = ["opencode", "run", "--format", "json", "--model", full_id]
-        workdir = workdir_for(task, task_dir)
-        if workdir:
-            argv += ["--dir", workdir]
+        if ctx.workdir:
+            argv += ["--dir", ctx.workdir]
         argv.append(prompt)
         return argv
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        e = {
-            "FLEET_TASK_ID": task.id,
-            "FLEET_TASK_DIR": str(task_dir),
+        return {
+            **base_env(task, task_dir),
             # Provider + MCP config is injected via env instead of an
             # opencode.json written into the task cwd, so we no longer
             # pollute project directories. opencode loads this as a
             # "local"-scope config and merges it with global/project config.
             "OPENCODE_CONFIG_CONTENT": json.dumps(self._build_config()),
+            **ollama_env(
+                is_bedrock=self.is_bedrock,
+                bedrock_profile=self.bedrock_profile,
+                bedrock_region=self.bedrock_region,
+            ),
         }
-        if self.is_bedrock:
-            if self.bedrock_profile:
-                e["AWS_PROFILE"] = self.bedrock_profile
-            if self.bedrock_region:
-                e["AWS_REGION"] = self.bedrock_region
-        return e
 
     def write_runtime_config(self, project: Path, task: object) -> None:
         """No-op: provider/MCP config is injected via OPENCODE_CONFIG_CONTENT in
@@ -191,9 +272,8 @@ class OpencodeCoder(Coder):
         Self-contained per task -- no on-disk file to merge with, so concurrent
         tasks with different models can't clobber each other.
         """
-        full_id, local_key = _resolve_model(self.model, self.default_model)
-        provider_prefix = full_id.split("/", 1)[0]
-        map_key = local_key if provider_prefix == _PROVIDER_ID else self.default_model
+        ref = _model_ref(self.model, self.default_model)
+        map_key = ref.name if ref.provider == _PROVIDER_ID else self.default_model
 
         base_url = self.ollama_url
 
@@ -216,8 +296,8 @@ class OpencodeCoder(Coder):
 
         if self.is_bedrock:
             bedrock_models: dict = {}
-            bedrock_models[local_key] = {
-                "name": local_key,
+            bedrock_models[ref.name] = {
+                "name": ref.name,
                 "tools": True,
                 "limit": {"context": int(self.context_limit), "output": 8192},
             }
@@ -243,7 +323,7 @@ class OpencodeCoder(Coder):
             "command": [web_fetch["command"], *web_fetch["args"]],
             "environment": {
                 **web_fetch["env"],
-                "FLEET_WEBFETCH_MODEL": local_key,
+                "FLEET_WEBFETCH_MODEL": ref.name,
                 "FLEET_WEBFETCH_OLLAMA_URL": base_url,
             },
             "enabled": True,
@@ -283,82 +363,20 @@ class OpencodeCoder(Coder):
         }
         return result
 
-    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line via EVENT_MAP keyed on (type, subtype)."""
         if not raw_line.strip():
             return None
-
         try:
             data = json.loads(raw_line)
         except (json.JSONDecodeError, ValueError):
             return None
-
         if not isinstance(data, dict):
             return None
-
-        ts = datetime.now(tz=UTC)
-        t = data.get("type", "")
-        part = data.get("part", {})
-        session_id = data.get("sessionID")
-
-        # step_start fires at the beginning of every LLM step (repeats per step).
-        # runner.py only logs session_started, so repeating is safe.
-        if t == "step_start":
-            return Event(kind="session_started", raw=data, ts=ts, session_id=session_id)
-
-        if t == "text":
-            return Event(kind="assistant_text", raw=data, ts=ts, session_id=session_id)
-
-        if t == "tool_use" and part.get("type") == "tool":
-            status = part.get("state", {}).get("status")
-            tool_name = part.get("tool")
-            if status == "completed":
-                return Event(kind="tool_result", raw=data, ts=ts, tool_name=tool_name)
-            if status == "error":
-                return Event(kind="error", raw=data, ts=ts, tool_name=tool_name)
-            return Event(kind="tool_use", raw=data, ts=ts, tool_name=tool_name)
-
-        if t == "step_finish":
-            reason = part.get("reason")
-            if reason == "length":
-                return Event(kind="error", raw=data, ts=ts, session_id=session_id)
-            if reason != "stop":
-                tokens = part.get("tokens", {})
-                if not tokens:
-                    return None
-                cache = tokens.get("cache", {})
-                usage = {
-                    "input_tokens": tokens.get("input", 0),
-                    "output_tokens": tokens.get("output", 0),
-                    "cache_creation_input_tokens": cache.get("write", 0),
-                    "cache_read_input_tokens": cache.get("read", 0),
-                }
-                return Event(
-                    kind="assistant_text",
-                    raw=data,
-                    ts=ts,
-                    session_id=session_id,
-                    usage=usage,
-                )
-            tokens = part.get("tokens", {})
-            cache = tokens.get("cache", {})
-            usage = {
-                "input_tokens": tokens.get("input", 0),
-                "output_tokens": tokens.get("output", 0),
-                "cache_creation_input_tokens": cache.get("write", 0),
-                "cache_read_input_tokens": cache.get("read", 0),
-            }
-            return Event(
-                kind="session_ended",
-                raw=data,
-                ts=ts,
-                session_id=session_id,
-                usage=usage,
-            )
-
-        if t == "error":
-            return Event(kind="error", raw=data, ts=ts)
-
-        return None
+        handler = lookup_handler(EVENT_MAP, (data.get("type", ""), data.get("subtype")))
+        if handler is None:
+            return None
+        return handler(data)
 
     def probe_health(self, task: Task, task_dir: Path, since: datetime) -> TaskOutcomeRecord | None:
         """Detect provider rate-limit/connect errors opencode swallows silently.
@@ -384,5 +402,6 @@ class OpencodeCoder(Coder):
         model = task.model or self.model
         # LlmSession records the session id it sees in this run's events so a
         # sibling task's rate-limit errors are never attributed to us.
-        session_id = getattr(self, "current_session_id", None)
-        return classify_opencode_log_lines(lines, since=since, model=model, session_id=session_id)
+        return classify_opencode_log_lines(
+            lines, since=since, model=model, session_id=self.current_session_id
+        )

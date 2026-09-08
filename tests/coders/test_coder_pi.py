@@ -5,11 +5,11 @@ import pytest
 
 from fleet.coders import get_coder, list_coders
 from fleet.coders.base import Coder
+from fleet.coders.model_ref import resolve_model
 from fleet.coders.pi import (
     PiCoder,
     _map_usage,
     _pi_agent_dir,
-    _resolve_model,
 )
 from fleet.core.task import Task
 
@@ -57,30 +57,36 @@ def test_pi_coder_is_subclass_of_coder_base():
 
 
 # ---------------------------------------------------------------------------
-# _resolve_model — provider id is "ollama", bare names get "ollama/" prefix
+# resolve_model — provider id is "ollama", bare names get "ollama/" prefix
 # ---------------------------------------------------------------------------
 
 
+def _pi_resolve(model: str, default: str) -> tuple[str, str]:
+    """Adapter for the shared model_ref.resolve_model with pi's provider."""
+    ref = resolve_model(model, default, default_provider="ollama")
+    return ref.full_id, ref.name
+
+
 def test_resolve_model_bare_name_gets_ollama_prefix():
-    full_id, local_key = _resolve_model("qwen3.6:latest", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("qwen3.6:latest", "qwen3.6:latest")
     assert full_id == "ollama/qwen3.6:latest"
     assert local_key == "qwen3.6:latest"
 
 
 def test_resolve_model_bare_custom_name_gets_ollama_prefix():
-    full_id, local_key = _resolve_model("qwen3.5:27b", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("qwen3.5:27b", "qwen3.6:latest")
     assert full_id == "ollama/qwen3.5:27b"
     assert local_key == "qwen3.5:27b"
 
 
 def test_resolve_model_with_slash_used_as_is():
-    full_id, local_key = _resolve_model("ollama/deepseek-r1:32b", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("ollama/deepseek-r1:32b", "qwen3.6:latest")
     assert full_id == "ollama/deepseek-r1:32b"
     assert local_key == "deepseek-r1:32b"
 
 
 def test_resolve_model_bedrock_id_used_as_is():
-    full_id, local_key = _resolve_model(
+    full_id, local_key = _pi_resolve(
         "amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "qwen3.6:latest",
     )
@@ -89,29 +95,29 @@ def test_resolve_model_bedrock_id_used_as_is():
 
 
 def test_resolve_model_sonnet_alias_maps_to_default():
-    full_id, local_key = _resolve_model("sonnet", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("sonnet", "qwen3.6:latest")
     assert full_id == "ollama/qwen3.6:latest"
     assert local_key == "qwen3.6:latest"
 
 
 def test_resolve_model_opus_alias_maps_to_default():
-    full_id, local_key = _resolve_model("opus", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("opus", "qwen3.6:latest")
     assert full_id == "ollama/qwen3.6:latest"
 
 
 def test_resolve_model_haiku_alias_maps_to_default():
-    full_id, local_key = _resolve_model("haiku", "qwen3.6:latest")
+    full_id, local_key = _pi_resolve("haiku", "qwen3.6:latest")
     assert full_id == "ollama/qwen3.6:latest"
 
 
 def test_resolve_model_alias_uses_custom_default():
-    full_id, local_key = _resolve_model("sonnet", "qwen3.5:27b")
+    full_id, local_key = _pi_resolve("sonnet", "qwen3.5:27b")
     assert full_id == "ollama/qwen3.5:27b"
     assert local_key == "qwen3.5:27b"
 
 
 def test_resolve_model_explicit_bare_ignores_default():
-    full_id, _ = _resolve_model("deepseek-r1:32b", "qwen3.6:latest")
+    full_id, _ = _pi_resolve("deepseek-r1:32b", "qwen3.6:latest")
     assert full_id == "ollama/deepseek-r1:32b"
 
 

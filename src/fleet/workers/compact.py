@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders import get_coder
-from fleet.coders.base import isolation_workdir
+from fleet.coders.base import Workspace
 from fleet.core.compaction_fallback import compact_fallback
 from fleet.state import attempts as state_attempts
 from fleet.state.artifacts import StateFile
@@ -88,7 +88,7 @@ def _git_lines(workdir: Path | None, args: list[str], limit: int) -> list[str]:
 
 def _workdir_of(ctx: StepContext) -> Path | None:
     """Workdir for git context: the isolated worktree, else the task cwd."""
-    raw = isolation_workdir(ctx.task_dir) or ctx.task.cwd
+    raw = Workspace(task_dir=ctx.task_dir, cwd=ctx.task.cwd).workdir
     return Path(raw) if raw else None
 
 

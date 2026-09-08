@@ -1,112 +1,133 @@
+"""The coder contract and the task workspace every coder runs in.
+
+:class:`Coder` is the interface one file per CLI in this package implements
+(name, argv, env, event parsing, health); :class:`Workspace` owns where a
+task runs (task dir, attempt dir, cwd, isolated worktree); :func:`base_env`
+owns the ``FLEET_*`` variables every coder sets; :func:`prompt_context`
+resolves the launch mode plus the ``prompts`` context for ``build_argv``.
+Called by ``workers`` (spawn, stream, monitors) and the coder modules.
+"""
+
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task, TaskOutcomeRecord
+from fleet.prompts import PromptContext
 
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
-_INSTRUCTION_FRESH_PATH = _TEMPLATES_DIR / "INSTRUCTION_FRESH.md"
-_INSTRUCTION_CONTINUE_PATH = _TEMPLATES_DIR / "INSTRUCTION_CONTINUE.md"
-_INSTRUCTION_VALIDATE_PATH = _TEMPLATES_DIR / "INSTRUCTION_VALIDATE.md"
-_INSTRUCTION_RESEARCH_PATH = _TEMPLATES_DIR / "INSTRUCTION_RESEARCH.md"
-_INSTRUCTION_DESIGN_PATH = _TEMPLATES_DIR / "INSTRUCTION_DESIGN.md"
-_INSTRUCTION_COMMON_PATH = _TEMPLATES_DIR / "INSTRUCTION_COMMON.md"
-_ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
-
-
-def isolation_workdir(task_dir: Path) -> str | None:
-    """The worktree an isolated task runs in, from task.json (legacy `.worktree` fallback)."""
-    try:
-        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-        if isinstance(meta, dict) and meta.get("worktree_path"):
-            return str(meta["worktree_path"])
-    except (OSError, ValueError):
-        pass
-    try:
-        marker = task_dir / ".worktree"
-        if marker.exists():
-            return marker.read_text(encoding="utf-8").strip() or None
-    except OSError:
-        pass
-    return None
+__all__ = [
+    "Coder",
+    "EventHandler",
+    "Workspace",
+    "base_env",
+    "lookup_handler",
+    "prompt_context",
+]
 
 
-def _is_isolated(task_dir: Path) -> bool:
-    """True when the task runs isolated: task.json names a worktree, or the
-    legacy `.worktree` marker exists (even empty)."""
-    return isolation_workdir(task_dir) is not None or (task_dir / ".worktree").exists()
+EventHandler = Callable[[dict], Event | None]
+"""One EVENT_MAP entry: parsed JSON line in, normalized Event (or None) out."""
 
 
-def workdir_for(task: Task, task_dir: Path) -> str | None:
-    """Directory the coder must work in: the isolated worktree when there is
-    one, else the task's cwd, else None (fleet home, no directory flag).
+def lookup_handler(
+    table: dict[tuple[str, str | None], EventHandler],
+    key: tuple[str, str | None],
+) -> EventHandler | None:
+    """Most-specific EVENT_MAP handler: (type, subtype), then (type, None).
 
-    Every coder that passes a directory flag to its CLI (`opencode --dir`,
-    `codex --cd`) must use this, never `task.cwd` directly: under isolation
-    the subprocess is started inside the worktree, and a flag pointing at
-    the original repo makes the model edit the shared tree instead.
+    A ``result`` envelope stays a session end whatever its subtype is; a key
+    with no entry at either level returns None.
     """
-    return isolation_workdir(task_dir) or task.cwd
+    handler = table.get(key)
+    if handler is None and key[1] is not None:
+        handler = table.get((key[0], None))
+    return handler
 
 
-def render_prompt(
-    task: Task, task_dir: Path, plan: LaunchPlan | None, *, mode: str | None = None
-) -> str:
-    """Build the one prompt every coder sends: header + pack + mode instructions.
+def base_env(task: Task, task_dir: Path) -> dict[str, str]:
+    """The ``FLEET_*`` variables every coder sets (attempt vars are layered later)."""
+    return {
+        "FLEET_TASK_ID": task.id,
+        "FLEET_TASK_DIR": str(task_dir),
+    }
 
-    Shared by all five coders' `build_argv` so the assembly logic (header,
-    launch-mode instructions, isolated-worktree protocol) exists once. *plan*
-    is None for tests/back-compat call sites that don't plan launches yet;
-    treated the same as a fresh, empty-pack plan. *mode* overrides
-    `plan.mode` when given (the observer worker launches in "validate").
+
+@dataclass(frozen=True)
+class Workspace:
+    """Where a task runs: task dir, attempt dir, coder cwd, isolated worktree.
+
+    The isolated worktree comes from ``task.json`` (``worktree_path``) with
+    the legacy ``.worktree`` marker as fallback. ``attempt_dir`` is the
+    current attempt's folder when the caller knows it, else None.
     """
-    worktree = isolation_workdir(task_dir)
-    workdir = worktree or task.cwd
-    invocation_line = f"Invocation directory: {workdir}" if workdir else ""
-    header = (
-        _HEADER_PATH.read_text(encoding="utf-8")
-        .format(
-            task_id=task.id,
-            task_title=task.title,
-            task_description=task.description or "",
-            task_dir=task_dir,
-            invocation_line=invocation_line,
-        )
-        .strip()
-    )
 
-    mode = mode or (plan.mode if plan is not None else "fresh")
+    task_dir: Path
+    cwd: str | None = None
+    attempt_dir: Path | None = None
+
+    @property
+    def isolation_workdir(self) -> str | None:
+        """The worktree an isolated task runs in, or None when not isolated."""
+        try:
+            meta = json.loads((self.task_dir / "task.json").read_text(encoding="utf-8"))
+            if isinstance(meta, dict) and meta.get("worktree_path"):
+                return str(meta["worktree_path"])
+        except (OSError, ValueError):
+            pass
+        try:
+            marker = self.task_dir / ".worktree"
+            if marker.exists():
+                return marker.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            pass
+        return None
+
+    @property
+    def is_isolated(self) -> bool:
+        """True when the task runs isolated (worktree named or marker present)."""
+        return self.isolation_workdir is not None or (self.task_dir / ".worktree").exists()
+
+    @property
+    def workdir(self) -> str | None:
+        """Directory the coder must work in: isolated worktree, else task cwd.
+
+        Every coder that passes a directory flag to its CLI (``opencode
+        --dir``, ``codex --cd``) must use this, never ``task.cwd`` directly:
+        under isolation the subprocess starts inside the worktree, and a flag
+        pointing at the original repo makes the model edit the shared tree.
+        """
+        return self.isolation_workdir or self.cwd
+
+
+def prompt_context(
+    task: Task, task_dir: Path, plan: LaunchPlan | None
+) -> tuple[str, PromptContext]:
+    """Launch mode plus the resolved ``prompts`` context for ``build_argv``.
+
+    *plan* is None for callers that predate launch planning: treated as a
+    fresh, empty-pack plan.
+    """
+    mode = plan.mode if plan is not None else "fresh"
     pack = plan.pack if plan is not None else ""
-
-    if mode == "validate":
-        mode_instructions = _INSTRUCTION_VALIDATE_PATH.read_text(encoding="utf-8").strip()
-    elif mode == "research":
-        mode_instructions = _INSTRUCTION_RESEARCH_PATH.read_text(encoding="utf-8").strip()
-    elif mode == "design":
-        mode_instructions = _INSTRUCTION_DESIGN_PATH.read_text(encoding="utf-8").strip()
-    elif mode == "continue":
-        mode_instructions = _INSTRUCTION_CONTINUE_PATH.read_text(encoding="utf-8").strip()
-    else:
-        mode_instructions = _INSTRUCTION_FRESH_PATH.read_text(encoding="utf-8").strip()
-    common_instructions = _INSTRUCTION_COMMON_PATH.read_text(encoding="utf-8").strip()
-
-    parts = [header]
-    if pack:
-        parts.append(pack)
-    parts.append(mode_instructions)
-    parts.append(common_instructions)
-    if _is_isolated(task_dir):
-        protocol = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
-        parts.append(protocol.replace("{worktree_path}", worktree or "your working directory"))
-
-    return "\n\n---\n\n".join(parts)
+    workspace = Workspace(task_dir=task_dir, cwd=task.cwd)
+    return mode, PromptContext(
+        task=task,
+        task_dir=task_dir,
+        pack=pack,
+        workdir=workspace.workdir,
+        worktree=workspace.isolation_workdir,
+        isolated=workspace.is_isolated,
+    )
 
 
 class Coder(ABC):
+    """The interface every coder CLI implements (name, argv, env, events, health)."""
+
     name: str
     context_limit: int = 200_000
     default_model: str = ""
@@ -130,14 +151,14 @@ class Coder(ABC):
         *plan* is the `core.launch.LaunchPlan` for this attempt (fresh vs.
         continue, and the continue pack); None means "treat as fresh, no
         pack" for callers/tests that predate launch planning. Coders build
-        their prompt via `render_prompt(task, task_dir, plan)`.
+        their prompt via `prompts.render` (see `prompt_context` above).
         """
 
     @abstractmethod
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         """Return env-var overlay merged over os.environ when spawning.
 
-        MUST include FLEET_TASK_ID, FLEET_TASK_DIR.
+        MUST include FLEET_TASK_ID, FLEET_TASK_DIR (see `base_env`).
         MUST NOT include ANTHROPIC_API_KEY (owned by the CLI).
 
         FLEET_ATTEMPT_N, FLEET_ATTEMPT_DIR, FLEET_LAUNCH_MODE are NOT this

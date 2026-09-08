@@ -14,13 +14,15 @@ secrets.
 """
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt, workdir_for
+from fleet.coders.base import Coder, Workspace, base_env, lookup_handler, prompt_context
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _resolve_task_dir
@@ -86,6 +88,87 @@ def _write_codex_config(codex_home: Path, home: Path) -> Path:
     return path
 
 
+def _session_started(data: dict) -> Event | None:
+    """A thread started."""
+    return Event(
+        kind="session_started",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("thread_id"),
+    )
+
+
+def _session_ended(data: dict) -> Event | None:
+    """A turn completed."""
+    return Event(
+        kind="session_ended",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        usage=data.get("usage"),
+    )
+
+
+def _error(data: dict) -> Event | None:
+    """A failed turn or error envelope."""
+    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+
+
+def _assistant_text(data: dict) -> Event | None:
+    """A completed agent message."""
+    return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC))
+
+
+def _thinking(data: dict) -> Event | None:
+    """A completed reasoning block."""
+    return Event(kind="thinking", raw=data, ts=datetime.now(tz=UTC))
+
+
+def _tool_use(data: dict) -> Event | None:
+    """A tool item started; the tool name is the item type."""
+    item = data.get("item", {})
+    tool_name = item.get("type") if isinstance(item, dict) else None
+    return Event(
+        kind="tool_use",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=tool_name,
+    )
+
+
+def _tool_result(data: dict) -> Event | None:
+    """A tool item completed; the tool name is the item type."""
+    item = data.get("item", {})
+    tool_name = item.get("type") if isinstance(item, dict) else None
+    return Event(
+        kind="tool_result",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=tool_name,
+    )
+
+
+EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
+    ("thread.started", None): _session_started,
+    ("turn.completed", None): _session_ended,
+    ("turn.failed", None): _error,
+    ("error", None): _error,
+    ("item.completed", "agent_message"): _assistant_text,
+    ("item.completed", "reasoning"): _thinking,
+    **{("item.started", tool): _tool_use for tool in _TOOL_ITEM_TYPES},
+    **{("item.completed", tool): _tool_result for tool in _TOOL_ITEM_TYPES},
+}
+
+
+def _event_key(data: dict) -> tuple[str, str | None]:
+    """Lookup key for EVENT_MAP: item events dispatch on the item type."""
+    event_type = data.get("type", "")
+    if isinstance(event_type, str) and event_type.startswith("item."):
+        item = data.get("item", {})
+        subtype = item.get("type") if isinstance(item, dict) else None
+        return (event_type, subtype)
+    return (event_type, data.get("subtype"))
+
+
 class CodexCoder(Coder):
     name = "codex"
     context_limit = 128_000
@@ -95,7 +178,8 @@ class CodexCoder(Coder):
         self.model = model
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        prompt = render_prompt(task, task_dir, plan)
+        mode, ctx = prompt_context(task, task_dir, plan)
+        prompt = render(mode, ctx)
         argv = [
             "codex",
             "exec",
@@ -104,7 +188,7 @@ class CodexCoder(Coder):
             "--model",
             self.model,
         ]
-        workdir = workdir_for(task, task_dir)
+        workdir = Workspace(task_dir=task_dir, cwd=task.cwd).workdir
         if workdir:
             argv += ["--cd", workdir]
         argv.append(prompt)
@@ -112,8 +196,7 @@ class CodexCoder(Coder):
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         return {
-            "FLEET_TASK_ID": task.id,
-            "FLEET_TASK_DIR": str(task_dir),
+            **base_env(task, task_dir),
             # Isolate the worker from the operator's ~/.codex/config.toml:
             # codex resolves its config under $CODEX_HOME.
             "CODEX_HOME": str(_codex_home_path(task_dir)),
@@ -133,64 +216,17 @@ class CodexCoder(Coder):
         except OSError:
             pass
 
-    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line via EVENT_MAP keyed on (type, item type)."""
         if not raw_line.strip():
             return None
-
         try:
             data = json.loads(raw_line)
         except (json.JSONDecodeError, ValueError):
             return None
-
         if not isinstance(data, dict):
             return None
-
-        ts = datetime.now(tz=UTC)
-        t = data.get("type", "")
-
-        if t == "thread.started":
-            return Event(
-                kind="session_started",
-                raw=data,
-                ts=ts,
-                session_id=data.get("thread_id"),
-            )
-
-        if t == "turn.completed":
-            return Event(
-                kind="session_ended",
-                raw=data,
-                ts=ts,
-                usage=data.get("usage"),
-            )
-
-        if t in ("turn.failed", "error"):
-            return Event(kind="error", raw=data, ts=ts)
-
-        if t in ("item.started", "item.updated", "item.completed"):
-            item = data.get("item", {})
-            item_type = item.get("type", "")
-
-            if item_type == "agent_message" and t == "item.completed":
-                return Event(kind="assistant_text", raw=data, ts=ts)
-
-            if item_type == "reasoning" and t == "item.completed":
-                return Event(kind="thinking", raw=data, ts=ts)
-
-            if item_type in _TOOL_ITEM_TYPES:
-                if t == "item.started":
-                    return Event(
-                        kind="tool_use",
-                        raw=data,
-                        ts=ts,
-                        tool_name=item_type,
-                    )
-                if t == "item.completed":
-                    return Event(
-                        kind="tool_result",
-                        raw=data,
-                        ts=ts,
-                        tool_name=item_type,
-                    )
-
-        return None
+        handler = lookup_handler(EVENT_MAP, _event_key(data))
+        if handler is None:
+            return None
+        return handler(data)

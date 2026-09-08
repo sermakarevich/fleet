@@ -18,7 +18,7 @@ class _CombinedInstructionMd:
 
     The protocol text now lives split across INSTRUCTION_FRESH.md,
     INSTRUCTION_CONTINUE.md and INSTRUCTION_COMMON.md (see
-    `coders/base.py::render_prompt`); these doc-contract tests check the
+    `prompts/__init__.py::render`); these doc-contract tests check the
     concatenation of all three, which is what a fresh-start agent actually
     sees end to end.
     """

@@ -1,10 +1,73 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt
+from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
+from fleet.prompts import render
+
+
+def _assistant_text(data: dict) -> Event | None:
+    """An assistant payload."""
+    message = data.get("message")
+    usage = message.get("usage") if isinstance(message, dict) else None
+    return Event(
+        kind="assistant_text",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("session_id"),
+        usage=usage,
+    )
+
+
+def _tool_use(data: dict) -> Event | None:
+    """A tool invocation."""
+    return Event(
+        kind="tool_use",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=data.get("name"),
+    )
+
+
+def _tool_result(data: dict) -> Event | None:
+    """A tool result."""
+    return Event(
+        kind="tool_result",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=data.get("name"),
+    )
+
+
+def _session_ended(data: dict) -> Event | None:
+    """A terminal result envelope."""
+    return Event(
+        kind="session_ended",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("session_id"),
+        usage=data.get("usage"),
+    )
+
+
+EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
+    ("assistant", None): _assistant_text,
+    ("tool_use", None): _tool_use,
+    ("tool_result", None): _tool_result,
+    ("result", None): _session_ended,
+}
+
+
+def _raw_text_event(raw_line: str) -> Event:
+    """A non-JSON stdout line: agy emits raw text/markdown, streamed live."""
+    return Event(
+        kind="assistant_text",
+        raw={"text": raw_line},
+        ts=datetime.now(tz=UTC),
+    )
 
 
 class AgyCoder(Coder):
@@ -26,7 +89,8 @@ class AgyCoder(Coder):
         self.model = model
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        prompt = render_prompt(task, task_dir, plan)
+        mode, ctx = prompt_context(task, task_dir, plan)
+        prompt = render(mode, ctx)
         return [
             "agy",
             "-p",
@@ -35,63 +99,23 @@ class AgyCoder(Coder):
         ]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        return {
-            "FLEET_TASK_ID": task.id,
-            "FLEET_TASK_DIR": str(task_dir),
-        }
+        return base_env(task, task_dir)
 
-    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911  # ADR 0006 bead 7
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line via EVENT_MAP; raw text streams as assistant_text.
+
+        Unknown JSON objects fall back to assistant_text (agy has no typed
+        envelope for them); only blank lines return None.
+        """
         if not raw_line.strip():
             return None
-
-        # Check if the line is JSON in case agy or its plugins ever output JSON.
         try:
             data = json.loads(raw_line)
-            if isinstance(data, dict):
-                t = data.get("type", "")
-                ts = datetime.now(tz=UTC)
-                if t == "assistant":
-                    return Event(
-                        kind="assistant_text",
-                        raw=data,
-                        ts=ts,
-                        session_id=data.get("session_id"),
-                        usage=data.get("message", {}).get("usage"),
-                    )
-                if t == "tool_use":
-                    return Event(
-                        kind="tool_use",
-                        raw=data,
-                        ts=ts,
-                        tool_name=data.get("name"),
-                    )
-                if t == "tool_result":
-                    return Event(
-                        kind="tool_result",
-                        raw=data,
-                        ts=ts,
-                        tool_name=data.get("name"),
-                    )
-                if t == "result":
-                    return Event(
-                        kind="session_ended",
-                        raw=data,
-                        ts=ts,
-                        session_id=data.get("session_id"),
-                        usage=data.get("usage"),
-                    )
-                return Event(
-                    kind="assistant_text",
-                    raw=data,
-                    ts=ts,
-                )
         except (json.JSONDecodeError, ValueError):
-            pass
-
-        # Since agy outputs raw text/markdown, parse non-empty lines as assistant_text
-        # to allow live streaming/logging of the coder output in the fleet log files.
-        return Event(
-            kind="assistant_text",
-            raw={"text": raw_line},
-            ts=datetime.now(tz=UTC),
-        )
+            return _raw_text_event(raw_line)
+        if not isinstance(data, dict):
+            return _raw_text_event(raw_line)
+        handler = lookup_handler(EVENT_MAP, (data.get("type", ""), data.get("subtype")))
+        if handler is None:
+            return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC))
+        return handler(data)

@@ -1,14 +1,16 @@
-import contextlib
 import json
 import stat
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 
-from fleet.coders.base import Coder, render_prompt
+from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.mcp import write_mcp_config
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _resolve_task_dir
@@ -32,40 +34,157 @@ def _extract_usage_pct(info: dict) -> float | None:
     return None
 
 
-MCP_CONFIG_FILENAME = "mcp.json"
+def _hard_rate_limit(data: dict) -> Event | None:
+    """Hard rate-limit rejection: HTTP 429 or an explicit reject envelope.
+
+    These markers ride outside the typed stream (the 429 fixture has no
+    ``type`` key at all), so they are checked before the EVENT_MAP lookup.
+    """
+    if data.get("api_error_status") == HTTPStatus.TOO_MANY_REQUESTS or (
+        data.get("error") == "rate_limit"
+    ):
+        return Event(
+            kind="rate_limit",
+            raw=data,
+            ts=datetime.now(tz=UTC),
+            rate_info={
+                "usage_pct": None,
+                "resets_at": data.get("resetsAt"),
+                "status": "rejected",
+            },
+        )
+    return None
 
 
-def _mcp_config_path(task_dir: Path) -> Path:
-    """Where this task's Claude ``--mcp-config`` file lives.
+def _rate_limit_info(data: dict) -> Event | None:
+    """Soft rate-limit warning (periodic usage envelope).
 
-    The current attempt's directory when one is recorded, else the task
-    directory itself (unit tests, ad-hoc runs). The file content is
-    attempt-independent, so resolving "latest" here and in
+    Claude CLI emits one event per rateLimitType (five_hour, weekly,
+    overage, …). Only the session-cap (five_hour) bound should gate
+    the supervisor's spawn loop; longer-horizon budgets (weekly,
+    overage) reset days from now and would freeze claims if mirrored
+    into the gauge.
+    """
+    info = data.get("rate_limit_info", {})
+    if not isinstance(info, dict) or info.get("rateLimitType") != "five_hour":
+        return None
+    return Event(
+        kind="rate_limit_info",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        rate_info={
+            "usage_pct": _extract_usage_pct(info),
+            "resets_at": info.get("resetsAt"),
+            "status": info.get("status"),
+        },
+    )
+
+
+def _session_started(data: dict) -> Event | None:
+    """Session start (system init)."""
+    return Event(
+        kind="session_started",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("session_id"),
+    )
+
+
+def _system_error(data: dict) -> Event | None:
+    """System error."""
+    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+
+
+def _assistant(data: dict) -> Event | None:
+    """Assistant message: thinking blocks first, then tool_use blocks, else text.
+
+    Tool invocations arrive as content blocks inside assistant messages,
+    never as top-level stream-json events. raw is the block itself so
+    readers find the tool input at raw["input"] (files tab, stats).
+    """
+    msg = data.get("message", {})
+    content = msg.get("content", []) if isinstance(msg, dict) else []
+    usage = msg.get("usage") if isinstance(msg, dict) else None
+    session_id = data.get("session_id")
+    # Thinking blocks come first in extended-thinking responses.
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "thinking":
+            return Event(
+                kind="thinking",
+                raw=data,
+                ts=datetime.now(tz=UTC),
+                session_id=session_id,
+                usage=usage,
+            )
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            return Event(
+                kind="tool_use",
+                raw=block,
+                ts=datetime.now(tz=UTC),
+                session_id=session_id,
+                tool_name=block.get("name"),
+                usage=usage,
+            )
+    return Event(
+        kind="assistant_text",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=session_id,
+        usage=usage,
+    )
+
+
+def _tool_use(data: dict) -> Event | None:
+    """A tool invocation."""
+    return Event(
+        kind="tool_use",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=data.get("name"),
+    )
+
+
+def _tool_result(data: dict) -> Event | None:
+    """A tool result."""
+    return Event(
+        kind="tool_result",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=data.get("name"),
+    )
+
+
+def _session_ended(data: dict) -> Event | None:
+    """Terminal result envelope: the session ended."""
+    return Event(
+        kind="session_ended",
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        session_id=data.get("session_id"),
+        usage=data.get("usage"),
+    )
+
+
+EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
+    ("rate_limit_event", None): _rate_limit_info,
+    ("system", "init"): _session_started,
+    ("system", "error"): _system_error,
+    ("assistant", None): _assistant,
+    ("tool_use", None): _tool_use,
+    ("tool_result", None): _tool_result,
+    ("result", None): _session_ended,
+}
+
+
+def _attempt_dir_for(task_dir: Path) -> Path:
+    """This task's Claude ``--mcp-config`` directory: the current attempt's dir.
+
+    Falls back to the task directory itself (unit tests, ad-hoc runs). The
+    file content is attempt-independent, so resolving "latest" here and in
     ``write_runtime_config`` always agrees within one attempt.
     """
-
-    attempt_dir = latest_attempt_dir(task_dir)
-    return (attempt_dir or task_dir) / MCP_CONFIG_FILENAME
-
-
-def _write_mcp_config(path: Path, home: Path) -> Path:
-    """Write Claude's ``--mcp-config`` JSON (``{"mcpServers": ...}``) to *path*.
-
-    Server definitions come from ``integrations.mcp_servers.fleet_mcp_servers``
-    (the same source opencode and codex use); *home* is FLEET_HOME. Values are
-    paths and module names, never secrets.
-    """
-
-    servers = {}
-    for name, entry in fleet_mcp_servers(home).items():
-        servers[name] = {
-            "command": entry["command"],
-            "args": list(entry["args"]),
-            "env": dict(entry["env"]),
-        }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n", encoding="utf-8")
-    return path
+    return latest_attempt_dir(task_dir) or task_dir
 
 
 class ClaudeCoder(Coder):
@@ -77,19 +196,18 @@ class ClaudeCoder(Coder):
         self.model = model
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        prompt = render_prompt(task, task_dir, plan)
+        mode, ctx = prompt_context(task, task_dir, plan)
+        prompt = render(mode, ctx)
         # The worker prompt tells the model to call the ask_human MCP tool, so
         # the server must be handed explicitly: --mcp-config points at the
         # fleet-written mcp.json, --strict-mcp-config keeps the worker
         # environment deterministic (no inheritance of the operator's personal
-        # ~/.claude.json servers). The file is (re)written best-effort here so
-        # argv always points at a real file; write_runtime_config writes the
-        # same path before spawn — both resolve via _mcp_config_path, so they
-        # always agree within one attempt.
-
-        mcp_path = _mcp_config_path(task_dir)
-        with contextlib.suppress(OSError):
-            _write_mcp_config(mcp_path, fleet_home())
+        # ~/.claude.json servers). The file is (re)written here so argv always
+        # points at a real file; write_runtime_config writes the same path
+        # before spawn — both resolve via _attempt_dir_for, so they always
+        # agree within one attempt. The write raises on OSError: the worker
+        # turns it into a failed step instead of launching without ask_human.
+        mcp_path = write_mcp_config(_attempt_dir_for(task_dir), fleet_mcp_servers(fleet_home()))
         return [
             "claude",
             "-p",
@@ -110,10 +228,7 @@ class ClaudeCoder(Coder):
         ]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        return {
-            "FLEET_TASK_ID": task.id,
-            "FLEET_TASK_DIR": str(task_dir),
-        }
+        return base_env(task, task_dir)
 
     @staticmethod
     def _shipped_hooks_dir() -> Path:
@@ -126,9 +241,9 @@ class ClaudeCoder(Coder):
         web_fetch, from ``integrations.mcp_servers``) into the current attempt
         directory. The task directory is resolved best-effort from FLEET_HOME
         + task id — write_runtime_config only receives the project root, so a
-        failure to resolve (unit tests, ad-hoc runs) skips the mcp.json write
-        instead of crashing; build_argv re-resolves from its task_dir and
-        writes the same path, so the two always agree within one attempt.
+        missing id (unit tests, ad-hoc runs) skips the mcp.json write; a real
+        write failure raises so the worker fails the step instead of running
+        without ask_human.
         """
         hooks_src = self._shipped_hooks_dir()
         hooks_dst = project / ".fleet" / "hooks"
@@ -186,139 +301,23 @@ class ClaudeCoder(Coder):
         result = {**existing, "hooks": hooks}
         settings_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
-        try:
-            task_id = getattr(task, "id", None)
-            if task_id:
-                tdir = _resolve_task_dir(fleet_home(), task_id)
-                _write_mcp_config(_mcp_config_path(tdir), fleet_home())
-        except OSError:
-            pass
+        task_id = getattr(task, "id", None)
+        if task_id:
+            tdir = _resolve_task_dir(fleet_home(), task_id)
+            write_mcp_config(_attempt_dir_for(tdir), fleet_mcp_servers(fleet_home()))
 
-    def normalize_event(self, raw_line: str) -> Event | None:  # noqa: PLR0911
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one stdout line: hard-reject check, then EVENT_MAP on (type, subtype)."""
         try:
             data = json.loads(raw_line)
         except (json.JSONDecodeError, ValueError):
             return None
-
         if not isinstance(data, dict):
             return None
-
-        ts = datetime.now(tz=UTC)
-        t = data.get("type", "")
-
-        # Soft rate-limit warning (periodic usage envelope)
-        if t == "rate_limit_event":
-            info = data.get("rate_limit_info", {})
-            # Claude CLI emits one event per rateLimitType (five_hour, weekly,
-            # overage, …). Only the session-cap (five_hour) bound should gate
-            # the supervisor's spawn loop; longer-horizon budgets (weekly,
-            # overage) reset days from now and would freeze claims if mirrored
-            # into the gauge.
-            if info.get("rateLimitType") != "five_hour":
-                return None
-            return Event(
-                kind="rate_limit_info",
-                raw=data,
-                ts=ts,
-                rate_info={
-                    "usage_pct": _extract_usage_pct(info),
-                    "resets_at": info.get("resetsAt"),
-                    "status": info.get("status"),
-                },
-            )
-
-        # Hard rate-limit rejection (HTTP 429 or explicit reject envelope)
-        if (
-            data.get("api_error_status") == HTTPStatus.TOO_MANY_REQUESTS
-            or data.get("error") == "rate_limit"
-        ):
-            return Event(
-                kind="rate_limit",
-                raw=data,
-                ts=ts,
-                rate_info={
-                    "usage_pct": None,
-                    "resets_at": data.get("resetsAt"),
-                    "status": "rejected",
-                },
-            )
-
-        # Session start (system init)
-        if t == "system" and data.get("subtype") == "init":
-            return Event(
-                kind="session_started",
-                raw=data,
-                ts=ts,
-                session_id=data.get("session_id"),
-            )
-
-        # System error
-        if t == "system" and data.get("subtype") == "error":
-            return Event(kind="error", raw=data, ts=ts)
-
-        # Assistant message — may be text or thinking
-        if t == "assistant":
-            msg = data.get("message", {})
-            content = msg.get("content", [])
-            usage = msg.get("usage")
-            session_id = data.get("session_id")
-            # Thinking blocks come first in extended-thinking responses
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "thinking":
-                    return Event(
-                        kind="thinking",
-                        raw=data,
-                        ts=ts,
-                        session_id=session_id,
-                        usage=usage,
-                    )
-            # Tool invocations arrive as content blocks inside assistant messages,
-            # never as top-level stream-json events. raw is the block itself so
-            # readers find the tool input at raw["input"] (files tab, stats).
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    return Event(
-                        kind="tool_use",
-                        raw=block,
-                        ts=ts,
-                        session_id=session_id,
-                        tool_name=block.get("name"),
-                        usage=usage,
-                    )
-            return Event(
-                kind="assistant_text",
-                raw=data,
-                ts=ts,
-                session_id=session_id,
-                usage=usage,
-            )
-
-        # Tool invocation
-        if t == "tool_use":
-            return Event(
-                kind="tool_use",
-                raw=data,
-                ts=ts,
-                tool_name=data.get("name"),
-            )
-
-        # Tool result
-        if t == "tool_result":
-            return Event(
-                kind="tool_result",
-                raw=data,
-                ts=ts,
-                tool_name=data.get("name"),
-            )
-
-        # Terminal result envelope — session ended
-        if t == "result":
-            return Event(
-                kind="session_ended",
-                raw=data,
-                ts=ts,
-                session_id=data.get("session_id"),
-                usage=data.get("usage"),
-            )
-
-        return None
+        rejected = _hard_rate_limit(data)
+        if rejected is not None:
+            return rejected
+        handler = lookup_handler(EVENT_MAP, (data.get("type", ""), data.get("subtype")))
+        if handler is None:
+            return None
+        return handler(data)
