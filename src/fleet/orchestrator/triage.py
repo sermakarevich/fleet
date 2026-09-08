@@ -282,11 +282,9 @@ class Triage(Service):
         self._last_tick: float | None = None
 
     def _question_store(self) -> Any:
-        """Return the ask_human question store, creating the default one lazily."""
-        from fleet.integrations.ask_human.store import QuestionStore
-
+        """Return the injected ask_human question store."""
         if self._store is None:
-            self._store = QuestionStore()
+            raise RuntimeError("Triage service needs a question store; pass store=...")
         return self._store
 
     async def tick(self, st: SupervisorState) -> None:

@@ -40,10 +40,18 @@ class StubQueue:
 
 
 def _make_supervisor(
-    tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None
+    tmp_path: Path,
+    queue: StubQueue,
+    config: RuntimeConfig | None = None,
+    shutdown_grace_sec: float | None = None,
 ) -> Supervisor:
     return make_supervisor(  # type: ignore[arg-type]
-        tmp_path, queue=queue, config=config, services=[], checks=[]
+        tmp_path,
+        queue=queue,
+        config=config,
+        services=[],
+        checks=[],
+        shutdown_grace_sec=shutdown_grace_sec,
     )
 
 
@@ -69,13 +77,12 @@ def _track(s: Supervisor, task_id: str, t: asyncio.Task) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path, monkeypatch) -> None:
+def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path) -> None:
     """Tasks that complete quickly are not force-released."""
-    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 2)
     queue = StubQueue()
 
     async def _run() -> None:
-        s = _make_supervisor(tmp_path, queue)
+        s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=2)
 
         async def quick_task() -> TaskOutcomeRecord:
             await asyncio.sleep(0.05)
@@ -134,13 +141,12 @@ def test_shutdown_sets_shutting_down_flag(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path, monkeypatch) -> None:
+def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path) -> None:
     """Tasks that outlive the grace window are force-released via queue.release."""
-    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 1)
     queue = StubQueue()
 
     async def _run() -> None:
-        s = _make_supervisor(tmp_path, queue)
+        s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn_task() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)
@@ -166,13 +172,12 @@ def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path, monkeypatch) -
     asyncio.run(_run())
 
 
-def test_shutdown_force_releases_correct_task_id(tmp_path: Path, monkeypatch) -> None:
+def test_shutdown_force_releases_correct_task_id(tmp_path: Path) -> None:
     """Force-released reason contains 'supervisor shutdown'."""
-    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 1)
     queue = StubQueue()
 
     async def _run() -> None:
-        s = _make_supervisor(tmp_path, queue)
+        s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)
@@ -196,13 +201,12 @@ def test_shutdown_force_releases_correct_task_id(tmp_path: Path, monkeypatch) ->
     asyncio.run(_run())
 
 
-def test_shutdown_idempotent(tmp_path: Path, monkeypatch) -> None:
+def test_shutdown_idempotent(tmp_path: Path) -> None:
     """Calling _shutdown twice does not double-release or error."""
-    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 1)
     queue = StubQueue()
 
     async def _run() -> None:
-        s = _make_supervisor(tmp_path, queue)
+        s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn() -> TaskOutcomeRecord:
             await asyncio.sleep(9999)

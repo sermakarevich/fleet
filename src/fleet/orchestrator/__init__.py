@@ -7,6 +7,8 @@ each module in this package owns one concern with its own cadence, and
 
 from __future__ import annotations
 
+from typing import Any
+
 from .claim import Claim
 from .config_reload import ConfigReload
 from .kill_sentinel import KillSentinel
@@ -39,8 +41,12 @@ __all__ = [
 ]
 
 
-def default_services() -> list[Service]:
-    """Build the production service list in hook order."""
+def default_services(question_store: Any | None = None) -> list[Service]:
+    """Build the production service list in hook order.
+
+    The triage question store is injected by the caller (the CLI passes the
+    real ask_human store) so this package never imports integrations.
+    """
     return [
         ConfigReload(),
         LeaseReconcile(),
@@ -49,7 +55,7 @@ def default_services() -> list[Service]:
         Reap(),
         StallWatch(),
         KillSentinel(),
-        Triage(),
+        Triage(store=question_store),
         RetentionGc(),
         StatusLog(),
     ]

@@ -284,7 +284,13 @@ def make_supervisor(
         rate_gauge=RateGauge(log=log),
         coder_pin=coder or FakeClaudeCoder(),
     )
-    return Supervisor(state=state, services=default_services())
+    services = default_services()
+    for svc in services:
+        if getattr(svc, "name", "") in ("claim", "config_reload") and hasattr(
+            svc, "interval_sec"
+        ):
+            svc.interval_sec = 1
+    return Supervisor(state=state, services=services, shutdown_grace_sec=3)
 
 
 # ---------------------------------------------------------------------------
@@ -317,10 +323,11 @@ async def run_until(
 
 @pytest.fixture(autouse=True)
 def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch supervisor/runner constants to fast values for all integration tests."""
-    monkeypatch.setattr("fleet.orchestrator.claim.CLAIM_POLL_INTERVAL_SEC", 1)
-    monkeypatch.setattr("fleet.orchestrator.config_reload.CONFIG_POLL_INTERVAL_SEC", 1)
-    monkeypatch.setattr("fleet.orchestrator.supervisor.SHUTDOWN_GRACE_SEC", 3)
+    """Patch worker/runner constants to fast values for all integration tests.
+
+    Orchestrator service intervals and the supervisor grace window are set
+    per-service in make_supervisor above, not patched here.
+    """
     monkeypatch.setattr("fleet.core.retry_policy.RATE_LIMIT_DEFAULT_SLEEP_SEC", 0)
     monkeypatch.setattr("fleet.workers.llm_session.SHUTDOWN_GRACE_SEC", 3)
 

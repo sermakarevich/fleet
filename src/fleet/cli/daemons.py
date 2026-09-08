@@ -23,6 +23,7 @@ from fleet.beads.queue import BeadsQueue
 from fleet.coders import get_coder
 from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
+from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.ollama_tunnel import ensure_tunnel
 from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervisor_spec
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
@@ -187,7 +188,7 @@ def register(app: typer.Typer) -> None:
                 log=log,
                 rate_gauge=RateGauge(log=log),
             ),
-            services=default_services(),
+            services=default_services(question_store=QuestionStore()),
             checks=DEFAULT_CHECKS,
         )
         try:

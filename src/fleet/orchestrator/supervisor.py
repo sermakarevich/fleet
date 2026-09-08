@@ -23,11 +23,17 @@ class Supervisor:
         state: SupervisorState,
         services: list[Service],
         checks: Sequence[StartupCheck] | None = None,
+        shutdown_grace_sec: float | None = None,
     ) -> None:
         self.state = state
         self._services: list[Service] = sorted(services, key=lambda s: s.order)
         self._checks: Sequence[StartupCheck] = list(checks) if checks is not None else list(
             DEFAULT_CHECKS
+        )
+        self.shutdown_grace_sec = (
+            float(shutdown_grace_sec)
+            if shutdown_grace_sec is not None
+            else float(SHUTDOWN_GRACE_SEC)
         )
         self.state.services = self._services
         self._done: asyncio.Event | None = None
@@ -86,7 +92,7 @@ class Supervisor:
         self.state.log.info("supervisor_shutdown_initiated")
         if self._done is None:
             self._done = asyncio.Event()
-        grace = float(SHUTDOWN_GRACE_SEC)
+        grace = float(self.shutdown_grace_sec)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + grace
 

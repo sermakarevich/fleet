@@ -66,15 +66,24 @@ src/fleet/
     llm_session.py       # LlmSession step: spawn the coder subprocess, stream stdout, classify exit
     task.py              # PrepareArtifacts step, FreshTask worker, plan_task(ctx)
 
-  orchestrator/          # the supervisor process, split by concern
-    supervisor.py        # wires the loops below; owns in_flight; signal handling
-    claim.py             # claim loop + per-coder concurrency caps (absorbs concurrency.py)
-    spawn.py             # resolve coder/model, select_worker, build WorkerRun, record attempt start
-    reap.py              # collect finished runners, call outcome_policy, apply the action
-    stall.py             # stall detection and kill
-    orphans.py           # startup reconciliation of run.json vs live pids
-    worktree.py          # git worktree create/merge/validate       (merges worktree.py + supervisor_worktree.py)
-    rate_gauge.py
+  orchestrator/          # the supervisor process, split by concern (ADR 0005)
+    supervisor.py        # lifecycle runner: checks, on_start, serve, on_stop, shutdown
+    service.py           # Service / PeriodicService / ServiceOrder base types + emit
+    state.py             # SupervisorState + RunningWorker: one shared state object
+    checks.py            # StartupCheck list run once before on_start
+    claim.py             # Claim service: poll the queue, enforce coder caps, spawn
+    reap.py              # Reap service: collect finished runners, apply outcome policy
+    stall.py             # StallWatch service: warn/kill silent runners, owns its sets
+    leases.py            # LeaseReconcile service + orphan-worktree sweep on start
+    triage.py            # Triage service: ask one question per blocked bead, own cadence
+    config_reload.py     # ConfigReload service: hot-reload runtime.toml on change
+    kill_sentinel.py     # KillSentinel service: honour .kill files promptly
+    merge_validation.py  # MergeValidation service: merge isolated work back, validate
+    retention_gc.py      # RetentionGc service: archive old tasks, purge worktrees
+    status_log.py        # StatusLog service: periodic supervisor_status heartbeat
+    spawn.py             # functions: resolve coder, isolate, start a WorkerRun
+    worktree.py          # git worktree create/sweep/remove helpers
+    rate_gauge.py        # in-memory rate-limit usage gauge feeding the status line
 
   coders/                # unchanged: base.py + one file per coder + hooks/
                          # coder-specific config (opencode_*) moves into the coder module
@@ -148,7 +157,7 @@ src/fleet/ui/src/
 | `gc.py` | `state/archive.py` |
 | `queue.py::_bd`, `routes/beads.py::_run_bd`, `beads_info.py`, `routes/tasks.py` bd calls, `cli.py` bd calls | `beads/client.py` |
 | `routes/tasks.py` and `routes/analytics.py` beads-status merge | `beads/reconcile.py` |
-| `supervisor.py` (rest), `supervisor_spawn.py` (delete), `concurrency.py` | `orchestrator/*` |
+| `supervisor.py` (rest: claim/spawn/reap/stall/leases/triage loops) | `orchestrator/*` services (`claim.py`, `reap.py`, `stall.py`, `leases.py`, `triage.py`, …) + `spawn.py` functions |
 | `runner.py` | `workers/llm_session.py` (LlmSession step), minus queue calls |
 | `worktree.py` + `supervisor_worktree.py` | `orchestrator/worktree.py` |
 | `telegram.py`, `cli.py` telegram wizard | `integrations/telegram/` |

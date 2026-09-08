@@ -25,7 +25,7 @@ The recommendation is a deep refactor in seven phases (0 to 6) over roughly four
 - **2,493** task directories in `~/.fleet/tasks`
 - **2.5 GB** fleet home; 1.5 GB is the beads Dolt database
 
-The runtime is one asyncio process (`supervisor.py`) running five loops: claim-and-spawn every 5 s, reap, config poll, status log, and a kill-sentinel poll. Each claimed task becomes a `TaskRunner` that spawns a coder CLI, tails its NDJSON stdout into `events.jsonl`, and classifies the exit into one of six outcomes. A 160-line `match` block in `_handle_outcome` holds all retry, release, block and validation policy.
+The runtime is one asyncio process (`supervisor.py`) running ten ordered services: ConfigReload, LeaseReconcile, Claim (claim-and-spawn every 5 s), MergeValidation, Reap, StallWatch, KillSentinel, Triage, RetentionGc, and StatusLog (see ADR 0005). Each claimed task becomes a `TaskRunner` that spawns a coder CLI, tails its NDJSON stdout into `events.jsonl`, and classifies the exit into one of six outcomes. A 160-line `match` block in `_handle_outcome` holds all retry, release, block and validation policy.
 
 Around that core: a FastAPI server that derives every view by re-reading task directories and shelling out to `bd`; a React UI on React Query polling plus a file-watcher WebSocket; a Telegram bot for notifications and task intake; and an `ask_human` MCP (Model Context Protocol) server backed by SQLite that lets a blocked agent wait for a human answer.
 
@@ -84,7 +84,7 @@ Each finding names the code so the team can go straight to it. Severity reflects
 - No CI, no linter or type checker configured, no pre-commit, no Dockerfile, no release tagging. Two competing dev-dependency mechanisms in `pyproject.toml`.
 - The wheel does not ship the built UI. The server restart path runs `make ui-build` from a source checkout, so deployment depends on a dev environment.
 - No UI tests. Well-covered Python unit tests, but test logic is duplicated per coder because the production code is.
-- `cli.py` is 1,600 lines mixing daemon management, rendering, and five sub-apps.
+- The `cli/` package mixes daemon management, rendering, and five sub-apps.
 
 ## Target architecture
 

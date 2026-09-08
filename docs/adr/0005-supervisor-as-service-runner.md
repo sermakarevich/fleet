@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -250,6 +250,18 @@ instead of three dicts.
 - Trap to avoid: `Service` grows a hook per feature and becomes the new
   mixin. Rule: a hook is added only when a second service needs it; a
   service that needs private data keeps it on itself.
+
+## Outcome
+
+Implemented as decided across five beads. `supervisor.py` is 120 lines
+(the thin runner plus shutdown); the six mixins are gone. Ten services run
+in this `default_services()` order: ConfigReload, LeaseReconcile, Claim,
+MergeValidation, Reap, StallWatch, KillSentinel, Triage, RetentionGc,
+StatusLog. Test fixtures construct `Supervisor` through
+`tests/conftest.py::make_supervisor` with per-service `intervals` and a
+`shutdown_grace_sec` keyword; `tests/orchestrator/test_layering.py` pins
+the import rules (lower layers + siblings only; supervisor imports no
+sibling except `service`, `state`, `checks`).
 
 ## Implementation plan (one bead each, in order)
 

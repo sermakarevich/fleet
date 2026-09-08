@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.orchestrator.service import PeriodicService, ServiceOrder
-from fleet.serve.stats import task_runtime_stats
+from fleet.state.events import scan
 
 if TYPE_CHECKING:
     from fleet.orchestrator.state import SupervisorState
@@ -25,7 +25,7 @@ def fleet_log_context(st: SupervisorState) -> dict:
         "rate_limit_resets_at": st.rate_gauge.resets_at,
         "task_ids": sorted(st.running.keys()),
         "context_tokens": {
-            tid: (task_runtime_stats(tid).context_tokens or 0)
+            tid: (scan(st.task_dir_for(tid)).peak_context_tokens or 0)
             for tid in st.running
         },
     }

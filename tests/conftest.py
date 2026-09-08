@@ -30,8 +30,15 @@ def make_supervisor(
     checks: list[StartupCheck] | None = None,
     coder: Coder | None = None,
     project_root: Path | None = None,
+    intervals: dict[str, float] | None = None,
+    shutdown_grace_sec: float | None = None,
 ) -> Supervisor:
-    """Build a Supervisor over a minimal runtime.toml for tests."""
+    """Build a Supervisor over a minimal runtime.toml for tests.
+
+    `intervals` maps a service name (or class name, case-insensitive) to a
+    tick interval, applied to every built service that has `interval_sec`.
+    `shutdown_grace_sec` overrides the Supervisor shutdown grace window.
+    """
     runtime_toml = tmp_path / "runtime.toml"
     if not runtime_toml.exists():
         runtime_toml.parent.mkdir(parents=True, exist_ok=True)
@@ -47,10 +54,18 @@ def make_supervisor(
         rate_gauge=RateGauge(log=log),
         coder_pin=coder,
     )
+    built = services if services is not None else default_services()
+    if intervals:
+        for svc in built:
+            names = {type(svc).__name__.lower(), getattr(svc, "name", "").lower()}
+            for key, value in intervals.items():
+                if key.lower() in names and hasattr(svc, "interval_sec"):
+                    svc.interval_sec = value
     return Supervisor(
         state=state,
-        services=services if services is not None else default_services(),
+        services=built,
         checks=checks,
+        shutdown_grace_sec=shutdown_grace_sec,
     )
 
 
