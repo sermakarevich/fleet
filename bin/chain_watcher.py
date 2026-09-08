@@ -26,6 +26,22 @@ CHAIN = [
     "fleet-42936",  # Runner 3/5 claim/spawn/RunningWorker
     "fleet-t97gn",  # Runner 4/5 reap/stall/leases/triage
     "fleet-sh3hm",  # Runner 5/5 tests + docs
+    # ADR 0006 codebase-wide clean-code program (serial, after the runner chain)
+    "fleet-w2mc1",  # Clean 1/15 tooling: just check, strict ruff, mypy, CI
+    "fleet-0yd8z",  # Clean 2/15 state owners: TaskMeta, AttemptJournal, RunRecord
+    "fleet-6onqj",  # Clean 3/15 layer fixes + tests/test_layering.py
+    "fleet-fmoxq",  # Clean 4/15 beads: Queue, claim, _FLAGS, BdClient
+    "fleet-ropuo",  # Clean 5/15 core policy tables
+    "fleet-c2kja",  # Clean 6/15 workers/session
+    "fleet-7vhe4",  # Clean 7/15 coders + prompts/
+    "fleet-hkmr2",  # Clean 8/15 workers job/observe
+    "fleet-4j9xv",  # Clean 9/15 serve core
+    "fleet-ksw0h",  # Clean 10/15 serve analytics metrics
+    "fleet-zjq7z",  # Clean 11/15 integrations
+    "fleet-mlb4c",  # Clean 12/15 cli
+    "fleet-q9ijr",  # Clean 13/15 API models + generated UI types
+    "fleet-l203y",  # Clean 14/15 UI structure + vitest/eslint
+    "fleet-4jsuo",  # Clean 15/15 docs, ADR 0006 accepted
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
