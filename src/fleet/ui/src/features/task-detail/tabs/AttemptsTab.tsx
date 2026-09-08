@@ -64,14 +64,23 @@ function AttemptRow({
 
   return (
     <div style={styles.row}>
-      <button style={styles.header} onClick={onToggle}>
+      <button
+        style={{
+          ...styles.header,
+          ...(attempt.kind === 'compact' ? styles.compactRow : {}),
+        }}
+        onClick={onToggle}
+      >
         <span style={styles.chevron}>{isOpen ? '▾' : '▸'}</span>
         <span style={styles.cell}>#{attempt.n}</span>
-        <span style={styles.cell}>{attempt.mode ?? '—'}</span>
+        <span style={styles.cell}>
+          {attempt.kind === 'compact' ? 'compaction' : (attempt.mode ?? '—')}
+        </span>
         <span style={styles.cell}>{fmtClockTime(attempt.started_at)}</span>
         <span style={styles.cell}>{fmtDuration(attempt.duration_sec)}</span>
         <span style={styles.cell}>{[attempt.coder, attempt.model].filter(Boolean).join(' / ') || '—'}</span>
         <span style={styles.cell}>{attempt.outcome ?? '—'}</span>
+        {attempt.context_badge && <span style={styles.contextBadge}>context</span>}
         <span style={styles.cell}>{fmtContextPct(attempt.peak_context_pct)}</span>
         <span style={styles.cell}>{attempt.files_touched} files</span>
         <span style={styles.cell}>{attempt.commits.length} commits</span>
@@ -138,6 +147,19 @@ const styles: Record<string, React.CSSProperties> = {
   chevron: {
     color: '#71717a',
     width: '0.8rem',
+  },
+  compactRow: {
+    background: '#1c1917',
+  },
+  contextBadge: {
+    whiteSpace: 'nowrap',
+    fontSize: '0.68rem',
+    fontWeight: 600,
+    color: '#ec835a',
+    border: '1px solid #ec835a66',
+    background: '#ec835a22',
+    borderRadius: '4px',
+    padding: '0 0.3rem',
   },
   cell: {
     whiteSpace: 'nowrap',

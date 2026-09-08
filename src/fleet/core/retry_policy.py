@@ -82,11 +82,18 @@ def _category_of(
 
 
 def _trailing_streak(history: list[dict], category: str) -> int:
-    """Count trailing consecutive attempts in *category*, oldest→newest history."""
+    """Count trailing consecutive attempts in *category*, oldest→newest history.
+
+    Rows with ``kind == "compact"`` (the compaction job, which journals its
+    own attempt row for visibility) never count toward — or break — a streak:
+    they are skipped, since they are not worker outcomes.
+    """
     count = 0
     for entry in reversed(history):
         if not isinstance(entry, dict):
             break
+        if entry.get("kind") == "compact":
+            continue
         if entry.get("outcome") is None:
             # Attempt started but never ended: ignore it, keep scanning back.
             continue

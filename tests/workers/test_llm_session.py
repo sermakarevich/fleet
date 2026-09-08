@@ -233,10 +233,10 @@ def test_rate_limit_no_resets_at_gives_none(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: Context-pressure flag → CONTEXT_PRESSURE + flag removed
+# Test: legacy .context_pressure marker file is ignored (removed in spec 5)
 # ---------------------------------------------------------------------------
 
-_CP_SCRIPT = (
+_LEGACY_CP_SCRIPT = (
     "import sys, os\n"
     "from pathlib import Path\n"
     "p = Path(os.environ['FLEET_TASK_DIR'])\n"
@@ -246,30 +246,17 @@ _CP_SCRIPT = (
 )
 
 
-def test_context_pressure_returns_context_pressure(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", _CP_SCRIPT])
+def test_legacy_context_pressure_marker_is_ignored(tmp_path: Path) -> None:
+    """The old marker file no longer drives outcomes; CONTEXT_PRESSURE now
+    comes from usage counters and CLI overflow errors only."""
+    session, ctx, _ = _make_session(
+        tmp_path, argv=[sys.executable, "-c", _LEGACY_CP_SCRIPT]
+    )
 
     result = _run(session, ctx)
 
-    assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
+    assert result.outcome == TaskOutcome.SUCCESS
     assert result.exit_code == 0
-
-
-def test_context_pressure_flag_is_removed(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", _CP_SCRIPT])
-
-    _run(session, ctx)
-
-    cp_flag = tmp_path / "tasks" / "t-001" / ".context_pressure"
-    assert not cp_flag.exists()
-
-
-def test_context_pressure_wins_over_rc0(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", _CP_SCRIPT])
-
-    result = _run(session, ctx)
-
-    assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
 
 
 # ---------------------------------------------------------------------------

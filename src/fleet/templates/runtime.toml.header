@@ -31,4 +31,19 @@
 #
 # opencode_bedrock_context_limit: Context window size for Claude-on-Bedrock.
 #   Defaults to 200000 (Claude context window).
-#   Set via: fleet config set opencode_bedrock_context_limit=200000..
+#   Set via: fleet config set opencode_bedrock_context_limit=200000.
+#
+# compaction_enabled: Run the Compact step before continue launches whose
+#   pack needs compaction (ContinueLargeTask). true (default) or false.
+#
+# compaction_coder: Coder CLI used for the cheap compaction model call.
+#   Defaults to claude.
+#
+# compaction_model: Model used for the cheap compaction model call.
+#   Defaults to haiku.
+#
+# context_checkpoint_pct: Peak-context percent at which the runner writes
+#   .checkpoint_requested so the model wraps up early. Defaults to 75.
+#
+# context_kill_pct: Peak-context percent at which the runner kills the
+#   session and reports CONTEXT_PRESSURE. Defaults to 90.

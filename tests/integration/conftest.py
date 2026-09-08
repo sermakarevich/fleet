@@ -290,5 +290,12 @@ def _fast_constants(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def fast_config(**overrides: object) -> RuntimeConfig:
-    """RuntimeConfig with surviving fields only; poll/grace intervals are now constants."""
-    return RuntimeConfig(**overrides)  # type: ignore[arg-type]
+    """RuntimeConfig with surviving fields only; poll/grace intervals are now constants.
+
+    Compaction is off by default: integration tests drive FakeClaudeCoder and
+    must never spawn the real compaction CLI (network, slow, flaky). Unit
+    tests in tests/workers/test_compact.py cover the Compact step itself.
+    """
+    defaults: dict = {"compaction_enabled": False}
+    defaults.update(overrides)
+    return RuntimeConfig(**defaults)  # type: ignore[arg-type]

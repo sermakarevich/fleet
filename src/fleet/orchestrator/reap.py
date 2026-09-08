@@ -7,6 +7,7 @@ from pathlib import Path
 from fleet.core import retry_policy
 from fleet.core.result import Result, parse_result
 from fleet.core.retry_policy import (
+    CONTEXT_MAX_ROUNDS,
     NOCLOSE_MAX_ROUNDS,
     PARTIAL_MAX_ROUNDS,
     Action,
@@ -58,6 +59,7 @@ class ReapMixin:
                 bead_task = self.in_flight_tasks.pop(task_id)
                 self.in_flight.pop(task_id)
                 self._runners.pop(task_id, None)
+                attempt_n = self._attempt_n.pop(task_id, None)
                 self._stall_warned.discard(task_id)
                 self._stall_killed.discard(task_id)
 
@@ -74,7 +76,7 @@ class ReapMixin:
                         reason=f"unexpected exception: {exc}",
                     )
 
-                self._handle_outcome(bead_task, outcome)
+                self._handle_outcome(bead_task, outcome, attempt_n=attempt_n)
 
     def _bead_status(self, task_id: str) -> str | None:
         try:
@@ -279,7 +281,19 @@ class ReapMixin:
             self._log.warning("task_success_noclose", task_id=task.id, count=rounds)
             return
 
-        # CONTEXT_PRESSURE and anything else: plain release.
+        if outcome == TaskOutcome.CONTEXT_PRESSURE:
+            history = attempts.load_attempts(task_dir)
+            rounds = retry_policy._trailing_streak(history, "context") + 1
+            self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
+            self._queue.comment(
+                task.id,
+                f"[fleet] context limit round {rounds}/{CONTEXT_MAX_ROUNDS}; "
+                f"compaction + continue",
+            )
+            self._log.info("task_context_release", task_id=task.id, count=rounds)
+            return
+
+        # Anything else: plain release.
         self._queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
         self._log.info("task_released", task_id=task.id, **fleet_ctx)
 
@@ -325,7 +339,9 @@ class ReapMixin:
         except OSError as exc:
             self._log.warning("attempt_summary_failed", task_id=task.id, error=str(exc))
 
-    def _handle_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
+    def _handle_outcome(
+        self, task: Task, outcome: TaskOutcomeRecord, attempt_n: int | None = None
+    ) -> None:
         task_dir = self._task_dir_for(task)
         fleet_ctx = self._fleet_log_context()
         bead_status = self._bead_status(task.id)
@@ -362,6 +378,7 @@ class ReapMixin:
                 exit_code=record.exit_code,
                 reason=record.reason,
                 action=decision.action.value,
+                n=attempt_n,
             )
         except OSError as exc:
             self._log.warning(
@@ -369,6 +386,6 @@ class ReapMixin:
             )
             return
 
-        n = attempts.current_attempt_n(task_dir)
+        n = attempt_n or attempts.current_attempt_n(task_dir)
         if n > 0:
             self._snapshot_attempt_artifacts(task, task_dir, n)

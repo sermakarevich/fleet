@@ -3,9 +3,9 @@
 ``plan_task`` is the family's `plan(ctx)` entry point (see
 ``workers/__init__.py``). It reads this task's artifacts and attempt
 history through `core.launch.plan_launch` and picks ``FreshTask`` (no
-prior attempts, artifacts still stubs) or ``ContinueTask`` (everything
-else). A later bead adds ``ContinueLargeTask`` for
-``LaunchPlan.needs_compaction``; that flag is only recorded here.
+prior attempts, artifacts still stubs), ``ContinueLargeTask`` (continue
+with ``LaunchPlan.needs_compaction`` — a ``Compact`` step first), or
+``ContinueTask`` (everything else).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from fleet.state.artifacts import read_artifacts
 from fleet.state.attempts import load_attempts
 
 from .base import Step, StepContext, StepResult, Worker
+from .compact import Compact
 from .llm_session import LlmSession
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -122,15 +123,20 @@ class PrepareContinue:
 
 FreshTask = Worker("task.fresh", (PrepareArtifacts(), LlmSession()))
 ContinueTask = Worker("task.continue", (PrepareContinue(), LlmSession()))
+ContinueLargeTask = Worker(
+    "task.continue_large", (Compact(), PrepareContinue(), LlmSession())
+)
 
 
 def plan_task(ctx: StepContext) -> Worker:
-    """Pick the task-family worker for this attempt: fresh or continue.
+    """Pick the task-family worker: fresh, continue, or continue-large.
 
     Computes the same `read_artifacts` + `plan_launch` inputs `PrepareContinue`
     will use, purely to decide which worker to run; `PrepareContinue` (when
     chosen) recomputes the plan itself rather than receiving it here, since a
     worker is a static list of steps with no room to smuggle data in.
+    `Compact` runs first on the large path and `PrepareContinue` re-plans on
+    the compacted artifacts, so the session never re-reads huge logs.
 
     A fresh ``Worker`` (with fresh step instances) is built on every call
     rather than reusing a module-level singleton, because ``LlmSession``
@@ -141,5 +147,8 @@ def plan_task(ctx: StepContext) -> Worker:
     if plan.mode == "fresh":
         steps: tuple[Step, ...] = (PrepareArtifacts(), LlmSession())
         return Worker(FreshTask.name, steps)
+    if plan.needs_compaction and ctx.config.compaction_enabled:
+        steps = (Compact(), PrepareContinue(), LlmSession())
+        return Worker(ContinueLargeTask.name, steps)
     steps = (PrepareContinue(), LlmSession())
     return Worker(ContinueTask.name, steps)

@@ -121,6 +121,7 @@ class SpawnMixin:
         attempt_n = attempts.record_start(task_dir, coder=coder_name, model=model, worker=None)
         attempt_dir = attempts.attempt_dir(task_dir, attempt_n)
         attempt_dir.mkdir(parents=True, exist_ok=True)
+        self._attempt_n[task.id] = attempt_n
 
         ctx = StepContext(
             task=task,

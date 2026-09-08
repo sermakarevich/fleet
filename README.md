@@ -546,6 +546,11 @@ directly in the file.
 | `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
 | `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
 | `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
+| `compaction_enabled` | `true` | Run the `Compact` step before continue launches whose pack needs compaction (`ContinueLargeTask`). Set `false` to fall back to truncation only. |
+| `compaction_coder` | `claude` | Coder CLI used for the cheap compaction model call. |
+| `compaction_model` | `haiku` | Model used for the cheap compaction model call. |
+| `context_checkpoint_pct` | `75` | Peak-context percent at which the runner writes `.checkpoint_requested` so the model wraps up early. |
+| `context_kill_pct` | `90` | Peak-context percent at which the runner kills the session and reports `CONTEXT_PRESSURE`. |
 
 ---
 

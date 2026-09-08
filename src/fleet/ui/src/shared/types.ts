@@ -31,6 +31,9 @@ export interface TaskSummary {
   blocked_at: string | null;
   rounds: TaskRounds;
   restarts: number;
+  context_rounds: number;
+  compactions: number;
+  peak_context_pct: number | null;
   last_outcome: string | null;
   last_outcome_reason: string | null;
   last_action: string | null;
@@ -64,8 +67,8 @@ export interface TaskResult {
 // One row of the attempts timeline: state/task_summary.py::_build_attempts_summary.
 export interface TaskAttempt {
   n: number;
-  kind: string; // "work" today; compaction jobs add their own kind later.
-  mode: 'fresh' | 'continue' | null;
+  kind: string; // "work" or "compact" (compaction job).
+  mode: 'fresh' | 'continue' | 'compact' | null;
   coder: string | null;
   model: string | null;
   started_at: string | null;
@@ -74,6 +77,7 @@ export interface TaskAttempt {
   outcome: string | null;
   reason: string | null;
   peak_context_pct: number | null;
+  context_badge: boolean;
   files_touched: number;
   commits: string[];
   result: TaskResult | null;

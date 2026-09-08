@@ -48,6 +48,11 @@ class Supervisor(ClaimMixin, SpawnMixin, ReapMixin, StallMixin, OrphansMixin):
         self.in_flight: dict[str, asyncio.Task] = {}
         self.in_flight_tasks: dict[str, Task] = {}
         self._runners: dict[str, WorkerRun] = {}
+        # Outer work-attempt number per in-flight task, recorded at spawn.
+        # Reap closes exactly this attempt: a compaction step journals its own
+        # newer kind="compact" row mid-run, so "latest attempt" would otherwise
+        # misattribute the outer attempt's end line and artifact snapshot.
+        self._attempt_n: dict[str, int] = {}
 
         self.rate_gauge = RateGauge(log=log)
 

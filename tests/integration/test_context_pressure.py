@@ -50,8 +50,9 @@ def test_context_pressure_release_no_failure(tmp_path: Path) -> None:
     assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, "context_pressure must not burn retries"
 
 
-def test_context_pressure_flag_removed(tmp_path: Path) -> None:
-    """.context_pressure flag is deleted by the runner after detection. (FR-15)"""
+def test_context_pressure_uses_no_marker_file(tmp_path: Path) -> None:
+    """No .context_pressure marker file is involved; the outcome comes from
+    usage counters (fake emits 97.5%-of-limit usage) via attempts.jsonl."""
     queue = MemoryQueue()
     queue.add_task(_task())
 
@@ -72,8 +73,12 @@ def test_context_pressure_flag_removed(tmp_path: Path) -> None:
     asyncio.run(run_until(sup, done, timeout=15.0))
 
     assert not (task_dir / ".context_pressure").exists(), (
-        ".context_pressure flag should be removed by runner"
+        "no .context_pressure marker file should ever be written"
     )
+    from fleet.state.attempts import load_attempts
+
+    outcomes = [e.get("outcome") for e in load_attempts(task_dir) if e.get("outcome")]
+    assert "context_pressure" in outcomes
 
 
 def test_context_pressure_then_success_events_append_only(tmp_path: Path) -> None:

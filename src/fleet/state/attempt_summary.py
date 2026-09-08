@@ -126,6 +126,7 @@ def _render(
     last_error: dict | None,
     stderr_tail: list[str],
     last_texts: list[str],
+    cli_compactions: int = 0,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Attempt {n} summary")
@@ -138,6 +139,7 @@ def _render(
     lines.append(f"- duration_sec: {row.get('duration_sec')}")
     lines.append(f"- outcome: {row.get('outcome')} ({row.get('reason')})")
     lines.append(f"- exit_code: {row.get('exit_code')}")
+    lines.append(f"- cli_compactions: {cli_compactions}")
     lines.append(
         f"- peak_context_tokens: {stats.peak_context_tokens} "
         f"({stats.output_tokens} output tokens)"
@@ -212,6 +214,9 @@ def write_summary(task_dir: Path, n: int, workdir: Path | None) -> Path:
     commits = _git_commits(workdir, row.get("started_at"), row.get("ended_at"))
     status_lines = _git_status_short(workdir)
     stderr_tail = _read_stderr_tail(attempt_dir, _STDERR_TAIL_LINES)
+    # CLI-side auto-compactions: the claude PreCompact hook touches
+    # .compacted in the attempt dir each time it fires.
+    cli_compactions = 1 if (attempt_dir / ".compacted").exists() else 0
 
     text = _render(
         n=n,
@@ -223,6 +228,7 @@ def write_summary(task_dir: Path, n: int, workdir: Path | None) -> Path:
         last_error=last_error,
         stderr_tail=stderr_tail,
         last_texts=last_texts,
+        cli_compactions=cli_compactions,
     )
     text = text[:_MAX_CHARS]
 

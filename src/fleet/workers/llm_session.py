@@ -27,11 +27,49 @@ from fleet.core.limits import (
 )
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state.journal import append_event, open_task_log
-from fleet.state.paths import RUN_JSON
+from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER, RUN_JSON
 
 from .base import StepContext, StepResult, write_run_json
 
 _STDERR_TAIL_BYTES = 2048
+
+# Substrings (case-insensitive) of the CLIs' own "context is full" errors.
+# When stderr or an event carries one, the session is over even if usage
+# counters never crossed the kill threshold.
+_CONTEXT_ERROR_PATTERNS = (
+    "prompt is too long",
+    "context length",
+    "maximum context",
+    "context window",
+    "token limit",
+    "too many tokens",
+    "input is too long",
+    "context too large",
+    "exceeds the context",
+    "exceed context",
+)
+
+
+def context_limit_of(coder) -> int:
+    """Effective context window for this coder/model pair.
+
+    Prefers the ``context_limit_for(model)`` classmethod (per-model limits);
+    falls back to the ``context_limit`` attribute for test doubles.
+    """
+    try:
+        return int(coder.context_limit_for(getattr(coder, "model", None)))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    try:
+        return int(coder.context_limit)
+    except (AttributeError, TypeError, ValueError):
+        return 200_000
+
+
+def is_context_error_text(text: str) -> bool:
+    """True when *text* looks like a CLI context-overflow error."""
+    lowered = text.lower()
+    return any(pat in lowered for pat in _CONTEXT_ERROR_PATTERNS)
 
 
 def _signal_group(proc: asyncio.subprocess.Process, sig: int) -> None:
@@ -166,6 +204,11 @@ class LlmSession:
             peak_context_tokens: int = 0
             last_logged_bucket: int = -1
             _logged_session_started = False
+            context_limit = context_limit_of(coder)
+            checkpoint_pct = ctx.config.context_checkpoint_pct
+            kill_pct = ctx.config.context_kill_pct
+            checkpoint_file = attempt_dir / CHECKPOINT_REQUESTED_MARKER
+            checkpoint_written = checkpoint_file.exists()
 
             assert proc.stdout is not None
             # Default StreamReader limit is 64 KB; large MCP tool results (e.g. full
@@ -292,17 +335,77 @@ class LlmSession:
                     prompt = _input_tokens(evt.usage)
                     if prompt > 0:
                         peak_context_tokens = max(peak_context_tokens, prompt)
-                        pct = peak_context_tokens / coder.context_limit * 100
+                        pct = peak_context_tokens / context_limit * 100
                         bucket = int(pct // 10)
                         if bucket > last_logged_bucket:
                             task_log.log.info(
                                 "context_usage",
                                 task_id=task.id,
                                 context_tokens=peak_context_tokens,
-                                context_limit=coder.context_limit,
+                                context_limit=context_limit,
                                 pct=round(pct, 1),
                             )
                             last_logged_bucket = bucket
+                        if pct >= checkpoint_pct and not checkpoint_written:
+                            try:
+                                checkpoint_file.touch(exist_ok=True)
+                            except OSError as exc:
+                                ctx.log.warning(
+                                    "checkpoint_marker_failed", error=str(exc)
+                                )
+                            checkpoint_written = True
+                            task_log.log.warning(
+                                "context_checkpoint",
+                                task_id=task.id,
+                                pct=round(pct, 1),
+                            )
+                        if pct >= kill_pct:
+                            task_log.log.warning(
+                                "context_kill",
+                                task_id=task.id,
+                                pct=round(pct, 1),
+                            )
+                            _signal_group(proc, signal.SIGTERM)
+                            try:
+                                await asyncio.wait_for(proc.wait(), timeout=5.0)
+                            except TimeoutError:
+                                _signal_group(proc, signal.SIGKILL)
+                                await proc.wait()
+                            outcome = TaskOutcomeRecord(
+                                outcome=TaskOutcome.CONTEXT_PRESSURE,
+                                exit_code=proc.returncode,
+                                reason=(
+                                    f"context limit {pct:.1f}% >= kill {kill_pct}% "
+                                    f"({peak_context_tokens}/{context_limit} tokens)"
+                                ),
+                            )
+                            break
+
+                if evt.kind in ("error", "assistant_text", "session_ended"):
+                    try:
+                        import json as _json
+
+                        searchable = _json.dumps(evt.raw)[:8000]
+                    except (TypeError, ValueError):
+                        searchable = ""
+                    if searchable and is_context_error_text(searchable):
+                        task_log.log.warning(
+                            "context_overflow_reported",
+                            task_id=task.id,
+                            kind=evt.kind,
+                        )
+                        _signal_group(proc, signal.SIGTERM)
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                        except TimeoutError:
+                            _signal_group(proc, signal.SIGKILL)
+                            await proc.wait()
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.CONTEXT_PRESSURE,
+                            exit_code=proc.returncode,
+                            reason="cli reported context overflow",
+                        )
+                        break
 
                 if (
                     evt.kind == "rate_limit"
@@ -340,20 +443,13 @@ class LlmSession:
                     run_file,
                     exit_code=exit_code,
                     ended_at=datetime.now(tz=UTC).isoformat(),
+                    peak_context_tokens=peak_context_tokens,
                 )
             except OSError as exc:
                 ctx.log.warning("run_file_write_failed", error=str(exc))
 
             if outcome is None:
-                cp_flag = task_dir / ".context_pressure"
-                if cp_flag.exists():
-                    cp_flag.unlink()
-                    outcome = TaskOutcomeRecord(
-                        outcome=TaskOutcome.CONTEXT_PRESSURE,
-                        exit_code=exit_code,
-                        reason="context_pressure hook fired",
-                    )
-                elif self._killed:
+                if self._killed:
                     outcome = TaskOutcomeRecord(
                         outcome=TaskOutcome.KILLED,
                         exit_code=exit_code,
@@ -373,12 +469,20 @@ class LlmSession:
                     )
                 else:
                     stderr_tail = _read_file_tail(stderr_path)
-                    outcome = TaskOutcomeRecord(
-                        outcome=TaskOutcome.FAILURE,
-                        exit_code=exit_code,
-                        reason=f"subprocess exited with rc={exit_code}",
-                        stderr_tail=stderr_tail,
-                    )
+                    if stderr_tail is not None and is_context_error_text(stderr_tail):
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.CONTEXT_PRESSURE,
+                            exit_code=exit_code,
+                            reason="cli reported context overflow",
+                            stderr_tail=stderr_tail,
+                        )
+                    else:
+                        outcome = TaskOutcomeRecord(
+                            outcome=TaskOutcome.FAILURE,
+                            exit_code=exit_code,
+                            reason=f"subprocess exited with rc={exit_code}",
+                            stderr_tail=stderr_tail,
+                        )
 
             task_log.log.info(
                 "subprocess_exited",

@@ -10,7 +10,14 @@ EVENTS_JSONL = "events.jsonl"
 ATTEMPTS_JSONL = "attempts.jsonl"
 KILL_MARKER = ".kill"
 WORKTREE_MARKER = ".worktree"
-CONTEXT_PRESSURE_MARKER = ".context_pressure"
+# Written by workers/llm_session.py when peak context crosses the checkpoint
+# threshold; read by the claude PostToolUse hook to nudge the model to wrap
+# up. One-shot per attempt (the hook adds .checkpoint_sent after firing).
+CHECKPOINT_REQUESTED_MARKER = ".checkpoint_requested"
+CHECKPOINT_SENT_MARKER = ".checkpoint_sent"
+# Touched by the claude PreCompact hook so SUMMARY.md can count CLI-side
+# auto-compactions that happened inside the model session.
+COMPACTED_MARKER = ".compacted"
 
 
 def fleet_home() -> Path:

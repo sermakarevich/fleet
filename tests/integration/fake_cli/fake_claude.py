@@ -15,7 +15,7 @@ Scenarios:
   clean_exit           emit init + result, exit 0
   rate_limit_info      emit init + rate_limit_event(usage_pct), result, exit 0
   rate_limit_rejected  emit init + 429 rejection, loop until SIGTERM
-  context_pressure     emit init, touch task_dir/.context_pressure, result, exit 0
+  context_pressure     emit init + 97.5%-of-limit usage, result, exit 0
   crash                emit init, exit 1
   slow                 emit init, sleep FAKE_CLAUDE_SLEEP_SEC, result, exit 0
   slow_ignore_sigterm  same as slow but ignores SIGTERM (for SIGKILL test)
@@ -82,8 +82,15 @@ def main() -> None:
         sys.exit(0)
 
     elif scenario == "context_pressure":
-        task_dir.mkdir(parents=True, exist_ok=True)
-        (task_dir / ".context_pressure").touch()
+        # Real path: report usage past the kill threshold so the runner kills
+        # the session and reports CONTEXT_PRESSURE (no marker file involved).
+        emit(
+            {
+                "type": "assistant",
+                "message": {"content": [], "usage": {"input_tokens": 195000}},
+                "session_id": "fake",
+            }
+        )
         emit({"type": "result", "session_id": "fake"})
         sys.exit(0)
 

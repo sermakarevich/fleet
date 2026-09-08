@@ -27,6 +27,11 @@ class RuntimeConfig:
     continue_pack_max_bytes: int = 8192
     handoff_max_bytes: int = 2048
     knowledge_max_bytes: int = 4096
+    compaction_enabled: bool = True
+    compaction_coder: str = "claude"
+    compaction_model: str = "haiku"
+    context_checkpoint_pct: int = 75
+    context_kill_pct: int = 90
 
 
 _KEY_TYPES: dict[str, type] = {
@@ -42,11 +47,30 @@ def _defaults() -> dict:
     return {f.name: getattr(cfg, f.name) for f in fields(cfg) if f.name in _KEY_TYPES}
 
 
+def _coerce(key: str, value: object) -> object:
+    """Coerce a TOML/cli value to the field's type; bool accepts strings."""
+    typ = _KEY_TYPES[key]
+    if typ is bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in ("true", "1", "yes", "on"):
+                return True
+            if lowered in ("false", "0", "no", "off"):
+                return False
+            raise ValueError(f"Invalid bool for {key}: {value!r}")
+        return bool(value)
+    return typ(value)  # type: ignore[operator]
+
+
 def _write_toml_str(data: dict) -> str:
-    """Serialize a flat dict of int/str values to TOML."""
+    """Serialize a flat dict of int/str/bool values to TOML."""
     lines = [_TOML_HEADER_PATH.read_text(encoding="utf-8")]
     for k, v in data.items():
-        if isinstance(v, str):
+        if isinstance(v, bool):
+            lines.append(f"{k} = {'true' if v else 'false'}")
+        elif isinstance(v, str):
             lines.append(f'{k} = "{v}"')
         else:
             lines.append(f"{k} = {v}")
@@ -58,7 +82,7 @@ def _parse(data: dict) -> RuntimeConfig:
     merged = _defaults()
     for k, v in data.items():
         if k in _KEY_TYPES:
-            merged[k] = _KEY_TYPES[k](v)
+            merged[k] = _coerce(k, v)
     return RuntimeConfig(**merged)
 
 
@@ -109,8 +133,8 @@ def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
         existing = {}
 
     merged = _defaults()
-    merged.update({k: _KEY_TYPES[k](v) for k, v in existing.items() if k in _KEY_TYPES})
-    merged.update({k: _KEY_TYPES[k](v) for k, v in updates.items()})
+    merged.update({k: _coerce(k, v) for k, v in existing.items() if k in _KEY_TYPES})
+    merged.update({k: _coerce(k, v) for k, v in updates.items()})
 
     toml_str = _write_toml_str(merged)
     path.parent.mkdir(parents=True, exist_ok=True)

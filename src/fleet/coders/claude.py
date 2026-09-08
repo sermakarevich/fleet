@@ -71,7 +71,7 @@ class ClaudeCoder(Coder):
         hooks_dst = project / ".fleet" / "hooks"
         hooks_dst.mkdir(parents=True, exist_ok=True)
 
-        for name in ("precompact.sh", "pretool_askuserquestion.sh"):
+        for name in ("precompact.sh", "pretool_askuserquestion.sh", "posttool_checkpoint.sh"):
             dest = hooks_dst / name
             dest.write_bytes((hooks_src / name).read_bytes())
             dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -100,6 +100,16 @@ class ClaudeCoder(Coder):
                     {
                         "type": "command",
                         "command": ".fleet/hooks/pretool_askuserquestion.sh",
+                    }
+                ],
+            },
+            "PostToolUse": {
+                "_fleet_managed": True,
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": ".fleet/hooks/posttool_checkpoint.sh",
                     }
                 ],
             },

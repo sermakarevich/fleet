@@ -165,14 +165,17 @@ src/fleet/ui/src/
 $FLEET_HOME/tasks/<id>/
    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
   attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
-  attempts/<n>/      # n = attempt number from state.attempts.record_start
-    run.json         # pid, started_at, worker name, per-step status of this attempt
-    events.jsonl      log.jsonl   log.stderr
-    launch.json      # {"mode": "fresh|continue", "pack_bytes": n, "kind": "work"}, written at spawn
-    RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)
-    HANDOFF.md        # snapshot of artifacts/HANDOFF.md at reap time
-    SUMMARY.md        # deterministic, no-LLM summary generated after the attempt ends
-  .needs_validation .kill .worktree .context_pressure
+   attempts/<n>/      # n = attempt number from state.attempts.record_start
+     run.json         # pid, started_at, worker name, per-step status of this attempt
+     events.jsonl      log.jsonl   log.stderr
+     launch.json      # {"mode": "fresh|continue|compact", "pack_bytes": n, "kind": "work|compact"}, written at spawn
+     RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)
+     HANDOFF.md        # snapshot of artifacts/HANDOFF.md at reap time
+     SUMMARY.md        # deterministic, no-LLM summary generated after the attempt ends
+     .checkpoint_requested  # touched by workers/llm_session.py past the checkpoint threshold
+     .checkpoint_sent       # touched by the claude PostToolUse hook after firing once
+     .compacted             # touched by the claude PreCompact hook (CLI-side auto-compaction)
+  .needs_validation .kill .worktree
   artifacts/
     RESULT.json      # worker's declared outcome for the last attempt
     RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
@@ -191,8 +194,10 @@ places allowed to build these paths; everyone else (stall, orphans,
 cli `--log`/`--stderr`, the websocket tail) calls those helpers instead
 of hardcoding "the latest attempt". `state/events.py::iter_events`
 still reads across every attempt, oldest first, so history spans the
-whole task. `.kill`, `.worktree`, `.context_pressure` stay at the task
-directory root (they gate the *next* spawn, not one attempt).
+  whole task. `.kill` and `.worktree` stay at the task
+  directory root (they gate the *next* spawn, not one attempt).
+  Context-pressure state is outcome-driven from `attempts.jsonl`
+  (`outcome=context_pressure`); there is no `.context_pressure` marker file.
 The RESULT.json schema and what fleet does with each `status` value are
 documented once in `docs/WORKER_CONTRACT.md`; cite that file rather than
 duplicating the contract elsewhere. Launch-mode planning (fresh vs.

@@ -857,7 +857,28 @@ class TestSummaryExtras:
         )
 
         td_cp = make_task_dir(tasks_root, "task-ctx", status="closed", cwd="/p")
-        write_events(td_cp, [ev(ts=ts, kind="context_pressure", session_id="cp")])
+        write_events(td_cp, [ev(ts=ts, kind="session_started", session_id="cp")])
+        # Context pressure is outcome-driven from attempts.jsonl (no marker file).
+        (td_cp / "attempts.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps({"event": "start", "n": 1, "ts": ts}),
+                    json.dumps(
+                        {
+                            "event": "end",
+                            "n": 1,
+                            "ts": ts,
+                            "outcome": "context_pressure",
+                            "exit_code": None,
+                            "reason": "context limit",
+                            "action": "release",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            "utf-8",
+        )
 
         td_rl = make_task_dir(tasks_root, "task-rl", status="closed", cwd="/p")
         write_events(

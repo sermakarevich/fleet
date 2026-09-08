@@ -124,9 +124,19 @@ def latest_attempt_dir(task_dir: Path, before_n: int | None = None) -> Path | No
 
 
 def record_start(
-    task_dir: Path, *, coder: str | None, model: str | None, worker: str | None = None
+    task_dir: Path,
+    *,
+    coder: str | None,
+    model: str | None,
+    worker: str | None = None,
+    kind: str = "work",
 ) -> int:
-    """Append a start line and return its attempt number."""
+    """Append a start line and return its attempt number.
+
+    *kind* is "work" for normal attempts and "compact" for the compaction
+    job (workers/compact.py), which gets its own attempt row so it shows in
+    the Attempts timeline and is costed like any attempt.
+    """
     task_dir.mkdir(parents=True, exist_ok=True)
     n = _count_starts(task_dir) + 1
     entry = {
@@ -136,6 +146,7 @@ def record_start(
         "coder": coder,
         "model": model,
         "worker": worker,
+        "kind": kind,
     }
     with _attempts_path(task_dir).open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
@@ -149,17 +160,21 @@ def record_end(
     exit_code: int | None,
     reason: str,
     action: str,
+    n: int | None = None,
 ) -> None:
-    """Append an end line for the current attempt.
+    """Append an end line for an attempt.
 
-    *n* is the current start number; when no start was ever recorded (unit
-    tests driving reap directly), allocate a fresh n so repeated ends don't
-    collapse into one row and streak counting still works.
+    *n* defaults to the current start number (the attempt that just ended);
+    pass it explicitly when closing an older attempt — e.g. reap closing the
+    outer work attempt after a compaction step journaled its own newer row.
+    When no start was ever recorded (unit tests driving reap directly),
+    allocate a fresh n so repeated ends don't collapse into one row.
     """
     task_dir.mkdir(parents=True, exist_ok=True)
-    n = _current_n(task_dir)
-    if n == 0:
-        n = _max_n(task_dir) + 1
+    if n is None:
+        n = _current_n(task_dir)
+        if n == 0:
+            n = _max_n(task_dir) + 1
     entry = {
         "event": "end",
         "n": n,
@@ -216,6 +231,7 @@ def load_attempts(task_dir: Path) -> list[dict]:
             entry["coder"] = obj.get("coder")
             entry["model"] = obj.get("model")
             entry["worker"] = obj.get("worker")
+            entry["kind"] = obj.get("kind", "work")
         elif event == "end":
             entry["ended_at"] = obj.get("ts")
             entry["outcome"] = obj.get("outcome")
@@ -234,6 +250,7 @@ def load_attempts(task_dir: Path) -> list[dict]:
             "coder": entry.get("coder"),
             "model": entry.get("model"),
             "worker": entry.get("worker"),
+            "kind": entry.get("kind", "work"),
             "outcome": entry.get("outcome"),
             "exit_code": entry.get("exit_code"),
             "reason": entry.get("reason"),

@@ -84,19 +84,24 @@ def _build_attempts_summary(task_dir: Path, coder_name: str | None, model: str |
             if stats.peak_context_tokens is not None
             else None
         )
+        outcome = entry.get("outcome")
         rows.append(
             {
                 "n": n,
-                "kind": launch.get("kind", "work"),
+                "kind": launch.get("kind", entry.get("kind", "work")),
                 "mode": launch.get("mode"),
                 "coder": entry.get("coder"),
                 "model": entry.get("model"),
                 "started_at": entry.get("started_at"),
                 "ended_at": entry.get("ended_at"),
                 "duration_sec": entry.get("duration_sec"),
-                "outcome": entry.get("outcome"),
+                "outcome": outcome,
                 "reason": entry.get("reason"),
                 "peak_context_pct": peak_context_pct,
+                # "context" badge for the Attempts timeline on
+                # CONTEXT_PRESSURE attempts; "compaction" label comes
+                # from kind == "compact" with its own row style.
+                "context_badge": outcome == "context_pressure",
                 "files_touched": stats.files_touched_count,
                 "commits": (result or {}).get("commits") or [],
                 "result": result,
@@ -155,6 +160,9 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     worker, steps = _read_run_info(task_dir)
     history = attempts.load_attempts(task_dir)
     rounds = rounds_for_history(history)
+    attempt_rows = _build_attempts_summary(task_dir, data.get("coder"), data.get("model"))
+    compactions = sum(1 for h in history if h.get("kind") == "compact")
+    latest_peak_context_pct = attempt_rows[-1]["peak_context_pct"] if attempt_rows else None
 
     return {
         "id": task_id,
@@ -179,6 +187,9 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "blocked_reason": blocked_reason,
         "blocked_at": data.get("blocked_at"),
         "rounds": rounds,
+        "context_rounds": rounds.get("context", 0),
+        "compactions": compactions,
+        "peak_context_pct": latest_peak_context_pct,
         "restarts": attempts.restart_count(task_dir),
         "last_outcome": last_attempt.get("outcome") if last_attempt else None,
         "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
@@ -187,5 +198,5 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "handoff_excerpt": _read_handoff_excerpt(task_dir),
         "worker": worker,
         "steps": steps,
-        "attempts": _build_attempts_summary(task_dir, data.get("coder"), data.get("model")),
+        "attempts": attempt_rows,
     }

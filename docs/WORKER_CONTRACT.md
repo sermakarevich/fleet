@@ -107,6 +107,9 @@ Independent of RESULT.json:
 - `core/retry_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
 - `orchestrator/reap.py` — reads `artifacts/RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
 - `workers/task.py::PrepareArtifacts` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
+- `workers/compact.py::Compact` — the compaction step (see "Compaction").
+- `core/compaction_fallback.py` — pure deterministic fallback (see "Compaction").
+- `templates/COMPACTION.md` — the compaction prompt.
 - `templates/INSTRUCTION_FRESH.md`, `templates/INSTRUCTION_CONTINUE.md`,
   `templates/INSTRUCTION_COMMON.md`, `templates/ISOLATED_PROTOCOL.md` — the
   protocol text handed to the worker; assembled by `coders/base.py::render_prompt`.
@@ -139,8 +142,68 @@ the I/O side) and returns a `LaunchPlan`:
 `workers/task.py::PrepareContinue` calls `plan_launch` and stores the
 result in `ctx.scratch["launch_plan"]` for `LlmSession` to read; `plan_task`
 runs the same computation once more, purely to choose between the
-`FreshTask` and `ContinueTask` workers (see "Steps and workers" below).
-Both prepare steps write `attempts/<n>/launch.json` before spawning.
+`FreshTask`, `ContinueTask`, and `ContinueLargeTask` workers (see "Steps and
+workers" below). Both prepare steps write `attempts/<n>/launch.json` before
+spawning.
+
+## Compaction
+
+When `plan_launch(...).needs_compaction` is true, `plan_task` returns
+`ContinueLargeTask = Worker("task.continue_large", (Compact(),
+PrepareContinue(), LlmSession()))`: a `workers/compact.py::Compact` step runs
+*before* the continue launch, then `PrepareContinue` re-runs `plan_launch` on
+the compacted artifacts and `LlmSession` launches in `continue` mode as usual
+(same worker run, same attempt).
+
+- **Bounded inputs, by construction** — never raw logs: current `HANDOFF.md`,
+  `KNOWLEDGE.md`, `PLAN.md`, the last 3 attempt `SUMMARY.md` files (4 KB
+  each), the last `RESULT.json`, and `git log --oneline -30` + `git status
+  --short` (first 30 lines) of the workdir. Total input cap ~24 KB; oldest
+  summaries are dropped first.
+- **Cheap model call** through the existing coder machinery
+  (`compaction_coder`, default `claude`; `compaction_model`, default `haiku`;
+  prompt from `templates/COMPACTION.md`; hard turn cap `--max-turns 2` for
+  claude; 3-minute timeout). The two fenced `HANDOFF`/`KNOWLEDGE` blocks are
+  parsed from the `assistant_text` events.
+- **Atomic writes** to `artifacts/HANDOFF.md` (2 KB cap) and
+  `artifacts/KNOWLEDGE.md` (4 KB cap). Any failure, timeout, or over-cap
+  output falls back to the deterministic pure truncation in
+  `core/compaction_fallback.py` and logs `compaction_fallback`.
+- **Visible and costed**: the compaction journals its own `kind="compact"`
+  attempt row in `attempts.jsonl` (with its own `attempts/<n>/` folder:
+  events, `launch.json` `{"mode":"compact"}`, `SUMMARY.md`), so it shows in
+  the Attempts timeline with a distinct "compaction" row style. A compaction
+  counts against the coder's concurrency cap like any attempt. Retry streaks
+  skip `kind="compact"` rows. Disable with `compaction_enabled=false`.
+- After the run the next worker must never re-read huge logs — and neither
+  may the compaction job itself.
+
+## Context limits
+
+`workers/llm_session.py` tracks `peak_context_tokens` against
+`coder.context_limit_for(model)` on every usage event. Two thresholds
+(`context_checkpoint_pct`, default 75; `context_kill_pct`, default 90):
+
+- At or past the **checkpoint** threshold the runner touches
+  `attempts/<n>/.checkpoint_requested` once. The claude-only
+  `PostToolUse` hook (`coders/hooks/posttool_checkpoint.sh`, matcher `""`)
+  fires on the next tool use: it tells the model to stop new work now
+  (update `HANDOFF.md`, commit WIP, write partial `RESULT.json`, exit 0) and
+  touches `.checkpoint_sent` so it fires once. Other coders rely on the kill
+  threshold below. The hook injects guidance via
+  `hookSpecificOutput.additionalContext`.
+- At or past the **kill** threshold — or when stderr/events carry the CLI's
+  own "prompt is too long" / context-overflow error — the runner kills the
+  process group and reports `CONTEXT_PRESSURE` (a real outcome branch, no
+  marker file; analytics read it from `attempts.jsonl`).
+- The claude `PreCompact` hook touches `$FLEET_ATTEMPT_DIR/.compacted` so
+  `SUMMARY.md` can count CLI-side auto-compactions (`cli_compactions`).
+- Policy: `CONTEXT_PRESSURE` releases immediately (never counted as failure),
+  with a bead comment per round (`context limit round k/3; compaction +
+  continue`); after 3 rounds the bead blocks with "too large for one worker;
+  split it". `task_summary` exposes `context_rounds`, `compactions`, and the
+  latest `peak_context_pct`; the Attempts timeline shows a "context" badge on
+  such attempts.
 
 ## Steps and workers
 
