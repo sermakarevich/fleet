@@ -99,15 +99,22 @@ class SpawnMixin:
             model=model,
         )
 
+        task_dir = self._task_dir_for(task)
+        attempt_n = attempts.record_start(task_dir, coder=coder_name, model=model, worker=None)
+        attempt_dir = attempts.attempt_dir(task_dir, attempt_n)
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+
         ctx = StepContext(
             task=task,
-            task_dir=self._task_dir_for(task),
+            task_dir=task_dir,
             project_root=task_root,
             fleet_home=self._project_root,
             coder=coder,
             config=self.config,
             rate_gauge=self.rate_gauge,
             log=self._log.bind(task_id=task.id),
+            attempt_dir=attempt_dir,
+            attempt_n=attempt_n,
         )
         try:
             worker = select_worker(task, ctx)
@@ -130,9 +137,6 @@ class SpawnMixin:
             )
             return
 
-        attempts.record_start(
-            self._task_dir_for(task), coder=coder_name, model=model, worker=worker.name
-        )
         run = WorkerRun(worker, ctx)
         async_task = asyncio.create_task(run.run(), name=f"worker:{task.id}")
         self.in_flight[task.id] = async_task

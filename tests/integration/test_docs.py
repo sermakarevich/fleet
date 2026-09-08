@@ -7,8 +7,37 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 FLEET_ROOT = PROJECT_ROOT / "src" / "fleet"
-INSTRUCTION_MD = FLEET_ROOT / "templates" / "INSTRUCTION.md"
+INSTRUCTION_FRESH_MD = FLEET_ROOT / "templates" / "INSTRUCTION_FRESH.md"
+INSTRUCTION_CONTINUE_MD = FLEET_ROOT / "templates" / "INSTRUCTION_CONTINUE.md"
+INSTRUCTION_COMMON_MD = FLEET_ROOT / "templates" / "INSTRUCTION_COMMON.md"
 FLEET_README = PROJECT_ROOT / "README.md"
+
+
+class _CombinedInstructionMd:
+    """A read-only stand-in for the old single INSTRUCTION.md file.
+
+    The protocol text now lives split across INSTRUCTION_FRESH.md,
+    INSTRUCTION_CONTINUE.md and INSTRUCTION_COMMON.md (see
+    `coders/base.py::render_prompt`); these doc-contract tests check the
+    concatenation of all three, which is what a fresh-start agent actually
+    sees end to end.
+    """
+
+    def exists(self) -> bool:
+        return (
+            INSTRUCTION_FRESH_MD.exists()
+            and INSTRUCTION_CONTINUE_MD.exists()
+            and INSTRUCTION_COMMON_MD.exists()
+        )
+
+    def read_text(self) -> str:
+        return "\n".join(
+            p.read_text()
+            for p in (INSTRUCTION_FRESH_MD, INSTRUCTION_CONTINUE_MD, INSTRUCTION_COMMON_MD)
+        )
+
+
+INSTRUCTION_MD = _CombinedInstructionMd()
 
 
 # ---------------------------------------------------------------------------

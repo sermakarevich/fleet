@@ -4,6 +4,7 @@ import json
 import os
 import signal
 
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.counters import needs_validation
 from fleet.state.paths import task_dir as _task_dir
 
@@ -45,15 +46,18 @@ class OrphansMixin:
         for task in in_progress:
             if task.id in self.in_flight:
                 continue
-            run_file = self._task_dir_for(task) / "run.json"
+            task_dir = self._task_dir_for(task)
+            attempt_dir = latest_attempt_dir(task_dir)
             pid: int | None = None
             ended = False
-            try:
-                data = json.loads(run_file.read_text(encoding="utf-8"))
-                pid = data.get("pid")
-                ended = data.get("ended_at") is not None
-            except (OSError, ValueError):
-                pass
+            if attempt_dir is not None:
+                run_file = attempt_dir / "run.json"
+                try:
+                    data = json.loads(run_file.read_text(encoding="utf-8"))
+                    pid = data.get("pid")
+                    ended = data.get("ended_at") is not None
+                except (OSError, ValueError):
+                    pass
             alive = False
             if pid and not ended:
                 try:

@@ -7,12 +7,19 @@ file instead of re-describing the contract.
 ## What the worker gets
 
 - **Environment**: `FLEET_TASK_DIR` (the task directory), `FLEET_ARTIFACT_DIR`
-  (`$FLEET_TASK_DIR/artifacts`), plus whatever the coder's `env()` adds
-  (e.g. `BEADS_DIR`).
-- **Prompt**: `templates/coder_header.md.tmpl` (task id, title, description,
-  task/artifact directory paths) followed by `templates/INSTRUCTION.md`
-  (the protocol below) and, for isolated (worktree) tasks,
-  `templates/ISOLATED_PROTOCOL.md`.
+  (`$FLEET_TASK_DIR/artifacts`), `FLEET_ATTEMPT_N` (this attempt's number),
+  `FLEET_ATTEMPT_DIR` (`$FLEET_TASK_DIR/attempts/<n>`), `FLEET_LAUNCH_MODE`
+  (`fresh` or `continue`, see "Launch modes" below), plus whatever the
+  coder's `env()` adds (e.g. `BEADS_DIR`). The three `FLEET_ATTEMPT_*` /
+  `FLEET_LAUNCH_MODE` variables are layered on by `workers/llm_session.py`
+  after calling the coder's `env()` — no coder needs to know about them.
+- **Prompt**: built once by `coders/base.py::render_prompt(task, task_dir,
+  plan)`, called by all five coders: `templates/coder_header.md.tmpl` (task
+  id, title, description, task/artifact directory paths), then the launch
+  pack (empty on a fresh start), then `templates/INSTRUCTION_FRESH.md` or
+  `templates/INSTRUCTION_CONTINUE.md` depending on `plan.mode`, then the
+  shared `templates/INSTRUCTION_COMMON.md`, then — for isolated (worktree)
+  tasks — `templates/ISOLATED_PROTOCOL.md`.
 - **No `--resume`**: fleet never resumes a session. The files under
   `artifacts/` are the worker's only continuation state across attempts.
 - **Pre-seeded artifacts**: fleet creates `PLAN.md`, `HANDOFF.md`,
@@ -83,7 +90,40 @@ Independent of RESULT.json:
 - `core/outcome_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
 - `orchestrator/reap.py` — reads `artifacts/RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
 - `workers/task.py::PrepareArtifacts` — seeds artifact stubs, rotates the previous `RESULT.json` aside before each spawn.
-- `templates/INSTRUCTION.md`, `templates/ISOLATED_PROTOCOL.md` — the protocol text handed to the worker.
+- `templates/INSTRUCTION_FRESH.md`, `templates/INSTRUCTION_CONTINUE.md`,
+  `templates/INSTRUCTION_COMMON.md`, `templates/ISOLATED_PROTOCOL.md` — the
+  protocol text handed to the worker; assembled by `coders/base.py::render_prompt`.
+
+## Launch modes
+
+Decided once per attempt, in Python, before the coder is spawned — never
+inferred by the model. `core/launch.py::plan_launch` (pure) takes this
+task's attempt history and an `ArtifactSnapshot` (`state/artifacts.py::read_artifacts`,
+the I/O side) and returns a `LaunchPlan`:
+
+- **`fresh`** — no prior attempts AND `PLAN.md`/`HANDOFF.md`/`KNOWLEDGE.md`
+  are all still their seeded stubs. The prompt gets `INSTRUCTION_FRESH.md`
+  and no pack; the worker plans from the task text and writes `PLAN.md` first.
+- **`continue`** — everything else (any prior attempt, or any artifact
+  edited). The prompt gets `INSTRUCTION_CONTINUE.md` and a bounded text
+  "pack": "Attempt N of this task. Previous attempt ended: `<outcome>`:
+  `<reason>`." followed by labelled sections for the previous `HANDOFF.md`,
+  the previous `RESULT.json`'s `next_step`/`open_questions`, the latest
+  attempt's `SUMMARY.md`, and `KNOWLEDGE.md`. The worker is told **not** to
+  re-plan or re-read logs — the pack is its only history.
+- **`needs_compaction`** — recorded on the `LaunchPlan` (and in this
+  attempt's `launch.json`) when the pack exceeds `continue_pack_max_bytes`,
+  `KNOWLEDGE.md` exceeds `knowledge_max_bytes`, or the previous attempt has
+  no parseable `RESULT.json` / no non-stub `HANDOFF.md` (it died without
+  handing off). This spec only truncates each section to its cap as a
+  deterministic fallback so the launch still works; a later worker
+  (`ContinueLargeTask`) acts on the flag by compacting artifacts first.
+
+`workers/task.py::PrepareContinue` calls `plan_launch` and stores the
+result in `ctx.scratch["launch_plan"]` for `LlmSession` to read; `plan_task`
+runs the same computation once more, purely to choose between the
+`FreshTask` and `ContinueTask` workers (see "Steps and workers" below).
+Both prepare steps write `attempts/<n>/launch.json` before spawning.
 
 ## Steps and workers
 

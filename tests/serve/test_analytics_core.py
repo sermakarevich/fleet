@@ -23,7 +23,9 @@ def _write_task_json(d: Path, **fields) -> dict:
 
 
 def _write_events(d: Path, lines: list[str]) -> None:
-    (d / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
+    attempt_dir = d / "attempts" / "1"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
 
 
 def _event(**kw) -> str:
@@ -231,7 +233,7 @@ class TestCache:
                 ),
             ]
         )
-        (td / "events.jsonl").write_text(evs + "\n", "utf-8")
+        (td / "attempts" / "1" / "events.jsonl").write_text(evs + "\n", "utf-8")
 
         r2 = task_record_cached(td)
         # Must be a different object (cache invalidated)

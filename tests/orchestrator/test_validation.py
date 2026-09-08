@@ -5,13 +5,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from fleet.orchestrator.supervisor import Supervisor
 
 
 class StubCoder:
     name = "stub"
 
-    def build_argv(self, task, task_dir):
+    def build_argv(self, task, task_dir, plan=None):
         return ["echo"]
 
     def env(self, task, task_dir):

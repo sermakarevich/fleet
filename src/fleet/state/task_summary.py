@@ -17,7 +17,10 @@ from fleet.coders import get_coder
 from fleet.core.result import parse_result
 from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
+from fleet.state.attempts import attempt_dir as _attempt_dir_path
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.counters import failure_count, noclose_count, stall_count
+from fleet.state.events import iter_attempt_events, scan_rows
 
 _HANDOFF_EXCERPT_MAX = 2048
 
@@ -44,7 +47,10 @@ def _read_result(task_dir: Path) -> dict | None:
 
 def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
     """Read the worker name and step timeline from the latest attempt's run.json."""
-    run_file = task_dir / "run.json"
+    attempt_dir = latest_attempt_dir(task_dir)
+    if attempt_dir is None:
+        return None, []
+    run_file = attempt_dir / "run.json"
     try:
         data = json.loads(run_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -53,6 +59,52 @@ def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
         return None, []
     steps = data.get("steps")
     return data.get("worker"), steps if isinstance(steps, list) else []
+
+
+def _read_json_file(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _build_attempts_summary(task_dir: Path, coder_name: str | None, model: str | None) -> list[dict]:
+    """Per-attempt summary rows for the attempts timeline (newest last)."""
+    rows: list[dict] = []
+    limit = coder_context_limit(coder_name, model)
+    for entry in attempts.load_attempts(task_dir):
+        n = entry["n"]
+        adir = _attempt_dir_path(task_dir, n)
+        launch = _read_json_file(adir / "launch.json") or {}
+        result = _read_json_file(adir / "RESULT.json")
+        stats = scan_rows(iter_attempt_events(task_dir, n))
+        peak_context_pct = (
+            stats.peak_context_tokens / limit * 100
+            if stats.peak_context_tokens is not None
+            else None
+        )
+        rows.append(
+            {
+                "n": n,
+                "kind": launch.get("kind", "work"),
+                "mode": launch.get("mode"),
+                "coder": entry.get("coder"),
+                "model": entry.get("model"),
+                "started_at": entry.get("started_at"),
+                "ended_at": entry.get("ended_at"),
+                "duration_sec": entry.get("duration_sec"),
+                "outcome": entry.get("outcome"),
+                "reason": entry.get("reason"),
+                "peak_context_pct": peak_context_pct,
+                "files_touched": stats.files_touched_count,
+                "commits": (result or {}).get("commits") or [],
+                "result": result,
+                "has_summary": (adir / "SUMMARY.md").exists(),
+                "has_handoff": (adir / "HANDOFF.md").exists(),
+            }
+        )
+    return rows
 
 
 def _read_handoff_excerpt(task_dir: Path) -> str | None:
@@ -135,4 +187,5 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
         "handoff_excerpt": _read_handoff_excerpt(task_dir),
         "worker": worker,
         "steps": steps,
+        "attempts": _build_attempts_summary(task_dir, data.get("coder"), data.get("model")),
     }

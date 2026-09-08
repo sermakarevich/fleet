@@ -31,7 +31,7 @@ class StubCoder:
         self._cli = ClaudeCoder()
         self.runtime_config_calls: list[tuple[Path, Task]] = []
 
-    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
         return self._argv
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:

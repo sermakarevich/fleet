@@ -1,9 +1,8 @@
 from pathlib import Path
 
-
-from fleet.coders.base import Coder
 from fleet.coders import get_coder
 from fleet.coders.agy import AgyCoder
+from fleet.coders.base import Coder
 from fleet.core.task import Task
 
 
@@ -73,7 +72,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     argv = coder.build_argv(_task(), tmp_path)
     prompt = argv[2]  # final positional arg or prompt argument
     assert "Fleet Task Protocol" in prompt
-    assert "On every fresh start" in prompt
+    assert "Plan before you act" in prompt
     assert "ask_human" in prompt
     assert "fleet bd close" in prompt
 

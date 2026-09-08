@@ -11,6 +11,7 @@ from fleet.core.outcome_policy import Action, Counters, Decision
 from fleet.core.result import Result, parse_result
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts
+from fleet.state.attempt_summary import write_summary
 from fleet.state.counters import (
     failure_count,
     increment_failure,
@@ -319,6 +320,48 @@ class ReapMixin:
                 )
             return
 
+    def _snapshot_attempt_artifacts(self, task: Task, task_dir: Path, n: int) -> None:
+        """Copy this attempt's RESULT.json/HANDOFF.md into its attempts/<n>/
+        folder and render SUMMARY.md, so the attempts timeline has a
+        self-contained per-attempt record even after `artifacts/` moves on.
+        """
+        attempt_dir = attempts.attempt_dir(task_dir, n)
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir = task_dir / "artifacts"
+
+        result_src = artifacts_dir / "RESULT.json"
+        if result_src.exists():
+            try:
+                (attempt_dir / "RESULT.json").write_bytes(result_src.read_bytes())
+            except OSError as exc:
+                self._log.warning(
+                    "attempt_snapshot_failed", task_id=task.id, file="RESULT.json", error=str(exc)
+                )
+
+        handoff_src = artifacts_dir / "HANDOFF.md"
+        if handoff_src.exists():
+            try:
+                (attempt_dir / "HANDOFF.md").write_bytes(handoff_src.read_bytes())
+            except OSError as exc:
+                self._log.warning(
+                    "attempt_snapshot_failed", task_id=task.id, file="HANDOFF.md", error=str(exc)
+                )
+
+        workdir: Path | None = None
+        wt_marker = task_dir / ".worktree"
+        if wt_marker.exists():
+            try:
+                workdir = Path(wt_marker.read_text(encoding="utf-8").strip())
+            except OSError:
+                workdir = None
+        elif task.cwd:
+            workdir = Path(task.cwd)
+
+        try:
+            write_summary(task_dir, n, workdir)
+        except OSError as exc:
+            self._log.warning("attempt_summary_failed", task_id=task.id, error=str(exc))
+
     def _handle_outcome(self, task: Task, outcome: TaskOutcomeRecord) -> None:
         task_dir = self._task_dir_for(task)
         fleet_ctx = self._fleet_log_context()
@@ -365,3 +408,8 @@ class ReapMixin:
             self._log.warning(
                 "attempt_record_failed", task_id=task.id, error=str(exc)
             )
+            return
+
+        n = attempts.current_attempt_n(task_dir)
+        if n > 0:
+            self._snapshot_attempt_artifacts(task, task_dir, n)

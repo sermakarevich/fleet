@@ -5,14 +5,10 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder
+from fleet.coders.base import Coder, render_prompt
+from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
-
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
-_HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
-_ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 _DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
 _PROVIDER_ID = "ollama-rtx"
@@ -142,26 +138,10 @@ class OpencodeCoder(Coder):
         full_id, _ = _resolve_model(self.model, self.default_model)
         return full_id.split("/", 1)[0] == _BEDROCK_PROVIDER_ID
 
-    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
-        artifacts_dir = task_dir / "artifacts"
-        instructions = _INSTRUCTION_PATH.read_text(encoding="utf-8").strip()
-        invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
-        header = (
-            _HEADER_PATH.read_text(encoding="utf-8")
-            .format(
-                task_id=task.id,
-                task_title=task.title,
-                task_description=task.description or "",
-                task_dir=task_dir,
-                artifacts_dir=artifacts_dir,
-                invocation_line=invocation_line,
-            )
-            .strip()
-        )
-        prompt = f"{header}\n\n---\n\n{instructions}"
-        if (task_dir / ".worktree").exists():
-            isolated = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
-            prompt += f"\n\n---\n\n{isolated}"
+    def build_argv(
+        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
+    ) -> list[str]:
+        prompt = render_prompt(task, task_dir, plan)
         full_id, _ = _resolve_model(self.model, self.default_model)
         argv = ["opencode", "run", "--format", "json", "--model", full_id]
         if task.cwd:

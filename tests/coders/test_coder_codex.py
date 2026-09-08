@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from fleet.coders.base import Coder
 from fleet.coders import get_coder
+from fleet.coders.base import Coder
 from fleet.coders.codex import CodexCoder
 from fleet.core.task import Task
 
@@ -72,7 +72,7 @@ def test_build_argv_includes_task_id_in_prompt(tmp_path: Path):
 def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     prompt = _coder().build_argv(_task(), tmp_path)[-1]
     assert "Fleet Task Protocol" in prompt
-    assert "On every fresh start" in prompt
+    assert "Plan before you act" in prompt
     assert "ask_human" in prompt
     assert "fleet bd close" in prompt
 

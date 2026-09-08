@@ -5,7 +5,9 @@ import asyncio
 from pathlib import Path
 
 from fleet.core.task import Task
+from fleet.state.attempts import load_attempts
 from fleet.state.counters import failure_count
+from fleet.state.paths import attempt_dir_path
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -118,15 +120,18 @@ def test_non_failures_dont_burn_retries(tmp_path: Path) -> None:
 
     task_dir = tmp_path / "tasks" / "t-001"
     assert failure_count(task_dir) == 2, "exactly 2 crash-failures"
-    # log.jsonl is shared across runs; should contain at least one subprocess_started
-    # entry per run (4 runs total).
-    log_path = task_dir / "log.jsonl"
-    assert log_path.exists(), "log.jsonl should exist"
-    starts = sum(
-        1
-        for line in log_path.read_text().splitlines()
-        if line and '"subprocess_started"' in line
-    )
+    # Each attempt now writes its own attempts/<n>/log.jsonl; sum across all
+    # attempt dirs (one per run) instead of one shared task-root file.
+    starts = 0
+    for row in load_attempts(task_dir):
+        log_path = attempt_dir_path(task_dir, row["n"]) / "log.jsonl"
+        if not log_path.exists():
+            continue
+        starts += sum(
+            1
+            for line in log_path.read_text().splitlines()
+            if line and '"subprocess_started"' in line
+        )
     assert starts >= 3, f"at least 3 subprocess_started entries expected, got {starts}"
     assert len(queue.blocked) == 1
     assert queue._tasks["t-001"].status == "blocked"

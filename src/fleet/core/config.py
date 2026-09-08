@@ -23,6 +23,9 @@ class RuntimeConfig:
     stall_warning_minutes: int = 15
     stall_action: str = "warn"
     stall_block_after: int = 2
+    continue_pack_max_bytes: int = 8192
+    handoff_max_bytes: int = 2048
+    knowledge_max_bytes: int = 4096
 
 
 _KEY_TYPES: dict[str, type] = {

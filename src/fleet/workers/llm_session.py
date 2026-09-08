@@ -80,12 +80,22 @@ class LlmSession:
         assert coder is not None
         task_dir = ctx.task_dir
         task_dir.mkdir(parents=True, exist_ok=True)
+        attempt_dir = ctx.attempt_dir or task_dir
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        plan = ctx.scratch.get("launch_plan")
+        launch_mode = plan.mode if plan is not None else "fresh"
 
-        with open_task_log(task_dir, task.id) as task_log:
+        with open_task_log(attempt_dir, task.id) as task_log:
             stderr_path = Path(task_log.stderr_file.name)
 
-            argv = coder.build_argv(task, task_dir)
+            argv = coder.build_argv(task, task_dir, plan)
             extra_env = coder.env(task, task_dir)
+            extra_env = {
+                **extra_env,
+                "FLEET_ATTEMPT_N": str(ctx.attempt_n),
+                "FLEET_ATTEMPT_DIR": str(attempt_dir),
+                "FLEET_LAUNCH_MODE": launch_mode,
+            }
             proc_env = {**os.environ, **extra_env}
             if "BEADS_DIR" not in proc_env:
                 proc_env["BEADS_DIR"] = str(ctx.fleet_home / ".beads")
@@ -107,7 +117,7 @@ class LlmSession:
             )
             self._proc = proc
             started_at = datetime.now(tz=UTC)
-            run_file = task_dir / RUN_JSON
+            run_file = attempt_dir / RUN_JSON
             try:
                 try:
                     pgid = os.getpgid(proc.pid)
@@ -189,7 +199,7 @@ class LlmSession:
                 if evt is None:
                     continue
 
-                append_event(task_dir, evt)
+                append_event(attempt_dir, evt)
 
                 if evt.kind == "session_started" and not _logged_session_started:
                     _logged_session_started = True

@@ -1,16 +1,11 @@
 import json
 import stat
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder
+from fleet.coders.base import Coder, render_prompt
+from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
-
-
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
-_HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
-_ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
 
 def _extract_usage_pct(info: dict) -> float | None:
@@ -39,26 +34,10 @@ class ClaudeCoder(Coder):
     def __init__(self, model: str = "sonnet") -> None:
         self.model = model
 
-    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
-        artifacts_dir = task_dir / "artifacts"
-        instructions = _INSTRUCTION_PATH.read_text(encoding="utf-8").strip()
-        invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
-        header = (
-            _HEADER_PATH.read_text(encoding="utf-8")
-            .format(
-                task_id=task.id,
-                task_title=task.title,
-                task_description=task.description or "",
-                task_dir=task_dir,
-                artifacts_dir=artifacts_dir,
-                invocation_line=invocation_line,
-            )
-            .strip()
-        )
-        prompt = f"{header}\n\n---\n\n{instructions}"
-        if (task_dir / ".worktree").exists():
-            isolated = _ISOLATED_PROTOCOL_PATH.read_text(encoding="utf-8").strip()
-            prompt += f"\n\n---\n\n{isolated}"
+    def build_argv(
+        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
+    ) -> list[str]:
+        prompt = render_prompt(task, task_dir, plan)
         return [
             "claude",
             "-p",
@@ -145,7 +124,7 @@ class ClaudeCoder(Coder):
         if not isinstance(data, dict):
             return None
 
-        ts = datetime.now(tz=timezone.utc)
+        ts = datetime.now(tz=UTC)
         t = data.get("type", "")
 
         # Soft rate-limit warning (periodic usage envelope)

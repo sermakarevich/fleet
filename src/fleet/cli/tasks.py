@@ -19,6 +19,7 @@ from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
 from fleet.observability import tailview
 from fleet.state.archive import gc_tasks
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.tail import read_new_bytes
@@ -304,8 +305,9 @@ def register(app: typer.Typer) -> None:
             return
 
         # action == TaskAction.log
-        log_path = task_dir / "log.jsonl"
-        if not log_path.exists():
+        attempt_dir = latest_attempt_dir(task_dir)
+        log_path = attempt_dir / "log.jsonl" if attempt_dir is not None else None
+        if log_path is None or not log_path.exists():
             typer.echo(f"No log for task {task_id}", err=True)
             raise typer.Exit(1)
         sys.stdout.write(log_path.read_text(encoding="utf-8"))
@@ -327,11 +329,17 @@ def register(app: typer.Typer) -> None:
 
         home = fleet_home()
         task_dir_path = _task_dir(home, task_id)
-        events_path = task_dir_path / "events.jsonl"
 
         if not task_dir_path.exists():
             typer.echo(f"No task directory for {task_id} at {task_dir_path}", err=True)
             raise typer.Exit(1)
+
+        attempt_dir = latest_attempt_dir(task_dir_path)
+        events_path = (
+            attempt_dir / "events.jsonl"
+            if attempt_dir is not None
+            else task_dir_path / "attempts" / "1" / "events.jsonl"
+        )
 
         # If events.jsonl does not exist yet, still print header; --follow will wait.
         if not events_path.exists():

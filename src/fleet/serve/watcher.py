@@ -11,6 +11,7 @@ from fastapi import WebSocket
 
 from fleet.observability.redact import redact
 from fleet.serve.stats import task_files_touched_from_dir, task_runtime_stats_from_dir
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import tasks_root
 from fleet.state.tail import read_new_bytes
 
@@ -19,6 +20,7 @@ from fleet.state.tail import read_new_bytes
 class _TailState:
     offset: int   # byte position in events.jsonl
     mtime: float  # last observed st_mtime
+    path: Path    # the attempt's events.jsonl this state belongs to
 
 
 class ConnectionManager:
@@ -76,16 +78,19 @@ class FileWatcher:
         self._mgr: ConnectionManager | None = None
 
     async def start(self, fleet_home: Path, mgr: ConnectionManager) -> None:
-        """Tail events.jsonl for all task dirs until cancelled."""
+        """Tail the latest attempt's events.jsonl for all task dirs until cancelled."""
         self._mgr = mgr
         while True:
             tasks_dir = tasks_root(fleet_home)
             if tasks_dir.exists():
                 for task_dir in tasks_dir.iterdir():
                     if task_dir.is_dir():
-                        events_file = task_dir / "events.jsonl"
+                        attempt_dir = latest_attempt_dir(task_dir)
+                        if attempt_dir is None:
+                            continue
+                        events_file = attempt_dir / "events.jsonl"
                         if events_file.exists():
-                            await self._tail_one(task_dir.name, events_file)
+                            await self._tail_one(task_dir, task_dir.name, events_file)
             self._prune_stale(tasks_dir)
             await asyncio.sleep(0.2)
 
@@ -115,8 +120,13 @@ class FileWatcher:
                 continue
             await self._mgr.broadcast(task_id, redact(event_dict))
 
-    async def _tail_one(self, task_id: str, path: Path) -> None:
-        """Read new bytes from path since last offset and broadcast each parsed event."""
+    async def _tail_one(self, task_dir: Path, task_id: str, path: Path) -> None:
+        """Read new bytes from path since last offset and broadcast each parsed event.
+
+        *path* is the latest attempt's events.jsonl; *task_dir* is the task
+        root (where task.json lives and where state.events aggregates across
+        all attempts for enrichment).
+        """
         assert self._mgr is not None
         try:
             stat = path.stat()
@@ -124,18 +134,22 @@ class FileWatcher:
             return
 
         state = self._tail_state.get(task_id)
-        if state is None:
-            # On first encounter: replay recent events for in-progress tasks, then tail from EOF.
-            if _read_task_status(path.parent / "task.json") == "in_progress":
+        if state is None or state.path != path:
+            # First encounter of this task, or a new attempt started (new
+            # events.jsonl file): replay recent events for in-progress tasks,
+            # then tail from EOF.
+            if _read_task_status(task_dir / "task.json") == "in_progress":
                 await self._replay_tail(task_id, path)
-            self._tail_state[task_id] = _TailState(offset=stat.st_size, mtime=stat.st_mtime)
+            self._tail_state[task_id] = _TailState(
+                offset=stat.st_size, mtime=stat.st_mtime, path=path
+            )
             return
 
         new_data, new_offset = read_new_bytes(path, state.offset)
         if not new_data:
             return
 
-        self._tail_state[task_id] = _TailState(offset=new_offset, mtime=stat.st_mtime)
+        self._tail_state[task_id] = _TailState(offset=new_offset, mtime=stat.st_mtime, path=path)
         for line_bytes in new_data.splitlines():
             stripped = line_bytes.strip()
             if not stripped:
@@ -145,7 +159,7 @@ class FileWatcher:
             except json.JSONDecodeError:
                 continue
             if event_dict.get("kind") == "session_ended":
-                event_dict = self._enrich_session_ended(task_id, path.parent, event_dict)
+                event_dict = self._enrich_session_ended(task_id, task_dir, event_dict)
             await self._mgr.broadcast(task_id, redact(event_dict))
 
     def _enrich_session_ended(self, task_id: str, task_dir: Path, event_dict: dict) -> dict:

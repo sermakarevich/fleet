@@ -13,6 +13,7 @@ from fleet.beads.client import BeadsError
 from fleet.cli.main import app
 from fleet.core.task import Task
 from fleet.observability.daemon import DaemonStatus, StartResult
+from tests.helpers.task_dir import make_attempt
 
 runner = CliRunner()
 wide_runner = CliRunner(env={"COLUMNS": "160"})
@@ -655,14 +656,15 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_id = "t-stats"
     task_dir = _seed_task_dir(tmp_path, task_id)
-    log_path = task_dir / "log.jsonl"
+    attempt_dir = make_attempt(task_dir, 1)
+    log_path = attempt_dir / "log.jsonl"
     log_path.write_text(
         _json.dumps({"event": "subprocess_started", "timestamp": "2026-05-23T11:22:33Z"}) + "\n",
         encoding="utf-8",
     )
 
     # 3 normalized events with a peak prompt size of 40k tokens (20% of 200k).
-    events = task_dir / "events.jsonl"
+    events = attempt_dir / "events.jsonl"
     lines = [
         _json.dumps({"kind": "assistant_text", "ts": "2026-05-23T11:22:34Z",
                      "usage": {"input_tokens": 1000, "cache_read_input_tokens": 0,
@@ -729,7 +731,8 @@ def test_task_knowledge_prints_knowledge_file(tmp_path, monkeypatch) -> None:
 def test_task_log_prints_log_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _seed_task_dir(tmp_path, "t-001")
-    (task_dir / "log.jsonl").write_text("line1\nline2\n", encoding="utf-8")
+    attempt_dir = make_attempt(task_dir, 1)
+    (attempt_dir / "log.jsonl").write_text("line1\nline2\n", encoding="utf-8")
 
     result = runner.invoke(app, ["task", "t-001", "log"])
     assert result.exit_code == 0

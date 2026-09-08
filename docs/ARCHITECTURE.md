@@ -164,10 +164,14 @@ src/fleet/ui/src/
 ```
 $FLEET_HOME/tasks/<id>/
   task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at
-  run.json           # pid, started_at, worker name, per-step status of the current attempt
-  events.jsonl       # normalized coder events, append-only
-  attempts.jsonl     # start/end per worker attempt, append-only
-  log.jsonl  log.stderr
+  attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
+  attempts/<n>/      # n = attempt number from state.attempts.record_start
+    run.json         # pid, started_at, worker name, per-step status of this attempt
+    events.jsonl      log.jsonl   log.stderr
+    launch.json      # {"mode": "fresh|continue", "pack_bytes": n, "kind": "work"}, written at spawn
+    RESULT.json       # snapshot of artifacts/RESULT.json at reap time (if present)
+    HANDOFF.md        # snapshot of artifacts/HANDOFF.md at reap time
+    SUMMARY.md        # deterministic, no-LLM summary generated after the attempt ends
   .failures .noclose .stalls .needs_validation .kill .worktree .context_pressure
   artifacts/
     RESULT.json      # worker's declared outcome for the last attempt
@@ -178,11 +182,22 @@ $FLEET_HOME/tasks/<id>/
     outputs/         # real deliverables (reports, data) referenced from RESULT.json
 ```
 
-Everyone else calls `TaskDir(home, id).read_meta()`, `.mark_kill()`, and
-so on. Grep for `"tasks" /` outside `state/` should return nothing.
+`run.json`, `events.jsonl`, `log.jsonl`, `log.stderr` moved from the task
+root into each attempt's own folder so that per-attempt slicing (tailing,
+stall detection, the attempts timeline) doesn't have to guess where one
+attempt ends and the next begins. `state/paths.py::attempt_dir_path`,
+`state/attempts.py::attempt_dir` / `latest_attempt_dir` are the only
+places allowed to build these paths; everyone else (stall, orphans,
+cli `--log`/`--stderr`, the websocket tail) calls those helpers instead
+of hardcoding "the latest attempt". `state/events.py::iter_events`
+still reads across every attempt, oldest first, so history spans the
+whole task. `.kill`, `.worktree`, `.context_pressure` stay at the task
+directory root (they gate the *next* spawn, not one attempt).
 The RESULT.json schema and what fleet does with each `status` value are
 documented once in `docs/WORKER_CONTRACT.md`; cite that file rather than
-duplicating the contract elsewhere.
+duplicating the contract elsewhere. Launch-mode planning (fresh vs.
+continue) is documented in `docs/WORKER_CONTRACT.md`'s "Launch modes"
+section.
 
 ## Testing layout
 

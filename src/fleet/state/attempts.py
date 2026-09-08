@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fleet.state.paths import attempt_dir_path
+
 
 def _attempts_path(task_dir: Path) -> Path:
     return task_dir / "attempts.jsonl"
@@ -59,6 +61,38 @@ def _current_n(task_dir: Path) -> int:
             if n > current:
                 current = n
     return current
+
+
+def current_attempt_n(task_dir: Path) -> int:
+    """Public alias for the highest start N seen so far, or 0 if none.
+
+    Used by callers (e.g. reap.py) that need "the attempt that just ended"
+    after the fact, without re-deriving the counting logic themselves.
+    """
+    return _current_n(task_dir)
+
+
+def attempt_dir(task_dir: Path, n: int) -> Path:
+    """The on-disk directory for attempt *n* of this task."""
+    return attempt_dir_path(task_dir, n)
+
+
+def latest_attempt_dir(task_dir: Path, before_n: int | None = None) -> Path | None:
+    """Return the directory of the most recent attempt, or None if there is none.
+
+    When *before_n* is given, returns the highest attempt strictly less than
+    it (used when planning attempt N to find the last *completed* attempt,
+    since attempt N's own row/dir may already exist by the time this runs).
+    When omitted, returns the highest attempt number recorded at all (used by
+    tailing/log/stall/orphans, which want "the currently running or most
+    recently run attempt").
+    """
+    candidates = [a["n"] for a in load_attempts(task_dir)]
+    if before_n is not None:
+        candidates = [n for n in candidates if n < before_n]
+    if not candidates:
+        return None
+    return attempt_dir_path(task_dir, max(candidates))
 
 
 def record_start(

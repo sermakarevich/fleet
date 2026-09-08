@@ -127,11 +127,15 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
     return structlog.get_logger().bind(component="supervisor", pid=os.getpid())
 
 
-def open_task_log(task_dir: Path, task_id: str) -> TaskLog:
-    """Open the per-task JSONL and stderr files (append mode) at the task dir root."""
-    task_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = task_dir / "log.jsonl"
-    stderr_path = task_dir / "log.stderr"
+def open_task_log(attempt_dir: Path, task_id: str) -> TaskLog:
+    """Open this attempt's log.jsonl and log.stderr files (append mode).
+
+    *attempt_dir* is the per-attempt directory (`tasks/<id>/attempts/<n>`),
+    not the task directory root.
+    """
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = attempt_dir / "log.jsonl"
+    stderr_path = attempt_dir / "log.stderr"
     jsonl_file = jsonl_path.open("a", encoding="utf-8")
     stderr_file = stderr_path.open("ab", buffering=0)
     log = structlog.wrap_logger(
@@ -145,11 +149,12 @@ def open_task_log(task_dir: Path, task_id: str) -> TaskLog:
     )
 
 
-def append_event(task_dir: Path, evt: Event) -> None:
-    """Append one normalized Event line to <task_dir>/events.jsonl.
+def append_event(attempt_dir: Path, evt: Event) -> None:
+    """Append one normalized Event line to <attempt_dir>/events.jsonl.
 
-    Never truncates prior content (append mode, line-flushed).
-    Redacts credentials before serialising.
+    *attempt_dir* is the per-attempt directory. Never truncates prior
+    content (append mode, line-flushed). Redacts credentials before
+    serialising.
     """
     payload: dict = {
         "kind": evt.kind,
@@ -161,8 +166,8 @@ def append_event(task_dir: Path, evt: Event) -> None:
         "raw": evt.raw,
     }
     payload = redact(payload)
-    task_dir.mkdir(parents=True, exist_ok=True)
-    events_path = task_dir / "events.jsonl"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    events_path = attempt_dir / "events.jsonl"
     try:
         _rotate_if_needed(events_path)
     except OSError:

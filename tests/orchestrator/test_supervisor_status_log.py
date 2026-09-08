@@ -11,6 +11,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state.journal import setup_supervisor_logger
+from tests.helpers.task_dir import make_attempt
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -20,7 +21,7 @@ from fleet.state.journal import setup_supervisor_logger
 class StubCoder:
     name = "stub"
 
-    def build_argv(self, task, artifact_dir):
+    def build_argv(self, task, artifact_dir, plan=None):
         return ["echo"]
 
     def env(self, task, artifact_dir):
@@ -288,8 +289,8 @@ def _create_stale_events_file(tmp_path: Path, task_id: str, age_sec: float = 360
     import time
 
     task_dir = tmp_path / "tasks" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = make_attempt(task_dir, 1)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
     old_time = time.time() - age_sec
     os.utime(events_file, (old_time, old_time))

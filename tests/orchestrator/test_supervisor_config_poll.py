@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -28,7 +28,7 @@ def _can_spawn(s: Supervisor) -> bool:
 class StubCoder:
     name = "stub"
 
-    def build_argv(self, task, artifact_dir):
+    def build_argv(self, task, artifact_dir, plan=None):
         return ["echo"]
 
     def env(self, task, artifact_dir):
@@ -215,7 +215,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
             Event(
                 kind="rate_limit_info",
                 raw={},
-                ts=datetime.now(tz=timezone.utc),
+                ts=datetime.now(tz=UTC),
                 rate_info={"usage_pct": 85.0},
             )
         )

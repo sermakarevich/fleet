@@ -27,3 +27,14 @@ def tasks_root(home: Path) -> Path:
 
 def task_dir(home: Path, task_id: str) -> Path:
     return tasks_root(home) / task_id
+
+
+def attempts_root(task_dir: Path) -> Path:
+    """The `attempts/` directory that holds one subdirectory per attempt number."""
+    return task_dir / "attempts"
+
+
+def attempt_dir_path(task_dir: Path, n: int) -> Path:
+    """The per-attempt directory: run.json, events.jsonl, log.jsonl, log.stderr,
+    RESULT.json, HANDOFF.md, SUMMARY.md, launch.json for attempt *n*."""
+    return attempts_root(task_dir) / str(n)

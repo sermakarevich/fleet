@@ -60,8 +60,10 @@ def make_task_dir(
 
 
 def write_events(td: Path, lines: list[str]) -> None:
-    """Write event lines to events.jsonl."""
-    (td / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
+    """Write event lines to attempts/1/events.jsonl."""
+    attempt_dir = td / "attempts" / "1"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
 
 
 def ev(

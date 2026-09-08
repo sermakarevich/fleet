@@ -14,7 +14,9 @@ def test_file_watcher_detects_new_line(tmp_path: Path) -> None:
     task_id = "task-abc"
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
 
     mgr = MagicMock()
@@ -25,7 +27,7 @@ def test_file_watcher_detects_new_line(tmp_path: Path) -> None:
 
     async def _run() -> None:
         # First call: initializes tail state (offset=0 for empty file) and returns
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
         assert not mgr.broadcast.called
 
         # Append a new event line
@@ -42,7 +44,7 @@ def test_file_watcher_detects_new_line(tmp_path: Path) -> None:
             f.write(json.dumps(event_data) + "\n")
 
         # Second call: reads new line and broadcasts
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
 
     asyncio.run(_run())
 
@@ -59,7 +61,9 @@ def test_file_watcher_redacts_credentials(tmp_path: Path) -> None:
     task_id = "task-cred"
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
 
     mgr = MagicMock()
@@ -69,7 +73,7 @@ def test_file_watcher_redacts_credentials(tmp_path: Path) -> None:
     watcher._mgr = mgr
 
     async def _run() -> None:
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
         event_data = {
             "kind": "tool_use",
             "ts": "2026-05-25T12:00:00+00:00",
@@ -81,7 +85,7 @@ def test_file_watcher_redacts_credentials(tmp_path: Path) -> None:
         }
         with events_file.open("a") as f:
             f.write(json.dumps(event_data) + "\n")
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
 
     asyncio.run(_run())
 
@@ -96,7 +100,9 @@ def test_file_watcher_skips_invalid_json(tmp_path: Path) -> None:
     task_id = "task-bad"
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
 
     mgr = MagicMock()
@@ -106,7 +112,7 @@ def test_file_watcher_skips_invalid_json(tmp_path: Path) -> None:
     watcher._mgr = mgr
 
     async def _run() -> None:
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
         with events_file.open("a") as f:
             f.write("not valid json\n")
             f.write(
@@ -120,7 +126,7 @@ def test_file_watcher_skips_invalid_json(tmp_path: Path) -> None:
                     "raw": {},
                 }) + "\n"
             )
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
 
     asyncio.run(_run())
 
@@ -137,11 +143,16 @@ def test_file_watcher_enriches_session_ended(tmp_path: Path) -> None:
     (task_dir / "task.json").write_text(
         json.dumps({"id": task_id, "title": "My finishing task"})
     )
-    (task_dir / "log.jsonl").write_text(
+
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    (task_dir / "attempts.jsonl").write_text(
+        json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}) + "\n"
+    )
+    (attempt_dir / "log.jsonl").write_text(
         json.dumps({"timestamp": "2026-01-01T00:00:00+00:00"}) + "\n"
     )
-
-    events_file = task_dir / "events.jsonl"
+    events_file = attempt_dir / "events.jsonl"
     # Seed a tool_use so files_touched > 0
     tool_use_event = {
         "kind": "tool_use",
@@ -163,7 +174,7 @@ def test_file_watcher_enriches_session_ended(tmp_path: Path) -> None:
 
     async def _run() -> None:
         # Prime offset past the tool_use line
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
         assert not mgr.broadcast.called
 
         session_ended_event = {
@@ -183,7 +194,7 @@ def test_file_watcher_enriches_session_ended(tmp_path: Path) -> None:
         with events_file.open("a") as f:
             f.write(json.dumps(session_ended_event) + "\n")
 
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
 
     asyncio.run(_run())
 
@@ -204,7 +215,9 @@ def test_file_watcher_non_session_ended_not_enriched(tmp_path: Path) -> None:
     task_id = "task-noenrich"
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
 
     mgr = MagicMock()
@@ -214,7 +227,7 @@ def test_file_watcher_non_session_ended_not_enriched(tmp_path: Path) -> None:
     watcher._mgr = mgr
 
     async def _run() -> None:
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
         event_data = {
             "kind": "tool_use",
             "ts": "2026-01-01T00:00:00+00:00",
@@ -226,7 +239,7 @@ def test_file_watcher_non_session_ended_not_enriched(tmp_path: Path) -> None:
         }
         with events_file.open("a") as f:
             f.write(json.dumps(event_data) + "\n")
-        await watcher._tail_one(task_id, events_file)
+        await watcher._tail_one(task_dir, task_id, events_file)
 
     asyncio.run(_run())
 
@@ -242,7 +255,9 @@ def test_replay_recent_events_for_in_progress_task(tmp_path: Path) -> None:
     task_dir.mkdir(parents=True)
     (task_dir / "task.json").write_text(json.dumps({"id": task_id, "status": "in_progress"}))
 
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     existing_events = [
         {
             "kind": "tool_use", "ts": f"2026-01-01T00:00:{i:02d}+00:00",
@@ -261,7 +276,7 @@ def test_replay_recent_events_for_in_progress_task(tmp_path: Path) -> None:
     watcher = FileWatcher()
     watcher._mgr = mgr
 
-    asyncio.run(watcher._tail_one(task_id, events_file))
+    asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
     assert mgr.broadcast.call_count == 3
     assert all(c[0][1]["kind"] == "tool_use" for c in mgr.broadcast.call_args_list)
@@ -274,7 +289,9 @@ def test_no_replay_for_non_in_progress_task(tmp_path: Path) -> None:
     task_dir.mkdir(parents=True)
     (task_dir / "task.json").write_text(json.dumps({"id": task_id, "status": "closed"}))
 
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     events_file.write_text(
         json.dumps({
             "kind": "tool_use", "ts": "2026-01-01T00:00:00+00:00",
@@ -289,7 +306,7 @@ def test_no_replay_for_non_in_progress_task(tmp_path: Path) -> None:
     watcher = FileWatcher()
     watcher._mgr = mgr
 
-    asyncio.run(watcher._tail_one(task_id, events_file))
+    asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
     mgr.broadcast.assert_not_called()
 
@@ -301,7 +318,9 @@ def test_replay_capped_at_50_lines(tmp_path: Path) -> None:
     task_dir.mkdir(parents=True)
     (task_dir / "task.json").write_text(json.dumps({"id": task_id, "status": "in_progress"}))
 
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    events_file = attempt_dir / "events.jsonl"
     with events_file.open("w") as f:
         for i in range(60):
             evt = {
@@ -318,7 +337,7 @@ def test_replay_capped_at_50_lines(tmp_path: Path) -> None:
     watcher = FileWatcher()
     watcher._mgr = mgr
 
-    asyncio.run(watcher._tail_one(task_id, events_file))
+    asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
     assert mgr.broadcast.call_count == 50
     last_payload = mgr.broadcast.call_args[0][1]
@@ -336,8 +355,8 @@ def test_prune_stale_removes_deleted_task_entry(tmp_path: Path) -> None:
     deleted_dir.mkdir()
 
     watcher = FileWatcher()
-    watcher._tail_state["task-alive"] = _TailState(offset=0, mtime=0.0)
-    watcher._tail_state["task-deleted"] = _TailState(offset=0, mtime=0.0)
+    watcher._tail_state["task-alive"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
+    watcher._tail_state["task-deleted"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
 
     deleted_dir.rmdir()
     watcher._prune_stale(tasks_dir)

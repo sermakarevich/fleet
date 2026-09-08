@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC
 from pathlib import Path
 
 import pytest
 
 from fleet.core.task import Task
-
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -31,7 +31,7 @@ def test_rate_limit_rejected_terminates_subprocess(tmp_path: Path) -> None:
     end_times: dict[str, float] = {}
 
     class TimingCoder(FakeClaudeCoder):
-        def build_argv(self, task: Task, artifact_dir: Path) -> list[str]:
+        def build_argv(self, task: Task, artifact_dir: Path, plan=None) -> list[str]:
             start_times[task.id] = time.monotonic()
             return super().build_argv(task, artifact_dir)
 
@@ -135,8 +135,8 @@ def test_rate_limit_rejected_fallback_no_resets_at(tmp_path: Path, monkeypatch: 
     assert sup._paused_until is not None
     # paused_until should be at least ~sleep_sec seconds in the future
     import time as _time
-    from datetime import datetime, timezone
+    from datetime import datetime
     expected_min = datetime.fromtimestamp(
-        _time.time() + sleep_sec - 2, tz=timezone.utc
+        _time.time() + sleep_sec - 2, tz=UTC
     )
     assert sup._paused_until >= expected_min

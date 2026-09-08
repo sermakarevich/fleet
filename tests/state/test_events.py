@@ -10,9 +10,10 @@ def _event(**kw) -> str:
     return json.dumps(kw)
 
 
-def _write_events(d: Path, lines: list[str]) -> None:
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
+def _write_events(d: Path, lines: list[str], n: int = 1) -> None:
+    attempt_dir = d / "attempts" / str(n)
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
 
 
 def test_parse_iso_valid_and_invalid() -> None:
@@ -137,7 +138,7 @@ def test_scan_cached_reuses_until_file_changes(tmp_path: Path) -> None:
     s2 = scan_cached(d)
     assert s1 is s2
 
-    with (d / "events.jsonl").open("a") as fh:
+    with (d / "attempts" / "1" / "events.jsonl").open("a") as fh:
         fh.write(_event(ts="2025-01-01T00:00:01Z", kind="session_started") + "\n")
 
     s3 = scan_cached(d)

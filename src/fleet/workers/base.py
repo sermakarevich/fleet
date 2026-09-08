@@ -37,6 +37,13 @@ class StepContext:
     config: RuntimeConfig
     rate_gauge: RateGauge
     log: structlog.BoundLogger
+    # Per-attempt directory (tasks/<id>/attempts/<n>) and its number. Set by
+    # orchestrator/spawn.py from attempts.record_start's return value before
+    # the worker is planned/run. Defaulted here (rather than required) so
+    # tests that build a StepContext directly without an attempt still work;
+    # run_worker() falls back to task_dir when attempt_dir is None.
+    attempt_dir: Path | None = None
+    attempt_n: int = 0
     # Small values passed forward between steps (e.g. prompt text). Never
     # file contents > 16 KB.
     scratch: dict[str, Any] = field(default_factory=dict)
@@ -124,7 +131,7 @@ async def run_worker(
     appended to ``run.json["steps"]``. An unexpected exception inside a step
     is caught and reported as FAILURE.
     """
-    run_file = ctx.task_dir / RUN_JSON
+    run_file = (ctx.attempt_dir or ctx.task_dir) / RUN_JSON
     for step in worker.steps:
         if on_step is not None:
             on_step(step)

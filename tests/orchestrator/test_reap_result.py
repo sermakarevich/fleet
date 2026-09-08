@@ -17,7 +17,7 @@ from fleet.state.paths import task_dir as _task_dir
 class StubCoder:
     name = "stub"
 
-    def build_argv(self, task, task_dir):
+    def build_argv(self, task, task_dir, plan=None):
         return ["echo"]
 
     def env(self, task, task_dir):

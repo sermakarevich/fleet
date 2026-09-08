@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from fleet.cli.main import app
 from fleet.observability.tailview import render_lines
+from tests.helpers.task_dir import make_attempt
 
 runner = CliRunner()
 
@@ -246,16 +247,16 @@ def test_session_different_id_second_separator() -> None:
 
 
 def _seed_tail_task_dir(home: Path, task_id: str) -> Path:
-    """Create <home>/tasks/<id>/ with events.jsonl from samples."""
+    """Create <home>/tasks/<id>/ with attempts/1/events.jsonl from samples."""
     task_dir = home / "tasks" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-    events_path = task_dir / "events.jsonl"
+    attempt_dir = make_attempt(task_dir, 1)
+    events_path = attempt_dir / "events.jsonl"
     events_path.write_text(
         "\n".join(json.dumps(s) for s in _samples) + "\n",
         encoding="utf-8",
     )
     # Also drop a minimal log.jsonl so task_runtime_stats doesn't blow up
-    (task_dir / "log.jsonl").write_text(
+    (attempt_dir / "log.jsonl").write_text(
         json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"})
         + "\n",
         encoding="utf-8",
@@ -336,7 +337,7 @@ def test_tail_unparseable_lines_and_unknown_kinds(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_id = "t-tail3"
     task_dir = tmp_path / "tasks" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
+    attempt_dir = make_attempt(task_dir, 1)
 
     mixed_lines = [
         json.dumps(
@@ -372,10 +373,10 @@ def test_tail_unparseable_lines_and_unknown_kinds(
             }
         ),
     ]
-    (task_dir / "events.jsonl").write_text(
+    (attempt_dir / "events.jsonl").write_text(
         "\n".join(mixed_lines) + "\n", encoding="utf-8"
     )
-    (task_dir / "log.jsonl").write_text(
+    (attempt_dir / "log.jsonl").write_text(
         json.dumps({"event": "subprocess_started", "timestamp": "2026-06-12T10:00:00Z"})
         + "\n",
         encoding="utf-8",

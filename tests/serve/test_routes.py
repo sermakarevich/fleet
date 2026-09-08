@@ -625,7 +625,9 @@ def test_tasks_list_cache_invalidated_on_events_change(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cacheinv")
     ev1 = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
-    (task_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text(json.dumps(ev1) + "\n")
 
     from fleet.state import events as events_mod
 
@@ -645,7 +647,7 @@ def test_tasks_list_cache_invalidated_on_events_change(
     assert tasks1["task-cacheinv"]["events"] == 1
 
     ev2 = {"kind": "tool_use", "ts": "2024-01-01T00:00:01Z", "tool_name": "Edit"}
-    with (task_dir / "events.jsonl").open("a") as fh:
+    with (attempt_dir / "events.jsonl").open("a") as fh:
         fh.write(json.dumps(ev2) + "\n")
 
     r2 = asyncio.run(_get())
@@ -718,7 +720,9 @@ def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         },
         {"kind": "tool_result", "tool_name": None, "raw": {}},  # non-tool_use, ignored
     ]
-    (task_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
 
     app = create_app()
 

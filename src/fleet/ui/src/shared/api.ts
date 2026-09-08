@@ -193,6 +193,20 @@ export const api = {
     return request(`/api/tasks/${id}/stderr`);
   },
 
+  // --- Attempts timeline ---------------------------------------------------
+
+  getAttemptSummary(id: string, n: number): Promise<{ content: string }> {
+    return request(`/api/tasks/${id}/attempts/${n}/summary`);
+  },
+
+  getAttemptHandoff(id: string, n: number): Promise<{ content: string }> {
+    return request(`/api/tasks/${id}/attempts/${n}/handoff`);
+  },
+
+  getAttemptLog(id: string, n: number): Promise<{ content: string }> {
+    return request(`/api/tasks/${id}/attempts/${n}/log`);
+  },
+
   getDiff(id: string): Promise<{ diff: string }> {
     return request(`/api/tasks/${id}/diff`);
   },

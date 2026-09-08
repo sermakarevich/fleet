@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import parse_iso, scan_cached
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
@@ -31,7 +32,10 @@ class TaskRuntimeInfo:
 
 
 def _read_started_at(tdir: Path) -> datetime | None:
-    log = tdir / "log.jsonl"
+    attempt_dir = latest_attempt_dir(tdir)
+    if attempt_dir is None:
+        return None
+    log = attempt_dir / "log.jsonl"
     if not log.exists():
         return None
     try:
@@ -47,7 +51,7 @@ def _read_started_at(tdir: Path) -> datetime | None:
     except (OSError, json.JSONDecodeError):
         pass
     try:
-        return datetime.fromtimestamp(log.stat().st_mtime, tz=timezone.utc)
+        return datetime.fromtimestamp(log.stat().st_mtime, tz=UTC)
     except OSError:
         return None
 

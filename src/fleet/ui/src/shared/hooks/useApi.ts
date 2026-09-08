@@ -24,6 +24,23 @@ export function useTask(id: string) {
   });
 }
 
+// Fetched lazily when an attempt row in the Attempts timeline is expanded.
+export function useAttemptSummary(taskId: string, n: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['attempt-summary', taskId, n],
+    queryFn: () => api.getAttemptSummary(taskId, n),
+    enabled,
+  });
+}
+
+export function useAttemptHandoff(taskId: string, n: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['attempt-handoff', taskId, n],
+    queryFn: () => api.getAttemptHandoff(taskId, n),
+    enabled,
+  });
+}
+
 export function useBeads() {
   return useQuery({ queryKey: ['beads'], queryFn: api.getBeads, refetchInterval: 5000 });
 }

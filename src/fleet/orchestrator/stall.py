@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import task_dir as _task_dir
 
 
@@ -20,9 +21,13 @@ class StallMixin:
         self._log.info("supervisor_status", **self._fleet_log_context())
         if self.config.stall_warning_minutes <= 0:
             return
-        now = datetime.now(tz=timezone.utc).timestamp()
+        now = datetime.now(tz=UTC).timestamp()
         for task_id in list(self.in_flight):
-            events_path = _task_dir(self._project_root, task_id) / "events.jsonl"
+            task_dir = _task_dir(self._project_root, task_id)
+            attempt_dir = latest_attempt_dir(task_dir)
+            if attempt_dir is None:
+                continue
+            events_path = attempt_dir / "events.jsonl"
             try:
                 mtime = events_path.stat().st_mtime
             except FileNotFoundError:

@@ -51,7 +51,7 @@ class FakeClaudeCoder(ClaudeCoder):
         self._fake_env = fake_env
         self._scenario_idx = 0
 
-    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
+    def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
         parent_argv = super().build_argv(task, task_dir)
         # Replace "claude" with "python fake_claude.py"; inherit all other args
         return ["python", str(FAKE_CLAUDE_PY)] + parent_argv[1:]

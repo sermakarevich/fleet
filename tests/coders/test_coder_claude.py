@@ -3,11 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from fleet.coders.base import Coder
 from fleet.coders import get_coder
+from fleet.coders.base import Coder
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.task import Task
-
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -103,7 +102,7 @@ def test_build_argv_inlines_instruction_md_content(tmp_path: Path):
     prompt = argv[-1]  # final positional arg is the prompt
     # Spot-check several distinctive phrases from the bundled INSTRUCTION.md.
     assert "Fleet Task Protocol" in prompt
-    assert "On every fresh start" in prompt
+    assert "Plan before you act" in prompt
     assert "ask_human" in prompt
     assert "fleet bd close" in prompt
 

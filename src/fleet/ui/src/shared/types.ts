@@ -54,18 +54,24 @@ export interface TaskResult {
   blocked_reason: string;
 }
 
+// One row of the attempts timeline: state/task_summary.py::_build_attempts_summary.
 export interface TaskAttempt {
   n: number;
-  started_at: string | null;
-  ended_at: string | null;
+  kind: string; // "work" today; compaction jobs add their own kind later.
+  mode: 'fresh' | 'continue' | null;
   coder: string | null;
   model: string | null;
-  worker: string | null;
-  outcome: string | null;
-  exit_code: number | null;
-  reason: string | null;
-  action: string | null;
+  started_at: string | null;
+  ended_at: string | null;
   duration_sec: number | null;
+  outcome: string | null;
+  reason: string | null;
+  peak_context_pct: number | null;
+  files_touched: number;
+  commits: string[];
+  result: TaskResult | null;
+  has_summary: boolean;
+  has_handoff: boolean;
 }
 
 export interface TaskDetail extends TaskSummary {

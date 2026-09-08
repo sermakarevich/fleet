@@ -1,13 +1,10 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.coders.base import Coder
+from fleet.coders.base import Coder, render_prompt
+from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
-
-_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-_INSTRUCTION_PATH = _TEMPLATES_DIR / "INSTRUCTION.md"
-_HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
 
 _TOOL_ITEM_TYPES = frozenset({
     "command_execution",
@@ -26,19 +23,10 @@ class CodexCoder(Coder):
     def __init__(self, model: str = "o4-mini") -> None:
         self.model = model
 
-    def build_argv(self, task: Task, task_dir: Path) -> list[str]:
-        artifacts_dir = task_dir / "artifacts"
-        instructions = _INSTRUCTION_PATH.read_text(encoding="utf-8").strip()
-        invocation_line = f"Invocation directory: {task.cwd}" if task.cwd else ""
-        header = _HEADER_PATH.read_text(encoding="utf-8").format(
-            task_id=task.id,
-            task_title=task.title,
-            task_description=task.description or "",
-            task_dir=task_dir,
-            artifacts_dir=artifacts_dir,
-            invocation_line=invocation_line,
-        ).strip()
-        prompt = f"{header}\n\n---\n\n{instructions}"
+    def build_argv(
+        self, task: Task, task_dir: Path, plan: LaunchPlan | None = None
+    ) -> list[str]:
+        prompt = render_prompt(task, task_dir, plan)
         argv = [
             "codex",
             "exec",
@@ -70,7 +58,7 @@ class CodexCoder(Coder):
         if not isinstance(data, dict):
             return None
 
-        ts = datetime.now(tz=timezone.utc)
+        ts = datetime.now(tz=UTC)
         t = data.get("type", "")
 
         if t == "thread.started":

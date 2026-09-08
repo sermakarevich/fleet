@@ -18,14 +18,15 @@ from fleet.coders import get_coder
 from fleet.coders import list_coders as _list_coders
 from fleet.observability.daemon import _pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
-from fleet.state import attempts
+from fleet.state.attempts import attempt_dir as _attempt_dir_path
+from fleet.state.attempts import latest_attempt_dir
 from fleet.state.counters import (
     clear_needs_validation,
     reset_failure,
     reset_noclose,
     reset_stall,
 )
-from fleet.state.events import scan_cached
+from fleet.state.events import iter_events, scan_cached
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
@@ -222,8 +223,65 @@ def create_tasks_router() -> APIRouter:
                 "depends_on": beads_info["depends_on"],
             }
         summary = build_task_summary(_task_dir(home, task_id), data, home)
-        summary["attempts"] = attempts.load_attempts(_task_dir(home, task_id))
         return JSONResponse(summary)
+
+    # ------------------------------------------------------------------
+    # Attempts timeline endpoints
+    # ------------------------------------------------------------------
+
+    def _require_task_dir(task_id: str, home: Path) -> Path | None:
+        task_dir = _task_dir(home, task_id)
+        return task_dir if (task_dir / "task.json").exists() else None
+
+    def _require_attempt_dir(task_id: str, n: int, home: Path) -> Path | None:
+        task_dir = _require_task_dir(task_id, home)
+        if task_dir is None:
+            return None
+        adir = _attempt_dir_path(task_dir, n)
+        return adir if adir.is_dir() else None
+
+    @router.get("/tasks/{task_id}/attempts")
+    async def list_task_attempts(task_id: str) -> JSONResponse:
+        home = get_fleet_home()
+        task_dir = _require_task_dir(task_id, home)
+        if task_dir is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        data = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+        summary = build_task_summary(task_dir, data, home)
+        return JSONResponse({"attempts": summary["attempts"]})
+
+    @router.get("/tasks/{task_id}/attempts/{n}/summary")
+    async def get_attempt_summary(task_id: str, n: int) -> JSONResponse:
+        home = get_fleet_home()
+        attempt_dir = _require_attempt_dir(task_id, n, home)
+        if attempt_dir is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        f = attempt_dir / "SUMMARY.md"
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"content": f.read_text(encoding="utf-8")})
+
+    @router.get("/tasks/{task_id}/attempts/{n}/handoff")
+    async def get_attempt_handoff(task_id: str, n: int) -> JSONResponse:
+        home = get_fleet_home()
+        attempt_dir = _require_attempt_dir(task_id, n, home)
+        if attempt_dir is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        f = attempt_dir / "HANDOFF.md"
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"content": f.read_text(encoding="utf-8")})
+
+    @router.get("/tasks/{task_id}/attempts/{n}/log")
+    async def get_attempt_log(task_id: str, n: int) -> JSONResponse:
+        home = get_fleet_home()
+        attempt_dir = _require_attempt_dir(task_id, n, home)
+        if attempt_dir is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        f = attempt_dir / "log.jsonl"
+        if not f.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"content": f.read_text(encoding="utf-8")})
 
     @router.post("/tasks/{task_id}/kill")
     async def kill_task(task_id: str, request: Request) -> JSONResponse:
@@ -404,7 +462,9 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/logs")
     async def get_task_logs(task_id: str, level: str | None = None) -> JSONResponse:
         home = get_fleet_home()
-        log_file = _task_dir(home, task_id) / "log.jsonl"
+        task_dir = _task_dir(home, task_id)
+        attempt_dir = latest_attempt_dir(task_dir)
+        log_file = attempt_dir / "log.jsonl" if attempt_dir is not None else task_dir / "log.jsonl"
         entries: list[dict] = []
         if log_file.exists():
             try:
@@ -429,7 +489,9 @@ def create_tasks_router() -> APIRouter:
     @router.get("/tasks/{task_id}/stderr")
     async def get_task_stderr(task_id: str) -> JSONResponse:
         home = get_fleet_home()
-        f = _task_dir(home, task_id) / "log.stderr"
+        task_dir = _task_dir(home, task_id)
+        attempt_dir = latest_attempt_dir(task_dir)
+        f = (attempt_dir / "log.stderr") if attempt_dir is not None else (task_dir / "log.stderr")
         content = f.read_text(encoding="utf-8") if f.exists() else ""
         return JSONResponse({"content": content})
 
@@ -482,52 +544,37 @@ def create_tasks_router() -> APIRouter:
         task_dir = _task_dir(home, task_id)
         if not task_dir.is_dir():
             return JSONResponse({"error": "not found"}, status_code=404)
-        events_file = task_dir / "events.jsonl"
-        if not events_file.exists():
-            return JSONResponse({"total": 0, "offset": 0, "events": []})
-        # Read and parse
+        # iter_events walks every attempt's events.jsonl in order, so this
+        # endpoint's history spans the whole task, not just the latest attempt.
         allow_kinds: set[str] | None = None
         if kind:
             allow_kinds = {k.strip() for k in kind.split(",") if k.strip()}
         all_events: list[dict] = []
-        raw_total = 0
-        try:
-            with events_file.open("r", encoding="utf-8") as fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-                    raw_total += 1
-                    row_kind = row.get("kind", "")
-                    if allow_kinds is not None and row_kind not in allow_kinds:
-                        continue
-                    raw_data = row.get("raw", {})
-                    if isinstance(raw_data, str):
-                        try:
-                            raw_data = json.loads(raw_data)
-                        except (json.JSONDecodeError, ValueError):
-                            raw_data = {}
-                    evt = {
-                        "i": 0,
-                        "ts": row.get("ts", ""),
-                        "kind": row_kind,
-                        "session_id": row.get("session_id", row.get("sessionID")),
-                        "tool_name": row.get("tool_name"),
-                        "usage": row.get("usage"),
-                        "summary": _event_summary(
-                            row_kind,
-                            raw_data if isinstance(raw_data, dict) else {},
-                            row.get("tool_name"),
-                        ),
-                        "raw": raw_data if isinstance(raw_data, dict) else {},
-                    }
-                    all_events.append(evt)
-        except OSError:
-            pass
+        for row in iter_events(task_dir):
+            row_kind = row.get("kind", "")
+            if allow_kinds is not None and row_kind not in allow_kinds:
+                continue
+            raw_data = row.get("raw", {})
+            if isinstance(raw_data, str):
+                try:
+                    raw_data = json.loads(raw_data)
+                except (json.JSONDecodeError, ValueError):
+                    raw_data = {}
+            evt = {
+                "i": 0,
+                "ts": row.get("ts", ""),
+                "kind": row_kind,
+                "session_id": row.get("session_id", row.get("sessionID")),
+                "tool_name": row.get("tool_name"),
+                "usage": row.get("usage"),
+                "summary": _event_summary(
+                    row_kind,
+                    raw_data if isinstance(raw_data, dict) else {},
+                    row.get("tool_name"),
+                ),
+                "raw": raw_data if isinstance(raw_data, dict) else {},
+            }
+            all_events.append(evt)
         filtered = all_events
         total = len(filtered)
         if offset is None:

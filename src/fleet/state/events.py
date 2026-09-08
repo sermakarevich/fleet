@@ -37,12 +37,31 @@ def safe_int(v: object) -> int:
     return 0
 
 
-def iter_events(task_dir: Path) -> Iterator[dict]:
-    """Yield each parsed JSON object from task_dir/events.jsonl.
+def _attempt_dirs_sorted(task_dir: Path) -> list[Path]:
+    """List task_dir/attempts/<n> directories sorted numerically by n.
 
-    Blank and malformed lines are skipped silently.
+    Self-contained (no import of state.attempts) to avoid a state/-internal
+    import cycle: attempts.py and events.py would otherwise both need each
+    other's helpers.
     """
-    events_file = task_dir / "events.jsonl"
+    attempts_root = task_dir / "attempts"
+    if not attempts_root.is_dir():
+        return []
+    numbered: list[tuple[int, Path]] = []
+    for child in attempts_root.iterdir():
+        if not child.is_dir():
+            continue
+        try:
+            n = int(child.name)
+        except ValueError:
+            continue
+        numbered.append((n, child))
+    numbered.sort(key=lambda pair: pair[0])
+    return [p for _, p in numbered]
+
+
+def _iter_events_file(events_file: Path) -> Iterator[dict]:
+    """Yield each parsed JSON object from one events.jsonl file."""
     if not events_file.exists():
         return
     try:
@@ -59,6 +78,23 @@ def iter_events(task_dir: Path) -> Iterator[dict]:
                     yield row
     except OSError:
         return
+
+
+def iter_events(task_dir: Path) -> Iterator[dict]:
+    """Yield every event across all attempts, oldest attempt first.
+
+    Reads task_dir/attempts/<n>/events.jsonl for every attempt directory,
+    sorted numerically by *n* (so attempt 10 sorts after attempt 9, not
+    lexicographically before it). Blank and malformed lines are skipped
+    silently, same as before this became attempt-scoped.
+    """
+    for attempt_path in _attempt_dirs_sorted(task_dir):
+        yield from _iter_events_file(attempt_path / "events.jsonl")
+
+
+def iter_attempt_events(task_dir: Path, n: int) -> Iterator[dict]:
+    """Yield the parsed events for one attempt's events.jsonl only."""
+    yield from _iter_events_file(task_dir / "attempts" / str(n) / "events.jsonl")
 
 
 @dataclass
@@ -96,14 +132,19 @@ class EventStats:
         return len(self.files_touched)
 
 
-def scan(task_dir: Path) -> EventStats:
-    """Single-pass scan of task_dir/events.jsonl into an EventStats."""
+def scan_rows(rows: Iterator[dict]) -> EventStats:
+    """Single-pass scan of any row iterator into an EventStats.
+
+    The shared core behind `scan` (all attempts) and `attempt_summary.py`
+    (one attempt via `iter_attempt_events`), so the FileCounts/tool-count
+    logic exists exactly once.
+    """
     stats = EventStats()
     tool_result_counts: dict[str, int] = {}
     tool_use_counts: dict[str, int] = {}
     segments_set: set[str] = set()
 
-    for row in iter_events(task_dir):
+    for row in rows:
         stats.event_count += 1
 
         ts_str = row.get("ts")
@@ -207,14 +248,32 @@ def scan(task_dir: Path) -> EventStats:
     return stats
 
 
-# cache: tdir_str -> (events.jsonl mtime, events.jsonl size, EventStats)
-# (-1.0, -1) sentinel when events.jsonl is absent; safe because real mtime is large+positive.
+def scan(task_dir: Path) -> EventStats:
+    """Single-pass scan of every attempt's events.jsonl into an EventStats."""
+    return scan_rows(iter_events(task_dir))
+
+
+def _latest_events_file(task_dir: Path) -> Path:
+    """The newest attempt's events.jsonl path (self-contained glob; see
+    `_attempt_dirs_sorted` for why this doesn't import state.attempts)."""
+    dirs = _attempt_dirs_sorted(task_dir)
+    if not dirs:
+        return task_dir / "attempts" / "0" / "events.jsonl"  # never exists; stat() -> OSError
+    return dirs[-1] / "events.jsonl"
+
+
+# cache: tdir_str -> (latest attempt's events.jsonl mtime, size, EventStats)
+# (-1.0, -1) sentinel when no attempt/events.jsonl exists; safe because a real
+# mtime is large+positive.
 _cache: dict[str, tuple[float, int, EventStats]] = {}
 
 
 def scan_cached(task_dir: Path) -> EventStats:
-    """Same as scan(), re-scanning only when events.jsonl mtime/size changed."""
-    events_file = task_dir / "events.jsonl"
+    """Same as scan(), re-scanning only when the latest attempt's events.jsonl
+    mtime/size changed. A new attempt (new file) also busts the cache since a
+    freshly-created events.jsonl has a different mtime/size than the previous
+    attempt's file."""
+    events_file = _latest_events_file(task_dir)
     cache_key = str(task_dir)
 
     try:

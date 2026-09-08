@@ -28,7 +28,11 @@ def _make_task(tasks_root: Path, task_id: str) -> Path:
 
 
 def _write_events(task_dir: Path, lines: list[str]) -> None:
-    (task_dir / "events.jsonl").write_text("\n".join(lines))
+    """Write into attempts/1/events.jsonl — the route now reads across all
+    attempts via state.events.iter_events, which globs attempts/<n>/."""
+    attempt_dir = task_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    (attempt_dir / "events.jsonl").write_text("\n".join(lines))
 
 
 # ---- helper events for the fixture ------------------------------

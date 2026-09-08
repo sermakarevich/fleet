@@ -9,7 +9,6 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.supervisor import Supervisor
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -18,7 +17,7 @@ from fleet.orchestrator.supervisor import Supervisor
 class StubCoder:
     name = "stub"
 
-    def build_argv(self, task, artifact_dir):
+    def build_argv(self, task, artifact_dir, plan=None):
         return ["echo"]
 
     def env(self, task, artifact_dir):

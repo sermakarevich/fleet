@@ -8,13 +8,14 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.state.journal import setup_supervisor_logger
+from tests.helpers.task_dir import make_attempt
 from tests.orchestrator.test_supervisor_status_log import _make_supervisor
 
 
 def _create_events_file(base: Path, task_id: str) -> Path:
     task_dir = base / "tasks" / task_id
-    task_dir.mkdir(parents=True)
-    events_file = task_dir / "events.jsonl"
+    attempt_dir = make_attempt(task_dir, 1)
+    events_file = attempt_dir / "events.jsonl"
     events_file.touch()
     return events_file
 

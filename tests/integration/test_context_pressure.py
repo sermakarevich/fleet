@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 from fleet.core.task import Task
 from fleet.state.counters import failure_count
+from fleet.state.events import iter_events
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -101,10 +101,10 @@ def test_context_pressure_then_success_events_append_only(tmp_path: Path) -> Non
     asyncio.run(run_until(sup, done, timeout=20.0))
 
     task_dir = tmp_path / "tasks" / "t-001"
-    events_path = task_dir / "events.jsonl"
-    assert events_path.exists(), "events.jsonl should exist after both runs"
-
-    lines = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
+    # Each attempt now writes its own attempts/<n>/events.jsonl; iter_events
+    # aggregates across all of them in order, so this still checks that
+    # both runs' events survive (no attempt overwrites another's file).
+    lines = list(iter_events(task_dir))
     assert len(lines) >= 2, (
         f"events from both runs should be appended; got {len(lines)} records"
     )
