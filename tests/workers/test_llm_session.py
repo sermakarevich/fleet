@@ -649,6 +649,7 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
 
     monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
     monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)
+    monkeypatch.setattr(llm_session_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", -1)
 
     class _FakeStdout:
         _limit = 0
@@ -701,3 +702,82 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
     assert coder.probe_calls >= 2
     assert result.outcome == TaskOutcome.RATE_LIMIT
     assert result.reason == "opencode provider rate limit"
+
+
+# ---------------------------------------------------------------------------
+# Test: a rate limit the CLI is still retrying does not kill the session
+# ---------------------------------------------------------------------------
+
+
+def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """opencode retries provider rate limits itself. When probe_health reports
+    RATE_LIMIT but the session has been silent for less than
+    RATE_LIMIT_PROBE_SILENCE_SEC, the step keeps waiting and the session is
+    allowed to recover and finish on its own."""
+    import fleet.workers.llm_session as llm_session_mod
+
+    monkeypatch.setattr(llm_session_mod, "PROBE_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(llm_session_mod, "PROBE_SILENCE_SEC", -1)
+    monkeypatch.setattr(llm_session_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", 3600)
+
+    class _FakeStdout:
+        _limit = 0
+        calls = 0
+
+        async def readline(self) -> bytes:
+            self.calls += 1
+            if self.calls <= 3:
+                await asyncio.sleep(0.05)  # longer than PROBE_INTERVAL_SEC -> probes fire
+                raise TimeoutError  # never reached; wait_for raises first
+            return b""
+
+    class _FakeProc:
+        pid = 987655
+        returncode: int | None = None
+        stdout = _FakeStdout()
+        killed = False
+
+        def send_signal(self, sig) -> None:
+            self.killed = True
+            self.returncode = -sig
+
+        async def wait(self) -> int:
+            if self.returncode is None:
+                self.returncode = 0
+            return self.returncode
+
+    fake_proc = _FakeProc()
+
+    async def _fake_create(*args, **kwargs):
+        return fake_proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
+
+    class AlwaysRateLimited(StubCoder):
+        def __init__(self, argv: list[str]) -> None:
+            super().__init__(argv=argv)
+            self.probe_calls = 0
+
+        def probe_health(self, task, task_dir, since):
+            self.probe_calls += 1
+            return TaskOutcomeRecord(
+                outcome=TaskOutcome.RATE_LIMIT,
+                reason="opencode provider rate limit",
+                resets_at=1234567890,
+            )
+
+    task = Task(
+        id="t-probe-patient", title="Test task", description="Do the thing.", status="in_progress"
+    )
+    coder = AlwaysRateLimited(argv=[sys.executable, "-c", "pass"])
+    ctx = _make_ctx(tmp_path, task, coder)
+
+    step_result = asyncio.run(asyncio.wait_for(LlmSession().run(ctx), timeout=10.0))
+    result = step_result.outcome
+    assert result is not None
+
+    assert coder.probe_calls >= 1
+    assert fake_proc.killed is False
+    assert result.outcome != TaskOutcome.RATE_LIMIT

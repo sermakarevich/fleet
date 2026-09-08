@@ -19,7 +19,12 @@ import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.core.limits import PROBE_INTERVAL_SEC, PROBE_SILENCE_SEC, SHUTDOWN_GRACE_SEC
+from fleet.core.limits import (
+    PROBE_INTERVAL_SEC,
+    PROBE_SILENCE_SEC,
+    RATE_LIMIT_PROBE_SILENCE_SEC,
+    SHUTDOWN_GRACE_SEC,
+)
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state.journal import append_event, open_task_log
 from fleet.state.paths import RUN_JSON
@@ -170,6 +175,12 @@ class LlmSession:
                         coder.probe_health, task, task_dir, last_event_at
                     )
                     if probe_outcome is None:
+                        continue
+                    if (
+                        probe_outcome.outcome is TaskOutcome.RATE_LIMIT
+                        and silent_for < RATE_LIMIT_PROBE_SILENCE_SEC
+                    ):
+                        # The CLI is still retrying the rate limit itself; give it time.
                         continue
                     task_log.log.warning(
                         "provider_error_detected",
