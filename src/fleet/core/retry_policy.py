@@ -32,6 +32,9 @@ STALL_MAX_ROUNDS = 2
 CONTEXT_MAX_ROUNDS = 3
 PARTIAL_MAX_ROUNDS = 5
 NOCLOSE_MAX_ROUNDS = 3
+# WAITING releases carry a short delay so a not-yet-ready epic does not
+# hot-loop through claim (still no bead comment, no round counting).
+WAITING_WAIT_SEC = 60
 
 
 class Action(Enum):
@@ -101,6 +104,9 @@ def _trailing_streak(history: list[dict], category: str) -> int:
             continue
         if entry.get("reason") == SHUTDOWN_REASON:
             # Supervisor restart, not a worker outcome: neither counts nor breaks.
+            continue
+        if entry.get("outcome") == TaskOutcome.WAITING.value:
+            # The observer woke early: neither a round nor a streak break.
             continue
         if entry.get("outcome") is None:
             # Attempt started but never ended: ignore it, keep scanning back.
@@ -216,6 +222,16 @@ def decide(
                     else "rate_limit"
                 ),
                 wait_sec=_rate_limit_wait(record.resets_at),
+            )
+
+        case TaskOutcome.WAITING:
+            # The observer woke before its epic's children were terminal:
+            # release at once (short delay against hot-looping), never
+            # counted, never commented — reap skips the bead comment.
+            return Decision(
+                Action.RELEASE,
+                reason=record.reason or "waiting on child beads",
+                wait_sec=WAITING_WAIT_SEC,
             )
 
         case TaskOutcome.KILLED:

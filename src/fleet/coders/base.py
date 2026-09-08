@@ -9,6 +9,7 @@ _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _HEADER_PATH = _TEMPLATES_DIR / "coder_header.md.tmpl"
 _INSTRUCTION_FRESH_PATH = _TEMPLATES_DIR / "INSTRUCTION_FRESH.md"
 _INSTRUCTION_CONTINUE_PATH = _TEMPLATES_DIR / "INSTRUCTION_CONTINUE.md"
+_INSTRUCTION_VALIDATE_PATH = _TEMPLATES_DIR / "INSTRUCTION_VALIDATE.md"
 _INSTRUCTION_COMMON_PATH = _TEMPLATES_DIR / "INSTRUCTION_COMMON.md"
 _ISOLATED_PROTOCOL_PATH = _TEMPLATES_DIR / "ISOLATED_PROTOCOL.md"
 
@@ -50,13 +51,16 @@ def workdir_for(task: Task, task_dir: Path) -> str | None:
     return isolation_workdir(task_dir) or task.cwd
 
 
-def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
+def render_prompt(
+    task: Task, task_dir: Path, plan: LaunchPlan | None, *, mode: str | None = None
+) -> str:
     """Build the one prompt every coder sends: header + pack + mode instructions.
 
     Shared by all five coders' `build_argv` so the assembly logic (header,
     launch-mode instructions, isolated-worktree protocol) exists once. *plan*
     is None for tests/back-compat call sites that don't plan launches yet;
-    treated the same as a fresh, empty-pack plan.
+    treated the same as a fresh, empty-pack plan. *mode* overrides
+    `plan.mode` when given (the observer worker launches in "validate").
     """
     artifacts_dir = task_dir / "artifacts"
     worktree = isolation_workdir(task_dir)
@@ -75,10 +79,12 @@ def render_prompt(task: Task, task_dir: Path, plan: LaunchPlan | None) -> str:
         .strip()
     )
 
-    mode = plan.mode if plan is not None else "fresh"
+    mode = mode or (plan.mode if plan is not None else "fresh")
     pack = plan.pack if plan is not None else ""
 
-    if mode == "continue":
+    if mode == "validate":
+        mode_instructions = _INSTRUCTION_VALIDATE_PATH.read_text(encoding="utf-8").strip()
+    elif mode == "continue":
         mode_instructions = _INSTRUCTION_CONTINUE_PATH.read_text(encoding="utf-8").strip()
     else:
         mode_instructions = _INSTRUCTION_FRESH_PATH.read_text(encoding="utf-8").strip()

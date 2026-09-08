@@ -325,3 +325,56 @@ Rules worth repeating here:
   step registries. Branching lives in `plan`, not inside a step.
 - A step earns its existence with its own test and a second user;
   otherwise it's a function inside another step.
+
+## Observer
+
+Beads of type `epic` route to the observer family
+(`workers/observe.py::plan_observer`, always `Observer = Worker("observer",
+(WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups()))`).
+The claim rule lives in `beads/queue.py`: an epic is claimed when `bd
+ready` lists it, or when it is open, has children (its dependencies of
+relation `blocks`/`depends_on`, via `beads/client.py::children_of`), and
+`core/job_ready.py::children_terminal` holds (every child `closed` or
+`blocked` — a `blocked` child would otherwise leave the epic asleep
+forever, since beads only marks an issue ready when every dependency
+closed).
+
+Steps:
+
+- `WaitChildren`: all children terminal → ok; else outcome `WAITING`
+  (`"k of n children still running"`), which covers the race where an epic
+  is claimed while a child still runs.
+- `CollectChildren` (Python, no model): digests each child
+  (`artifacts/RESULT.json` status+summary, latest `attempts/<n>/SUMMARY.md`
+  commits/files, bead status, `blocked_reason`) into
+  `artifacts/CHILDREN.md`, bounded by construction (≤ 8 KB total, ≤ 600
+  chars per child, oldest sections dropped first). Child ids and the
+  blocked count go to `ctx.scratch`; the validate `LaunchPlan` (with the
+  digest as its pack) goes there too, so `FLEET_LAUNCH_MODE=validate`.
+- `LlmSession` with the validate pack (`coders/base.py::render_prompt`
+  `mode="validate"`, `templates/INSTRUCTION_VALIDATE.md`): checks the repo
+  against the epic goal (runs the test suite, reads changed files, never
+  re-reads child logs) and writes RESULT.json — `done` when the goal is
+  met, `partial` with `followups: [{title, body, cwd, depends_on: []}]`
+  when work is missing, `blocked` with `blocked_reason` when a human must
+  fix a blocked child. Same coder/model as the epic bead.
+- `SpawnFollowups` (Python): validates `followups` with
+  `core/job_plan.py::validate_followups` (≤ `observer_max_followups`,
+  unique titles, `depends_on` naming sibling titles, acyclic) and creates
+  them via `beads/queue.py::create_child` (title/body/cwd default from the
+  epic, coder/model inherited, `--deps` between follow-ups, epic gains a
+  dependency on each), then comments `"[fleet] opened k follow-ups: ids"`.
+
+Outcome policy (`core/retry_policy.py`, applied in `orchestrator/reap.py`):
+
+| outcome | action |
+|---|---|
+| `WAITING` | `RELEASE` (short delay against hot-looping), no bead comment, no round counting, logged as `worker_waiting`; the Attempts timeline shows a grey `waiting` row |
+| RESULT `done` | `CLOSE` the epic with `close_reason` |
+| RESULT `blocked` | `BLOCK`; triage surfaces it |
+| RESULT `partial` | `RELEASE` (follow-ups keep the epic asleep until they close); past `observer_max_rounds` partial observer rounds (counted from attempts.jsonl via `core/job_plan.py::observer_rounds`) → `BLOCK` "observer exhausted; needs human review" |
+| session-step failure | normal task table |
+
+`WaitChildren`/`CollectChildren`/`SpawnFollowups` take no concurrency
+slot; only `LlmSession` does. A waiting observer attempt exits in seconds,
+so it never holds a slot long.

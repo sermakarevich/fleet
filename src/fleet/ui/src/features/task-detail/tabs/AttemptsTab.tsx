@@ -68,6 +68,7 @@ function AttemptRow({
         style={{
           ...styles.header,
           ...(attempt.kind === 'compact' ? styles.compactRow : {}),
+          ...(attempt.outcome === 'waiting' ? styles.waitingRow : {}),
         }}
         onClick={onToggle}
       >
@@ -150,6 +151,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   compactRow: {
     background: '#1c1917',
+  },
+  waitingRow: {
+    background: '#18181b',
+    color: '#71717a',
   },
   contextBadge: {
     whiteSpace: 'nowrap',

@@ -6,6 +6,7 @@ import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { Header } from './Header';
 import { LiveTab } from './tabs/LiveTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
+import { ChildrenTab } from './tabs/ChildrenTab';
 import { PlanTab } from './tabs/PlanTab';
 import { HandoffTab } from './tabs/HandoffTab';
 import { KnowledgeTab } from './tabs/KnowledgeTab';
@@ -17,11 +18,12 @@ import { EventsTab } from './tabs/EventsTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import type { FleetEvent } from '../../shared/types';
 
-type TabId = 'live' | 'attempts' | 'plan' | 'handoff' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'attempts' | 'children' | 'plan' | 'handoff' | 'knowledge' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
   { id: 'attempts', label: 'Attempts' },
+  { id: 'children', label: 'Children' },
   { id: 'plan', label: 'Plan' },
   { id: 'handoff', label: 'Handoff' },
   { id: 'knowledge', label: 'Knowledge' },
@@ -72,6 +74,7 @@ export function TaskDetailPage() {
     switch (activeTab) {
       case 'live': return <LiveTab events={events} />;
       case 'attempts': return <AttemptsTab taskId={task!.id} attempts={task?.attempts ?? []} />;
+      case 'children': return <ChildrenTab taskId={task!.id} />;
       case 'plan': return <PlanTab taskId={task!.id} result={task!.result} />;
       case 'handoff': return <HandoffTab taskId={task!.id} />;
       case 'knowledge': return <KnowledgeTab taskId={task!.id} />;

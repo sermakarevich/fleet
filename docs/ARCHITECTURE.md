@@ -182,9 +182,10 @@ $FLEET_HOME/tasks/<id>/
      .checkpoint_sent       # touched by the claude PostToolUse hook after firing once
      .compacted             # touched by the claude PreCompact hook (CLI-side auto-compaction)
    .needs_validation .kill
-   artifacts/
-    RESULT.json      # worker's declared outcome for the last attempt
-    RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
+    artifacts/
+     RESULT.json      # worker's declared outcome for the last attempt
+     RESULT.prev.json # previous attempt's RESULT.json, rotated aside before each spawn
+     CHILDREN.md      # observer worker's bounded digest of child beads (epic tasks only)
     PLAN.md          # restatement + plan; written once, updated rarely
     HANDOFF.md       # overwritten every attempt, hard cap 2 KB
     KNOWLEDGE.md     # curated durable facts, rewritten when stale (~4 KB cap)

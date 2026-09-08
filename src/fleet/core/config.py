@@ -40,6 +40,10 @@ class RuntimeConfig:
     triage_interval_minutes: int = 15
     gc_retention_days: int = 30
     gc_archive_days: int = 90
+    # Observer worker: max follow-up beads opened per validation round, and
+    # max partial observer rounds before the epic blocks for human review.
+    observer_max_followups: int = 10
+    observer_max_rounds: int = 3
 
 
 _KEY_TYPES: dict[str, type] = {

@@ -80,7 +80,7 @@ export interface TaskResult {
 export interface TaskAttempt {
   n: number;
   kind: string; // "work" or "compact" (compaction job).
-  mode: 'fresh' | 'continue' | 'compact' | null;
+  mode: 'fresh' | 'continue' | 'validate' | 'compact' | null;
   coder: string | null;
   model: string | null;
   started_at: string | null;
@@ -95,6 +95,20 @@ export interface TaskAttempt {
   result: TaskResult | null;
   has_summary: boolean;
   has_handoff: boolean;
+}
+
+// One child bead of an epic: GET /api/tasks/{id}/children (see workers/observe.py).
+export interface TaskChild {
+  id: string;
+  title: string | null;
+  status: string | null;
+  result_status: string | null;
+  result_summary: string | null;
+}
+
+export interface TaskChildren {
+  children: TaskChild[];
+  children_md: string | null;
 }
 
 export interface TaskDetail extends TaskSummary {

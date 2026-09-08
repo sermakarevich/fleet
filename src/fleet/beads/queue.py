@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
+from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir
 
@@ -370,7 +371,94 @@ class BeadsQueue(Queue):
                 cand["id"], self._snapshot_meta(cand, status="in_progress")
             )
             return self._task_from_dict(cand, status_override="in_progress")
+        # `bd ready` only lists issues whose dependencies all closed. An epic
+        # with a `blocked` child never becomes ready, so scan open epics and
+        # claim the first whose children are all terminal (closed/blocked).
+        return self._claim_ready_epic(claimer_id, can_claim=can_claim)
+
+    def _claim_ready_epic(self, claimer_id: str, *, can_claim=None) -> Task | None:
+        """Claim one open epic whose children are all closed/blocked, if any.
+
+        Epics are the observer worker's input (workers/observe.py); the
+        WaitChildren step re-releases when a child is still running, so a
+        race here only costs one short attempt.
+        """
+        try:
+            data = self._bd("list", "--status", "open", "--json", "--limit", "0")
+        except BeadsError:
+            return None
+        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+        if not isinstance(items, list):
+            return None
+        epics = [c for c in items if isinstance(c, dict) and c.get("issue_type") == "epic"]
+        for cand in self._order_ready(epics):
+            epic_id = cand.get("id")
+            if not epic_id:
+                continue
+            if self._retry_after_in_future(epic_id):
+                continue
+            try:
+                children = self.list_children(epic_id)
+            except BeadsError:
+                continue
+            if not children or not children_terminal(children):
+                continue
+            if can_claim is not None:
+                cand_coder = self._load_meta(epic_id).get("coder") or (
+                    cand.get("metadata") or {}
+                ).get("fleet_coder")
+                if not can_claim(cand_coder):
+                    continue
+            try:
+                self._bd(
+                    "update",
+                    epic_id,
+                    "--claim",
+                    json_envelope=False,
+                    actor=claimer_id,
+                )
+            except BeadsError:
+                continue
+            self._write_meta(
+                epic_id, self._snapshot_meta(cand, status="in_progress")
+            )
+            return self._task_from_dict(cand, status_override="in_progress")
         return None
+
+    def list_children(self, epic_id: str) -> list[BeadSummary]:
+        """The epic's child beads (its dependencies) with their statuses."""
+        raw = beads_client.children_of(epic_id, self.repo_root)
+        return [
+            BeadSummary(id=str(c.get("id")), status=str(c.get("status") or ""))
+            for c in raw
+            if isinstance(c, dict) and c.get("id")
+        ]
+
+    def create_child(self, epic_id: str, spec: dict) -> Task:
+        """Open one observer follow-up bead under *epic_id*.
+
+        *spec* is a validated follow-up (core/job_plan.validate_followups):
+        title/body/cwd/depends_on (sibling bead ids for --deps between
+        follow-ups). Title/body/cwd fall back to the epic's own; coder/model
+        are inherited so the follow-up runs the same setup. The epic gains a
+        dependency on each child, so beads keeps it asleep until they close.
+        """
+        epic = self.get(epic_id)
+        title = spec.get("title") or epic.title
+        body = spec.get("body") or ""
+        child = self.create_task(
+            title,
+            description=body,
+            depends_on=spec.get("depends_on") or [],
+            cwd=spec.get("cwd") or epic.cwd,
+            coder=epic.coder,
+            model=epic.model,
+        )
+        try:
+            self._bd("dep", "add", epic_id, child.id, json_envelope=False)
+        except BeadsError:
+            pass
+        return child
 
     def _retry_after_in_future(self, task_id: str) -> bool:
         """True when task.json retry_after is still in the future (delayed retry)."""

@@ -24,6 +24,14 @@ export function useTask(id: string) {
   });
 }
 
+export function useTaskChildren(id: string) {
+  return useQuery({
+    queryKey: ['task-children', id],
+    queryFn: () => api.getTaskChildren(id),
+    refetchInterval: 5000,
+  });
+}
+
 // Fetched lazily when an attempt row in the Attempts timeline is expanded.
 export function useAttemptSummary(taskId: string, n: number, enabled: boolean) {
   return useQuery({

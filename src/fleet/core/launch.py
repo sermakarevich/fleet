@@ -35,7 +35,7 @@ class ArtifactSnapshot:
 
 @dataclass
 class LaunchPlan:
-    mode: Literal["fresh", "continue"]
+    mode: Literal["fresh", "continue", "validate"]
     pack: str
     pack_bytes: int
     needs_compaction: bool

@@ -2,7 +2,19 @@ import json
 from pathlib import Path
 
 from fleet.state import attempts
-from fleet.state.attempts import latest_attempt_dir, record_end, record_start
+from fleet.state.attempts import latest_attempt_dir, record_end, record_start, set_worker
+
+
+def test_set_worker_tags_start_line(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "t-001"
+    n = record_start(task_dir, coder="claude", model="sonnet")
+    set_worker(task_dir, n, "observer")
+    items = attempts.load_attempts(task_dir)
+    assert items[0]["worker"] == "observer"
+
+
+def test_set_worker_missing_file_is_noop(tmp_path: Path) -> None:
+    set_worker(tmp_path / "nope", 1, "observer")
 
 
 def test_start_end_round_trip(tmp_path: Path) -> None:
