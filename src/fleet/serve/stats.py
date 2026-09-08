@@ -7,9 +7,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.events import parse_iso, scan_cached
+from fleet.state.events import EventScanCache, parse_iso, scan_cached
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
+
+# Owner of cached event scans for the serve stats helpers below.
+_events_cache = EventScanCache()
 
 
 @dataclass
@@ -58,7 +61,7 @@ def _read_started_at(tdir: Path) -> datetime | None:
 
 def task_runtime_info_cached(tdir: Path) -> TaskRuntimeInfo:
     """Return TaskRuntimeInfo for tdir; re-scans events.jsonl only on change."""
-    stats = scan_cached(tdir)
+    stats = scan_cached(tdir, _events_cache)
     return TaskRuntimeInfo(
         started_at=_read_started_at(tdir),
         last_event_at=stats.last_ts,
@@ -71,7 +74,7 @@ def task_runtime_info_cached(tdir: Path) -> TaskRuntimeInfo:
 
 def task_runtime_stats_from_dir(tdir: Path) -> TaskRuntimeStats:
     """Same fields as TaskRuntimeInfo, minus the last-event-kind/detail pair."""
-    stats = scan_cached(tdir)
+    stats = scan_cached(tdir, _events_cache)
     return TaskRuntimeStats(
         started_at=_read_started_at(tdir),
         last_event_at=stats.last_ts,
@@ -87,4 +90,4 @@ def task_runtime_stats(task_id: str) -> TaskRuntimeStats:
 
 def task_files_touched_from_dir(tdir: Path) -> int:
     """Count unique files touched (read/edited/written) across a task's events."""
-    return scan_cached(tdir).files_touched_count
+    return scan_cached(tdir, _events_cache).files_touched_count
