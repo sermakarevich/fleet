@@ -15,9 +15,9 @@ from fleet.beads import client as beads_client
 from fleet.beads.cache import get_beads_status_map
 from fleet.beads.client import BeadsError
 from fleet.beads.reconcile import merge_status
-from fleet.coders import get_coder
+from fleet.coders import context_limit_for, get_coder
 from fleet.coders import list_coders as _list_coders
-from fleet.observability.daemon import _pid_alive
+from fleet.core.process import pid_alive
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
@@ -28,7 +28,11 @@ from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root
 from fleet.state.task_meta import TaskMeta
-from fleet.state.task_summary import build_task_summary, read_result
+from fleet.state.task_summary import (
+    build_task_summary,
+    context_overrides_for_home,
+    read_result,
+)
 from fleet.state.validation_marker import (
     clear_needs_validation,
 )
@@ -78,8 +82,26 @@ def _read_task_jsons(home: Path) -> list[dict]:
     return results
 
 
-def _build_all_summaries(tasks: list[dict], home: Path) -> list[dict]:
-    return [build_task_summary(_task_dir(home, d.get("id", "")), d, home) for d in tasks]
+def _build_all_summaries(
+    tasks: list[dict], home: Path, beads_map: dict[str, dict] | None = None
+) -> list[dict]:
+    return [_build_summary(_task_dir(home, d.get("id", "")), d, home, beads_map) for d in tasks]
+
+
+def _build_summary(
+    task_dir: Path,
+    data: dict,
+    home: Path,
+    beads_map: dict[str, dict] | None = None,
+) -> dict:
+    """Build one task summary with caller-resolved context limit and notes."""
+    overrides = context_overrides_for_home(home)
+    limit = context_limit_for(data.get("coder"), data.get("model"), overrides)
+    notes: str | None = None
+    if data.get("blocked_reason") is None and data.get("status") == "blocked":
+        resolved = beads_map if beads_map is not None else get_beads_status_map(home)
+        notes = (resolved or {}).get(data.get("id", ""), {}).get("notes")
+    return build_task_summary(task_dir, data, home, context_limit=limit, blocked_notes=notes)
 
 
 def _sync_remove_assignee(task_id: str, home: Path) -> tuple[bool, str]:
@@ -131,7 +153,7 @@ def _supervisor_alive(home: Path) -> bool:
             pid = int(data.get("pid", 0)) or None
         except (ValueError, json.JSONDecodeError):
             pid = int(text) if text.isdigit() else None
-        return pid is not None and _pid_alive(pid)
+        return pid is not None and pid_alive(pid)
     except OSError:
         return False
 
@@ -194,7 +216,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
             closed = closed[:closed_limit]
 
         selected = active + closed
-        summaries = await asyncio.to_thread(_build_all_summaries, selected, home)
+        summaries = await asyncio.to_thread(_build_all_summaries, selected, home, beads_map)
 
         # Sort all summaries by recency descending
         summaries.sort(key=lambda s: _recency_key(s) or "", reverse=True)
@@ -219,7 +241,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
                 "priority": beads_info["priority"],
                 "depends_on": beads_info["depends_on"],
             }
-        summary = build_task_summary(_task_dir(home, task_id), data, home)
+        summary = _build_summary(_task_dir(home, task_id), data, home)
         return JSONResponse(summary)
 
     # ------------------------------------------------------------------
@@ -244,7 +266,7 @@ def create_tasks_router() -> APIRouter:  # noqa: PLR0915  # ADR 0006 bead 9
         if task_dir is None:
             return JSONResponse({"error": "not found"}, status_code=404)
         data = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-        summary = build_task_summary(task_dir, data, home)
+        summary = _build_summary(task_dir, data, home)
         return JSONResponse({"attempts": summary["attempts"]})
 
     @router.get("/tasks/{task_id}/children")

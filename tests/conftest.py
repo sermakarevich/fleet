@@ -7,13 +7,14 @@ import structlog
 
 from fleet.beads.queue import BeadsQueue
 from fleet.coders.base import Coder
-from fleet.core.config import RuntimeConfig, load
+from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import StartupCheck
 from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.orchestrator.service import Service
 from fleet.orchestrator.state import RunningWorker
+from fleet.state.config_file import load
 
 
 @pytest.fixture

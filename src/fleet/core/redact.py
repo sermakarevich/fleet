@@ -1,3 +1,10 @@
+"""Credential redaction for event payloads before they are stored or broadcast.
+
+Pure dict-to-dict helper with no I/O. Called by ``state/journal.py``
+(before appending to events.jsonl) and ``serve/watcher.py`` (before
+broadcasting over WebSocket).
+"""
+
 _EXACT_KEYS = frozenset(
     {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY"}
 )

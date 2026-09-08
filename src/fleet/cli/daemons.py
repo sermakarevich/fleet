@@ -22,7 +22,6 @@ from rich.console import Console
 import fleet
 from fleet.beads.queue import BeadsQueue
 from fleet.coders import get_coder
-from fleet.core.config import load as load_config
 from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.ollama_tunnel import ensure_tunnel
@@ -30,6 +29,7 @@ from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervis
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import DEFAULT_CHECKS
 from fleet.orchestrator.rate_gauge import RateGauge
+from fleet.state.config_file import load as load_config
 from fleet.state.journal import setup_supervisor_logger
 from fleet.state.paths import fleet_home
 

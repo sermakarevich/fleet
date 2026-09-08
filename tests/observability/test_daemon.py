@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fleet.observability.daemon import Daemon, DaemonSpec, StartResult, _pid_alive
+from fleet.observability.daemon import Daemon, DaemonSpec, StartResult
 
 
 def make_spec(
@@ -37,26 +37,6 @@ def make_spec(
         stop_timeout=stop_timeout,
         extra=extra or {},
     )
-
-
-# ---------------------------------------------------------------------------
-# _pid_alive
-# ---------------------------------------------------------------------------
-
-
-def test_pid_alive_true_for_self() -> None:
-    assert _pid_alive(os.getpid()) is True
-
-
-def test_pid_alive_false_for_reaped_child() -> None:
-    proc = subprocess.Popen([sys.executable, "-c", ""])
-    proc.wait()  # reap so the PID is fully gone
-    assert _pid_alive(proc.pid) is False
-
-
-def test_pid_alive_false_for_nonpositive() -> None:
-    assert _pid_alive(0) is False
-    assert _pid_alive(-1) is False
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +79,7 @@ def test_start_spawns_detached_and_records_pid(tmp_path: Path, monkeypatch) -> N
     popen = MagicMock(return_value=MagicMock(pid=4242))
     monkeypatch.setattr("fleet.observability.daemon.subprocess.Popen", popen)
     monkeypatch.setattr("fleet.observability.daemon.time.sleep", lambda *_: None)
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", lambda pid: True)
+    monkeypatch.setattr("fleet.observability.daemon.pid_alive", lambda pid: True)
 
     result = d.start()
 
@@ -132,7 +112,7 @@ def test_start_detects_immediate_exit(tmp_path: Path, monkeypatch) -> None:
         "fleet.observability.daemon.subprocess.Popen", MagicMock(return_value=MagicMock(pid=4242))
     )
     monkeypatch.setattr("fleet.observability.daemon.time.sleep", lambda *_: None)
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", lambda pid: False)
+    monkeypatch.setattr("fleet.observability.daemon.pid_alive", lambda pid: False)
 
     result = d.start()
 
@@ -171,7 +151,7 @@ def test_stop_graceful_sigterm(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("fleet.observability.daemon.os.killpg", killpg)
     # alive at the pre-SIGTERM guard, dead on the first poll afterwards
     monkeypatch.setattr(
-        "fleet.observability.daemon._pid_alive", MagicMock(side_effect=[True, False])
+        "fleet.observability.daemon.pid_alive", MagicMock(side_effect=[True, False])
     )
     monkeypatch.setattr("fleet.observability.daemon.time.sleep", lambda *_: None)
 
@@ -188,7 +168,7 @@ def test_stop_escalates_to_sigkill_on_timeout(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setattr("fleet.observability.daemon.os.getpgid", lambda pid: pid)
     killpg = MagicMock()
     monkeypatch.setattr("fleet.observability.daemon.os.killpg", killpg)
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", lambda pid: True)  # never dies
+    monkeypatch.setattr("fleet.observability.daemon.pid_alive", lambda pid: True)  # never dies
     monkeypatch.setattr("fleet.observability.daemon.time.sleep", lambda *_: None)
 
     assert d.stop() is True
@@ -204,7 +184,7 @@ def test_stop_clears_stale_pidfile(tmp_path: Path, monkeypatch) -> None:
     spec = make_spec(tmp_path)
     d = Daemon(spec)
     d._write_pidfile(4242)
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", lambda pid: False)
+    monkeypatch.setattr("fleet.observability.daemon.pid_alive", lambda pid: False)
     assert d.stop() is False
     assert not spec.pidfile.exists()
 
@@ -263,7 +243,7 @@ def test_status_cleans_stale_pidfile(tmp_path: Path, monkeypatch) -> None:
     spec = make_spec(tmp_path)
     d = Daemon(spec)
     d._write_pidfile(4242)
-    monkeypatch.setattr("fleet.observability.daemon._pid_alive", lambda pid: False)
+    monkeypatch.setattr("fleet.observability.daemon.pid_alive", lambda pid: False)
     st = d.status()
     assert st.running is False
     assert not spec.pidfile.exists()

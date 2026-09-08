@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fleet.core.config import reload_if_changed
 from fleet.core.limits import CONFIG_POLL_INTERVAL_SEC
 from fleet.orchestrator.service import PeriodicService, ServiceOrder, emit
+from fleet.state.config_file import reload_if_changed
 
 if TYPE_CHECKING:
     from fleet.orchestrator.state import SupervisorState

@@ -1,5 +1,6 @@
 """One context_limit_for test per coder: all resolve through the same table."""
 
+from fleet.coders import context_limit_for
 from fleet.coders.agy import AgyCoder
 from fleet.coders.claude import ClaudeCoder
 from fleet.coders.codex import CodexCoder
@@ -69,3 +70,8 @@ def test_pi_bedrock_is_200k():
 
 def test_pi_none_falls_back_to_class_default():
     assert PiCoder.context_limit_for(None) == 128_000
+
+
+def test_registry_helper_unknown_coder_falls_back():
+    assert context_limit_for("no-such-coder", "whatever") == 200_000
+    assert context_limit_for(None, "whatever") == 200_000

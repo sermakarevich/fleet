@@ -4,9 +4,9 @@ import json
 import json as _json
 from pathlib import Path
 
+from fleet.coders import context_limit_for
 from fleet.state.task_summary import (
     build_task_summary,
-    coder_context_limit,
     context_overrides_for_home,
 )
 from tests.helpers.task_dir import make_attempt
@@ -98,7 +98,7 @@ def test_context_pct_uses_resolved_per_model_window(tmp_path: Path) -> None:
         "coder": "opencode",
         "model": "muse-spark-1.3-contributor",
     }
-    summary = build_task_summary(task_dir, data, tmp_path)
+    summary = _summary(task_dir, data, tmp_path)
     assert summary["context_tokens"] == 142_000
     assert summary["context_limit"] == 1_048_576
     assert summary["context_pct"] == 142_000 / 1_048_576 * 100
@@ -108,7 +108,7 @@ def test_context_pct_uses_resolved_per_model_window(tmp_path: Path) -> None:
 def test_context_pct_local_qwen_uses_65k_window(tmp_path: Path) -> None:
     task_dir = _task_dir_with_usage(tmp_path, 48_750)
     data = {**_data(), "coder": "pi", "model": "qwen3.6:latest"}
-    summary = build_task_summary(task_dir, data, tmp_path)
+    summary = _summary(task_dir, data, tmp_path)
     assert summary["context_limit"] == 65_000
     assert summary["context_pct"] == 48_750 / 65_000 * 100
 
@@ -120,7 +120,7 @@ def test_context_windows_override_from_runtime_toml(tmp_path: Path) -> None:
     assert context_overrides_for_home(tmp_path) == {"qwen3.6:latest": 100_000}
     task_dir = _task_dir_with_usage(tmp_path, 50_000)
     data = {**_data(), "coder": "pi", "model": "qwen3.6:latest"}
-    summary = build_task_summary(task_dir, data, tmp_path)
+    summary = _summary(task_dir, data, tmp_path)
     assert summary["context_limit"] == 100_000
     assert summary["context_pct"] == 50.0
 
@@ -150,6 +150,27 @@ def test_attempt_row_reads_launch_from_run_json(tmp_path: Path) -> None:
     assert row["result"]["summary"] == "wip"
 
 
-def test_coder_context_limit_unknown_coder_falls_back(tmp_path: Path) -> None:
-    assert coder_context_limit("no-such-coder", "whatever") == 200_000
-    assert coder_context_limit(None, "whatever") == 200_000
+def _summary(task_dir: Path, data: dict, home: Path) -> dict:
+    """Build a summary with the caller-resolved context limit (as serve/cli do)."""
+    return build_task_summary(
+        task_dir,
+        data,
+        home,
+        context_limit=context_limit_for(
+            data.get("coder"), data.get("model"), context_overrides_for_home(home)
+        ),
+    )
+
+
+def test_blocked_notes_fallback_is_used_when_no_reason(tmp_path: Path) -> None:
+    task_dir = _task_dir(tmp_path)
+    data = {**_data(), "status": "blocked"}
+    summary = build_task_summary(task_dir, data, tmp_path, blocked_notes="a bead note")
+    assert summary["blocked_reason"] == "a bead note"
+
+
+def test_blocked_without_notes_stays_none(tmp_path: Path) -> None:
+    task_dir = _task_dir(tmp_path)
+    data = {**_data(), "status": "blocked"}
+    summary = build_task_summary(task_dir, data, tmp_path)
+    assert summary["blocked_reason"] is None

@@ -12,8 +12,8 @@ from typing import Annotated
 
 import typer
 
-from fleet.core.config import load as load_config
 from fleet.integrations.telegram import setup as telegram_setup
+from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home
 
 _TELE_W = 26  # key column width for telegram output

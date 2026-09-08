@@ -8,8 +8,8 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from fleet.cli.main import app
-from fleet.core.config import load as load_config
-from fleet.core.config import write_atomic
+from fleet.state.config_file import load as load_config
+from fleet.state.config_file import write as write_atomic
 
 runner = CliRunner()
 

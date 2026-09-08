@@ -9,8 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from fleet.core.config import load as load_config
-from fleet.observability.daemon import Daemon, _pid_alive, code_fingerprint, supervisor_spec
+from fleet.core.process import pid_alive
+from fleet.observability.daemon import Daemon, code_fingerprint, supervisor_spec
+from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home as get_fleet_home
 
 
@@ -61,7 +62,7 @@ def create_supervisor_router() -> APIRouter:
         home = get_fleet_home()
         cfg = load_config(home / "runtime.toml")
         pid, started_at, stored_fp = _read_pid_info(home)
-        running = pid is not None and _pid_alive(pid)
+        running = pid is not None and pid_alive(pid)
         active_count = _count_active(home) if running else 0
         paused = (home / ".pause").exists()
         max_concurrent = cfg.max_concurrent

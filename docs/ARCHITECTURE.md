@@ -22,6 +22,32 @@ and find the single place where a concept is defined.
    imports `workers`. See `docs/adr/0003-workers-as-step-pipelines.md` for
    why workers exist as a layer of their own.
    `serve` and `cli` are entry points. They hold no domain logic.
+   `tests/test_layering.py` enforces this table (allowed outward imports;
+   `workers` may use `beads` downward; `coders` may use `state` like the
+   layer it sits beside):
+
+   | Layer | May import |
+   |---|---|
+   | `core` | (nothing; pure — no file I/O, no higher layers) |
+   | `state` | `core` |
+   | `beads` | `core`, `state` |
+   | `coders` | `core`, `state` |
+   | `workers` | `core`, `state`, `beads`, `coders` |
+   | `orchestrator` | `core`, `state`, `beads`, `coders`, `workers`, `observability`, `integrations` |
+   | `observability` | `core`, `state` |
+   | `integrations` | `core`, `state`, `beads` |
+   | `serve` | all but `cli` |
+   | `cli` | all |
+
+   Shared single owners from this rule: `core/redact.py` (was
+   `observability/redact.py`), `core/process.py::pid_alive` (was three
+   copies), `state/runtime_stats.py` (was `serve/stats.py`),
+   `state/config_file.py` (file I/O; `core/config.py` keeps the pure
+   `RuntimeConfig`/`parse`/`render_toml`). `state/task_summary.py` takes
+   its context limit and blocked-notes fallback as parameters from the
+   `serve`/`cli` callers instead of importing `coders`/`beads`.
+   Remaining violations live in the test's `KNOWN_VIOLATIONS` with the bead
+   that removes them (`coders`/`workers` → `integrations` is bead 11).
 3. **Entry points are thin.** A route or a command parses input, calls a
    library function, formats output. If a helper in a route or command
    reads a file, runs a subprocess, or computes derived data, it belongs

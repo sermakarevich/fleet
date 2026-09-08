@@ -2,25 +2,25 @@
 
 Combines task.json fields with the events.jsonl scan (fleet.state.events) and
 the attempt-history rounds (fleet.core.retry_policy), so the CLI table and the
-API report the same numbers for the same task.
+API report the same numbers for the same task. Callers reconcile queue status
+beforehand (see `fleet.beads.reconcile.merge_status`) and pass the resolved
+context window and blocked-notes fallback in — this module imports core and
+state only.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import tomllib
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fleet.beads.cache import get_beads_status_map
-from fleet.coders import get_coder
 from fleet.core.context_window import parse_context_windows
+from fleet.core.process import pid_alive
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.triage_policy import ignore_active
-from fleet.serve.stats import task_runtime_info_cached
 from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import attempt_dir as _attempt_dir_path
@@ -28,8 +28,12 @@ from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import iter_attempt_events, scan_rows
 from fleet.state.legacy import legacy_result, legacy_state_text
 from fleet.state.run_file import RunRecord
+from fleet.state.runtime_stats import task_runtime_info_cached
 
 _STATE_EXCERPT_MAX = 6144
+
+#: Context window used when the caller passes no resolved limit.
+DEFAULT_CONTEXT_LIMIT = 200_000
 
 
 def context_overrides_for_home(home: Path) -> dict[str, int]:
@@ -51,20 +55,6 @@ def context_overrides_for_home(home: Path) -> dict[str, int]:
         return parse_context_windows(raw)
     except ValueError:
         return {}
-
-
-def coder_context_limit(
-    coder_name: str | None,
-    model: str | None = None,
-    overrides: dict[str, int] | None = None,
-) -> int:
-    """Resolved context window for a coder/model pair (one denominator for UI + supervisor)."""
-    if not coder_name:
-        return 200_000
-    try:
-        return get_coder(coder_name).context_limit_for(model, overrides)
-    except ValueError:
-        return 200_000
 
 
 def _parse_result_text(text: str) -> dict | None:
@@ -119,18 +109,6 @@ def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
     return run.worker, run.steps
 
 
-def _pid_alive(pid: object) -> bool:
-    """True when *pid* names a live process (signal 0 probe, best effort)."""
-
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError, OSError):
-        return False
-    return True
-
-
 def _read_lease(task_dir: Path) -> dict | None:
     """Read the claim lease from the latest attempt's run.json, if any.
 
@@ -151,7 +129,7 @@ def _read_lease(task_dir: Path) -> dict | None:
     return {
         "heartbeat_at": heartbeat_at,
         "lease_until": lease_until,
-        "alive": _pid_alive(run.pid),
+        "alive": pid_alive(run.pid),
     }
 
 
@@ -163,15 +141,9 @@ def _read_json_file(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _build_attempts_summary(
-    task_dir: Path,
-    coder_name: str | None,
-    model: str | None,
-    overrides: dict[str, int] | None = None,
-) -> list[dict]:
+def _build_attempts_summary(task_dir: Path, limit: int) -> list[dict]:
     """Per-attempt summary rows for the attempts timeline (newest last)."""
     rows: list[dict] = []
-    limit = coder_context_limit(coder_name, model, overrides)
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
         adir = _attempt_dir_path(task_dir, n)
@@ -252,12 +224,21 @@ def _job_artifacts(task_dir: Path) -> dict:
     }
 
 
-def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
+def build_task_summary(
+    task_dir: Path,
+    data: dict,
+    home: Path,
+    *,
+    context_limit: int | None = None,
+    blocked_notes: str | None = None,
+) -> dict:
     """Return the summary dict for one task.
 
     *data* is the task.json content, already reconciled against beads status
     (see `fleet.beads.reconcile.merge_status`) by the caller. *home* is the
-    fleet home directory, needed for the blocked-reason beads fallback.
+    fleet home directory. *context_limit* is the resolved coder/model window
+    (defaults to DEFAULT_CONTEXT_LIMIT); *blocked_notes* is the beads-notes
+    fallback used when a blocked task has no blocked_reason.
     """
     task_id = data.get("id", "")
     info = task_runtime_info_cached(task_dir)
@@ -270,8 +251,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     )
     context_tokens = info.context_tokens
     context_pct: float | None = None
-    overrides = context_overrides_for_home(home)
-    limit = coder_context_limit(data.get("coder"), data.get("model"), overrides)
+    limit = context_limit if context_limit is not None else DEFAULT_CONTEXT_LIMIT
     if context_tokens is not None:
         context_pct = context_tokens / limit * 100
 
@@ -284,8 +264,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
 
     blocked_reason = data.get("blocked_reason")
     if blocked_reason is None and status == "blocked":
-        beads_status = get_beads_status_map(home) or {}
-        blocked_reason = beads_status.get(task_id, {}).get("notes")
+        blocked_reason = blocked_notes
 
     ignore_until = data.get("ignore_until")
 
@@ -293,9 +272,7 @@ def build_task_summary(task_dir: Path, data: dict, home: Path) -> dict:
     worker, steps = _read_run_info(task_dir)
     history = attempts.load_attempts(task_dir)
     rounds = rounds_for_history(history)
-    attempt_rows = _build_attempts_summary(
-        task_dir, data.get("coder"), data.get("model"), overrides
-    )
+    attempt_rows = _build_attempts_summary(task_dir, limit)
     compactions = sum(1 for h in history if h.get("kind") == "compact")
     latest_peak_context_pct = attempt_rows[-1]["peak_context_pct"] if attempt_rows else None
 

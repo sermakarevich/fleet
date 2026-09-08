@@ -1,8 +1,12 @@
-import contextlib
+"""Runtime configuration: pure parse/render of runtime.toml data.
+
+This module never touches the disk. File I/O (load, reload_if_changed,
+write) lives in ``state/config_file.py``; this module owns the
+``RuntimeConfig`` type plus the pure ``parse`` (dict -> config) and
+``render_toml`` (dict -> TOML text) helpers it is built from.
+"""
+
 import logging
-import os
-import tempfile
-import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
@@ -82,7 +86,7 @@ def _coerce(key: str, value: object) -> object:
     return typ(value)
 
 
-def _write_toml_str(data: dict) -> str:
+def render_toml(data: dict) -> str:
     """Serialize a flat dict of int/str/bool values to TOML."""
     lines = [_TOML_HEADER_PATH.read_text(encoding="utf-8")]
     for k, v in data.items():
@@ -117,7 +121,7 @@ def _validate_isolation(value: object) -> None:
         raise ValueError(f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'")
 
 
-def _parse(data: dict) -> RuntimeConfig:
+def parse(data: dict) -> RuntimeConfig:
     """Overlay TOML data onto defaults; ignore unknown keys."""
     _warn_deprecated(data)
     merged = _defaults()
@@ -128,71 +132,14 @@ def _parse(data: dict) -> RuntimeConfig:
     return RuntimeConfig(**merged)
 
 
-def load(path: Path) -> RuntimeConfig:
-    """Read + parse runtime.toml; create with defaults when missing."""
-    path = Path(path)
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        defaults = _defaults()
-        path.write_text(_write_toml_str(defaults), encoding="utf-8")
-        return RuntimeConfig()
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    return _parse(data)
-
-
-def reload_if_changed(
-    path: Path, current_mtime: float | None
-) -> tuple[RuntimeConfig, float] | None:
-    """Return (new_config, new_mtime) if file changed, else None."""
-    path = Path(path)
-    stat = os.stat(path)
-    if current_mtime is not None and stat.st_mtime == current_mtime:
-        return None
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    return _parse(data), stat.st_mtime
-
-
-def write_atomic(path: Path, updates: dict[str, str]) -> RuntimeConfig:
-    """Merge updates into on-disk TOML atomically; return new RuntimeConfig."""
-    path = Path(path)
+def merge(existing: dict, updates: dict) -> dict:
+    """Merge on-disk TOML data and new updates onto defaults; all coerced."""
     unknown = set(updates) - set(_KEY_TYPES)
     if unknown:
         raise ValueError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
-
-    if "coder" in updates:
-        # Lazy import: core must not import the coders package at module level
-        # (lower layers never import higher ones; ADR 0006 bead 4 moves this
-        # validation into beads/client with the other create-time checks).
-        from fleet.coders import get_coder  # noqa: PLC0415  # ADR 0006 bead 4
-
-        get_coder(updates["coder"])  # raises ValueError on unknown coder name
-
     if "isolation" in updates:
         _validate_isolation(_coerce("isolation", updates["isolation"]))
-
-    # Load existing or start from defaults
-    if path.exists():
-        with path.open("rb") as fh:
-            existing = tomllib.load(fh)
-    else:
-        existing = {}
-
     merged = _defaults()
     merged.update({k: _coerce(k, v) for k, v in existing.items() if k in _KEY_TYPES})
     merged.update({k: _coerce(k, v) for k, v in updates.items()})
-
-    toml_str = _write_toml_str(merged)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(toml_str)
-        os.replace(tmp_path, path)
-    except Exception:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
-
-    return RuntimeConfig(**merged)
+    return merged

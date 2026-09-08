@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import shutil
 import socket
 import subprocess
@@ -36,6 +35,7 @@ from typing import TYPE_CHECKING
 
 from fleet.core.iso import parse_iso
 from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
+from fleet.core.process import pid_alive
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root as _tasks_root
@@ -51,19 +51,6 @@ if TYPE_CHECKING:
     from .state import SupervisorState
 
 LEASE_EXPIRED_REASON = "lease expired"
-
-
-def _pid_alive(pid: object) -> bool:
-    """True when *pid* names a live process (signal 0 probe)."""
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        return False
-    except OSError:
-        return False
-    return True
 
 
 def _host_name() -> str:
@@ -247,7 +234,7 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
     if isinstance(host, str) and host and host != _host_name():
         pid_dead = True
     else:
-        pid_dead = not _pid_alive(pid)
+        pid_dead = not pid_alive(pid)
     if not pid_dead:
         # Stale lease but the process is alive: it may be a slow host
         # or a pid another supervisor owns. Never kill; just warn.

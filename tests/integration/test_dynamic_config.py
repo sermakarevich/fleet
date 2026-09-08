@@ -6,8 +6,8 @@ import asyncio
 import contextlib
 from pathlib import Path
 
-from fleet.core.config import write_atomic
 from fleet.core.task import Task
+from fleet.state.config_file import write as write_atomic
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,

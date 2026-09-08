@@ -7,8 +7,9 @@ from dataclasses import asdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from fleet.core.config import load as load_config
-from fleet.core.config import write_atomic
+from fleet.coders import get_coder
+from fleet.state.config_file import load as load_config
+from fleet.state.config_file import write as write_config
 from fleet.state.paths import fleet_home as get_fleet_home
 
 
@@ -26,8 +27,13 @@ def create_config_router() -> APIRouter:
         home = get_fleet_home()
         body = await request.json()
         updates = {k: str(v) for k, v in body.items()}
+        if "coder" in updates:
+            try:
+                get_coder(updates["coder"])
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
         try:
-            new_cfg = write_atomic(home / "runtime.toml", updates)
+            new_cfg = write_config(home / "runtime.toml", updates)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         return JSONResponse(asdict(new_cfg))

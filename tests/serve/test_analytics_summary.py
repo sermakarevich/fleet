@@ -11,9 +11,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from fleet.serve import stats as stats_mod
 from fleet.serve.analytics import records as records_mod
 from fleet.serve.app import create_app
+from fleet.state import runtime_stats as stats_mod
 
 
 def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:

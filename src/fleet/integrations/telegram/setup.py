@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.core.config import write_atomic
 from fleet.integrations.telegram.bot import get_me, get_updates, send_message_raise
+from fleet.state.config_file import write as write_config
 
 DISCOVERY_ROUNDS = 8  # ~40s of polling at POLL_TIMEOUT_SEC per round
 POLL_TIMEOUT_SEC = 5
@@ -68,11 +68,11 @@ def discover_users(token: str, offset: int | None) -> tuple[dict[str, str], int 
 
 
 def write_chat_id(path: Path, chat_id: str) -> None:
-    write_atomic(path, {"telegram_chat_id": chat_id})
+    write_config(path, {"telegram_chat_id": chat_id})
 
 
 def write_inbound_config(path: Path, allowed_ids: str, default_cwd: str) -> None:
-    write_atomic(
+    write_config(
         path,
         {"telegram_allowed_ids": allowed_ids, "telegram_default_cwd": default_cwd},
     )

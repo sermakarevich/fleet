@@ -11,6 +11,7 @@ import typer
 from fleet.beads import client as beads_client
 from fleet.beads.create_args import rewrite_create_argv
 from fleet.beads.queue import BeadsQueue
+from fleet.coders import get_coder
 from fleet.state.paths import fleet_home
 
 
@@ -27,6 +28,23 @@ def _first_positional(args: list[str]) -> str | None:
             continue
         return a
     return None
+
+
+def _create_coder_name(args: list[str]) -> str | None:
+    """Return the --coder value in a bd create argv tail, if present."""
+    for i, token in enumerate(args):
+        if token == "--coder" and i + 1 < len(args):
+            return args[i + 1]
+        if token.startswith("--coder="):
+            return token[len("--coder=") :]
+    return None
+
+
+def _validate_create_coder(args: list[str]) -> None:
+    """Raise ValueError when --coder names an unknown coder."""
+    coder = _create_coder_name(args)
+    if coder is not None:
+        get_coder(coder)  # raises ValueError on an unknown coder name
 
 
 def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
@@ -75,6 +93,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             raise typer.Exit(result.returncode)
 
         try:
+            _validate_create_coder(bd_args)
             bd_args, overrides = rewrite_create_argv(bd_args, os.getcwd())
         except ValueError as exc:
             typer.echo(str(exc), err=True)

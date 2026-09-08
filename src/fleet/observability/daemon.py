@@ -33,6 +33,7 @@ from pathlib import Path
 import fleet as _fleet_pkg
 from fleet.core.iso import now_iso
 from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
+from fleet.core.process import pid_alive
 
 # Seconds to wait after spawning before probing liveness, so `start` can report
 # an immediately-crashing daemon (bad config, import error) instead of a false
@@ -101,20 +102,6 @@ class DaemonStatus:
     stale: bool = False
 
 
-def _pid_alive(pid: int) -> bool:
-    """Return True if `pid` names a live process (signal 0 probe)."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Exists but owned by another user — still "alive" for our purposes.
-        return True
-    return True
-
-
 class Daemon:
     """Manage a single :class:`DaemonSpec` via its PID file."""
 
@@ -160,7 +147,7 @@ class Daemon:
 
     def is_alive(self) -> bool:
         pid = self.pid()
-        return pid is not None and _pid_alive(pid)
+        return pid is not None and pid_alive(pid)
 
     def _write_pidfile(self, pid: int) -> None:
         self.spec.pidfile.parent.mkdir(parents=True, exist_ok=True)
@@ -186,7 +173,7 @@ class Daemon:
         if not data:
             return DaemonStatus(running=False, pid=None, started_at=None, extra={})
         pid = self.pid()
-        if pid is None or not _pid_alive(pid):
+        if pid is None or not pid_alive(pid):
             self._clear_pidfile()  # stale
             return DaemonStatus(running=False, pid=None, started_at=None, extra={})
         extra = {
@@ -211,7 +198,7 @@ class Daemon:
         ``already_running=True`` without spawning a second one.
         """
         existing = self.pid()
-        if existing is not None and _pid_alive(existing):
+        if existing is not None and pid_alive(existing):
             return StartResult(pid=existing, already_running=True, alive=True)
 
         # Stale or absent PID file — (re)spawn.
@@ -234,7 +221,7 @@ class Daemon:
 
         # Give the child a moment to fail fast (bad config, import error, etc.).
         time.sleep(STARTUP_PROBE_SEC)
-        alive = _pid_alive(proc.pid)
+        alive = pid_alive(proc.pid)
         if not alive:
             self._clear_pidfile()
         return StartResult(pid=proc.pid, already_running=False, alive=alive)
@@ -247,7 +234,7 @@ class Daemon:
         """
         timeout = self.spec.stop_timeout if timeout is None else timeout
         pid = self.pid()
-        if pid is None or not _pid_alive(pid):
+        if pid is None or not pid_alive(pid):
             self._clear_pidfile()
             return False
 
@@ -259,7 +246,7 @@ class Daemon:
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if not _pid_alive(pid):
+            if not pid_alive(pid):
                 self._clear_pidfile()
                 return True
             time.sleep(_STOP_POLL_SEC)

@@ -12,9 +12,11 @@ from pathlib import Path
 from rich.table import Table
 from rich.text import Text
 
+from fleet.beads.cache import get_beads_status_map
+from fleet.coders import context_limit_for
 from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir
-from fleet.state.task_summary import build_task_summary
+from fleet.state.task_summary import build_task_summary, context_overrides_for_home
 
 _SEC_PER_MINUTE = 60
 _SEC_PER_HOUR = 3600
@@ -116,19 +118,29 @@ def render_tasks_table(
     table.add_column("Title", overflow="fold")
     table.add_column("cwd", style="dim", overflow="fold")
 
+    overrides = context_overrides_for_home(home)
+    beads_map = get_beads_status_map(home)
     for t in tasks:
         task_dir = _task_dir(home, t.id)
+        coder = t.coder or default_coder
+        model = t.model or default_model
         data = {
             "id": t.id,
             "status": t.status,
             # Resolve to the effective coder/model so the context-limit lookup
             # matches what actually ran, even when the task used fleet's default.
-            "coder": t.coder or default_coder,
-            "model": t.model or default_model,
+            "coder": coder,
+            "model": model,
             "title": t.title,
             "cwd": t.cwd,
         }
-        summary = build_task_summary(task_dir, data, home)
+        summary = build_task_summary(
+            task_dir,
+            data,
+            home,
+            context_limit=context_limit_for(coder, model, overrides),
+            blocked_notes=(beads_map or {}).get(t.id, {}).get("notes"),
+        )
         table.add_row(
             t.id,
             format_started(summary["started_at"]),

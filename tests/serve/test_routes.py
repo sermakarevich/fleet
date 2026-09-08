@@ -12,9 +12,9 @@ import httpx
 import pytest
 
 from fleet.beads import cache as beads_info
-from fleet.serve import stats as stats_mod
 from fleet.serve.app import create_app
 from fleet.state import events as events_mod
+from fleet.state import runtime_stats as stats_mod
 
 
 def _make_task_dir(
@@ -217,6 +217,21 @@ def test_config_put_updates_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     data = resp.json()
     assert data["max_concurrent"] == 5
     assert (tmp_path / "runtime.toml").exists()
+
+
+def test_config_put_unknown_coder_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PUT /api/config with an unknown coder is rejected (FR-43)."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.put("/api/config", json={"coder": "garbage_typo"})
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

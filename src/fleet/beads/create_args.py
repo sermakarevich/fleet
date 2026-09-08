@@ -5,13 +5,15 @@
 overrides embedded in `bd`'s own `--metadata`, so they land atomically with
 `bd create` before the bead can ever be claimed by the supervisor. See
 `queue.py`'s `_task_from_dict` for the read side.
+
+This module never validates names against higher layers (beads never
+imports coders): the caller (`cli/beads.py`) validates `--coder` before
+calling here.
 """
 
 from __future__ import annotations
 
 import json
-
-from fleet.coders import get_coder
 
 
 def _extract_flag(args: list[str], flag: str) -> tuple[list[str], str | None]:
@@ -52,8 +54,8 @@ def rewrite_create_argv(argv: list[str], cwd: str) -> tuple[list[str], dict[str,
     bd metadata `fleet_job_gate`). Returns
     (new_argv, meta) where meta has keys "coder", "model", "worker", "cwd",
     "isolation", "job_gate" (cwd always set; the rest are None unless overridden).
-    Raises ValueError if `--coder` names an unknown coder or `--isolation`
-    names an unknown mode.
+    Raises ValueError if `--isolation` names an unknown mode or `--job-gate`
+    names an unknown mode. The caller validates `--coder` (see `cli/beads.py`).
     """
     argv, coder = _extract_flag(argv, "--coder")
     argv, model = _extract_flag(argv, "--model")
@@ -61,8 +63,6 @@ def rewrite_create_argv(argv: list[str], cwd: str) -> tuple[list[str], dict[str,
     argv, cwd_override = _extract_flag(argv, "--cwd")
     argv, isolation = _extract_flag(argv, "--isolation")
     argv, job_gate = _extract_flag(argv, "--job-gate")
-    if coder is not None:
-        get_coder(coder)  # raises ValueError on an unknown coder name
     if isolation is not None and isolation not in ("worktree", "none"):
         raise ValueError(f"Unknown isolation mode {isolation!r}: expected 'worktree' or 'none'")
     if job_gate is not None and job_gate not in ("on", "off"):

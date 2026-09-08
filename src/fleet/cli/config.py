@@ -7,8 +7,9 @@ from typing import Annotated
 
 import typer
 
-from fleet.core.config import load as load_config
-from fleet.core.config import write_atomic
+from fleet.coders import get_coder
+from fleet.state.config_file import load as load_config
+from fleet.state.config_file import write as write_config
 from fleet.state.paths import fleet_home
 
 
@@ -54,8 +55,14 @@ def register(app: typer.Typer) -> None:
             updates[k.strip()] = v.strip()
 
         path = fleet_home() / "runtime.toml"
+        if "coder" in updates:
+            try:
+                get_coder(updates["coder"])
+            except ValueError as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                raise typer.Exit(1) from exc
         try:
-            new_cfg = write_atomic(path, updates)
+            new_cfg = write_config(path, updates)
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1) from exc

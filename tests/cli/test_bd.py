@@ -86,3 +86,17 @@ def test_cwd_flag_equals_form(mock_run: MagicMock, mock_queue_cls: MagicMock) ->
 
     assert result.exit_code == 0, result.output
     mock_queue.set_cwd.assert_called_once_with("task-abc", "/equals/path")
+
+
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
+def test_unknown_coder_exits_nonzero(mock_run: MagicMock, mock_queue_cls: MagicMock) -> None:
+    """--coder with an unknown name is rejected before bd runs (moved from beads)."""
+    mock_queue_cls.return_value = MagicMock()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["bd", "create", "Test Task", "--coder", "no-such-coder"])
+
+    assert result.exit_code != 0
+    assert "no-such-coder" in result.output
+    mock_run.assert_not_called()

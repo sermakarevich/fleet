@@ -21,7 +21,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import fleet.integrations.ask_human.store as _ahdb
 import fleet.integrations.telegram.bot as tg
 from fleet.beads.queue import BeadsQueue, Queue
-from fleet.core.config import load as load_config
 from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
 from fleet.observability.daemon import code_fingerprint
 from fleet.serve.api.analytics import create_analytics_router
@@ -32,6 +31,7 @@ from fleet.serve.api.search import create_search_router
 from fleet.serve.api.supervisor import create_supervisor_router
 from fleet.serve.api.tasks import create_tasks_router
 from fleet.serve.watcher import ConnectionManager, FileWatcher
+from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 

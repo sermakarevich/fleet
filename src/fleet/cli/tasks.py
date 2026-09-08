@@ -16,15 +16,15 @@ from fleet.beads import client as beads_client
 from fleet.beads.client import BeadsError
 from fleet.beads.queue import BeadsQueue
 from fleet.cli.format import render_tasks_table
-from fleet.core.config import load as load_config
 from fleet.core.job_phase import JobSnapshot, phase
 from fleet.core.limits import LOG_ROOT
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.observability import tailview
-from fleet.serve.stats import task_runtime_stats
+from fleet.state import runtime_stats as _runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.config_file import load as load_config
 from fleet.state.legacy import legacy_state_text
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
@@ -441,7 +441,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
             while not events_path.exists():
                 time.sleep(1)
 
-        stats = task_runtime_stats(task_id)
+        stats = _runtime_stats.task_runtime_stats(task_id)
         last_event_str = (
             stats.last_event_at.strftime("%H:%M:%S") if stats.last_event_at is not None else "-"
         )

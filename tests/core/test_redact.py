@@ -1,4 +1,4 @@
-from fleet.observability.redact import redact
+from fleet.core.redact import redact
 
 
 def test_exact_credential_keys_redacted():

@@ -1,4 +1,10 @@
-"""Task runtime stats: log.jsonl started_at + state.events scan results."""
+"""Task runtime stats: log.jsonl started_at plus state.events scan results.
+
+State-layer helper (it reads task directories). Called by
+``state/task_summary.py`` (the shared summary dict), ``cli/tasks.py``
+(`fleet tail` header), ``serve/watcher.py`` (session_ended enrichment),
+and previously by ``orchestrator/status_log.py``.
+"""
 
 from __future__ import annotations
 
@@ -12,12 +18,14 @@ from fleet.state.events import EventScanCache, parse_iso, scan_cached
 from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _task_dir
 
-# Owner of cached event scans for the serve stats helpers below.
+# Owner of cached event scans for the state stats helpers below.
 _events_cache = EventScanCache()
 
 
 @dataclass
 class TaskRuntimeStats:
+    """Per-task runtime signals: start time, last event, counts, context peak."""
+
     started_at: datetime | None
     last_event_at: datetime | None
     events: int

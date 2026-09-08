@@ -17,10 +17,12 @@ import structlog
 from fleet.beads.client import BeadsError
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.coders.claude import ClaudeCoder
-from fleet.core.config import RuntimeConfig, load, write_atomic
+from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.rate_gauge import RateGauge
+from fleet.state.config_file import load
+from fleet.state.config_file import write as write_atomic
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 

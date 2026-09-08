@@ -10,10 +10,10 @@ from pathlib import Path
 
 from fastapi import WebSocket
 
-from fleet.observability.redact import redact
-from fleet.serve.stats import task_files_touched_from_dir, task_runtime_stats_from_dir
+from fleet.core.redact import redact
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import tasks_root
+from fleet.state.runtime_stats import task_files_touched_from_dir, task_runtime_stats_from_dir
 from fleet.state.tail import read_new_bytes
 
 

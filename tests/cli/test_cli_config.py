@@ -120,3 +120,18 @@ def test_config_set_multiple_keys(tmp_path: Path) -> None:
     content = toml_path.read_text(encoding="utf-8")
     assert "max_concurrent = 4" in content
     assert "stall_warning_minutes = 85" in content
+
+
+def test_config_set_unknown_coder_exits_nonzero(tmp_path: Path) -> None:
+    with _patch_root(tmp_path):
+        result = runner.invoke(app, ["config", "set", "coder=garbage_typo"])
+    assert result.exit_code != 0
+    assert "garbage_typo" in result.output
+
+
+def test_config_set_valid_coder_round_trips(tmp_path: Path) -> None:
+    with _patch_root(tmp_path):
+        result = runner.invoke(app, ["config", "set", "coder=codex"])
+    assert result.exit_code == 0
+    content = (tmp_path / "runtime.toml").read_text(encoding="utf-8")
+    assert 'coder = "codex"' in content

@@ -501,7 +501,7 @@ def _latest_events_file(task_dir: Path) -> Path:
 class EventScanCache:
     """Named owner of cached EventStats, keyed by task directory.
 
-    Created by the caller that wants caching (serve stats helpers, the API
+    Created by the caller that wants caching (state runtime_stats helpers, the API
     files endpoint, analytics records) and passed to ``scan_cached``; this
     module itself holds no shared state. Entries are keyed by the latest
     attempt's events.jsonl mtime+size, with a (-1.0, -1) sentinel when no

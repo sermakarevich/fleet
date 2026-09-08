@@ -10,8 +10,8 @@ from typing import IO
 
 import structlog
 
+from fleet.core.redact import redact
 from fleet.core.task import Event
-from fleet.observability.redact import redact
 
 EVENTS_MAX_BYTES: int = 50 * 1024 * 1024
 EVENTS_KEEP_ROTATED: int = 1

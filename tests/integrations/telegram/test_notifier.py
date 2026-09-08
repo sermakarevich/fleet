@@ -15,8 +15,10 @@ import fleet.integrations.ask_human.store as db_mod
 import fleet.integrations.telegram.bot as tg
 import fleet.serve.api.chat as chat_mod
 import fleet.serve.app as app_mod
-from fleet.core.config import RuntimeConfig, load, write_atomic
+from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
+from fleet.state.config_file import load
+from fleet.state.config_file import write as write_atomic
 
 # ---------------------------------------------------------------------------
 # DB helpers

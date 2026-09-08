@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fleet.core.config import RuntimeConfig, write_atomic
+from fleet.core.config import RuntimeConfig
 from fleet.core.limits import CONFIG_POLL_INTERVAL_SEC
 from fleet.orchestrator.config_reload import ConfigReload
 from fleet.orchestrator.service import Service, ServiceOrder
 from fleet.orchestrator.state import SupervisorState
+from fleet.state.config_file import write as write_atomic
 from tests.conftest import make_supervisor
 
 
