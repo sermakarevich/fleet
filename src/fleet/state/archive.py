@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fleet.state.paths import tasks_root
+from fleet.state.task_index import TaskIndex
 from fleet.state.task_meta import TaskMeta
 
 
@@ -45,9 +46,7 @@ def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     cutoff = time.time() - days * 86400
     if not tasks_dir.is_dir():
         return result
-    for task_dir in sorted(tasks_dir.iterdir()):
-        if not task_dir.is_dir():
-            continue
+    for task_dir, _raw in TaskIndex(home).iter_meta():
         meta = TaskMeta.load(task_dir)
         if meta is None:
             result.skipped += 1
@@ -118,8 +117,8 @@ def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
     cutoff = time.time() - days * 86400
     stale_tasks: dict[str, TaskMeta] = {}
     if tasks_dir.is_dir():
-        for task_dir in sorted(tasks_dir.iterdir()):
-            if task_dir.is_dir() and _closed_and_old(task_dir, cutoff):
+        for task_dir, _raw in TaskIndex(home).iter_meta():
+            if _closed_and_old(task_dir, cutoff):
                 meta = _task_meta(task_dir)
                 if meta is not None:
                     stale_tasks[task_dir.name] = meta

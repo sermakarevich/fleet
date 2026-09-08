@@ -3,37 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
 from http import HTTPStatus
-from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import fleet.integrations.ask_human.store as _ahdb
 import fleet.integrations.telegram.bot as tg
-from fleet.beads.queue import BeadsQueue, Queue
+from fleet.beads.queue import Queue
 from fleet.integrations.ask_human.store import ASK_HUMAN_DB  # re-exported; tests monkeypatch this
-from fleet.observability.daemon import code_fingerprint
-from fleet.serve.api.analytics import create_analytics_router
-from fleet.serve.api.beads import create_beads_router
-from fleet.serve.api.chat import create_chat_router
-from fleet.serve.api.config import create_config_router
-from fleet.serve.api.search import create_search_router
-from fleet.serve.api.supervisor import create_supervisor_router
-from fleet.serve.api.tasks import create_tasks_router
-from fleet.serve.watcher import ConnectionManager, FileWatcher
-from fleet.state.config_file import load as load_config
+from fleet.serve.api import ROUTERS
+from fleet.serve.auth import install_auth
+from fleet.serve.state import build_state, refresh_config
 from fleet.state.paths import fleet_home
-from fleet.state.paths import task_dir as _task_dir
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +47,7 @@ async def _question_poller(app: FastAPI) -> None:
                 continue
             questions = await asyncio.to_thread(_db_fetch_new_questions, watermark)
             new_wm = watermark
-            home = app.state.fleet_state.fleet_home
+            home = app.state.fleet_state.home
             for q in questions:
                 agent_id = q.get("agent_id") or "unknown"
                 prompt = q.get("prompt") or ""
@@ -97,32 +86,21 @@ class _SPAStaticFiles(StaticFiles):
             raise
 
 
-@dataclass
-class AppState:
-    fleet_home: Path
-    config: Any
-    config_mtime: float | None
-
-
-def create_app(queue: Queue | None = None) -> FastAPI:  # noqa: PLR0915  # ADR 0006 bead 9
+def create_app(queue: Queue | None = None) -> FastAPI:
     """Create and configure the fleet FastAPI application."""
-    mgr = ConnectionManager()
-    watcher = FileWatcher()
-    home = fleet_home()
-    resolved_queue = queue if queue is not None else BeadsQueue(home)
+    state = build_state(queue)
+    mgr = state.connection_manager
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        home = fleet_home()
-        runtime_toml = home / "runtime.toml"
-        cfg = load_config(runtime_toml)
-        mtime: float | None = runtime_toml.stat().st_mtime if runtime_toml.exists() else None
-        app.state.fleet_state = AppState(fleet_home=home, config=cfg, config_mtime=mtime)
-        watcher_task = asyncio.create_task(watcher.start(home, mgr))
+        refresh_config(state)
+        watcher_task = asyncio.create_task(state.watcher.start(state.home, mgr))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
             tg.inbound_listener(
-                app, home / "telegram_update_offset", home / "telegram_question_msgs.json"
+                app,
+                state.home / "telegram_update_offset",
+                state.home / "telegram_question_msgs.json",
             )
         )
         try:
@@ -139,92 +117,14 @@ def create_app(queue: Queue | None = None) -> FastAPI:  # noqa: PLR0915  # ADR 0
                 await listener_task
 
     app = FastAPI(lifespan=_lifespan)
+    refresh_config(state)
+    install_auth(app)
 
-    def _expected_token() -> str:
-        return os.environ.get("FLEET_API_TOKEN", "").strip()
-
-    @app.middleware("http")
-    async def _bearer_auth(request: Request, call_next):
-        token = _expected_token()
-        path = request.url.path
-        if token and path.startswith("/api/"):
-            auth = request.headers.get("authorization", "")
-            supplied = (
-                auth[7:]
-                if auth.lower().startswith("bearer ")
-                else request.query_params.get("token", "")
-            )
-            if supplied != token:
-                return JSONResponse({"detail": "unauthorized"}, status_code=401)
-        return await call_next(request)
-
+    app.state.fleet_state = state
     app.state.connection_manager = mgr
-    app.state.queue = resolved_queue
-    app.include_router(create_tasks_router())
-    app.include_router(create_beads_router())
-    app.include_router(create_supervisor_router())
-    app.include_router(create_config_router())
-    app.include_router(create_analytics_router())
-    app.include_router(create_search_router())
-    app.include_router(create_chat_router())
-
-    @app.get("/healthz")
-    async def healthz() -> JSONResponse:
-        home = fleet_home()
-        stored_fp: str | None = None
-        serve_pid_file = home / ".serve.pid"
-        if serve_pid_file.exists():
-            try:
-                data = json.loads(serve_pid_file.read_text(encoding="utf-8"))
-                stored_fp = data.get("version_fingerprint") if isinstance(data, dict) else None
-            except (OSError, json.JSONDecodeError, ValueError):
-                pass
-        current_fp = code_fingerprint()
-        stale = stored_fp is not None and stored_fp != current_fp
-        return JSONResponse(
-            {
-                "status": "ok",
-                "fleet_home": str(home),
-                "version_fingerprint": stored_fp,
-                "current_fingerprint": current_fp,
-                "stale": stale,
-            }
-        )
-
-    @app.websocket("/ws/events")
-    async def ws_events(ws: WebSocket) -> None:
-        token = _expected_token()
-        if token and ws.query_params.get("token", "") != token:
-            await ws.close(code=4401)
-            return
-        await mgr.connect(ws)
-        try:
-            while True:
-                await ws.receive_text()
-        except (WebSocketDisconnect, RuntimeError):
-            pass
-        finally:
-            await mgr.disconnect(ws)
-
-    @app.websocket("/ws/tasks/{id}/events")
-    async def ws_task_events(ws: WebSocket, id: str) -> None:
-        token = _expected_token()
-        if token and ws.query_params.get("token", "") != token:
-            await ws.close(code=4401)
-            return
-        task_dir = _task_dir(fleet_home(), id)
-        if not task_dir.is_dir():
-            await ws.accept()
-            await ws.close(code=4004)
-            return
-        await mgr.connect(ws, task_id=id)
-        try:
-            while True:
-                await ws.receive_text()
-        except (WebSocketDisconnect, RuntimeError):
-            pass
-        finally:
-            await mgr.disconnect(ws)
+    app.state.queue = state.queue
+    for router in ROUTERS:
+        app.include_router(router)
 
     ui_dist = fleet_home() / "ui_dist"
     if ui_dist.exists():

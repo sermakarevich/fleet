@@ -12,9 +12,10 @@ from fastapi import WebSocket
 
 from fleet.core.redact import redact
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import tasks_root
 from fleet.state.runtime_stats import task_files_touched_from_dir, task_runtime_stats_from_dir
 from fleet.state.tail import read_new_bytes
+from fleet.state.task_index import TaskIndex
+from fleet.state.task_meta import TaskMeta
 
 
 @dataclass
@@ -64,15 +65,6 @@ class ConnectionManager:
             await self.disconnect(ws)
 
 
-def _read_task_status(task_json: Path) -> str | None:
-    """Return the status field from task.json, or None if unavailable."""
-    try:
-        data = json.loads(task_json.read_bytes())
-        return data.get("status") if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError, AttributeError):
-        return None
-
-
 class FileWatcher:
     def __init__(self) -> None:
         self._tail_state: dict[str, _TailState] = {}
@@ -81,24 +73,24 @@ class FileWatcher:
     async def start(self, fleet_home: Path, mgr: ConnectionManager) -> None:
         """Tail the latest attempt's events.jsonl for all task dirs until cancelled."""
         self._mgr = mgr
+        index = TaskIndex(fleet_home)
         while True:
-            tasks_dir = tasks_root(fleet_home)
-            if tasks_dir.exists():
-                for task_dir in tasks_dir.iterdir():
-                    if task_dir.is_dir():
-                        attempt_dir = latest_attempt_dir(task_dir)
-                        if attempt_dir is None:
-                            continue
-                        events_file = attempt_dir / "events.jsonl"
-                        if events_file.exists():
-                            await self._tail_one(task_dir, task_dir.name, events_file)
-            self._prune_stale(tasks_dir)
+            for task_dir in index.iter_dirs():
+                attempt_dir = latest_attempt_dir(task_dir)
+                if attempt_dir is None:
+                    continue
+                events_file = attempt_dir / "events.jsonl"
+                if events_file.exists():
+                    await self._tail_one(task_dir, task_dir.name, events_file)
+            self._prune_stale(index.tasks_dir)
             await asyncio.sleep(0.2)
 
     def _prune_stale(self, tasks_dir: Path) -> None:
         """Drop _tail_state entries whose task directory no longer exists."""
         existing = (
-            {d.name for d in tasks_dir.iterdir() if d.is_dir()} if tasks_dir.exists() else set()
+            {p.name for p in TaskIndex(tasks_dir.parent).iter_dirs()}
+            if tasks_dir.exists()
+            else set()
         )
         for task_id in list(self._tail_state):
             if task_id not in existing:
@@ -137,7 +129,8 @@ class FileWatcher:
             # First encounter of this task, or a new attempt started (new
             # events.jsonl file): replay recent events for in-progress tasks,
             # then tail from EOF.
-            if _read_task_status(task_dir / "task.json") == "in_progress":
+            meta = TaskMeta.load(task_dir)
+            if meta is not None and meta.status == "in_progress":
                 await self._replay_tail(task_id, path)
             self._tail_state[task_id] = _TailState(
                 offset=stat.st_size, mtime=stat.st_mtime, path=path
@@ -168,13 +161,9 @@ class FileWatcher:
         result = subtype or ("failure" if raw.get("is_error") else "success")
 
         task_title: str = task_id
-        task_file = task_dir / "task.json"
-        if task_file.exists():
-            try:
-                data = json.loads(task_file.read_text("utf-8"))
-                task_title = data.get("title") or task_id
-            except (OSError, json.JSONDecodeError):
-                pass
+        meta = TaskMeta.load(task_dir)
+        if meta is not None and meta.title:
+            task_title = meta.title
 
         stats = task_runtime_stats_from_dir(task_dir)
         duration_sec: float | None = None

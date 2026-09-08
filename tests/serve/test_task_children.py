@@ -37,7 +37,7 @@ def test_children_endpoint_reports_status_and_digest(
         json.dumps({"schema": 1, "status": "done", "summary": "shipped"})
     )
     monkeypatch.setattr(
-        "fleet.serve.api.tasks.beads_client.children_of",
+        "fleet.serve.api.tasks_detail.beads_client.children_of",
         lambda epic_id, home: [{"id": "c-1", "title": "Kid", "status": "closed"}],
     )
     resp = _get(create_app(), "/api/tasks/epic-1/children")

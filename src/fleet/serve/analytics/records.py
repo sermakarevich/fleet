@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fleet.state.attempts import load_attempts
 from fleet.state.events import EventScanCache, scan_cached
+from fleet.state.task_index import TaskIndex
 
 # Owner of cached event scans for the analytics record builder below.
 _events_cache = EventScanCache()
@@ -112,14 +113,4 @@ def collect_records(home: Path) -> list[dict]:
 
     Skips dirs that do not contain a task.json file.
     """
-    tasks_dir = home / "tasks"
-    results: list[dict] = []
-    if not tasks_dir.exists():
-        return results
-    for task_dir_path in sorted(tasks_dir.iterdir()):
-        if not task_dir_path.is_dir():
-            continue
-        if not (task_dir_path / "task.json").exists():
-            continue
-        results.append(task_record_cached(task_dir_path))
-    return results
+    return [task_record_cached(tdir) for tdir, _ in TaskIndex(home).iter_meta()]

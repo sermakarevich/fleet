@@ -44,7 +44,9 @@ def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     tasks_root = tmp_path / "tasks"
     _make_task_dir(tasks_root, "task-abc", "in_progress")
 
-    monkeypatch.setattr("fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None))
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+    )
 
     app = create_app()
 
@@ -680,7 +682,7 @@ def test_list_tasks_fills_missing_title_from_beads(
         json.dumps({"id": "task-notitle", "cwd": "/repo", "coder": "claude"})
     )
     monkeypatch.setattr(
-        "fleet.serve.api.tasks.get_beads_status_map",
+        "fleet.serve.api.tasks_list.get_beads_status_map",
         MagicMock(
             return_value={
                 "task-notitle": {
@@ -749,7 +751,9 @@ def test_list_tasks_includes_block_and_retry_fields(
         + "\n"
     )
 
-    monkeypatch.setattr("fleet.serve.api.tasks.get_beads_status_map", MagicMock(return_value=None))
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+    )
 
     app = create_app()
 
@@ -796,7 +800,7 @@ def test_task_detail_includes_attempts(tmp_path: Path, monkeypatch: pytest.Monke
     ]
     (task_dir / "attempts.jsonl").write_text("\n".join(lines) + "\n")
 
-    monkeypatch.setattr("fleet.serve.api.tasks._get_beads_task_info", lambda *a, **k: None)
+    monkeypatch.setattr("fleet.serve.api.tasks_detail.fetch_beads_info", lambda *a, **k: None)
 
     app = create_app()
 

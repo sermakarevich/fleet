@@ -1329,7 +1329,7 @@ def test_poller_records_message_id_mapping(tmp_path: Path, monkeypatch: pytest.M
     cfg = RuntimeConfig(telegram_chat_id="999")
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = cfg
-    fake_app.state.fleet_state.fleet_home = tmp_path
+    fake_app.state.fleet_state.home = tmp_path
 
     call_n = [0]
 
