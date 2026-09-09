@@ -89,7 +89,7 @@ ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "state": {"core"},
     "beads": {"core", "state"},
-    "schedules": {"core", "state", "beads"},
+    "schedules": {"core", "state", "beads", "workflows"},
     "workflows": {"core", "state", "beads"},
     "coders": {"core", "state"},
     "workers": {"core", "state", "beads", "coders"},
@@ -160,6 +160,8 @@ src/fleet/
     main.py                # typer app: registers every command group (the registry model)
     options.py             # shared typer option aliases + serve endpoint resolution
     render.py              # all CLI printing: tables, status lines, log tails
+    schedule.py            # `fleet schedule` recurring-worker commands
+    workflow.py            # `fleet workflow` saved-workflow and run commands
     subproc.py             # the one way CLI commands spawn a child process
     tasks.py               # task commands: init, ready, show, tasks, task, kill, gc, job
     telegram.py            # `fleet telegram` status/test
@@ -337,6 +339,8 @@ src/fleet/
 
   workflows/               # saved workflows: ordered stages planned onto the beads queue
     model.py               # saved definitions, runs, stage/needs rules
+    planning.py            # pure run planning: order, labels, metadata, status table
+    runs.py                # run engine: the one place that opens workflow beads
     store.py               # SQLite store for workflows, runs, step runs
     templates.py           # step text templates: fill run/task ids into titles
     yaml_io.py             # YAML import/export: one file per workflow
@@ -407,7 +411,10 @@ supervisor and hooks; the UI never reads them.
 Beyond per-task dirs, the fleet home holds top-level state with one owner
 per directory: `schedules/` holds recurring-worker definitions
 (`<id>.json`) and their append-only run history (`<id>.runs.jsonl`),
-owned by `schedules/store.py` (see "Schedules" above); `tasks/`,
+owned by `schedules/store.py` (see "Schedules" above); `workflows.db`
+holds saved workflow definitions, runs, and step runs, owned by
+`workflows/store.py` (`WorkflowStore`, SQLite in WAL mode with ordered
+migrations under `PRAGMA user_version`); `tasks/`,
 `archive/tasks/`, `worktrees/`, and `logging/` hold task dirs, retained
 archives, isolated worktrees, and supervisor logs.
 

@@ -156,3 +156,84 @@ def test_unknown_id_fails(tmp_path: Path, monkeypatch) -> None:
     assert runner.invoke(app, ["schedule", "show", "sch-abcdef"]).exit_code == 3
     assert runner.invoke(app, ["schedule", "rm", "sch-abcdef"]).exit_code == 3
     assert runner.invoke(app, ["schedule", "enable", "sch-abcdef"]).exit_code == 3
+
+
+def _import_workflow(tmp_path: Path) -> str:
+    """Import a two-step workflow via the CLI and return its printed id."""
+    doc = tmp_path / "flow.yaml"
+    doc.write_text(
+        "fleet_workflow: 1\n"
+        "name: nightly\n"
+        "stages:\n"
+        "  - name: s1\n"
+        "    steps:\n"
+        "      - name: a\n"
+        "        title: A\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["workflow", "import", str(doc)])
+    assert result.exit_code == 0, result.output
+    return result.output.strip()
+
+
+def test_create_workflow_writes_workflow_target(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    workflow_id = _import_workflow(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "nightly",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    schedule = ScheduleStore(tmp_path).get(result.output.strip())
+    assert schedule is not None
+    assert schedule.target.value == "workflow"
+    assert schedule.workflow_id == workflow_id
+
+
+def test_create_workflow_unknown_name_fails(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "nope",
+        ],
+    )
+    assert result.exit_code == 3
+
+
+def test_show_prints_workflow_target(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_workflow(tmp_path)
+    created = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "nightly",
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    result = runner.invoke(app, ["schedule", "show", created.output.strip()])
+    assert result.exit_code == 0, result.output
+    assert "workflow nightly" in result.output

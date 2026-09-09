@@ -1,7 +1,7 @@
 # ADR 0008: Workflows — ordered stages of workers on top of the beads queue
 
 Date: 2026-09-09
-Status: Proposed (WF 8/8 flips it to Accepted)
+Status: Accepted
 Builds on: ADR 0001 (beads as adapter), ADR 0003 (workers as step pipelines),
 ADR 0005 (supervisor as service runner), ADR 0006 (clean-code rules),
 ADR 0007 (recurring workers / schedules).
@@ -166,18 +166,18 @@ target a workflow); `workflows` never imports `schedules`.
 
 ## Implementation plan (8 beads, serial, coder opencode)
 
-- [ ] WF 1/8 — `fleet/workflows` package: model, validation, templates, SQLite
+- [x] WF 1/8 — `fleet/workflows` package: model, validation, templates, SQLite
       store, YAML import/export. `pyyaml` dependency.
-- [ ] WF 2/8 — run engine: `start_run`, `refresh_run`, `cancel_run` (pure
+- [x] WF 2/8 — run engine: `start_run`, `refresh_run`, `cancel_run` (pure
       planning + one queue-calling function).
-- [ ] WF 3/8 — `/api/workflows` REST routes, pydantic models, regenerated UI
+- [x] WF 3/8 — `/api/workflows` REST routes, pydantic models, regenerated UI
       types and `api.ts`.
-- [ ] WF 4/8 — UI "workflows" tab: list, stage/step editor, import/export.
-- [ ] WF 5/8 — UI run monitor: runs list, run detail as a stage grid, cancel.
-- [ ] WF 6/8 — recurring: schedule `target`, scheduler fires runs, periodic
+- [x] WF 4/8 — UI "workflows" tab: list, stage/step editor, import/export.
+- [x] WF 5/8 — UI run monitor: runs list, run detail as a stage grid, cancel.
+- [x] WF 6/8 — recurring: schedule `target`, scheduler fires runs, periodic
       `workflow_refresh` service, `/api/schedules` extension.
-- [ ] WF 7/8 — UI "recurring" tab for workflow schedules.
-- [ ] WF 8/8 — `fleet workflow` CLI, docs, this ADR Accepted.
+- [x] WF 7/8 — UI "recurring" tab for workflow schedules.
+- [x] WF 8/8 — `fleet workflow` CLI, docs, this ADR Accepted.
 
 ## Consequences
 
@@ -191,3 +191,15 @@ target a workflow); `workflows` never imports `schedules`.
   dependent bead before its dependency row lands. The engine creates beads in
   stage order so the window is one bead at a time; if it is observed in
   practice, create with `--defer` and un-defer after wiring.
+- Observed in implementation: the `--deps` race was not observed — runs
+  create every step bead up front in stage order with `--deps` wired at
+  creation time (one bead at a time), and no claim of a dependent bead
+  before its dependency landed was reported during WF 2/8–WF 8/8 testing.
+  The `--defer` fallback stays available but was never needed.
+- CLI surface (WF 8/8): `fleet workflow` (`list`, `show`, `import`, `export`,
+  `validate`, `run`, `runs`, `run-show`, `cancel`, `rm`) accepts ids or
+  names everywhere a workflow is addressed; `fleet schedule create/edit`
+  accept `--workflow <id|name>` (making `--title` optional) and list/show
+  print the target plus the workflow run id and status for workflow runs.
+  `fleet workflow rm` refuses while a `running` or `attention` run exists
+  unless `--force`, which cancels those runs first.

@@ -46,6 +46,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet task <id> {log|plan|knowledge}`](#fleet-task-id-logplanknowledge)
   - [`fleet log [N]`](#fleet-log-n)
   - [`fleet schedule ...` (recurring workers)](#fleet-schedule--recurring-workers)
+  - [`fleet workflow ...` (workflows)](#fleet-workflow--workflows)
   - [`fleet bd <args...>`](#fleet-bd-args)
   - [`fleet run`](#fleet-run)
   - [`fleet serve`](#fleet-serve)
@@ -426,6 +427,49 @@ The same schedules are visible in the web UI under the **schedules** tab
 `~/.fleet/schedules/<id>.json`, run history in
 `~/.fleet/schedules/<id>.runs.jsonl`. See ADR 0007 and
 `docs/ARCHITECTURE.md` (section "Schedules").
+
+### `fleet workflow ...` (workflows)
+
+A workflow is a saved, named definition of workers arranged in **stages**:
+every step in one stage may run in parallel, and a stage starts when the
+previous stage is complete. A step with no `needs` depends on every step of
+the previous stage; `needs: [names]` narrows that to a subset from earlier
+stages. Running a workflow (a **run**) opens one ordinary bead per step,
+wired with bead dependencies — after that each step is a normal task.
+
+```yaml
+fleet_workflow: 1
+name: nightly-quality
+description: Lint, test and summarise
+defaults: {cwd: /Users/me/git/app, coder: opencode, model: qwen3.6:latest, priority: 2}
+stages:
+  - name: checks
+    steps:
+      - name: lint
+        title: "Lint {{workflow.name}} ({{run.date}})"
+        description: Run ruff and fix what it reports.
+      - name: tests
+        title: Run the test suite
+        description: uv run pytest -q; fix failures.
+  - name: report
+    steps:
+      - name: summary
+        title: Summarise the night
+        description: "Read tasks {{steps.lint.task_id}} and {{steps.tests.task_id}}."
+```
+
+```bash
+fleet workflow import nightly.yaml    # validate + save, prints the id
+fleet workflow list                   # id, name, stages, steps, runs, last status
+fleet workflow show nightly-quality   # stage outline (steps with needs)
+fleet workflow run nightly-quality    # start a manual run, prints run id + steps
+fleet workflow runs nightly-quality   # run history with done/total steps
+```
+
+The same workflows are visible in the web UI under the **workflows** tab
+(`fleet serve`); recurring workflow runs live under the **recurring** tab
+(`fleet schedule create --workflow <id|name> ...`). Definitions and run
+history live in `~/.fleet/workflows.db` (SQLite). See ADR 0008.
 
 ### `fleet bd <args...>`
 

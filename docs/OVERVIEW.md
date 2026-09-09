@@ -78,6 +78,29 @@ cron math, the firing policy, and the on-disk files
 `<id>.runs.jsonl`). Manage schedules from the UI's **schedules** tab or
 with `fleet schedule ...` (see `README.md`).
 
+## Batch work
+
+A **workflow** is a saved, named definition of workers arranged in
+**stages**: every step in one stage may run in parallel, and a stage
+starts when the previous stage is complete. Running a workflow (a
+**run**, manual or from a schedule) opens one ordinary bead per step,
+wired with bead dependencies — from then on every step is a normal task,
+and one metadata query finds the whole run. Each step records a **step
+run** (its task id and last known task status); the run status
+(`running`, `succeeded`, `attention`, `cancelled`) is derived from the
+steps, never hand-edited. The `workflows` package
+(`src/fleet/workflows/`) owns the definition model, the YAML
+import/export, the run engine, and the SQLite store
+(`~/.fleet/workflows.db`); the `workflow_refresh` service
+(`orchestrator/workflow_refresh.py`) ticks every `WORKFLOW_REFRESH_SEC`
+seconds (60 by default) and folds bead statuses back into open runs so
+history stays correct even when nobody opens the UI. A schedule can
+target a workflow instead of one bead (`fleet schedule create --workflow
+<id|name>`): when due, the scheduler starts a run, and the `overlap`
+policy compares against the previous run's status. Manage workflows from
+the UI's **workflows** tab (runs, run detail, recurring workflow
+schedules) or with `fleet workflow ...` (see `README.md`).
+
 ## What "stale" means and what fleet does about it
 
 Every number below is a default from `src/fleet/core/config.py` (a

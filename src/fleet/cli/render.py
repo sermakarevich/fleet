@@ -35,6 +35,7 @@ from fleet.state.task_summary import build_task_summary, context_overrides_for_h
 if TYPE_CHECKING:
     from fleet.cli.schedule import RunLine, ScheduleRow
     from fleet.schedules.model import Schedule
+    from fleet.workflows.model import Workflow, WorkflowRun
 
 _SEC_PER_MINUTE = 60
 _SEC_PER_HOUR = 3600
@@ -474,6 +475,7 @@ def print_schedule_list(rows: list[ScheduleRow]) -> None:
     table.add_column("ID", style="bold cyan", no_wrap=True)
     table.add_column("On", no_wrap=True)
     table.add_column("Name", no_wrap=True)
+    table.add_column("Target", no_wrap=True)
     table.add_column("Cron", no_wrap=True)
     table.add_column("TZ", no_wrap=True)
     table.add_column("Next run", no_wrap=True)
@@ -485,6 +487,7 @@ def print_schedule_list(rows: list[ScheduleRow]) -> None:
             item.id,
             "yes" if item.enabled else "no",
             item.name,
+            row.target,
             item.cron,
             item.timezone,
             row.next_run or "-",
@@ -496,6 +499,16 @@ def print_schedule_list(rows: list[ScheduleRow]) -> None:
 
 def _format_run_line(line: RunLine) -> str:
     """One `fleet schedule show` run line: number, trigger, task, outcome."""
+    if line.workflow_run_id is not None:
+        status = f" [{line.workflow_run_status}]" if line.workflow_run_status else ""
+        if line.skipped:
+            return (
+                f"  #{line.n} {line.trigger} scheduled={line.scheduled_for} skipped ({line.reason})"
+            )
+        return (
+            f"  #{line.n} {line.trigger} scheduled={line.scheduled_for} "
+            f"workflow_run={line.workflow_run_id}{status}"
+        )
     task = line.task_id or "-"
     if line.task_status:
         task = f"{task} [{line.task_status}]"
@@ -504,10 +517,13 @@ def _format_run_line(line: RunLine) -> str:
     return f"  #{line.n} {line.trigger} scheduled={line.scheduled_for} task={task}"
 
 
-def print_schedule_show(schedule: Schedule, upcoming: list[str], lines: list[RunLine]) -> None:
+def print_schedule_show(
+    schedule: Schedule, upcoming: list[str], lines: list[RunLine], target: str = "task"
+) -> None:
     """Print one schedule's definition, next firings, and recent runs."""
     typer.echo(f"id:       {schedule.id}")
     typer.echo(f"name:     {schedule.name}")
+    typer.echo(f"target:   {target}")
     typer.echo(f"enabled:  {'yes' if schedule.enabled else 'no'}")
     typer.echo(f"cron:     {schedule.cron}")
     typer.echo(f"tz:       {schedule.timezone}")
@@ -533,3 +549,155 @@ def print_schedule_show(schedule: Schedule, upcoming: list[str], lines: list[Run
     typer.echo(f"runs: {len(lines)}")
     for line in lines:
         typer.echo(_format_run_line(line))
+
+
+@dataclass(frozen=True)
+class WorkflowListRow:
+    """One `fleet workflow list` line: the workflow plus computed columns."""
+
+    workflow: Workflow
+    runs: int = 0
+    last_status: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowStepLine:
+    """One step in a stage outline: names, needs, and optional task facts."""
+
+    stage_index: int
+    stage_name: str
+    step_name: str
+    needs: tuple[str, ...] = ()
+    task_id: str | None = None
+    task_status: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowRunRow:
+    """One `fleet workflow runs` line: the run plus done/total step counts."""
+
+    run: WorkflowRun
+    workflow_name: str = ""
+    done: int = 0
+    total: int = 0
+
+
+def _stage_outline(lines: list[WorkflowStepLine]) -> list[str]:
+    """Stage outline: one line per stage, indented steps with needs."""
+    out: list[str] = []
+    current: int | None = None
+    for line in lines:
+        if line.stage_index != current:
+            current = line.stage_index
+            out.append(f"stage {line.stage_index + 1} {line.stage_name}:")
+        step = f"  - {line.step_name}"
+        if line.needs:
+            step += f" (needs: {', '.join(line.needs)})"
+        if line.task_id is not None:
+            status = f" [{line.task_status}]" if line.task_status else ""
+            step += f" -> {line.task_id}{status}"
+        out.append(step)
+    return out
+
+
+def _step_lines(workflow: Workflow) -> list[WorkflowStepLine]:
+    """Outline lines for a saved definition (no task facts)."""
+    return [
+        WorkflowStepLine(
+            stage_index=stage_index,
+            stage_name=stage.name,
+            step_name=step.name,
+            needs=tuple(step.needs),
+        )
+        for stage_index, stage in enumerate(workflow.stages)
+        for step in stage.steps
+    ]
+
+
+def print_workflow_list(rows: list[WorkflowListRow]) -> None:
+    """Print the workflows table, or the empty message when there are none."""
+    if not rows:
+        typer.echo("No workflows.")
+        return
+    table = Table(
+        title="Fleet — workflows",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("ID", style="bold cyan", no_wrap=True)
+    table.add_column("Name", no_wrap=True)
+    table.add_column("Stages", justify="right", no_wrap=True)
+    table.add_column("Steps", justify="right", no_wrap=True)
+    table.add_column("Runs", justify="right", no_wrap=True)
+    table.add_column("Last run", no_wrap=True)
+    table.add_column("Updated", no_wrap=True)
+    for row in rows:
+        item = row.workflow
+        steps = sum(len(stage.steps) for stage in item.stages)
+        table.add_row(
+            item.id,
+            item.name,
+            str(len(item.stages)),
+            str(steps),
+            str(row.runs),
+            row.last_status or "-",
+            item.updated_at or "-",
+        )
+    Console(soft_wrap=False).print(table)
+
+
+def print_workflow_show(workflow: Workflow, updated_note: str = "") -> None:
+    """Print one workflow as a stage outline (definition, no task facts)."""
+    typer.echo(f"workflow: {workflow.name} ({workflow.id})")
+    if workflow.description:
+        typer.echo(f"description: {workflow.description}")
+    if updated_note:
+        typer.echo(updated_note)
+    for line in _stage_outline(_step_lines(workflow)):
+        typer.echo(line)
+
+
+def print_workflow_runs(rows: list[WorkflowRunRow]) -> None:
+    """Print the runs table, or the empty message when there are none."""
+    if not rows:
+        typer.echo("No runs.")
+        return
+    table = Table(
+        title="Fleet — workflow runs",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("Run", style="bold cyan", no_wrap=True)
+    table.add_column("Workflow", no_wrap=True)
+    table.add_column("#", justify="right", no_wrap=True)
+    table.add_column("Trigger", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Done", justify="right", no_wrap=True)
+    table.add_column("Started", no_wrap=True)
+    table.add_column("Finished", no_wrap=True)
+    for row in rows:
+        run = row.run
+        table.add_row(
+            run.id,
+            row.workflow_name or run.workflow_id,
+            str(run.n),
+            run.trigger.value,
+            run.status.value,
+            f"{row.done}/{row.total}",
+            run.started_at or "-",
+            run.finished_at or "-",
+        )
+    Console(soft_wrap=False).print(table)
+
+
+def print_workflow_run_show(run: WorkflowRun, lines: list[WorkflowStepLine]) -> None:
+    """Print one run as a stage outline with task id and status per step."""
+    typer.echo(f"run: {run.id} workflow {run.workflow_id} #{run.n} {run.status.value}")
+    for line in _stage_outline(lines):
+        typer.echo(line)

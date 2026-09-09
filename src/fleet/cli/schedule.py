@@ -22,8 +22,10 @@ from fleet.cli import bootstrap, render
 from fleet.cli.errors import ExitCode, fail
 from fleet.coders import get_coder
 from fleet.schedules import cron, firing
-from fleet.schedules.model import OverlapPolicy, Schedule, Trigger, new_id
+from fleet.schedules.model import OverlapPolicy, Schedule, TargetKind, Trigger, new_id
 from fleet.schedules.store import ScheduleStore
+from fleet.state.paths import workflows_db_path
+from fleet.workflows.store import WorkflowStore
 
 _MIN_PRIORITY = 0
 _MAX_PRIORITY = 4
@@ -40,6 +42,7 @@ class ScheduleRow:
     next_run: str | None
     last_run: str | None
     run_count: int
+    target: str = "task"
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,8 @@ class RunLine:
     reason: str
     task_id: str | None
     task_status: str | None
+    workflow_run_id: str | None = None
+    workflow_run_status: str | None = None
 
 
 def _store(fleet_home: Path) -> ScheduleStore:
@@ -67,6 +72,29 @@ def _fetch(store: ScheduleStore, schedule_id: str) -> Schedule:
     if schedule is None:
         fail(f"Schedule {schedule_id} not found.", ExitCode.NOT_FOUND)
     return schedule
+
+
+def _resolve_workflow_id(fleet_home: Path, ref: str) -> str:
+    """One workflow id by id (wf- prefix) or name, exiting NOT_FOUND when unknown."""
+    store = WorkflowStore(workflows_db_path(fleet_home))
+    found = store.get(ref) if ref.startswith("wf-") else store.get_by_name(ref)
+    if found is None and not ref.startswith("wf-"):
+        found = store.get(ref)
+    if found is None:
+        fail(f"Workflow {ref} not found.", ExitCode.NOT_FOUND)
+    return found.id
+
+
+def _target_label(fleet_home: Path, schedule: Schedule) -> str:
+    """Display target: `task`, or `workflow <name>` for workflow schedules."""
+    if schedule.target is not TargetKind.workflow:
+        return "task"
+    try:
+        found = WorkflowStore(workflows_db_path(fleet_home)).get(schedule.workflow_id or "")
+    except Exception:
+        found = None
+    name = found.name if found is not None else (schedule.workflow_id or "-")
+    return f"workflow {name}"
 
 
 def _check_cron(cron_text: str) -> None:
@@ -123,11 +151,15 @@ def _build_schedule(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     enabled: bool,
     created_at: str,
     now: datetime,
+    target: TargetKind = TargetKind.task,
+    workflow_id: str | None = None,
 ) -> Schedule:
     """Validate fields like the serve API and return the schedule."""
     if not name.strip():
         fail("name: required and must not be empty", ExitCode.USAGE)
-    if not title.strip():
+    if target is TargetKind.workflow and not workflow_id:
+        fail("workflow: required when the target is a workflow", ExitCode.USAGE)
+    if target is TargetKind.task and not title.strip():
         fail("title: required and must not be empty", ExitCode.USAGE)
     _check_cron(cron_text)
     _check_zone(timezone)
@@ -147,12 +179,14 @@ def _build_schedule(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         model=model,
         priority=priority,
         overlap=overlap,
+        target=target,
+        workflow_id=workflow_id,
         created_at=created_at,
         updated_at=now.isoformat(),
     )
 
 
-def _row(store: ScheduleStore, schedule: Schedule, now: datetime) -> ScheduleRow:
+def _row(store: ScheduleStore, fleet_home: Path, schedule: Schedule, now: datetime) -> ScheduleRow:
     """List row for one schedule: next firing, latest run, run count."""
     last_cron = store.last_run(schedule.id, Trigger.cron)
     due = firing.next_due(schedule, last_cron, now)
@@ -162,6 +196,7 @@ def _row(store: ScheduleStore, schedule: Schedule, now: datetime) -> ScheduleRow
         next_run=due.isoformat() if due is not None else None,
         last_run=last.fired_at if last is not None else None,
         run_count=store.run_count(schedule.id),
+        target=_target_label(fleet_home, schedule),
     )
 
 
@@ -184,10 +219,32 @@ def _task_statuses(fleet_home: Path, schedule_id: str) -> dict[str, str | None]:
     return {task.id: task.status for task in tasks}
 
 
+def _workflow_run_statuses(fleet_home: Path, schedule_id: str) -> dict[str, str | None]:
+    """Workflow run id to status for this schedule's workflow runs (no bd call)."""
+    try:
+        store = WorkflowStore(workflows_db_path(fleet_home))
+    except Exception:
+        return {}
+    try:
+        runs = ScheduleStore(fleet_home).runs(schedule_id)
+    except Exception:
+        return {}
+    wanted = {run.workflow_run_id for run in runs if run.workflow_run_id}
+    out: dict[str, str | None] = {}
+    for run_id in wanted:
+        found = store.get_run(run_id)
+        out[run_id] = found.status.value if found is not None else None
+    return out
+
+
 def _run_lines(
-    store: ScheduleStore, schedule_id: str, statuses: dict[str, str | None]
+    store: ScheduleStore,
+    schedule_id: str,
+    statuses: dict[str, str | None],
+    workflow_statuses: dict[str, str | None] | None = None,
 ) -> list[RunLine]:
     """Newest-first run lines for show, capped at the display limit."""
+    workflow_statuses = workflow_statuses if workflow_statuses is not None else {}
     return [
         RunLine(
             n=run.n,
@@ -198,6 +255,8 @@ def _run_lines(
             reason=run.reason,
             task_id=run.task_id,
             task_status=statuses.get(run.task_id or ""),
+            workflow_run_id=run.workflow_run_id,
+            workflow_run_status=workflow_statuses.get(run.workflow_run_id or ""),
         )
         for run in store.runs(schedule_id, limit=_SHOW_RUN_LIMIT)
     ]
@@ -206,7 +265,7 @@ def _run_lines(
 def run_list(fleet_home: Path, now: datetime, json_output: bool) -> None:
     """Print every schedule as a table (or JSON with --json)."""
     store = _store(fleet_home)
-    rows = [_row(store, item, now) for item in store.list()]
+    rows = [_row(store, fleet_home, item, now) for item in store.list()]
     if json_output:
         typer.echo(json.dumps([_row_view(row) for row in rows], indent=2))
         return
@@ -228,9 +287,11 @@ def run_create(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     priority: int,
     overlap: OverlapPolicy,
     disabled: bool,
+    workflow: str | None = None,
 ) -> None:
     """Validate, save with a fresh id, and print the id."""
     store = _store(fleet_home)
+    workflow_id = _resolve_workflow_id(fleet_home, workflow) if workflow else None
     schedule = _build_schedule(
         schedule_id=new_id(),
         name=name,
@@ -246,6 +307,8 @@ def run_create(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         enabled=not disabled,
         created_at=now.isoformat(),
         now=now,
+        target=TargetKind.workflow if workflow_id else TargetKind.task,
+        workflow_id=workflow_id,
     )
     store.save(schedule)
     typer.echo(schedule.id)
@@ -258,7 +321,12 @@ def run_show(fleet_home: Path, now: datetime, schedule_id: str, json_output: boo
     upcoming = [
         fire.isoformat() for fire in cron.upcoming(schedule.cron, now, 5, schedule.timezone)
     ]
-    lines = _run_lines(store, schedule_id, _task_statuses(fleet_home, schedule_id))
+    lines = _run_lines(
+        store,
+        schedule_id,
+        _task_statuses(fleet_home, schedule_id),
+        _workflow_run_statuses(fleet_home, schedule_id),
+    )
     if json_output:
         typer.echo(
             json.dumps(
@@ -271,7 +339,7 @@ def run_show(fleet_home: Path, now: datetime, schedule_id: str, json_output: boo
             )
         )
         return
-    render.print_schedule_show(schedule, upcoming, lines)
+    render.print_schedule_show(schedule, upcoming, lines, _target_label(fleet_home, schedule))
 
 
 def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
@@ -290,10 +358,16 @@ def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     priority: int | None,
     overlap: OverlapPolicy | None,
     enabled: bool | None,
+    workflow: str | None = None,
 ) -> None:
     """Rewrite only the given fields, bumping updated_at."""
     store = _store(fleet_home)
     existing = _fetch(store, schedule_id)
+    workflow_id = existing.workflow_id
+    target = existing.target
+    if workflow is not None:
+        workflow_id = _resolve_workflow_id(fleet_home, workflow)
+        target = TargetKind.workflow
     merged = _build_schedule(
         schedule_id=existing.id,
         name=existing.name if name is None else name,
@@ -309,6 +383,8 @@ def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         enabled=existing.enabled if enabled is None else enabled,
         created_at=existing.created_at,
         now=now,
+        target=target,
+        workflow_id=workflow_id,
     )
     store.save(dc_replace(merged, updated_at=now.isoformat()))
     typer.echo(schedule_id)
@@ -340,10 +416,11 @@ def run_fire(fleet_home: Path, now: datetime, schedule_id: str) -> None:
             queue=bootstrap.queue(fleet_home),
             now=now,
             trigger=Trigger.manual,
+            workflow_store=WorkflowStore(workflows_db_path(fleet_home)),
         )
     except BdError as exc:
         fail(str(exc) or "queue failed", ExitCode.BACKEND)
-    typer.echo(run.task_id)
+    typer.echo(run.workflow_run_id or run.task_id)
 
 
 def run_preview(cron_text: str, timezone: str, count: int) -> None:
@@ -402,6 +479,10 @@ def register(app: typer.Typer) -> None:
         disabled: Annotated[
             bool, typer.Option("--disabled", help="Create the schedule disabled.")
         ] = False,
+        workflow: Annotated[
+            str | None,
+            typer.Option("--workflow", help="Workflow id or name: run it, not one bead."),
+        ] = None,
     ) -> None:
         """Create a schedule and print its id."""
         run_create(
@@ -418,6 +499,7 @@ def register(app: typer.Typer) -> None:
             priority=priority,
             overlap=overlap,
             disabled=disabled,
+            workflow=workflow,
         )
 
     @schedule_app.command("show")
@@ -446,6 +528,10 @@ def register(app: typer.Typer) -> None:
         enabled: Annotated[
             bool | None, typer.Option("--enabled/--disabled", help="Flip the enabled flag.")
         ] = None,
+        workflow: Annotated[
+            str | None,
+            typer.Option("--workflow", help="Point the schedule at a workflow id or name."),
+        ] = None,
     ) -> None:
         """Change only the given fields of a schedule."""
         run_edit(
@@ -463,6 +549,7 @@ def register(app: typer.Typer) -> None:
             priority=priority,
             overlap=overlap,
             enabled=enabled,
+            workflow=workflow,
         )
 
     @schedule_app.command("enable")
@@ -490,7 +577,7 @@ def register(app: typer.Typer) -> None:
     def run_cmd(
         schedule_id: Annotated[str, typer.Argument(help="Schedule id.")],
     ) -> None:
-        """Fire one manual run now and print the new task id."""
+        """Fire one manual run now and print the new task or workflow run id."""
         run_fire(bootstrap.fleet_home(), datetime.now(UTC), schedule_id)
 
     @schedule_app.command("preview")
