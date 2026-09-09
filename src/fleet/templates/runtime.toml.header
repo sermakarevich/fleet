@@ -3,100 +3,126 @@
 # file periodically and applies changes without restart.
 # In-flight subprocesses are NEVER killed by a config change.
 #
-# telegram_chat_id: Telegram chat/channel ID for supervisor notifications.
-#   Empty string (default) disables Telegram notifications.
-#   The bot token is supplied via the TELEGRAM_BOT_TOKEN env var (never stored here).
+# Full reference with defaults: docs/CONFIG.md (generated from the same
+# metadata by `fleet config docs --write`; do not edit this header by hand).
 #
-# telegram_allowed_ids: Comma-separated numeric Telegram user/chat IDs that may
-#   create fleet tasks by messaging the bot with /task commands.
-#   Empty string (default) disables the inbound listener entirely (default-deny).
-#   Example: "123456789,987654321"
 #
-# telegram_default_cwd: Working directory assigned to tasks created via Telegram.
-#   Empty string (default) leaves cwd unset on the created task.
+# max_concurrent: Maximum agent subprocesses running at once.
+#   Default 3; e.g. fleet config set max_concurrent=5
 #
-# opencode_ollama_url: Base URL of the Ollama API used by the "opencode" coder.
-#   Defaults to http://127.0.0.1:11435/v1 (ssh tunnel to rtx GPU box).
-#   Override to point at a different Ollama instance, e.g. http://127.0.0.1:11434/v1
-#   for a local Ollama install.
-#   Set via: fleet config set opencode_ollama_url=http://...
+# model: Default model when a task sets no override.
+#   Default "sonnet"; e.g. fleet config set model=opus
 #
-# ollama_ssh_host: SSH host alias for the GPU box serving Ollama.
-#   Defaults to rtx. Used with ollama_remote_port to build the
-#   `ssh -N -L` forward that backs opencode_ollama_url.
-#   Set via: fleet config set ollama_ssh_host=gpubox
+# coder: Default coder CLI when a task sets no override.
+#   Default "claude"; e.g. fleet config set coder=codex
+#
+# telegram_chat_id: Telegram chat ID for notifications; empty disables them.
+#   Default ""; e.g. fleet config set telegram_chat_id=-1001234567890
+#
+# telegram_allowed_ids: Telegram sender IDs allowed inbound commands; empty disables all.
+#   Default ""; e.g. fleet config set telegram_allowed_ids=123456789,987654321
+#
+# telegram_default_cwd: Working directory for tasks created via Telegram; empty leaves unset.
+#   Default ""; e.g. fleet config set telegram_default_cwd=/Users/you/git/myproject
+#
+# opencode_ollama_url: Ollama API base URL used by the opencode coder.
+#   Default "http://127.0.0.1:11435/v1"; e.g. fleet config set opencode_ollama_url=http://127.0.0.1:11434/v1
+#
+# ollama_ssh_host: SSH host alias for the GPU box behind opencode_ollama_url.
+#   Default "rtx"; e.g. fleet config set ollama_ssh_host=gpubox
 #
 # ollama_remote_port: Ollama port on the GPU box (remote end of the tunnel).
-#   Defaults to 11434.
-#   Set via: fleet config set ollama_remote_port=11434
+#   Default 11434; e.g. fleet config set ollama_remote_port=11434
 #
-# opencode_bedrock_region: AWS Bedrock region for Claude-on-Bedrock.
-#   Empty string (default) inherits region from environment/AWS config.
-#   Set via: fleet config set opencode_bedrock_region=us-east-1
+# max_concurrent_overrides: Per-coder limits as coder:limit pairs; others use max_concurrent.
+#   Default ""; e.g. fleet config set max_concurrent_overrides=claude:2,opencode:4
 #
-# opencode_bedrock_profile: AWS profile name for Bedrock credentials.
-#   Empty string (default) inherits credentials from the environment.
-#   Set via: fleet config set opencode_bedrock_profile=dev
+# context_windows: Per-model context windows as model:tokens pairs; empty uses built-ins.
+#   Default ""; e.g. fleet config set context_windows=muse-spark-1.3-contributor:1048576
 #
-# context_windows: Per-model context windows as "model:tokens,model:tokens".
-#   Used as the denominator for the context-usage display and the
-#   checkpoint/kill thresholds, for supervisor and UI alike.
-#   Empty string (default) uses the built-in table in core/context_window.py
-#   (e.g. muse-spark-1.3-contributor: 1048576, claude/bedrock: 200000,
-#   local qwen: 65000, gpt-oss: 128000).
-#   Set via: fleet config set context_windows="muse-spark-1.3-contributor:1048576".
+# opencode_default_model: Ollama model for opencode tasks without an override.
+#   Default "qwen3.6:latest"; e.g. fleet config set opencode_default_model=qwen3.5:27b
 #
-# compaction_enabled: Run the Compact step before continue launches whose
-#   pack needs compaction (ContinueLargeTask). true (default) or false.
+# opencode_bedrock_region: AWS region for Bedrock; empty inherits the environment.
+#   Default ""; e.g. fleet config set opencode_bedrock_region=us-east-1
 #
-# compaction_coder: Coder CLI used for the cheap compaction model call.
-#   Defaults to claude.
+# opencode_bedrock_profile: AWS profile for Bedrock; empty inherits the environment.
+#   Default ""; e.g. fleet config set opencode_bedrock_profile=dev
 #
-# compaction_model: Model used for the cheap compaction model call.
-#   Defaults to haiku.
+# stall_warning_minutes: Silence minutes before an attempt counts as stalled.
+#   Default 15; e.g. fleet config set stall_warning_minutes=30
 #
-# state_max_bytes: Hard cap on the worker-memory file STATE.md (default 6144).
-#   The worker rewrites STATE.md completely every attempt; compaction keeps
-#   it within this cap (Facts truncated first, Done second, never Next).
-#   Set via: fleet config set state_max_bytes=8192
+# stall_action: Stall response: warn logs only, kill stops the attempt.
+#   Default "kill"; e.g. fleet config set stall_action=warn
 #
-# context_checkpoint_pct: Peak-context percent at which the runner writes
-#   .checkpoint_requested so the model wraps up early. Defaults to 75.
+# max_attempt_minutes: Wall-clock cap per attempt; 0 disables. Over budget kills.
+#   Default 120; e.g. fleet config set max_attempt_minutes=60
 #
-# context_kill_pct: Peak-context percent at which the runner kills the
-#   session and reports CONTEXT_PRESSURE. Defaults to 90.
+# continue_pack_max_bytes: Pack budget in bytes before a continue launch compacts.
+#   Default 8192; e.g. fleet config set continue_pack_max_bytes=16384
 #
-# isolation: Git worktree isolation mode: "worktree" (default) or "none".
-#   "worktree" runs tasks whose cwd is inside a git repo in an isolated
-#   worktree at $FLEET_HOME/worktrees/<repo>-<task_id> on branch
-#   fleet/<task_id>; tasks outside a repo always run in place.
-#   Set via: fleet config set isolation=none
+# state_max_bytes: Hard cap on the worker-memory file STATE.md in bytes.
+#   Default 6144; e.g. fleet config set state_max_bytes=8192
 #
-# isolation_exclude: Comma-separated repo roots that never get a worktree
-#   even when isolation is "worktree" (e.g. a repo that auto-commits from
-#   cron, where a branch would only diverge). Empty (default) excludes none.
-#   Set via: fleet config set isolation_exclude=/Users/me/.ai
+# compaction_enabled: Compact before continue launches that need it; else truncate.
+#   Default true; e.g. fleet config set compaction_enabled=false
 #
-# post_merge_command: Shell command run in the repo root after a worktree
-#   branch merges cleanly into its base branch (10-minute timeout).
-#   Empty string (default) skips the step. A repo that needs a build gate
-#   (e.g. fleet itself) sets e.g. "make ui-build" via config, not code.
-#   On failure the bead blocks with the command's last 40 lines of output.
-#   Set via: fleet config set post_merge_command="make ui-build"
+# compaction_coder: Coder CLI used for the cheap compaction call.
+#   Default "claude"; e.g. fleet config set compaction_coder=claude
 #
-# triage_interval_minutes: How often the supervisor scans blocked beads and
-#   posts/answers triage questions via the ask_human store. Defaults to 15.
-#   0 disables triage.
+# compaction_model: Model used for the cheap compaction call.
+#   Default "haiku"; e.g. fleet config set compaction_model=haiku
 #
-# gc_retention_days: Closed tasks older than this many days are archived to
-#   archive/tasks/ (and their worktrees removed) by the supervisor's daily
-#   retention pass. Defaults to 30. 0 disables archiving.
+# context_checkpoint_pct: Peak-context percent that asks the model to wrap up early.
+#   Default 75; e.g. fleet config set context_checkpoint_pct=80
 #
-# gc_archive_days: Archived task dirs older than this many days are deleted
-#   permanently by the retention pass (and by `fleet gc --purge`).
-#   Defaults to 90. 0 disables purging.
+# context_kill_pct: Peak-context percent that kills with CONTEXT_PRESSURE.
+#   Default 90; e.g. fleet config set context_kill_pct=95
 #
-# serve_cors_origins: Browser origins allowed to call the API cross-origin.
-#   Empty (default) means same-origin only — no CORS headers are sent.
-#   TOML array of origins, e.g. ["https://fleet.example.com"].
-#   Set via: fleet config set serve_cors_origins=https://fleet.example.com
+# isolation: Git worktree isolation: worktree isolates repo tasks, none runs in place.
+#   Default "worktree"; e.g. fleet config set isolation=none
+#
+# isolation_exclude: Repo roots that never get a worktree; empty excludes none.
+#   Default ""; e.g. fleet config set isolation_exclude=/Users/me/.ai
+#
+# post_merge_command: Shell command after a clean worktree merge; empty skips.
+#   Default ""; e.g. fleet config set post_merge_command=make ui-build
+#
+# triage_interval_minutes: Minutes between blocked-task triage scans; 0 disables.
+#   Default 15; e.g. fleet config set triage_interval_minutes=30
+#
+# gc_retention_days: Days before closed tasks archive; 0 disables archiving.
+#   Default 30; e.g. fleet config set gc_retention_days=7
+#
+# gc_archive_days: Days before archives delete permanently; 0 disables purging.
+#   Default 90; e.g. fleet config set gc_archive_days=30
+#
+# observer_max_followups: Max follow-up tasks opened per observer validation round.
+#   Default 10; e.g. fleet config set observer_max_followups=5
+#
+# observer_max_rounds: Max partial observer rounds before human review.
+#   Default 3; e.g. fleet config set observer_max_rounds=5
+#
+# job_gate: Ask approval before a job spawns its planned children.
+#   Default true; e.g. fleet config set job_gate=false
+#
+# job_child_coder: Default coder for job-spawned child tasks.
+#   Default "claude"; e.g. fleet config set job_child_coder=opencode
+#
+# job_child_model: Default model for job-spawned child tasks.
+#   Default "sonnet"; e.g. fleet config set job_child_model=opus
+#
+# job_max_children: Max children one job phase may spawn.
+#   Default 30; e.g. fleet config set job_max_children=10
+#
+# job_max_phase_attempts: Max research/design attempts before a job blocks.
+#   Default 2; e.g. fleet config set job_max_phase_attempts=3
+#
+# serve_cors_origins: Browser origins allowed cross-origin; empty is same-origin only.
+#   Default []; e.g. fleet config set serve_cors_origins=https://fleet.example.com
+#
+# serve_host: UI server bind address; 0.0.0.0 exposes LAN, 127.0.0.1 local only.
+#   Default "0.0.0.0"; e.g. fleet config set serve_host=127.0.0.1
+#
+# serve_port: UI server port.
+#   Default 7890; e.g. fleet config set serve_port=8080

@@ -2952,10 +2952,6 @@
             "type": "string",
             "title": "Stall Action"
           },
-          "stall_block_after": {
-            "type": "integer",
-            "title": "Stall Block After"
-          },
           "max_attempt_minutes": {
             "type": "integer",
             "title": "Max Attempt Minutes"
@@ -3074,7 +3070,6 @@
           "opencode_bedrock_profile",
           "stall_warning_minutes",
           "stall_action",
-          "stall_block_after",
           "max_attempt_minutes",
           "continue_pack_max_bytes",
           "state_max_bytes",
