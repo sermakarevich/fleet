@@ -8,9 +8,6 @@ import signal
 import sys
 from pathlib import Path
 
-import pytest
-
-import fleet.workers.session.process as process_mod
 from fleet.workers.session.process import CoderProcess
 
 _SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
@@ -49,20 +46,21 @@ def test_terminate_group_terminates(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_terminate_group_escalates_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_terminate_group_escalates_once(tmp_path: Path) -> None:
     """A child ignoring SIGTERM gets exactly one TERM then one KILL."""
     signals: list[int] = []
-    real_signal_group = process_mod._signal_group
-
-    def _recording(proc: CoderProcess, sig: int) -> None:
-        signals.append(sig)
-        real_signal_group(proc, sig)
-
-    monkeypatch.setattr(process_mod, "_signal_group", _recording)
 
     async def _run() -> None:
         proc = await _start(_IGNORER, tmp_path)
-        # Let the child install its SIGTERM handler before signalling.
+        real_signal = proc.signal_group
+
+        def _recording(sig: int) -> None:
+            signals.append(sig)
+            real_signal(sig)
+
+        proc.signal_group = _recording  # type: ignore[method-assign]
+        # Let the child install its SIGTERM handler before signalling;
+        # a fixed pause is inherent here (child-side readiness, no signal).
         await asyncio.sleep(0.5)
         await proc.terminate_group(0.5)
         assert proc.returncode == -signal.SIGKILL
@@ -71,19 +69,19 @@ def test_terminate_group_escalates_once(tmp_path: Path, monkeypatch: pytest.Monk
     assert signals == [signal.SIGTERM, signal.SIGKILL]
 
 
-def test_terminate_group_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_terminate_group_idempotent(tmp_path: Path) -> None:
     """Calls after the reap send nothing and raise nothing."""
     signals: list[int] = []
-    real_signal_group = process_mod._signal_group
-
-    def _recording(proc: CoderProcess, sig: int) -> None:
-        signals.append(sig)
-        real_signal_group(proc, sig)
-
-    monkeypatch.setattr(process_mod, "_signal_group", _recording)
 
     async def _run() -> None:
         proc = await _start(_SLEEPER, tmp_path)
+        real_signal = proc.signal_group
+
+        def _recording(sig: int) -> None:
+            signals.append(sig)
+            real_signal(sig)
+
+        proc.signal_group = _recording  # type: ignore[method-assign]
         await proc.terminate_group(5.0)
         await proc.terminate_group(5.0)
         await proc.terminate_group(5.0)

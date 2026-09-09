@@ -99,13 +99,13 @@ class CoderProcess:
         """
         if self._proc.returncode is not None:
             return
-        _signal_group(self, signal.SIGTERM)
+        self.signal_group(signal.SIGTERM)
         try:
             await asyncio.wait_for(self._proc.wait(), timeout=grace_sec)
         except TimeoutError:
             if self._proc.returncode is not None:
                 return
-            _signal_group(self, signal.SIGKILL)
+            self.signal_group(signal.SIGKILL)
             await self._proc.wait()
 
 

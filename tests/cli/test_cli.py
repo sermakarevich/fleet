@@ -267,40 +267,36 @@ def test_serve_restart_reuses_stored_port(tmp_path, monkeypatch) -> None:
 
 def test_build_ui_runs_just_from_repo_root(tmp_path, monkeypatch) -> None:
     (tmp_path / "justfile").write_text("ui-build:\n\techo hi\n")
-    monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)
     run_mock = MagicMock(return_value=MagicMock(returncode=0))
     monkeypatch.setattr("fleet.cli.subproc.run", run_mock)
-    climod._build_ui()
+    climod._build_ui(tmp_path)
     args, kwargs = run_mock.call_args
     assert args[0] == ["just", "ui-build"]
     assert kwargs["cwd"] == str(tmp_path)
 
 
 def test_build_ui_skips_when_no_justfile(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)  # no justfile present
     run_mock = MagicMock()
     monkeypatch.setattr("fleet.cli.subproc.run", run_mock)
-    climod._build_ui()  # must not raise
+    climod._build_ui(tmp_path)  # no justfile present; must not raise
     assert not run_mock.called
 
 
 def test_build_ui_raises_on_build_failure(tmp_path, monkeypatch) -> None:
     (tmp_path / "justfile").write_text("ui-build:\n\tfalse\n")
-    monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr("fleet.cli.subproc.run", MagicMock(return_value=MagicMock(returncode=2)))
     with pytest.raises(typer.Exit):
-        climod._build_ui()
+        climod._build_ui(tmp_path)
 
 
 def test_build_ui_skips_when_just_missing(tmp_path, monkeypatch) -> None:
     (tmp_path / "justfile").write_text("ui-build:\n\techo hi\n")
-    monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)
 
     def _missing(*args, **kwargs):
         raise FileNotFoundError("just")
 
     monkeypatch.setattr("fleet.cli.subproc.run", _missing)
-    climod._build_ui()  # must not raise
+    climod._build_ui(tmp_path)  # must not raise
 
 
 # ---------------------------------------------------------------------------
