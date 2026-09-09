@@ -1147,6 +1147,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the code map — how
 `coders`, `integrations`, `observability`, `serve`, and `cli`, and where
 each concept lives.
 
-CI runs ruff + pytest + UI build (tsc + vite build) on every push and pull request.
-Run checks locally with `uv run ruff check src tests` and `uv run pytest tests -q`.
+CI runs `just check` (ruff + pytest + UI build with tsc + vite build) on every push and pull request.
+Run checks locally with `just check` (or `just check-all` to include the
+integration suite). UI-only recipes: `just ui-build`, `just ui-check`,
+`just ui-types`.
 Enable the pre-commit hooks with `uv run pre-commit install`.

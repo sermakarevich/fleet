@@ -5,6 +5,23 @@ What it takes to move fleet from a single-operator proof of concept to a platfor
 - Branch `main` at 43a65ba plus uncommitted work
 - Python core, FastAPI server, React UI, beads queue
 
+## Clean-code program (ADR 0006) — done September 2026
+
+The 30-bead clean-code program is finished and its ADR is Accepted. Every
+package now has one owner per file/record (in `state/`), policy as data
+tables (`RETRY_TABLE`, `TRIAGE_RULES`, `EVENT_MAP`, `MODE_TEMPLATES`,
+`SUMMARY_SECTIONS`, `ROUTERS`, `COMMANDS`, `VISITORS`, `WORKERS`,
+`_FLAGS`), and a layering test (`tests/test_layering.py`) that fails on
+any new import-direction violation. `just check` (ruff, format check,
+mypy, unit tests) is the only definition of green. See
+`docs/ARCHITECTURE.md` for the current module map.
+
+What it enables next (not planned here): recurring tasks on the real
+`schedules/` store instead of ad-hoc polling, and monitoring built on the
+`TaskIndex` / `RunRecord` / analytics-metrics registries instead of
+re-parsing task directories per request. Those are separate design
+decisions with their own ADRs.
+
 ## Verdict
 
 **Fleet is a good proof of concept with real operating hours behind it, but its architecture is "files plus a CLI plus a prose protocol".** That is fine for one operator on one laptop. It breaks in three fundamental ways once it has to be a product.
@@ -33,7 +50,7 @@ Three writers, four stores, no coordinator. Every arrow is an independent read o
 
 ## Findings by theme
 
-Each finding names the code so the team can go straight to it. Severity reflects impact on a commercial deployment, not on today's single-user setup.
+Each finding names the code so the team can go straight to it. Severity reflects impact on a commercial deployment, not on today's single-user setup. `file:line` citations are audit-time paths from 7 Sep 2026 (pre-cleanup names); see `docs/ARCHITECTURE.md` for the current module map.
 
 ### Stability and crash recovery (Critical)
 - **Claim is not atomic.** `claim_next` runs `bd ready`, then a separate `bd update --claim`, then writes `task.json`. Two supervisors, or a supervisor and a human, can double-claim. A crash between the two writes leaves beads and task.json disagreeing forever. (`queue.py:223-252`)
@@ -62,14 +79,14 @@ Each finding names the code so the team can go straight to it. Severity reflects
 
 ### Security and multi-tenancy (Blocking for a product)
 - **No authentication anywhere.** All REST routes and both WebSocket endpoints are open, and the server binds `0.0.0.0` by default. (`cli.py:362, serve/app.py`)
-- **Remote process control and config rewrite without auth.** `/api/supervisor/restart` spawns a process; `PUT /api/config` rewrites `runtime.toml`, including the Telegram allowlist that gates task creation. (`routes/supervisor.py:96-118, routes/config_routes.py:26`)
+- **Remote process control and config rewrite without auth.** `/api/supervisor/restart` spawns a process; `PUT /api/config` rewrites `runtime.toml`, including the Telegram allowlist that gates task creation. (`serve/api/supervisor.py`, `serve/api/config.py` at audit time under the old routes layout)
 - **Agents run with full host permissions.** Every adapter passes a skip-permissions flag (`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`, `external_directory: allow`). Task descriptions are interpolated into the prompt unescaped. Any task can name any `cwd`. (`claude.py:74, codex.py:46, opencode.py:240, tasks.py:415`)
 - **No tenant dimension.** One home directory, one beads database, one config, one task namespace. No user, project, workspace or organization exists in any schema.
 - Redaction inspects dictionary keys only; a secret pasted into a tool command string passes through. (`redact.py:21-31`)
 
 ### Monitoring and observability (Partial)
 - Good raw material: structured JSONL logs per task, a normalized event stream, an analytics page with throughput, context pressure and rate-limit classification.
-- But everything is derived by re-parsing files on request. Every dashboard poll walks all task directories and runs a `bd list` subprocess (cached 5 s). (`routes/tasks.py:89, 268; beads_info.py:15`)
+- But everything is derived by re-parsing files on request. Every dashboard poll walks all task directories and runs a `bd list` subprocess (cached 5 s). (`serve/api/tasks_list.py` and siblings, `beads/status_cache.py` — old tasks routes and beads cache at audit time)
 - `/healthz` only reports whether the code fingerprint is stale. No readiness check of the queue, disk, or watcher. No Prometheus or OpenTelemetry export, no alerting, no audit log, no dollar-cost model.
 - The UI patches task status client-side because the single-task endpoint is documented as stale. Two sources of truth reconciled in three places. (`ui/src/hooks/useApi.ts:10-25`)
 
@@ -82,7 +99,7 @@ Each finding names the code so the team can go straight to it. Severity reflects
 ### Engineering hygiene (Needs a floor)
 - The working tree carries an unfinished `Queue` interface change; 89 tests fail because the test `MemoryQueue` and a doc-sync test were not updated. Twelve untracked Playwright debug files sit in the repo.
 - No CI, no linter or type checker configured, no pre-commit, no Dockerfile, no release tagging. Two competing dev-dependency mechanisms in `pyproject.toml`.
-- The wheel does not ship the built UI. The server restart path runs `make ui-build` from a source checkout, so deployment depends on a dev environment.
+- The wheel does not ship the built UI. The server restart path runs `just ui-build` from a source checkout, so deployment depends on a dev environment.
 - No UI tests. Well-covered Python unit tests, but test logic is duplicated per coder because the production code is.
 - The `cli/` package mixes daemon management, rendering, and five sub-apps.
 
