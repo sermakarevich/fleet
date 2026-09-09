@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fleet.core.errors import FleetError
 from fleet.triggers.sources.base import EventSource
+from fleet.triggers.sources.blocked_task import BlockedTaskSource
 
 
 class UnknownSource(FleetError, KeyError):
@@ -20,7 +21,15 @@ class UnknownSource(FleetError, KeyError):
         self.kind = kind
 
 
-SOURCES: dict[str, type[EventSource]] = {}
+SOURCES: dict[str, type[EventSource]] = {BlockedTaskSource.kind: BlockedTaskSource}
+
+
+def source_params(kind: str) -> dict[str, str]:
+    """Help text per source param name ({} when the class defines none)."""
+    cls = SOURCES.get(kind)
+    if cls is None:
+        return {}
+    return dict(getattr(cls, "PARAMS", {}))
 
 
 def source_for(kind: str) -> EventSource:
