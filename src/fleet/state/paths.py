@@ -54,11 +54,11 @@ def attempts_root(task_dir: Path) -> Path:
     return task_dir / "attempts"
 
 
-def attempt_dir(task_dir: Path, n: int) -> Path:
+def attempt_dir(task_dir: Path, attempt_no: int) -> Path:
     """The per-attempt directory: run.json (with launch), prompt.md,
     mcp.json, events.jsonl, log.jsonl, log.stderr, STATE.md / RESULT.json
-    snapshots (taken at reap), for attempt *n*."""
-    return attempts_root(task_dir) / str(n)
+    snapshots (taken at reap), for attempt *attempt_no*."""
+    return attempts_root(task_dir) / str(attempt_no)
 
 
 def state_file(task_dir: Path) -> Path:

@@ -65,10 +65,10 @@ def _record_of(verdict: Verdict, exit_code: int | None) -> TaskOutcomeRecord:
     )
 
 
-def _event_verdict(monitors: list[Monitor], evt: Event, state: MonitorContext) -> Verdict | None:
+def _event_verdict(monitors: list[Monitor], event: Event, state: MonitorContext) -> Verdict | None:
     """First verdict from the monitors for one event, or None."""
     for monitor in monitors:
-        verdict = monitor.on_event(evt, state)
+        verdict = monitor.on_event(event, state)
         if verdict is not None:
             return verdict
     return None

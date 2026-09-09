@@ -85,7 +85,7 @@ class FakeCompactionCoder:
 
 
 class _Gauge:
-    def update(self, evt: Event) -> None:
+    def update(self, event: Event) -> None:
         return None
 
 
@@ -300,11 +300,12 @@ def testtrailing_streak_skips_compact_rows(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
     n1 = state_attempts.record_start(task_dir, coder="c", model="m")
     state_attempts.record_end(
-        task_dir, outcome="context_pressure", exit_code=None, reason="full", action="release", n=n1
+        task_dir, outcome="context_pressure", exit_code=None, reason="full", action="release",
+            attempt_no=n1
     )
     n2 = state_attempts.record_start(task_dir, coder="c", model="m", kind="compact")
     state_attempts.record_end(
-        task_dir, outcome="success", exit_code=0, reason="compacted", action="close", n=n2
+        task_dir, outcome="success", exit_code=0, reason="compacted", action="close", attempt_no=n2
     )
 
     history = state_attempts.load_attempts(task_dir)

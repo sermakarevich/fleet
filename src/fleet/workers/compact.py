@@ -343,7 +343,9 @@ def _compact_fallback(ctx: StepContext, reason: str) -> StepResult:
     return StepResult(status=StepStatus.OK, reason=f"compaction_fallback: {reason}")
 
 
-def _finish_compact_row(ctx: StepContext, n: int, outcome: TaskOutcome, reason: str) -> None:
+def _finish_compact_row(
+    ctx: StepContext, attempt_no: int, outcome: TaskOutcome, reason: str
+) -> None:
     """Close the compact attempt row, warning (never raising) on failure."""
     try:
         state_attempts.record_end(
@@ -352,7 +354,7 @@ def _finish_compact_row(ctx: StepContext, n: int, outcome: TaskOutcome, reason: 
             exit_code=0,
             reason=reason,
             action=Action.CLOSE,
-            n=n,
+            attempt_no=attempt_no,
         )
     except OSError as exc:
         ctx.log.warning("attempt_record_failed", error=str(exc))

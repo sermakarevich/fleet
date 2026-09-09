@@ -23,19 +23,19 @@ from fleet.core.task import EventKind, TaskOutcome
 _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit": "edit"}
 
 
-def parse_iso(ts: str) -> datetime | None:
+def parse_iso(iso_text: str) -> datetime | None:
     """Parse one event timestamp; None when missing or malformed."""
-    return iso.parse_iso(ts)
+    return iso.parse_iso(iso_text)
 
 
-def safe_int(v: object) -> int:
-    if isinstance(v, bool):
+def safe_int(value: object) -> int:
+    if isinstance(value, bool):
         return 0
-    if isinstance(v, int):
-        return v
-    if isinstance(v, str):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
         try:
-            return int(v)
+            return int(value)
         except ValueError:
             return 0
     return 0
@@ -96,9 +96,9 @@ def iter_events(task_dir: Path) -> Iterator[dict]:
         yield from _iter_events_file(attempt_path / "events.jsonl")
 
 
-def iter_attempt_events(task_dir: Path, n: int) -> Iterator[dict]:
+def iter_attempt_events(task_dir: Path, attempt_no: int) -> Iterator[dict]:
     """Yield the parsed events for one attempt's events.jsonl only."""
-    yield from _iter_events_file(task_dir / "attempts" / str(n) / "events.jsonl")
+    yield from _iter_events_file(task_dir / "attempts" / str(attempt_no) / "events.jsonl")
 
 
 @dataclass(frozen=True, slots=True)

@@ -344,16 +344,16 @@ def print_start_report(result: StartResult, label: str, logfile: Path) -> None:
     _console.print(f"[green]{label} started[/] (pid {result.pid}). Logs: {logfile}")
 
 
-def _print_log_tail(path: Path, n: int = 20) -> None:
-    """Print the last *n* lines of a daemon logfile after a failed start."""
+def _print_log_tail(path: Path, line_count: int = 20) -> None:
+    """Print the last *line_count* lines of a daemon logfile after a failed start."""
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return
     if not lines:
         return
-    _console.print(f"[dim]--- last {min(n, len(lines))} lines of {path} ---[/]")
-    for line in lines[-n:]:
+    _console.print(f"[dim]--- last {min(line_count, len(lines))} lines of {path} ---[/]")
+    for line in lines[-line_count:]:
         _console.print(line)
 
 

@@ -30,7 +30,8 @@ def test_start_end_round_trip_and_derived_counts(tmp_path: Path) -> None:
     n1 = journal.append_start(coder="claude", model="sonnet")
     n2 = journal.append_start(coder="claude", model="sonnet")
     assert (n1, n2) == (1, 2)
-    journal.append_end(outcome="failure", exit_code=1, reason="boom", action="release", n=n1)
+    journal.append_end(outcome="failure", exit_code=1, reason="boom", action="release",
+        attempt_no=n1)
 
     fresh = AttemptJournal.load(task_dir)
     assert fresh.starts == 2
@@ -79,7 +80,8 @@ def test_latest_attempt_dir_prefers_running_work_attempt(tmp_path: Path) -> None
     journal.append_end(outcome="failure", exit_code=1, reason="x", action="release")
     n_work = journal.append_start(coder="c", model="m")
     n_compact = journal.append_start(coder="c", model="m", kind="compact")
-    journal.append_end(outcome="success", exit_code=0, reason="c", action="close", n=n_compact)
+    journal.append_end(outcome="success", exit_code=0, reason="c", action="close",
+        attempt_no=n_compact)
     fresh = AttemptJournal.load(task_dir)
     assert fresh.latest_attempt_dir() is not None
     assert fresh.latest_attempt_dir().name == str(n_work)

@@ -205,15 +205,15 @@ class AttemptJournal:
         exit_code: int | None,
         reason: str,
         action: Action | str,
-        n: int | None = None,
+        attempt_no: int | None = None,
     ) -> int:
-        """Journal an end line for attempt *n* (default: the current one)."""
-        if n is None:
-            n = self.current_n or self.max_n + 1
+        """Journal an end line for attempt *attempt_no* (default: the current one)."""
+        if attempt_no is None:
+            attempt_no = self.current_n or self.max_n + 1
         action_value = action.value if isinstance(action, Action) else action
         entry = {
             "event": "end",
-            "n": n,
+            "n": attempt_no,
             "ts": now_iso(),
             "outcome": outcome,
             "exit_code": exit_code,
@@ -223,7 +223,7 @@ class AttemptJournal:
         _append_line(self.task_dir, entry)
         self.raw.append(dict(entry))
         self.rows = _merge_rows(self.raw)
-        return n
+        return attempt_no
 
     def append_unblock(self, note: str | None = None) -> int:
         """Journal an operator-unblock row with its own attempt number."""
@@ -239,8 +239,8 @@ class AttemptJournal:
         self.rows = _merge_rows(self.raw)
         return n
 
-    def set_worker(self, n: int, worker: str) -> bool:
-        """Tag attempt *n*'s start line with its worker name.
+    def set_worker(self, attempt_no: int, worker: str) -> bool:
+        """Tag attempt *attempt_no*'s start line with its worker name.
 
         Returns True when a line was tagged. A missing journal or a missing
         start line logs a warning and returns False; a failed rewrite logs
@@ -260,22 +260,26 @@ class AttemptJournal:
                 obj = json.loads(stripped) if stripped else None
             except ValueError:
                 obj = None
-            if isinstance(obj, dict) and obj.get("event") == "start" and obj.get("n") == n:
+            if isinstance(obj, dict) and obj.get("event") == "start" and obj.get("n") == attempt_no:
                 obj["worker"] = worker
                 out_lines.append(json.dumps(obj))
                 changed = True
             else:
                 out_lines.append(raw_line)
         if not changed:
-            logger.warning("attempt_journal_no_start", task=str(self.task_dir), n=n)
+            logger.warning(
+                "attempt_journal_no_start", task=str(self.task_dir), attempt_no=attempt_no
+            )
             return False
         try:
-            write_text_atomic(path, "\n".join(out_lines) + "\n")
+            write_text_atomic(path, "\attempt_no".join(out_lines) + "\attempt_no")
         except OSError:
-            logger.exception("attempt_journal_rewrite_failed", task=str(self.task_dir), n=n)
+            logger.exception(
+                "attempt_journal_rewrite_failed", task=str(self.task_dir), attempt_no=attempt_no
+            )
             raise
         for obj in self.raw:
-            if obj.get("event") == "start" and obj.get("n") == n:
+            if obj.get("event") == "start" and obj.get("n") == attempt_no:
                 obj["worker"] = worker
         self.rows = _merge_rows(self.raw)
         return True

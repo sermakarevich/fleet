@@ -52,38 +52,38 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
     results: list[SearchResult] = []
     if not query.strip():
         return results
-    q = query.lower()
+    needle = query.lower()
     index = TaskIndex(fleet_home)
     for task_dir, data in index.iter_meta():
         task_id = data.get("id", task_dir.name)
         task_title = data.get("title", "")
         desc = data.get("description") or ""
-        if q in task_title.lower():
+        if needle in task_title.lower():
             results.append(
                 SearchResult(
                     task_id=task_id,
                     task_title=task_title,
                     source="title",
-                    match_context=_snippet(task_title, q),
+                    match_context=_snippet(task_title, needle),
                 )
             )
-        if q in desc.lower():
+        if needle in desc.lower():
             results.append(
                 SearchResult(
                     task_id=task_id,
                     task_title=task_title,
                     source="description",
-                    match_context=_snippet(desc, q),
+                    match_context=_snippet(desc, needle),
                 )
             )
         state_text = _state_text(task_dir)
-        if state_text and q in state_text.lower():
+        if state_text and needle in state_text.lower():
             results.append(
                 SearchResult(
                     task_id=task_id,
                     task_title=task_title,
                     source="state",
-                    match_context=_snippet(state_text, q),
+                    match_context=_snippet(state_text, needle),
                 )
             )
         if len(results) >= _MAX_RESULTS:
@@ -92,12 +92,12 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
 
 
 @router.get("/search", response_model=SearchResponse)
-async def search(q: str = Query(...)) -> JSONResponse:
+async def search(query: str = Query(...)) -> JSONResponse:
     """Full-text search over task titles, descriptions and STATE.md."""
-    if not q.strip():
+    if not query.strip():
         return JSONResponse({"results": []})
     fleet_home = get_fleet_home()
-    results = await asyncio.to_thread(search_tasks, fleet_home, q)
+    results = await asyncio.to_thread(search_tasks, fleet_home, query)
     return JSONResponse(
         {
             "results": [

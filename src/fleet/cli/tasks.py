@@ -46,46 +46,46 @@ class TaskAction(StrEnum):
     result = "result"
 
 
-def _fetch_ready(q: BeadsQueue, limit: int) -> list[Task]:
+def _fetch_ready(queue: BeadsQueue, limit: int) -> list[Task]:
     """Ready tasks, exiting 1 when the queue is unreadable."""
     try:
-        return q.list_ready(limit=limit)
+        return queue.list_ready(limit=limit)
     except BdError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
 
-def _fetch_in_progress(q: BeadsQueue, limit: int) -> list[Task]:
+def _fetch_in_progress(queue: BeadsQueue, limit: int) -> list[Task]:
     """Running tasks, exiting 1 when the queue is unreadable."""
     try:
-        return q.list_in_progress(limit=limit)
+        return queue.list_in_progress(limit=limit)
     except BdError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
 
-def _fetch_ignored(q: BeadsQueue, limit: int) -> list[tuple[Task, str]]:
+def _fetch_ignored(queue: BeadsQueue, limit: int) -> list[tuple[Task, str]]:
     """Triage-ignored tasks with their ignore-until stamps."""
     try:
-        return q.list_ignored(limit=limit)
+        return queue.list_ignored(limit=limit)
     except BdError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
 
-def _fetch_job(q: BeadsQueue, job_id: str) -> Task:
+def _fetch_job(queue: BeadsQueue, job_id: str) -> Task:
     """One bead, exiting 1 when bd cannot show it."""
     try:
-        return q.get(job_id)
+        return queue.get(job_id)
     except BdError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
 
-def _fetch_children(q: BeadsQueue, job_id: str) -> list[Any]:
+def _fetch_children(queue: BeadsQueue, job_id: str) -> list[Any]:
     """Child beads, best-effort (empty when bd cannot list them)."""
     try:
-        return q.list_children(job_id)
+        return queue.list_children(job_id)
     except BdError:
         return []
 
@@ -305,8 +305,8 @@ def run_job_view(fleet_home: Path, job_id: str) -> None:
     render.print_job_view(_build_job_view(fleet_home, task, children, _pending_gate(job_id)))
 
 
-def _print_tail_events(events_path: Path, n: int, follow: bool) -> None:
-    """Print the last *n* rendered events, then follow when asked."""
+def _print_tail_events(events_path: Path, line_count: int, follow: bool) -> None:
+    """Print the last *line_count* rendered events, then follow when asked."""
     try:
         raw_lines = events_path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
@@ -316,12 +316,12 @@ def _print_tail_events(events_path: Path, n: int, follow: bool) -> None:
     if not rendered:
         typer.echo("(no renderable events)")
         return
-    render.print_lines(rendered[-n:] if n > 0 else rendered)
+    render.print_lines(rendered[-line_count:] if line_count > 0 else rendered)
     if follow:
-        _tail_follow(events_path, n)
+        _tail_follow(events_path, line_count)
 
 
-def run_tail(fleet_home: Path, task_id: str, n: int, follow: bool) -> None:
+def run_tail(fleet_home: Path, task_id: str, line_count: int, follow: bool) -> None:
     """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
     task_dir = state_paths.task_dir(fleet_home, task_id)
     if not task_dir.exists():
@@ -337,7 +337,7 @@ def run_tail(fleet_home: Path, task_id: str, n: int, follow: bool) -> None:
         while not events_path.exists():
             time.sleep(1)
     render.print_tail_header(task_id, runtime_stats.task_runtime_stats_for(task_id))
-    _print_tail_events(events_path, n, follow)
+    _print_tail_events(events_path, line_count, follow)
 
 
 def _latest_supervisor_log(log_dir: Path) -> Path:
@@ -454,7 +454,7 @@ def register(app: typer.Typer) -> None:
     @app.command("tail")
     def tail_cmd(
         task_id: Annotated[str, typer.Argument(help="Task ID.")],
-        n: Annotated[
+        line_count: Annotated[
             int,
             typer.Option("--lines", "-n", help="Number of last rendered lines to show."),
         ] = 30,
@@ -464,7 +464,7 @@ def register(app: typer.Typer) -> None:
         ] = False,
     ) -> None:
         """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
-        run_tail(bootstrap.fleet_home(), task_id, n, follow)
+        run_tail(bootstrap.fleet_home(), task_id, line_count, follow)
 
     @app.command("log")
     def log_cmd(

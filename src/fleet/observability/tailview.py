@@ -17,9 +17,9 @@ from fleet.core.task import EventKind
 from .event_render import render
 
 
-def _ts_prefix(evt: dict) -> str:
+def _ts_prefix(event: dict) -> str:
     """HH:MM:SS from the event timestamp, placeholder when unparseable."""
-    ts_str = evt.get("ts")
+    ts_str = event.get("ts")
     if isinstance(ts_str, str):
         try:
             dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
@@ -29,27 +29,27 @@ def _ts_prefix(evt: dict) -> str:
     return "--:--:--"
 
 
-def render_event(evt: dict, state: dict) -> str | None:
+def render_event(event: dict, state: dict) -> str | None:
     """Render one parsed events.jsonl line, or None to skip.
 
     *state* is a mutable dict carrying renderer state across calls
     (currently just *last_session*).
     """
-    kind = evt.get("kind")
+    kind = event.get("kind")
     if not isinstance(kind, str):
         return None
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             raw = {}
     if kind == EventKind.SESSION_STARTED:
-        sid = evt.get("session_id") or (raw.get("sessionID") if isinstance(raw, dict) else None)
+        sid = event.get("session_id") or (raw.get("sessionID") if isinstance(raw, dict) else None)
         if sid is None or state.get("last_session") == sid:
             return None
         state["last_session"] = sid
-    _summary, detail = render(kind, {**evt, "raw": raw})
+    _summary, detail = render(kind, {**event, "raw": raw})
     return detail
 
 

@@ -98,12 +98,12 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _attempt_row(task_dir: Path, n: int) -> AttemptRow:
-    """The journal row for attempt *n* as a typed record."""
+def _attempt_row(task_dir: Path, attempt_no: int) -> AttemptRow:
+    """The journal row for attempt *attempt_no* as a typed record."""
     for row in state_attempts.load_attempts(task_dir):
-        if row.get("n") == n:
+        if row.get("n") == attempt_no:
             return AttemptRow.from_dict(row)
-    return AttemptRow(n=n)
+    return AttemptRow(attempt_no=attempt_no)
 
 
 def _extract_text(row: dict) -> str:
@@ -146,15 +146,15 @@ def _read_stderr_tail(attempt_dir: Path, n_lines: int) -> list[str]:
     return lines[-n_lines:]
 
 
-def summarize(task_dir: Path, n: int) -> AttemptSummary:
-    """Compute the derived summary for attempt *n*. Pure read path."""
-    attempt_dir = state_paths.attempt_dir(task_dir, n)
+def summarize(task_dir: Path, attempt_no: int) -> AttemptSummary:
+    """Compute the derived summary for attempt *attempt_no*. Pure read path."""
+    attempt_dir = state_paths.attempt_dir(task_dir, attempt_no)
     run = RunRecord.load(attempt_dir)
     launch = run.launch if run is not None and isinstance(run.launch, dict) else {}
-    row = _attempt_row(task_dir, n)
-    stats = stats_from_rows(iter_attempt_events(task_dir, n))
+    row = _attempt_row(task_dir, attempt_no)
+    stats = stats_from_rows(iter_attempt_events(task_dir, attempt_no))
 
-    events = list(iter_attempt_events(task_dir, n))
+    events = list(iter_attempt_events(task_dir, attempt_no))
     last_error = next((e for e in reversed(events) if e.get("kind") == EventKind.ERROR), None)
     last_texts = [_extract_text(e) for e in events if e.get("kind") == EventKind.ASSISTANT_TEXT][
         -_LAST_TEXT_EVENTS:
@@ -167,7 +167,7 @@ def summarize(task_dir: Path, n: int) -> AttemptSummary:
     result = _read_json(attempt_dir / "RESULT.json") or None
 
     return AttemptSummary(
-        n=n,
+        attempt_no=attempt_no,
         kind=str(launch.get("kind") or row.get("kind") or AttemptKind.WORK.value),
         mode=str(launch.get("mode") or "unknown"),
         coder=row.get("coder"),

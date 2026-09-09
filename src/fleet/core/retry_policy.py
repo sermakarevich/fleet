@@ -125,9 +125,9 @@ def _no_resets_at(record: TaskOutcomeRecord) -> bool:
     return record.resets_at is None
 
 
-def _wait_const(n: int) -> Callable[[TaskOutcomeRecord, int], int | None]:
+def _wait_const(delay_secs: int) -> Callable[[TaskOutcomeRecord, int], int | None]:
     """Build a wait_for returning a fixed delay."""
-    return lambda _record, _rounds: n
+    return lambda _record, _rounds: delay_secs
 
 
 # Evaluation order is the policy: terminal states first, then the

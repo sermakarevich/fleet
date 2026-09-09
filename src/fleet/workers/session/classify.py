@@ -39,17 +39,17 @@ def is_context_error_text(text: str) -> bool:
     return any(pat in lowered for pat in _CONTEXT_ERROR_PATTERNS)
 
 
-def error_text_of(evt: Event) -> str:
-    """The error payload of *evt*, or "" when the event carries no error.
+def error_text_of(event: Event) -> str:
+    """The error payload of *event*, or "" when the event carries no error.
 
     Only ``error`` events and the error fields of a ``session_ended`` event
     count. The model's own prose (``assistant_text``) is never scanned: a
     worker that *talks about* "context windows" is not overflowing one.
     """
-    raw = evt.raw if isinstance(evt.raw, dict) else {}
-    if evt.kind == EventKind.ERROR:
+    raw = event.raw if isinstance(event.raw, dict) else {}
+    if event.kind == EventKind.ERROR:
         candidate = raw
-    elif evt.kind == EventKind.SESSION_ENDED:
+    elif event.kind == EventKind.SESSION_ENDED:
         candidate = {k: raw[k] for k in ("error", "errors", "message") if raw.get(k)}
         if raw.get("is_error") and raw.get("result"):
             candidate["result"] = raw["result"]

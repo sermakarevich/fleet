@@ -19,16 +19,16 @@ class RateGauge:
         self.resets_at: int | None = None
         self.last_updated: datetime | None = None
 
-    def update(self, evt: Event) -> None:
-        if evt.kind not in (EventKind.RATE_LIMIT_INFO, EventKind.RATE_LIMIT):
+    def update(self, event: Event) -> None:
+        if event.kind not in (EventKind.RATE_LIMIT_INFO, EventKind.RATE_LIMIT):
             return
-        if evt.rate_info is None:
+        if event.rate_info is None:
             return
         self.last_updated = datetime.now(tz=UTC)
-        usage_pct = evt.rate_info.get("usage_pct")
+        usage_pct = event.rate_info.get("usage_pct")
         if usage_pct is not None:
             self.current_usage_pct = float(usage_pct)
-        resets_at = evt.rate_info.get("resets_at")
+        resets_at = event.rate_info.get("resets_at")
         if resets_at is not None:
             self.resets_at = int(resets_at)
 

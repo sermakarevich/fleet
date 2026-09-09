@@ -32,39 +32,39 @@ async def healthz() -> JSONResponse:
 
 
 @router.websocket("/ws/events")
-async def ws_events(ws: WebSocket, state: StateDep) -> None:
+async def ws_events(websocket: WebSocket, state: StateDep) -> None:
     """Global event stream for all tasks."""
-    if not websocket_authorized(ws):
-        await ws.close(code=4401)
+    if not websocket_authorized(websocket):
+        await websocket.close(code=4401)
         return
     mgr = state.connection_manager
-    await mgr.connect(ws)
+    await mgr.connect(websocket)
     try:
         while True:
-            await ws.receive_text()
+            await websocket.receive_text()
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
-        await mgr.disconnect(ws)
+        await mgr.disconnect(websocket)
 
 
-@router.websocket("/ws/tasks/{id}/events")
-async def ws_task_events(ws: WebSocket, id: str, state: StateDep) -> None:
+@router.websocket("/ws/tasks/{task_id}/events")
+async def ws_task_events(websocket: WebSocket, task_id: str, state: StateDep) -> None:
     """Event stream for one task; 4004 when the task does not exist."""
-    if not websocket_authorized(ws):
-        await ws.close(code=4401)
+    if not websocket_authorized(websocket):
+        await websocket.close(code=4401)
         return
-    task_dir = state_paths.task_dir(state_paths.fleet_home(), id)
+    task_dir = state_paths.task_dir(state_paths.fleet_home(), task_id)
     if not task_dir.is_dir():
-        await ws.accept()
-        await ws.close(code=4004)
+        await websocket.accept()
+        await websocket.close(code=4004)
         return
     mgr = state.connection_manager
-    await mgr.connect(ws, task_id=id)
+    await mgr.connect(websocket, task_id=task_id)
     try:
         while True:
-            await ws.receive_text()
+            await websocket.receive_text()
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
-        await mgr.disconnect(ws)
+        await mgr.disconnect(websocket)

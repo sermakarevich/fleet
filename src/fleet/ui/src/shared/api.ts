@@ -172,8 +172,10 @@ export const api = {
     return request(`/api/analytics/summary?days=${days}`);
   },
 
-  async search(q: string): Promise<SearchResult[]> {
-    const result = await request<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+  async search(query: string): Promise<SearchResult[]> {
+    const result = await request<{ results: SearchResult[] }>(
+      `/api/search?query=${encodeURIComponent(query)}`
+    );
     return result.results;
   },
 

@@ -36,7 +36,7 @@ class StepStatus(StrEnum):
 class RateGaugeLike(Protocol):
     """Anything that drains rate-limit events (the orchestrator's RateGauge)."""
 
-    def update(self, evt: Event) -> None: ...
+    def update(self, event: Event) -> None: ...
 
 
 class QuestionLike(Protocol):

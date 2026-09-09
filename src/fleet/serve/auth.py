@@ -32,10 +32,10 @@ def supplied_token(request: Request) -> str:
     return request.query_params.get("token", "")
 
 
-def websocket_authorized(ws: WebSocket) -> bool:
+def websocket_authorized(websocket: WebSocket) -> bool:
     """True when the websocket may connect (token matches or auth disabled)."""
     token = expected_token()
-    return not token or ws.query_params.get("token", "") == token
+    return not token or websocket.query_params.get("token", "") == token
 
 
 def install_auth(app: FastAPI) -> None:

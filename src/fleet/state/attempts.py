@@ -47,18 +47,22 @@ def record_end(
     exit_code: int | None,
     reason: str,
     action: Action | str,
-    n: int | None = None,
+    attempt_no: int | None = None,
 ) -> None:
-    """Append an end line for attempt *n* (default: the current one)."""
+    """Append an end line for attempt *attempt_no* (default: the current one)."""
     outcome_value = outcome.value if isinstance(outcome, TaskOutcome) else outcome
     AttemptJournal.load(task_dir).append_end(
-        outcome=outcome_value, exit_code=exit_code, reason=reason, action=action, n=n
+        outcome=outcome_value,
+        exit_code=exit_code,
+        reason=reason,
+        action=action,
+        attempt_no=attempt_no,
     )
 
 
-def set_worker(task_dir: Path, n: int, worker: str) -> bool:
-    """Tag attempt *n*'s start line with its worker name; False when no tag landed."""
-    return AttemptJournal.load(task_dir).set_worker(n, worker)
+def set_worker(task_dir: Path, attempt_no: int, worker: str) -> bool:
+    """Tag attempt *attempt_no*'s start line with its worker name; False when no tag landed."""
+    return AttemptJournal.load(task_dir).set_worker(attempt_no, worker)
 
 
 def record_unblock(task_dir: Path, note: str | None = None) -> int:

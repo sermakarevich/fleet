@@ -61,9 +61,9 @@ class AttemptRecord:
     outcome: str = "active"
 
 
-def _str_to_iso(dt: datetime | None) -> str | None:
+def _str_to_iso(value: datetime | None) -> str | None:
     """Render a datetime as ISO text, or None when there is none."""
-    return dt.isoformat() if dt is not None else None
+    return value.isoformat() if value is not None else None
 
 
 def _attempt_signals(task_dir: Path) -> tuple[bool, bool]:

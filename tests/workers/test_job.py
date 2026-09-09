@@ -210,7 +210,7 @@ def test_plan_job_blocks_after_two_research_failures(tmp_path: Path) -> None:
             exit_code=1,
             reason="boom",
             action="release",
-            n=n,
+            attempt_no=n,
         )
     worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.blocked"
@@ -227,7 +227,7 @@ def test_plan_job_partial_research_does_not_block(tmp_path: Path) -> None:
             exit_code=0,
             reason="design",
             action="release",
-            n=n,
+            attempt_no=n,
         )
     worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.research"

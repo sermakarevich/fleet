@@ -22,12 +22,12 @@ from fleet.state.task_index import TaskIndex
 router = APIRouter(prefix="/api")
 
 
-def _file_response(f: Path) -> JSONResponse:
+def _file_response(path: Path) -> JSONResponse:
     return JSONResponse(
         {
-            "content": f.read_text(encoding="utf-8"),
-            "mtime": f.stat().st_mtime,
-            "path": str(f.resolve()),
+            "content": path.read_text(encoding="utf-8"),
+            "mtime": path.stat().st_mtime,
+            "path": str(path.resolve()),
         }
     )
 

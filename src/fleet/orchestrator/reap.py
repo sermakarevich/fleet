@@ -428,9 +428,11 @@ def apply_decision(
     _APPLY[decision.action](st, task, task_dir, record, decision, fleet_ctx, status, result)
 
 
-def snapshot_attempt_artifacts(st: SupervisorState, task: Task, task_dir: Path, n: int) -> None:
-    """Copy this attempt's STATE.md/RESULT.json into attempts/<n>/ and unlink live RESULT."""
-    adir = attempt_dir(task_dir, n)
+def snapshot_attempt_artifacts(
+    st: SupervisorState, task: Task, task_dir: Path, attempt_no: int
+) -> None:
+    """Copy this attempt's STATE.md/RESULT.json aside and unlink live RESULT."""
+    adir = attempt_dir(task_dir, attempt_no)
     adir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -521,7 +523,7 @@ def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutc
             exit_code=record.exit_code,
             reason=record.reason,
             action=decision.action,
-            n=worker.attempt_n,
+            attempt_no=worker.attempt_n,
         )
     except OSError as exc:
         st.log.warning("attempt_record_failed", task_id=task.id, error=str(exc))

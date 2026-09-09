@@ -31,17 +31,17 @@ class WebSocketBroadcaster:
         self._global: set[WebSocket] = set()
         self._per_task: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, ws: WebSocket, task_id: str | None = None) -> None:
-        await ws.accept()
+    async def connect(self, websocket: WebSocket, task_id: str | None = None) -> None:
+        await websocket.accept()
         if task_id is None:
-            self._global.add(ws)
+            self._global.add(websocket)
         else:
-            self._per_task.setdefault(task_id, set()).add(ws)
+            self._per_task.setdefault(task_id, set()).add(websocket)
 
-    async def disconnect(self, ws: WebSocket) -> None:
-        self._global.discard(ws)
+    async def disconnect(self, websocket: WebSocket) -> None:
+        self._global.discard(websocket)
         for s in self._per_task.values():
-            s.discard(ws)
+            s.discard(websocket)
 
     async def broadcast(self, task_id: str, payload: dict) -> None:
         """Send payload to all subscribers. Silently removes disconnected clients.

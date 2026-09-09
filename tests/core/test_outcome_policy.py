@@ -146,7 +146,8 @@ def _seed_partial_observer_rounds(tmp_path: Path, task_id: str, n: int) -> None:
     for _ in range(n):
         m = attempts.record_start(task_dir, coder="c", model="m", worker="observer")
         attempts.record_end(
-            task_dir, outcome="partial", exit_code=0, reason="more work", action="release", n=m
+            task_dir, outcome="partial", exit_code=0, reason="more work", action="release",
+                attempt_no=m
         )
 
 
@@ -177,7 +178,8 @@ def test_task_partial_at_same_history_still_releases(tmp_path: Path) -> None:
     for _ in range(2):
         m = attempts.record_start(task_dir, coder="c", model="m", worker="task.continue")
         attempts.record_end(
-            task_dir, outcome="partial", exit_code=0, reason="more work", action="release", n=m
+            task_dir, outcome="partial", exit_code=0, reason="more work", action="release",
+                attempt_no=m
         )
     queue = StubQueue(status="in_progress")
     s = _supervisor(tmp_path, queue)

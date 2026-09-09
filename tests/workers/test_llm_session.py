@@ -52,8 +52,8 @@ class StubRateGauge:
     def __init__(self) -> None:
         self.updates: list[Event] = []
 
-    def update(self, evt: Event) -> None:
-        self.updates.append(evt)
+    def update(self, event: Event) -> None:
+        self.updates.append(event)
 
 
 def _make_ctx(

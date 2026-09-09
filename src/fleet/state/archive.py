@@ -34,8 +34,8 @@ class StaleWorktree:
     repo_root: str | None
 
 
-def _dir_size(p: Path) -> int:
-    return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+def _dir_size(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
 def gc_tasks(fleet_home: Path, days: int = 30, dry_run: bool = False) -> GcResult:

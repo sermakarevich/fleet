@@ -109,7 +109,7 @@ def test_search_tasks_context_snippet(tmp_path: Path) -> None:
 
 
 def test_search_endpoint_returns_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /api/search?q=... returns matching results."""
+    """GET /api/search?query=... returns matching results."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     _make_task(tasks_root, "t1", title="refactor auth module")
@@ -120,7 +120,7 @@ def test_search_endpoint_returns_results(tmp_path: Path, monkeypatch: pytest.Mon
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.get("/api/search?q=auth")
+            return await client.get("/api/search?query=auth")
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200
@@ -137,7 +137,7 @@ def test_search_endpoint_returns_results(tmp_path: Path, monkeypatch: pytest.Mon
 def test_search_endpoint_empty_q_returns_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/search?q= returns empty results for empty query."""
+    """GET /api/search?query= returns empty results for empty query."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
 
@@ -145,7 +145,7 @@ def test_search_endpoint_empty_q_returns_empty(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.get("/api/search?q=")
+            return await client.get("/api/search?query=")
 
     resp = asyncio.run(_run())
     assert resp.status_code == 200

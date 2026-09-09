@@ -136,7 +136,7 @@ def open_task_log(attempt_dir: Path, task_id: str) -> Iterator[TaskLogRecord]:
         stderr_file.close()
 
 
-def append_event(attempt_dir: Path, evt: Event) -> None:
+def append_event(attempt_dir: Path, event: Event) -> None:
     """Append one normalized Event line to <attempt_dir>/events.jsonl.
 
     *attempt_dir* is the per-attempt directory. Never truncates prior
@@ -144,13 +144,13 @@ def append_event(attempt_dir: Path, evt: Event) -> None:
     serialising.
     """
     payload: dict = {
-        "kind": evt.kind.value if isinstance(evt.kind, EventKind) else evt.kind,
-        "ts": evt.ts.isoformat(),
-        "session_id": evt.session_id,
-        "tool_name": evt.tool_name,
-        "usage": evt.usage,
-        "rate_info": evt.rate_info,
-        "raw": evt.raw,
+        "kind": event.kind.value if isinstance(event.kind, EventKind) else event.kind,
+        "ts": event.ts.isoformat(),
+        "session_id": event.session_id,
+        "tool_name": event.tool_name,
+        "usage": event.usage,
+        "rate_info": event.rate_info,
+        "raw": event.raw,
     }
     payload = redact(payload)
     attempt_dir.mkdir(parents=True, exist_ok=True)

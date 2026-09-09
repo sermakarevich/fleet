@@ -45,7 +45,7 @@ class StubCoder:
 
 
 class _Gauge:
-    def update(self, evt: Event) -> None:
+    def update(self, event: Event) -> None:
         return None
 
 

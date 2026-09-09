@@ -84,7 +84,7 @@ class Monitor:
 
     order: int = 100
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
         """Inspect one streamed event; return a Verdict to end the session."""
         return None
 
@@ -100,17 +100,17 @@ class SessionEventLogger(Monitor):
 
     order = 5
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind == EventKind.SESSION_STARTED:
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
+        if event.kind == EventKind.SESSION_STARTED:
             if not ctx.session_started_logged:
                 ctx.session_started_logged = True
                 ctx.ctx_log.info("agent_session_started")
-        elif evt.kind == EventKind.TOOL_USE:
+        elif event.kind == EventKind.TOOL_USE:
             ctx.ctx_log.info(
                 "agent_tool_use",
-                tool=evt.tool_name or evt.raw.get("tool_name") or evt.raw.get("name"),
+                tool=event.tool_name or event.raw.get("tool_name") or event.raw.get("name"),
             )
-        elif evt.kind == EventKind.SESSION_ENDED:
+        elif event.kind == EventKind.SESSION_ENDED:
             ctx.ctx_log.info("agent_session_ended")
         return None
 
@@ -120,9 +120,9 @@ class RateGaugeFeeder(Monitor):
 
     order = 10
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind == EventKind.RATE_LIMIT_INFO:
-            ctx.rate_gauge.update(evt)
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
+        if event.kind == EventKind.RATE_LIMIT_INFO:
+            ctx.rate_gauge.update(event)
         return None
 
 
@@ -131,7 +131,7 @@ class AttemptBudget(Monitor):
 
     order = 15
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
         return self._check(datetime.now(tz=UTC), ctx)
 
     def on_tick(self, now: datetime, ctx: MonitorContext) -> Verdict | None:
@@ -156,14 +156,14 @@ class ContextGauge(Monitor):
 
     order = 20
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
         if (
-            evt.kind == EventKind.RATE_LIMIT_INFO
-            or evt.usage is None
-            or evt.kind == EventKind.SESSION_ENDED
+            event.kind == EventKind.RATE_LIMIT_INFO
+            or event.usage is None
+            or event.kind == EventKind.SESSION_ENDED
         ):
             return None
-        prompt = _input_tokens(evt.usage)
+        prompt = _input_tokens(event.usage)
         if prompt <= 0:
             return None
         ctx.peak_context_tokens = max(ctx.peak_context_tokens, prompt)
@@ -200,15 +200,15 @@ class ContextErrorScanner(Monitor):
 
     order = 30
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind not in (EventKind.ERROR, EventKind.SESSION_ENDED):
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
+        if event.kind not in (EventKind.ERROR, EventKind.SESSION_ENDED):
             return None
-        searchable = error_text_of(evt)
+        searchable = error_text_of(event)
         if searchable and is_context_error_text(searchable):
             ctx.task_log.warning(
                 "context_overflow_reported",
                 task_id=ctx.task.id,
-                kind=evt.kind,
+                kind=event.kind,
             )
             return Verdict(TaskOutcome.CONTEXT_PRESSURE, "cli reported context overflow")
         return None
@@ -219,14 +219,14 @@ class HealthProbe(Monitor):
 
     order = 40
 
-    def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
+    def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
         if (
-            evt.kind != EventKind.RATE_LIMIT
-            or evt.rate_info is None
-            or evt.rate_info.get("status") != "rejected"
+            event.kind != EventKind.RATE_LIMIT
+            or event.rate_info is None
+            or event.rate_info.get("status") != "rejected"
         ):
             return None
-        resets_at = evt.rate_info.get("resets_at")
+        resets_at = event.rate_info.get("resets_at")
         reason = f"rate_limit, sleep until {resets_at}" if resets_at is not None else "rate_limit"
         ctx.task_log.warning(
             "rate_limit_rejected",

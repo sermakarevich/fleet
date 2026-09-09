@@ -62,14 +62,14 @@ mcp = FastMCP(
 )
 
 
-def _result(q: Question) -> dict[str, Any]:
+def _result(question: Question) -> dict[str, Any]:
     """Project a stored question down to what the calling agent needs."""
     return {
-        "id": q["id"],
-        "status": q["status"],  # answered | expired | cancelled
-        "answer": q["answer"],  # str, list[str] (multi_select), or None
-        "note": q.get("note"),  # operator's free-text note/correction, or None
-        "answered_by": q.get("answered_by"),
+        "id": question["id"],
+        "status": question["status"],  # answered | expired | cancelled
+        "answer": question["answer"],  # str, list[str] (multi_select), or None
+        "note": question.get("note"),  # operator's free-text note/correction, or None
+        "answered_by": question.get("answered_by"),
     }
 
 

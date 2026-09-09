@@ -30,32 +30,32 @@ def _session_short(sid: str) -> str:
     return sid[-_SID_SHORT_LEN:] if len(sid) >= _SID_SHORT_LEN else sid
 
 
-def render_session_started(evt: dict) -> tuple[str, str | None]:
+def render_session_started(event: dict) -> tuple[str, str | None]:
     """Session divider pair; detail None when no session id is known."""
-    sid = evt.get("session_id") or (evt.get("raw") or {}).get("sessionID")
+    sid = event.get("session_id") or (event.get("raw") or {}).get("sessionID")
     if not sid:
         return "Step start (session ?)", None
     short = _session_short(str(sid))
     return f"Step start (session {short})", f"\u2500\u2500 session {short} started \u2500\u2500"
 
 
-def render_tool_use(evt: dict) -> tuple[str, str | None]:
+def render_tool_use(event: dict) -> tuple[str, str | None]:
     """Tool call pair: JSON preview plus the ▶ terminal line."""
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     state = raw.get("state") if isinstance(raw.get("state"), dict) else None
     part = raw.get("part") if isinstance(raw.get("part"), dict) else None
     part_state = part.get("state") if part and isinstance(part.get("state"), dict) else None
     summary_in = state.get("input") if state else None
     if summary_in is None and isinstance(part_state, dict):
         summary_in = part_state.get("input")
-    summary_tool = evt.get("tool_name") or raw.get("tool", "") or ""
+    summary_tool = event.get("tool_name") or raw.get("tool", "") or ""
     if isinstance(summary_in, dict | list):
         summary = _compact_json({"tool": summary_tool, "input": summary_in})[:200]
     elif summary_in is not None:
         summary = summary_tool + " " + str(summary_in)[:200]
     else:
         summary = summary_tool
-    detail_tool = evt.get("tool_name") or "?"
+    detail_tool = event.get("tool_name") or "?"
     detail_in = part_state.get("input") if isinstance(part_state, dict) else None
     if detail_in is None:
         detail_in = raw.get("input")
@@ -64,42 +64,42 @@ def render_tool_use(evt: dict) -> tuple[str, str | None]:
     return summary, f"\u25b6 {detail_tool} {_compact_json(detail_in)[:100]}"
 
 
-def render_tool_result(evt: dict) -> tuple[str, str | None]:
+def render_tool_result(event: dict) -> tuple[str, str | None]:
     """Tool result pair: plain preview plus the ✓ terminal line."""
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     state = raw.get("state", {})
     out_str = ""
     if isinstance(state, dict) and state.get("output") is not None:
         out = state["output"]
         out_str = out[:200] if isinstance(out, str) else str(out)[:200]
-    tool = evt.get("tool_name") or raw.get("tool", "") or ""
+    tool = event.get("tool_name") or raw.get("tool", "") or ""
     summary = tool + " " + out_str if out_str else tool
     part = raw.get("part") if isinstance(raw.get("part"), dict) else None
     part_state = part.get("state") if part and isinstance(part.get("state"), dict) else None
     out = part_state.get("output") if part_state else None
     if out is None:
-        return summary, f"\u2713 {evt.get('tool_name') or '?'}"
+        return summary, f"\u2713 {event.get('tool_name') or '?'}"
     collapsed = " ".join(str(out).split())[:100]
-    return summary, f"\u2713 {evt.get('tool_name') or '?'} {collapsed}"
+    return summary, f"\u2713 {event.get('tool_name') or '?'} {collapsed}"
 
 
-def render_error(evt: dict) -> tuple[str, str | None]:
+def render_error(event: dict) -> tuple[str, str | None]:
     """Error pair: 'tool: detail' preview plus the ✗ terminal line."""
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     part = raw.get("part") if isinstance(raw.get("part"), dict) else None
     part_state = part.get("state") if part and isinstance(part.get("state"), dict) else None
     err = part_state.get("error") if part_state else None
     detail_err = err
     if err is None and isinstance(raw, dict):
         err = raw.get("error") or raw.get("message")
-    tool = evt.get("tool_name") or raw.get("tool", "") or ""
+    tool = event.get("tool_name") or raw.get("tool", "") or ""
     if tool:
         summary = tool + ": " + (str(err)[:200] if err is not None else _compact_json(raw)[:200])
     elif err is not None:
         summary = "Error: " + str(err)[:200]
     else:
         summary = "Error: " + _compact_json(raw)[:200]
-    detail_tool = evt.get("tool_name") or "error"
+    detail_tool = event.get("tool_name") or "error"
     if detail_err is not None:
         return summary, f"\u2717 {detail_tool} {detail_err}"
     return summary, f"\u2717 {detail_tool} {json.dumps(raw, ensure_ascii=False)[:150]}"
@@ -151,27 +151,27 @@ def _token_bits(usage: Any) -> list[str]:
     return bits
 
 
-def render_assistant_text(evt: dict) -> tuple[str, str | None]:
+def render_assistant_text(event: dict) -> tuple[str, str | None]:
     """Assistant text pair: prose preview (or token counts) plus 💬 line."""
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     text = _summary_text(raw)
     summary = " ".join(text.split())[:200] if text else ""
     if not summary:
-        bits = _token_bits(evt.get("usage"))
+        bits = _token_bits(event.get("usage"))
         summary = "Tokens: " + ", ".join(bits) if bits else ""
     detail_text = _detail_text(raw if isinstance(raw, dict) else {})
     if detail_text is not None:
         return summary, f"\U0001f4ac {' '.join(detail_text.split())[:160]}"
-    usage = evt.get("usage")
+    usage = event.get("usage")
     in_tok = usage.get("input_tokens") if isinstance(usage, dict) else None
     if in_tok is not None:
         return summary, f"\u00b7 step in={in_tok} tok"
     return summary, None
 
 
-def render_session_ended(evt: dict) -> tuple[str, str | None]:
+def render_session_ended(event: dict) -> tuple[str, str | None]:
     """Session end pair: token-count preview plus the ended divider."""
-    raw = evt.get("raw") or {}
+    raw = event.get("raw") or {}
     tokens = raw.get("tokens", {})
     bits = []
     if isinstance(tokens, dict):
@@ -180,7 +180,7 @@ def render_session_ended(evt: dict) -> tuple[str, str | None]:
         if tokens.get("output") is not None:
             bits.append(f"out={tokens['output']}")
     summary = "Session end (" + ", ".join(bits) + ")" if bits else "Session end"
-    usage = evt.get("usage")
+    usage = event.get("usage")
     if usage is not None and isinstance(usage, dict):
         in_s = str(usage["input_tokens"]) if usage.get("input_tokens") is not None else "?"
         out_s = str(usage["output_tokens"]) if usage.get("output_tokens") is not None else "?"
@@ -198,9 +198,9 @@ EVENT_RENDER: dict[str, Renderer] = {
 }
 
 
-def render(kind: str, evt: dict) -> tuple[str, str | None]:
-    """Render *evt* of *kind*; ("", None) for unknown kinds (skip)."""
+def render(kind: str, event: dict) -> tuple[str, str | None]:
+    """Render *event* of *kind*; ("", None) for unknown kinds (skip)."""
     renderer = EVENT_RENDER.get(kind)
     if renderer is None:
         return "", None
-    return renderer(evt)
+    return renderer(event)
