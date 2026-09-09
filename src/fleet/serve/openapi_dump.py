@@ -20,7 +20,7 @@ from fleet.serve.app import create_app
 
 
 def build_dump_app() -> FastAPI:
-    """Build the serve app against a throwaway fleet fleet_home for schema export."""
+    """Build the serve app against a throwaway fleet home for schema export."""
     dummy = tempfile.mkdtemp(prefix="fleet-openapi-")
     os.environ["FLEET_HOME"] = dummy
     return create_app()

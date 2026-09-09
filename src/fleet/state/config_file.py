@@ -16,7 +16,7 @@ import os
 import tomllib
 from pathlib import Path
 
-from fleet.core.config import RuntimeConfig, _defaults, merge, parse, render_toml
+from fleet.core.config import RuntimeConfig, defaults, merge, parse, render_toml
 from fleet.state.atomic import write_text_atomic
 
 
@@ -25,7 +25,7 @@ def load(path: Path) -> RuntimeConfig:
     path = Path(path)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(path, render_toml(_defaults()))
+        write_text_atomic(path, render_toml(defaults()))
         return RuntimeConfig()
     with path.open("rb") as fh:
         data = tomllib.load(fh)

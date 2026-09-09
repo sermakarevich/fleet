@@ -36,10 +36,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Coders
+         * Coders
          * @description Coders the create-task form may offer.
          */
-        get: operations["list_coders_api_coders_get"];
+        get: operations["coders_api_coders_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -132,7 +132,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/attempts/{n}/summary": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/summary": {
         parameters: {
             query?: never;
             header?: never;
@@ -143,7 +143,7 @@ export interface paths {
          * Get Attempt Summary
          * @description Derived attempt summary, rendered on demand (never stored).
          */
-        get: operations["get_attempt_summary_api_tasks__task_id__attempts__n__summary_get"];
+        get: operations["get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -152,7 +152,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/attempts/{n}/state": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/state": {
         parameters: {
             query?: never;
             header?: never;
@@ -163,7 +163,7 @@ export interface paths {
          * Get Attempt State
          * @description STATE.md snapshot taken at reap for one attempt.
          */
-        get: operations["get_attempt_state_api_tasks__task_id__attempts__n__state_get"];
+        get: operations["get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -172,7 +172,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/attempts/{n}/prompt": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/prompt": {
         parameters: {
             query?: never;
             header?: never;
@@ -183,7 +183,7 @@ export interface paths {
          * Get Attempt Prompt
          * @description Recorded prompt.md for one attempt.
          */
-        get: operations["get_attempt_prompt_api_tasks__task_id__attempts__n__prompt_get"];
+        get: operations["get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -192,7 +192,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/attempts/{n}/log": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/log": {
         parameters: {
             query?: never;
             header?: never;
@@ -203,7 +203,7 @@ export interface paths {
          * Get Attempt Log
          * @description Raw log.jsonl for one attempt.
          */
-        get: operations["get_attempt_log_api_tasks__task_id__attempts__n__log_get"];
+        get: operations["get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1904,7 +1904,7 @@ export interface operations {
             };
         };
     };
-    list_coders_api_coders_get: {
+    coders_api_coders_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2068,13 +2068,13 @@ export interface operations {
             };
         };
     };
-    get_attempt_summary_api_tasks__task_id__attempts__n__summary_get: {
+    get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 task_id: string;
-                n: number;
+                attempt_no: number;
             };
             cookie?: never;
         };
@@ -2100,13 +2100,13 @@ export interface operations {
             };
         };
     };
-    get_attempt_state_api_tasks__task_id__attempts__n__state_get: {
+    get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 task_id: string;
-                n: number;
+                attempt_no: number;
             };
             cookie?: never;
         };
@@ -2132,13 +2132,13 @@ export interface operations {
             };
         };
     };
-    get_attempt_prompt_api_tasks__task_id__attempts__n__prompt_get: {
+    get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 task_id: string;
-                n: number;
+                attempt_no: number;
             };
             cookie?: never;
         };
@@ -2164,13 +2164,13 @@ export interface operations {
             };
         };
     };
-    get_attempt_log_api_tasks__task_id__attempts__n__log_get: {
+    get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 task_id: string;
-                n: number;
+                attempt_no: number;
             };
             cookie?: never;
         };
@@ -3016,7 +3016,7 @@ export interface operations {
     search_api_search_get: {
         parameters: {
             query: {
-                q: string;
+                query: string;
             };
             header?: never;
             path?: never;

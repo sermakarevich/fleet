@@ -308,7 +308,7 @@ def build_task_summary(
 
     *data* is the task.json content, already reconciled against beads status
     (see `fleet.beads.reconcile.merge_status`) by the caller. *fleet_home* is the
-    fleet fleet_home directory. *context_limit* is the resolved coder/model window
+    fleet home directory. *context_limit* is the resolved coder/model window
     (defaults to DEFAULT_CONTEXT_LIMIT); *blocked_notes* is the beads-notes
     fallback used when a blocked task has no blocked_reason.
     """

@@ -16,7 +16,7 @@ def test_home_respects_fleet_home_env(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_log_dir_joins_relative_root(tmp_path: Path, monkeypatch) -> None:
-    """A relative LOG_ROOT resolves under the fleet fleet_home."""
+    """A relative LOG_ROOT resolves under the fleet home."""
     monkeypatch.setattr(bootstrap, "LOG_ROOT", "logging")
     assert bootstrap.log_dir(tmp_path) == tmp_path / "logging"
 

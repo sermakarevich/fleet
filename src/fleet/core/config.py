@@ -66,7 +66,7 @@ _KEY_TYPES: dict[str, type] = {
 _TOML_HEADER_PATH = Path(__file__).parent.parent / "templates" / "runtime.toml.header"
 
 
-def _defaults() -> dict:
+def defaults() -> dict:
     config = RuntimeConfig()
     return {f.name: getattr(config, f.name) for f in fields(config) if f.name in _KEY_TYPES}
 
@@ -126,7 +126,7 @@ def _validate_isolation(value: object) -> None:
 def parse(data: dict) -> RuntimeConfig:
     """Overlay TOML data onto defaults; ignore unknown keys."""
     _warn_deprecated(data)
-    merged = _defaults()
+    merged = defaults()
     for k, v in data.items():
         if k in _KEY_TYPES:
             merged[k] = _coerce(k, v)
@@ -141,7 +141,7 @@ def merge(existing: dict, updates: dict) -> dict:
         raise ConfigError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
     if "isolation" in updates:
         _validate_isolation(_coerce("isolation", updates["isolation"]))
-    merged = _defaults()
+    merged = defaults()
     merged.update({k: _coerce(k, v) for k, v in existing.items() if k in _KEY_TYPES})
     merged.update({k: _coerce(k, v) for k, v in updates.items()})
     return merged

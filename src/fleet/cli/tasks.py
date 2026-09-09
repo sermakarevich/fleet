@@ -200,7 +200,7 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
 
 
 def run_init(fleet_home: Path, force: bool) -> None:
-    """Create the fleet fleet_home (beads + defaults + tasks dir)."""
+    """Create the fleet home (beads + defaults + tasks dir)."""
     fleet_home.mkdir(parents=True, exist_ok=True)
     if force or not (fleet_home / ".beads").exists():
         try:
@@ -398,7 +398,7 @@ def register(app: typer.Typer) -> None:
             bool, typer.Option("--force", help="Re-init even if .beads already exists.")
         ] = False,
     ) -> None:
-        """Initialize the fleet fleet_home directory (beads + defaults)."""
+        """Initialize the fleet home directory (beads + defaults)."""
         run_init(bootstrap.fleet_home(), force)
 
     @app.command()

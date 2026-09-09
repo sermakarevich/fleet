@@ -138,14 +138,22 @@ def test_latest_attempt_dir_prefers_the_running_work_attempt(tmp_path: Path) -> 
     n_work = record_start(task_dir, coder="opencode", model="m")  # n=2, still running
     n_compact = record_start(task_dir, coder="claude", model="haiku", kind="compact")  # n=3
     record_end(
-        task_dir, outcome="success", exit_code=0, reason="compacted", action="close",
-            attempt_no=n_compact
+        task_dir,
+        outcome="success",
+        exit_code=0,
+        reason="compacted",
+        action="close",
+        attempt_no=n_compact,
     )
 
     assert latest_attempt_dir(task_dir).name == str(n_work)
 
     record_end(
-        task_dir, outcome="killed", exit_code=-15, reason="stalled", action="release",
-            attempt_no=n_work
+        task_dir,
+        outcome="killed",
+        exit_code=-15,
+        reason="stalled",
+        action="release",
+        attempt_no=n_work,
     )
     assert latest_attempt_dir(task_dir).name == str(n_compact)

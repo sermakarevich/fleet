@@ -9,7 +9,7 @@ from fleet.state.attempts import record_start
 
 
 def _home_with_attempts(tmp_path: Path, task_id: str, attempts: int = 2) -> Path:
-    """Fake fleet fleet_home: tasks/<id>/ with *attempts* journaled starts."""
+    """Fake fleet home: tasks/<id>/ with *attempts* journaled starts."""
     task_dir = tmp_path / "tasks" / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
     for _ in range(attempts):

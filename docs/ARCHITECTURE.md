@@ -195,7 +195,7 @@ src/fleet/ui/src/
 ## Task directory contract
 
 `state/paths.py` is the only module allowed to know these names (old
-task directories are read through the read-only `state/legacy.py`
+task directories are read through the read-only `state/legacy_task_dir.py`
 fallback; nothing writes the old layout):
 
 ```
@@ -225,7 +225,7 @@ supervisor and hooks; the UI never reads them.
 `run.json`, `events.jsonl`, `log.jsonl`, `log.stderr` moved from the task
 root into each attempt's own folder so that per-attempt slicing (tailing,
 stall detection, the attempts timeline) doesn't have to guess where one
-attempt ends and the next begins. `state/paths.py::attempt_dir_path`,
+attempt ends and the next begins. `state/paths.py::attempt_dir`,
 `state/attempts.py::attempt_dir` / `latest_attempt_dir` are the only
 places allowed to build these paths; everyone else (stall, orphans,
 cli `--log`/`--stderr`, the websocket tail) calls those helpers instead

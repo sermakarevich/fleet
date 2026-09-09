@@ -389,7 +389,7 @@ class CoderListResponse(BaseModel):
 
 
 class Template(BaseModel):
-    """One prompt template stored under the fleet fleet_home."""
+    """One prompt template stored under the fleet home."""
 
     name: str
     content: str

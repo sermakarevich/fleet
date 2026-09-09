@@ -323,9 +323,7 @@ def print_gc_preview(archived: int, mb: float, archive_dir: Path, skipped: int) 
 
 def print_gc_result(archived: int, mb: float, archive_dir: Path, skipped: int) -> None:
     """Print how many task dirs archiving moved."""
-    typer.echo(
-        f"archived {archived} task dirs ({mb:.1f} MB) -> {archive_dir}; skipped {skipped}"
-    )
+    typer.echo(f"archived {archived} task dirs ({mb:.1f} MB) -> {archive_dir}; skipped {skipped}")
 
 
 def print_purge_preview(deleted: int, freed_mb: float, skipped: int) -> None:

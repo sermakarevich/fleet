@@ -300,8 +300,12 @@ def testtrailing_streak_skips_compact_rows(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
     n1 = state_attempts.record_start(task_dir, coder="c", model="m")
     state_attempts.record_end(
-        task_dir, outcome="context_pressure", exit_code=None, reason="full", action="release",
-            attempt_no=n1
+        task_dir,
+        outcome="context_pressure",
+        exit_code=None,
+        reason="full",
+        action="release",
+        attempt_no=n1,
     )
     n2 = state_attempts.record_start(task_dir, coder="c", model="m", kind="compact")
     state_attempts.record_end(

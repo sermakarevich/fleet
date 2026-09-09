@@ -97,7 +97,7 @@ the future.
 | PARTIAL (RESULT.json) | yes | 0 | 5 | BLOCK |
 | SUCCESS with RESULT done | close | | | |
 | SUCCESS without RESULT.json (noclose) | yes | 0 | 3 (was 12) | BLOCK |
-| BLOCKED_BY_AGENT | no | | | BLOCK |
+| BLOCKED_BY_CODER | no | | | BLOCK |
 | KILLED manual | no | | | BLOCK "manually interrupted" |
 | TERMINAL setup error (unknown coder/model, missing cwd, cwd not a dir) | no | | | BLOCK immediately |
 
@@ -157,11 +157,11 @@ Git-aware worktree isolation, decided at spawn (`orchestrator/spawn.py`):
 
 ## Where the pieces live
 
-- `core/result.py` — `Result` dataclass, `parse_result(text) -> Result | None`. Pure, no I/O.
+- `core/result.py` — `WorkerResult` dataclass, `parse_result(text) -> WorkerResult | None`. Pure, no I/O.
 - `core/task.py` — `TaskOutcome.PARTIAL`, `TaskOutcomeRecord.close_reason`.
 - `core/retry_policy.py` — `Action.CLOSE`, the `PARTIAL` case, the `SUCCESS` `close_reason` branch.
-- `orchestrator/reap.py` — reads task-level `RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `Decision`.
-- `workers/task.py::_ensure_state` — seeds the STATE.md stub, records the launch in `run.json["launch"]`.
+- `orchestrator/reap.py` — reads task-level `RESULT.json`, folds it into the outcome record for `rc=0` exits, applies the resulting `RetryDecision`.
+- `workers/task_family.py::ensure_state` — seeds the STATE.md stub, records the launch in `run.json["launch"]`.
 - `workers/compact.py::Compact` — the compaction step (see "Compaction").
 - `core/compaction_fallback.py` — pure deterministic fallback (see "Compaction").
 - `templates/COMPACTION.md` — the compaction prompt.
@@ -172,7 +172,7 @@ Git-aware worktree isolation, decided at spawn (`orchestrator/spawn.py`):
 ## Launch modes
 
 Decided once per attempt, in Python, before the coder is spawned — never
-inferred by the model. `core/launch.py::plan_launch` (pure) takes this
+inferred by the model. `core/launch_policy.py::plan_launch` (pure) takes this
 task's attempt history and an `ArtifactSnapshot` (`state/artifacts.py::read_artifacts`,
 the I/O side) and returns a `LaunchPlan`:
 
@@ -192,7 +192,7 @@ the I/O side) and returns a `LaunchPlan`:
   still works; a later worker (`ContinueLargeTask`) acts on the flag by
   compacting STATE.md first.
 
-`workers/task.py::PrepareContinue` calls `plan_launch` and stores the
+`workers/task_family.py::PrepareContinue` calls `plan_launch` and stores the
 result in `ctx.scratch["launch_plan"]` for `LlmSession` to read; `plan_task`
 runs the same computation once more, purely to choose between the
 `FreshTask`, `ContinueTask`, and `ContinueLargeTask` workers (see "Steps and

@@ -82,8 +82,9 @@ def _write_child(
     if result is not None:
         (child_dir / "RESULT.json").write_text(json.dumps(result))
     n = attempts.record_start(child_dir, coder="c", model="m", worker="task.fresh")
-    attempts.record_end(child_dir, outcome="success", exit_code=0, reason="", action="close",
-        attempt_no=n)
+    attempts.record_end(
+        child_dir, outcome="success", exit_code=0, reason="", action="close", attempt_no=n
+    )
     adir = attempt_dir(child_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "run.json").write_text(

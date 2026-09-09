@@ -65,9 +65,9 @@
     },
     "/api/coders": {
       "get": {
-        "summary": "List Coders",
+        "summary": "Coders",
         "description": "Coders the create-task form may offer.",
-        "operationId": "list_coders_api_coders_get",
+        "operationId": "coders_api_coders_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -259,11 +259,11 @@
         }
       }
     },
-    "/api/tasks/{task_id}/attempts/{n}/summary": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/summary": {
       "get": {
         "summary": "Get Attempt Summary",
         "description": "Derived attempt summary, rendered on demand (never stored).",
-        "operationId": "get_attempt_summary_api_tasks__task_id__attempts__n__summary_get",
+        "operationId": "get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get",
         "parameters": [
           {
             "name": "task_id",
@@ -275,12 +275,12 @@
             }
           },
           {
-            "name": "n",
+            "name": "attempt_no",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "N"
+              "title": "Attempt No"
             }
           }
         ],
@@ -308,11 +308,11 @@
         }
       }
     },
-    "/api/tasks/{task_id}/attempts/{n}/state": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/state": {
       "get": {
         "summary": "Get Attempt State",
         "description": "STATE.md snapshot taken at reap for one attempt.",
-        "operationId": "get_attempt_state_api_tasks__task_id__attempts__n__state_get",
+        "operationId": "get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get",
         "parameters": [
           {
             "name": "task_id",
@@ -324,12 +324,12 @@
             }
           },
           {
-            "name": "n",
+            "name": "attempt_no",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "N"
+              "title": "Attempt No"
             }
           }
         ],
@@ -357,11 +357,11 @@
         }
       }
     },
-    "/api/tasks/{task_id}/attempts/{n}/prompt": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/prompt": {
       "get": {
         "summary": "Get Attempt Prompt",
         "description": "Recorded prompt.md for one attempt.",
-        "operationId": "get_attempt_prompt_api_tasks__task_id__attempts__n__prompt_get",
+        "operationId": "get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get",
         "parameters": [
           {
             "name": "task_id",
@@ -373,12 +373,12 @@
             }
           },
           {
-            "name": "n",
+            "name": "attempt_no",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "N"
+              "title": "Attempt No"
             }
           }
         ],
@@ -406,11 +406,11 @@
         }
       }
     },
-    "/api/tasks/{task_id}/attempts/{n}/log": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/log": {
       "get": {
         "summary": "Get Attempt Log",
         "description": "Raw log.jsonl for one attempt.",
-        "operationId": "get_attempt_log_api_tasks__task_id__attempts__n__log_get",
+        "operationId": "get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get",
         "parameters": [
           {
             "name": "task_id",
@@ -422,12 +422,12 @@
             }
           },
           {
-            "name": "n",
+            "name": "attempt_no",
             "in": "path",
             "required": true,
             "schema": {
               "type": "integer",
-              "title": "N"
+              "title": "Attempt No"
             }
           }
         ],
@@ -1511,12 +1511,12 @@
         "operationId": "search_api_search_get",
         "parameters": [
           {
-            "name": "q",
+            "name": "query",
             "in": "query",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Q"
+              "title": "Query"
             }
           }
         ],

@@ -98,7 +98,7 @@ async def create_task(request: Request, state: StateDep) -> JSONResponse:
 
 @router.get("/templates", response_model=TemplateListResponse)
 async def list_templates(state: StateDep) -> JSONResponse:
-    """Prompt templates stored under the fleet fleet_home."""
+    """Prompt templates stored under the fleet home."""
     templates_dir = state.fleet_home / "templates"
     templates = []
     if templates_dir.is_dir():
