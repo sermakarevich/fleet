@@ -10,7 +10,7 @@ so ``fleet tasks`` and GET /api/tasks never disagree.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -574,6 +574,8 @@ class WorkflowStepLine:
     needs: tuple[str, ...] = ()
     task_id: str | None = None
     task_status: str | None = None
+    outputs: dict[str, str] = field(default_factory=dict)
+    warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -600,6 +602,11 @@ def _stage_outline(lines: list[WorkflowStepLine]) -> list[str]:
         if line.task_id is not None:
             status = f" [{line.task_status}]" if line.task_status else ""
             step += f" -> {line.task_id}{status}"
+        if line.outputs:
+            rendered = ", ".join(f"{name}={value}" for name, value in sorted(line.outputs.items()))
+            step += f" outputs: {rendered}"
+        if line.warning:
+            step += f" warning: {line.warning}"
         out.append(step)
     return out
 

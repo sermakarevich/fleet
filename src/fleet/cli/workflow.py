@@ -113,6 +113,8 @@ def _step_lines_of(run: WorkflowRun, store: WorkflowStore) -> list[WorkflowStepL
                     needs=tuple(step.needs),
                     task_id=item.task_id if item is not None else None,
                     task_status=item.task_status if item is not None else None,
+                    outputs=dict(item.outputs) if item is not None else {},
+                    warning=item.warning if item is not None else None,
                 )
             )
     return lines
@@ -148,6 +150,8 @@ def _step_view(run: WorkflowRun, store: WorkflowStore) -> list[dict[str, Any]]:
             "task_id": line.task_id,
             "task_status": line.task_status,
             "state": step_state_of(line.task_status or "").value,
+            "outputs": dict(line.outputs),
+            "warning": line.warning,
         }
         for line in _step_lines_of(run, store)
     ]

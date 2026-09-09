@@ -67,15 +67,25 @@ CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run
 """
 
 # Ordered schema steps after the base tables above, applied under
-# PRAGMA user_version. Each statement adds exactly one column; the column
-# name is parsed back out (see _migration_column) so a half-applied schema
-# (version stamp ahead of its columns) is detected and repaired.
+# PRAGMA user_version. Each statement adds exactly one column; the table
+# and column names are parsed back out (see _migration_table /
+# _migration_column) so a half-applied schema (version stamp ahead of its
+# columns) is detected and repaired.
 MIGRATIONS: list[str] = [
     "ALTER TABLE workflow_runs ADD COLUMN inputs_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE workflow_run_steps ADD COLUMN outputs_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE workflow_run_steps ADD COLUMN released INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE workflow_run_steps ADD COLUMN warning TEXT",
 ]
 
 #: Schema level of a fully migrated database: the number of MIGRATIONS.
 SCHEMA_VERSION = len(MIGRATIONS)
+
+
+def _migration_table(statement: str) -> str:
+    """Table name targeted by an ``ALTER TABLE <table> ADD COLUMN ...`` step."""
+    parts = statement.split()
+    return parts[parts.index("TABLE") + 1]
 
 
 def _migration_column(statement: str) -> str:
@@ -112,13 +122,16 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
     it is actually missing. The version stamp is written last.
     """
     conn.executescript(_SCHEMA_BASE)
-    columns = _column_names(conn, "workflow_runs")
+    known: dict[str, set[str]] = {}
     for statement in MIGRATIONS:
+        table = _migration_table(statement)
         column = _migration_column(statement)
-        if column in columns:
+        if table not in known:
+            known[table] = _column_names(conn, table)
+        if column in known[table]:
             continue
-        _add_column(conn, statement, "workflow_runs", column)
-        columns.add(column)
+        _add_column(conn, statement, table, column)
+        known[table].add(column)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
@@ -131,12 +144,12 @@ def _row_to_run(row: sqlite3.Row) -> WorkflowRun:
     """Decode one workflow_runs row (spec_json holds the frozen definition)."""
     data: dict[str, Any] = dict(row)
     data["spec"] = json.loads(str(data["spec_json"]))
-    data["inputs"] = _decode_inputs(data.get("inputs_json"))
+    data["inputs"] = _decode_string_map(data.get("inputs_json"))
     return WorkflowRun.from_dict(data)
 
 
-def _decode_inputs(raw: Any) -> dict[str, str]:
-    """Decoded inputs map; corrupt or missing JSON means no inputs."""
+def _decode_string_map(raw: Any) -> dict[str, str]:
+    """Decoded string map; corrupt or missing JSON means an empty map."""
     if not raw:
         return {}
     try:
@@ -150,13 +163,17 @@ def _decode_inputs(raw: Any) -> dict[str, str]:
 
 def _row_to_step_run(row: sqlite3.Row) -> StepRun:
     """Decode one workflow_run_steps row."""
+    data: dict[str, Any] = dict(row)
     return StepRun(
-        run_id=str(row["run_id"]),
-        step_name=str(row["step_name"]),
-        stage_index=int(row["stage_index"]),
-        task_id=str(row["task_id"]),
-        task_status=str(row["task_status"]),
-        updated_at=str(row["updated_at"]),
+        run_id=str(data["run_id"]),
+        step_name=str(data["step_name"]),
+        stage_index=int(data["stage_index"]),
+        task_id=str(data["task_id"]),
+        task_status=str(data["task_status"]),
+        updated_at=str(data["updated_at"]),
+        outputs=_decode_string_map(data.get("outputs_json")),
+        released=bool(data.get("released", 1)),
+        warning=data.get("warning"),
     )
 
 
@@ -364,8 +381,9 @@ class WorkflowStore:
         with self._conn() as conn:
             conn.executemany(
                 "INSERT OR REPLACE INTO workflow_run_steps "
-                "(run_id, step_name, stage_index, task_id, task_status, updated_at) "
-                "VALUES (?,?,?,?,?,?)",
+                "(run_id, step_name, stage_index, task_id, task_status, updated_at, "
+                "outputs_json, released, warning) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 [
                     (
                         item.run_id,
@@ -374,6 +392,9 @@ class WorkflowStore:
                         item.task_id,
                         item.task_status,
                         item.updated_at,
+                        json.dumps(item.outputs),
+                        1 if item.released else 0,
+                        item.warning,
                     )
                     for item in steps
                 ],
@@ -398,5 +419,29 @@ class WorkflowStore:
                 "UPDATE workflow_run_steps SET task_status=?, updated_at=? "
                 "WHERE run_id=? AND step_name=?",
                 (task_status, updated_at, run_id, step_name),
+            )
+            return cur.rowcount > 0
+
+    def set_step_outputs(
+        self, run_id: str, step_name: str, outputs: dict[str, str], updated_at: str
+    ) -> bool:
+        """Store one step's collected outputs.json; False when unknown."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_run_steps SET outputs_json=?, updated_at=? "
+                "WHERE run_id=? AND step_name=?",
+                (json.dumps(outputs), updated_at, run_id, step_name),
+            )
+            return cur.rowcount > 0
+
+    def mark_step_released(
+        self, run_id: str, step_name: str, warning: str | None, updated_at: str
+    ) -> bool:
+        """Mark one step's bead rendered and un-deferred; False when unknown."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_run_steps SET released=1, warning=?, updated_at=? "
+                "WHERE run_id=? AND step_name=?",
+                (warning, updated_at, run_id, step_name),
             )
             return cur.rowcount > 0

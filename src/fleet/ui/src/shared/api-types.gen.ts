@@ -2116,6 +2116,12 @@ export interface components {
             task_title: string | null;
             /** Updated At */
             updated_at: string;
+            /** Outputs */
+            outputs?: {
+                [key: string]: string;
+            };
+            /** Warning */
+            warning?: string | null;
         };
         /**
          * StreamEvent

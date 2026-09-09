@@ -43,6 +43,7 @@ class FakeQueue(Queue):
         self.released: list[tuple[str, str]] = []
         self.closed: list[tuple[str, str]] = []
         self.comments: list[tuple[str, str]] = []
+        self.updated: list[dict] = []
         self.created: list[dict] = []
         self._ignores: dict[str, str] = {}
         self._children: dict[str, list[BeadSummary]] = {}
@@ -93,6 +94,30 @@ class FakeQueue(Queue):
     def comment(self, task_id: str, body: str) -> None:
         """Append a comment to a task."""
         self.comments.append((task_id, body))
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        undefer: bool = False,
+    ) -> None:
+        """Rewrite a bead's text; un-deferring reopens a deferred bead."""
+        self.updated.append(
+            {"id": task_id, "title": title, "description": description, "undefer": undefer}
+        )
+        if task_id in self._tasks:
+            task = self._tasks[task_id]
+            status = task.status
+            if undefer and status == "deferred":
+                status = "open"
+            self._tasks[task_id] = replace(
+                task,
+                title=title if title is not None else task.title,
+                description=description if description is not None else task.description,
+                status=status,
+            )
 
     def get(self, task_id: str) -> Task:
         """Show one task by id."""

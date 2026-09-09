@@ -77,7 +77,7 @@ placeholders, left as written until WI 2/3 lands). It must keep passing
 ## Implementation (3 beads, serial, coder opencode)
 
 - [x] WI 1/3 — run inputs + step isolation (`fleet-vuyrf`)
-- [ ] WI 2/3 — step outputs.json + late rendering (`fleet-hw1w4`)
+- [x] WI 2/3 — step outputs.json + late rendering (`fleet-hw1w4`)
 - [ ] WI 3/3 — UI run form, run detail, editor fields, import paper-summary
       (`fleet-hhbs3`)
 

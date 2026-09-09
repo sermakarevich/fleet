@@ -260,6 +260,8 @@ def test_run_creates_tasks_with_deps_lists_and_detail(
     detail = _request(app, "GET", f"/api/workflow-runs/{run['id']}")
     assert detail.status_code == 200
     assert detail.json()["steps"][0]["task_title"] == "Lint it"
+    assert detail.json()["steps"][0]["outputs"] == {}
+    assert detail.json()["steps"][0]["warning"] is None
 
     listed = _request(app, "GET", "/api/workflows")
     assert listed.json()["workflows"][0]["run_count"] == 1

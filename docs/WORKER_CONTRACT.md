@@ -79,6 +79,18 @@ Also, every attempt:
 - Never read `events.jsonl`, `log.jsonl`, `log.stderr`, or anything under
   `attempts/` — those are for humans and tooling.
 
+## Step outputs (workflow runs)
+
+A worker that runs as a workflow step may publish values for later steps
+by writing `$FLEET_TASK_DIR/outputs.json`: a flat JSON (JavaScript Object
+Notation) object of string values, for example
+`{"paper_dir": "/Users/me/.ai/knowledge/papers/X", "slug": "X"}`. Fleet
+reads the file when the step's bead closes; a missing file means the step
+publishes no outputs. Non-string values are stringified, a non-object or
+unparseable file is ignored with a warning, and later steps reference the
+values as `{{steps.<name>.outputs.<key>}}` (a missing key renders as the
+empty string and records an `outputs_missing` warning on the later step).
+
 ## What fleet does with each outcome
 
 Decided in `core/retry_policy.py::decide` (pure) and applied in

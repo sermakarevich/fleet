@@ -27,7 +27,14 @@ from fleet.workflows.model import (
     Workflow,
     WorkflowInput,
 )
-from fleet.workflows.runs import cancel_run, refresh_run, resolve_inputs, start_run, step_states
+from fleet.workflows.runs import (
+    cancel_run,
+    refresh_run,
+    refresh_run_with_tasks,
+    resolve_inputs,
+    start_run,
+    step_states,
+)
 from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue
 
@@ -131,8 +138,29 @@ def test_start_run_creates_tasks_in_stage_order(tmp_path: Path) -> None:
     assert [item["title"] for item in queue.creates] == [
         "Lint nightly",
         "Run tests",
-        f"Summary of {run.id}",
+        "Summary of {{run.id}}",
     ]
+
+
+def test_start_run_defers_later_stages_unrendered(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    assert "--defer" not in shlex.split(queue.creates[0]["extra_args"])
+    assert "--defer" not in shlex.split(queue.creates[1]["extra_args"])
+    tokens = shlex.split(queue.creates[2]["extra_args"])
+    assert tokens[tokens.index("--defer") + 1] == "+30d"
+    assert queue.creates[2]["description"] == (
+        "Read {{steps.lint.task_id}} and {{steps.tests.task_id}}."
+    )
+    released = {item.step_name: item.released for item in store.step_runs(run.id)}
+    assert released == {"lint": True, "tests": True, "summary": False}
 
 
 def test_start_run_second_stage_depends_on_both_first_stage_ids(tmp_path: Path) -> None:
@@ -171,7 +199,7 @@ def test_start_run_labels_and_metadata_shape(tmp_path: Path) -> None:
     }
 
 
-def test_start_run_renders_earlier_task_ids(tmp_path: Path) -> None:
+def test_start_run_stage_two_keeps_task_id_placeholders_for_release(tmp_path: Path) -> None:
     queue = RecordingQueue()
     start_run(
         _workflow(),
@@ -180,8 +208,9 @@ def test_start_run_renders_earlier_task_ids(tmp_path: Path) -> None:
         now=_at("2026-09-09T02:00:00+00:00"),
         trigger=Trigger.manual,
     )
-    first_ids = (queue.creates[0]["id"], queue.creates[1]["id"])
-    assert queue.creates[2]["description"] == f"Read {first_ids[0]} and {first_ids[1]}."
+    assert queue.creates[2]["description"] == (
+        "Read {{steps.lint.task_id}} and {{steps.tests.task_id}}."
+    )
 
 
 def test_start_run_saves_step_runs_open(tmp_path: Path) -> None:
@@ -462,3 +491,149 @@ def test_start_run_without_isolation_has_no_fleet_isolation(tmp_path: Path) -> N
     )
     assert "fleet_isolation" not in _meta_of(queue.creates[0]["extra_args"])
     assert run.inputs == {}
+
+
+def _outputs_workflow() -> Workflow:
+    """Two stages: stage 2 quotes a value stage 1 publishes via outputs.json."""
+    return Workflow(
+        id="wf-outputs001",
+        name="pipe",
+        description="d",
+        defaults=Defaults(priority=2),
+        stages=(
+            Stage(name="first", steps=(Step(name="fetch", title="Fetch"),)),
+            Stage(
+                name="second",
+                steps=(
+                    Step(
+                        name="publish",
+                        title="Post {{steps.fetch.outputs.slug}}",
+                        description="Folder {{steps.fetch.outputs.paper_dir}} "
+                        "by {{steps.fetch.task_id}}.",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def _outputs_store(tmp_path: Path) -> WorkflowStore:
+    """Throwaway store with the outputs workflow saved."""
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(
+        replace(
+            _outputs_workflow(),
+            created_at="2026-09-09T00:00:00+00:00",
+            updated_at="2026-09-09T00:00:00+00:00",
+        )
+    )
+    return store
+
+
+def _write_outputs(fleet_home: Path, task_id: str, payload: str) -> None:
+    """Drop an outputs.json into a fake task dir, like a worker would."""
+    task_dir = fleet_home / "tasks" / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "outputs.json").write_text(payload, encoding="utf-8")
+
+
+def _defer(queue: RecordingQueue, task_id: str) -> None:
+    """Park one fake task deferred, like `bd create --defer` does."""
+    queue._tasks[task_id] = replace(queue._tasks[task_id], status="deferred")
+
+
+def test_refresh_releases_step_with_outputs(tmp_path: Path) -> None:
+    store = _outputs_store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _outputs_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    fetch_id, publish_id = queue.creates[0]["id"], queue.creates[1]["id"]
+    _defer(queue, publish_id)
+    _write_outputs(tmp_path, fetch_id, '{"slug": "x", "paper_dir": "/tmp/x"}')
+    queue.close(fetch_id, "done")
+
+    refreshed, _ = refresh_run_with_tasks(
+        run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00")
+    )
+    assert refreshed.status is RunStatus.running
+    steps = {item.step_name: item for item in store.step_runs(run.id)}
+    assert steps["fetch"].outputs == {"slug": "x", "paper_dir": "/tmp/x"}
+    assert steps["publish"].released is True
+    assert steps["publish"].warning is None
+    published = queue.get(publish_id)
+    assert published.status == "open"
+    assert published.title == "Post x"
+    assert published.description == f"Folder /tmp/x by {fetch_id}."
+    assert queue.updated[-1] == {
+        "id": publish_id,
+        "title": "Post x",
+        "description": f"Folder /tmp/x by {fetch_id}.",
+        "undefer": True,
+    }
+
+
+def test_refresh_waits_for_dependencies(tmp_path: Path) -> None:
+    store = _outputs_store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _outputs_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    publish_id = queue.creates[1]["id"]
+    _defer(queue, publish_id)
+    refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
+    assert store.step_runs(run.id)[1].released is False
+    assert queue.updated == []
+    assert queue.get(publish_id).status == "deferred"
+
+
+def test_refresh_missing_output_renders_empty_and_warns(tmp_path: Path) -> None:
+    store = _outputs_store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _outputs_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    fetch_id, publish_id = queue.creates[0]["id"], queue.creates[1]["id"]
+    _defer(queue, publish_id)
+    _write_outputs(tmp_path, fetch_id, '{"other": "1"}')
+    queue.close(fetch_id, "done")
+
+    refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
+    steps = {item.step_name: item for item in store.step_runs(run.id)}
+    assert steps["publish"].released is True
+    assert steps["publish"].warning == (
+        "outputs_missing: steps.fetch.outputs.paper_dir, steps.fetch.outputs.slug"
+    )
+    published = queue.get(publish_id)
+    assert published.title == "Post "
+    assert published.description == f"Folder  by {fetch_id}."
+
+
+def test_cancel_run_closes_deferred_beads(tmp_path: Path) -> None:
+    store = _outputs_store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _outputs_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    publish_id = queue.creates[1]["id"]
+    _defer(queue, publish_id)
+    store.update_step_status(run.id, "publish", "deferred", "2026-09-09T02:10:00+00:00")
+    cancelled = cancel_run(run, store=store, queue=queue, now=_at("2026-09-09T03:00:00+00:00"))
+    assert cancelled.status is RunStatus.cancelled
+    assert queue.get(publish_id).status == "closed"

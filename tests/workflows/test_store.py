@@ -216,8 +216,43 @@ def test_v0_db_migrates_inputs_with_rows_intact(tmp_path: Path) -> None:
     assert store.schema_version() == SCHEMA_VERSION
     columns = {row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(workflow_runs)")}
     assert "inputs_json" in columns
+    step_columns = {
+        row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(workflow_run_steps)")
+    }
+    assert {"outputs_json", "released", "warning"} <= step_columns
     store.save(_workflow())
     store.save_run(_run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z"))
     loaded = store.get_run("wfr-00000001")
     assert loaded is not None and loaded.inputs == {}
+    store.close()
+
+
+def test_step_run_outputs_released_warning_round_trip(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    run = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    store.save_run(run)
+    store.save_step_runs(
+        [
+            StepRun(
+                run_id=run.id,
+                step_name="collect",
+                stage_index=0,
+                task_id="t1",
+                task_status="closed",
+                updated_at="2026-09-09T01:00:00Z",
+                released=False,
+            )
+        ]
+    )
+    fresh = store.step_runs(run.id)[0]
+    assert fresh.outputs == {} and fresh.released is False and fresh.warning is None
+    assert store.set_step_outputs(run.id, "collect", {"slug": "x"}, "2026-09-09T01:30:00Z")
+    assert store.mark_step_released(run.id, "collect", None, "2026-09-09T01:31:00Z")
+    done = store.step_runs(run.id)[0]
+    assert done.outputs == {"slug": "x"} and done.released is True and done.warning is None
+    assert store.mark_step_released(run.id, "collect", "outputs_missing: a", "2026-09-09T01:32:00Z")
+    assert store.step_runs(run.id)[0].warning == "outputs_missing: a"
+    assert not store.set_step_outputs(run.id, "ghost", {}, "2026-09-09T01:33:00Z")
+    assert not store.mark_step_released(run.id, "ghost", None, "2026-09-09T01:33:00Z")
     store.close()

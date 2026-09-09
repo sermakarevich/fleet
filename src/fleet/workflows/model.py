@@ -236,6 +236,9 @@ class StepRun:
     task_id: str
     task_status: str
     updated_at: str
+    outputs: dict[str, str] = field(default_factory=dict)
+    released: bool = True
+    warning: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return this step run as plain JSON-safe data."""
@@ -246,11 +249,15 @@ class StepRun:
             "task_id": self.task_id,
             "task_status": self.task_status,
             "updated_at": self.updated_at,
+            "outputs": dict(self.outputs),
+            "released": self.released,
+            "warning": self.warning,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StepRun:
         """Build a step run from stored data."""
+        raw_outputs = data.get("outputs") or {}
         return cls(
             run_id=str(data.get("run_id", "")),
             step_name=str(data.get("step_name", "")),
@@ -258,6 +265,11 @@ class StepRun:
             task_id=str(data.get("task_id", "")),
             task_status=str(data.get("task_status", "")),
             updated_at=str(data.get("updated_at", "")),
+            outputs={str(key): str(value) for key, value in raw_outputs.items()}
+            if isinstance(raw_outputs, dict)
+            else {},
+            released=bool(data.get("released", True)),
+            warning=data.get("warning"),
         )
 
 

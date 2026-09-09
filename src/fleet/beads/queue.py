@@ -22,6 +22,9 @@ from fleet.beads.task_store import TaskStore, build_task, order_ready
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
 
+#: Length of the `bd update <id>` prefix: longer argv means text changed.
+_UPDATE_PREFIX_LEN = 2
+
 
 class Queue(ABC):
     """Everything the orchestrator, serve, CLI and workers need from `bd`."""
@@ -58,6 +61,24 @@ class Queue(ABC):
     @abstractmethod
     def comment(self, task_id: str, body: str) -> None:
         """Append a comment to a task."""
+        ...
+
+    @abstractmethod
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        undefer: bool = False,
+    ) -> None:
+        """Rewrite a bead's title/description and optionally un-defer it.
+
+        Text is written before the bead is un-deferred, so no claim can
+        ever see unrendered text. Un-deferring clears `--defer` and forces
+        the bead open when it still shows deferred (the chain_watcher
+        undefer sequence).
+        """
         ...
 
     # -- reads: show one, list by status, children --
@@ -320,6 +341,27 @@ class BeadsQueue(Queue):
     def comment(self, task_id: str, body: str) -> None:
         """Append a comment to a task."""
         self._client.run(["comment", task_id, body])
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        undefer: bool = False,
+    ) -> None:
+        """Rewrite a bead's title/description and optionally un-defer it."""
+        args = ["update", task_id]
+        if title is not None:
+            args += ["--title", title]
+        if description is not None:
+            args += ["--description", description]
+        if len(args) > _UPDATE_PREFIX_LEN:
+            self._client.run(args)
+        if undefer:
+            self._client.run(["update", task_id, "--defer", ""])
+            if self.get(task_id).status == "deferred":
+                self._client.run(["update", task_id, "--status", "open"])
 
     def get(self, task_id: str) -> Task:
         """Show one task by id."""

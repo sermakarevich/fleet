@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fleet.workflows.templates import TemplateContext, render
+from fleet.workflows.templates import TemplateContext, render, render_with_missing
 
 
 def _ctx(**overrides) -> TemplateContext:
@@ -55,6 +55,27 @@ def test_render_unknown_input_kept() -> None:
     assert render("{{inputs.missing}}", _ctx()) == "{{inputs.missing}}"
 
 
-def test_render_step_outputs_placeholder_kept() -> None:
+def test_render_step_outputs_missing_renders_empty_and_reports() -> None:
     text = "{{steps.fetch.outputs.pdf_path}}"
-    assert render(text, _ctx(inputs={"paper_url": "x"})) == text
+    filled, missing = render_with_missing(text, _ctx(inputs={"paper_url": "x"}))
+    assert filled == ""
+    assert missing == ["steps.fetch.outputs.pdf_path"]
+
+
+def test_render_step_outputs_resolves() -> None:
+    ctx = _ctx(step_outputs={"fetch": {"pdf_path": "/tmp/paper.pdf"}})
+    filled, missing = render_with_missing("Read {{steps.fetch.outputs.pdf_path}}.", ctx)
+    assert filled == "Read /tmp/paper.pdf."
+    assert missing == []
+
+
+def test_render_step_outputs_unknown_step_reports() -> None:
+    filled, missing = render_with_missing("{{steps.ghost.outputs.key}}", _ctx())
+    assert filled == ""
+    assert missing == ["steps.ghost.outputs.key"]
+
+
+def test_render_with_missing_clean_render_reports_nothing() -> None:
+    filled, missing = render_with_missing("Lint {{workflow.name}} {{steps.lint.task_id}}", _ctx())
+    assert filled == "Lint nightly fleet-aaa"
+    assert missing == []

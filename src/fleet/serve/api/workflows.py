@@ -176,6 +176,8 @@ def _run_view(
             "state": step_state_of(item.task_status).value,
             "task_title": titles.get(item.task_id),
             "updated_at": item.updated_at,
+            "outputs": dict(item.outputs),
+            "warning": item.warning,
         }
         for item in store.step_runs(run.id)
     ]

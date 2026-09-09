@@ -7,6 +7,8 @@ CLI builds its queue, so no test ever reaches the real `bd`.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -14,6 +16,9 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from fleet.cli.main import app
+from fleet.state.paths import workflows_db_path
+from fleet.workflows.runs import refresh_run_with_tasks
+from fleet.workflows.store import WorkflowStore
 from fleet.workflows.yaml_io import from_yaml
 from tests.cli.conftest import runner
 from tests.conftest import FakeQueue
@@ -282,3 +287,51 @@ def test_show_lists_declared_inputs(tmp_path: Path, monkeypatch) -> None:
     assert "paper_url" in result.output
     assert "(required)" in result.output
     assert "(default: methods)" in result.output
+
+
+OUTPUTS_YAML = """\
+fleet_workflow: 1
+name: pipe
+defaults: {cwd: /tmp, coder: opencode, model: qwen3.6:latest, priority: 2}
+stages:
+  - name: first
+    steps:
+      - name: fetch
+        title: Fetch
+  - name: second
+    steps:
+      - name: publish
+        title: "Post {{steps.fetch.outputs.slug}}"
+        description: "Folder {{steps.fetch.outputs.paper_dir}}."
+"""
+
+
+def test_run_show_prints_step_outputs_and_warning(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    doc = tmp_path / "pipe.yaml"
+    doc.write_text(OUTPUTS_YAML, encoding="utf-8")
+    assert runner.invoke(app, ["workflow", "import", str(doc)]).exit_code == 0
+    queue = DepsQueue()
+    with patch("fleet.cli.bootstrap.BeadsQueue", return_value=queue):
+        started = runner.invoke(app, ["workflow", "run", "pipe"])
+    assert started.exit_code == 0, started.output
+    run_id = started.output.strip().splitlines()[0]
+    fetch_id, publish_id = queue.created[0]["id"], queue.created[1]["id"]
+    task_dir = tmp_path / "tasks" / fetch_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "outputs.json").write_text('{"slug": "x"}', encoding="utf-8")
+    queue.close(fetch_id, "done")
+    queue._tasks[publish_id] = replace(queue._tasks[publish_id], status="deferred")
+    store = WorkflowStore(workflows_db_path(tmp_path))
+    run = store.get_run(run_id)
+    assert run is not None
+    refresh_run_with_tasks(run, store=store, queue=queue, now=datetime.now(UTC))
+    detail = runner.invoke(app, ["workflow", "run-show", run_id])
+    assert detail.exit_code == 0, detail.output
+    assert "outputs: slug=x" in detail.output
+    assert "warning: outputs_missing: steps.fetch.outputs.paper_dir" in detail.output
+    as_json = runner.invoke(app, ["workflow", "run-show", run_id, "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    steps = {item["step_name"]: item for item in json.loads(as_json.output)["steps"]}
+    assert steps["fetch"]["outputs"] == {"slug": "x"}
+    assert steps["publish"]["warning"] == "outputs_missing: steps.fetch.outputs.paper_dir"

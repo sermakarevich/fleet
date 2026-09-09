@@ -850,6 +850,8 @@ class StepRunView(BaseModel):
     state: str
     task_title: str | None
     updated_at: str
+    outputs: dict[str, str] = Field(default_factory=dict)
+    warning: str | None = None
 
 
 class WorkflowRunView(BaseModel):

@@ -6,12 +6,15 @@ from pathlib import Path
 
 from fleet.state.paths import (
     OUTPUTS_DIR,
+    OUTPUTS_JSON,
     PROMPT_MD,
     RESULT_JSON,
     STATE_MD,
     fleet_home,
     outputs_dir,
+    outputs_file,
     prompt_file,
+    read_outputs,
     result_file,
     state_file,
     task_dir,
@@ -42,6 +45,7 @@ def test_task_file_names(tmp_path: Path) -> None:
     assert RESULT_JSON == "RESULT.json"
     assert PROMPT_MD == "prompt.md"
     assert OUTPUTS_DIR == "outputs"
+    assert OUTPUTS_JSON == "outputs.json"
 
 
 def test_task_file_helpers(tmp_path: Path) -> None:
@@ -49,4 +53,27 @@ def test_task_file_helpers(tmp_path: Path) -> None:
     assert state_file(root) == root / "STATE.md"
     assert result_file(root) == root / "RESULT.json"
     assert outputs_dir(root) == root / "outputs"
+    assert outputs_file(root) == root / "outputs.json"
     assert prompt_file(root / "attempts" / "1") == root / "attempts" / "1" / "prompt.md"
+
+
+def test_read_outputs_round_trip(tmp_path: Path) -> None:
+    root = task_dir(tmp_path, "fleet-abc")
+    root.mkdir(parents=True)
+    (root / "outputs.json").write_text('{"paper_dir": "/tmp/x", "n": 3}', encoding="utf-8")
+    assert read_outputs(root) == {"paper_dir": "/tmp/x", "n": "3"}
+
+
+def test_read_outputs_missing_file_is_empty(tmp_path: Path) -> None:
+    root = task_dir(tmp_path, "fleet-abc")
+    root.mkdir(parents=True)
+    assert read_outputs(root) == {}
+
+
+def test_read_outputs_invalid_file_is_empty(tmp_path: Path) -> None:
+    root = task_dir(tmp_path, "fleet-abc")
+    root.mkdir(parents=True)
+    (root / "outputs.json").write_text("not json", encoding="utf-8")
+    assert read_outputs(root) == {}
+    (root / "outputs.json").write_text("[1, 2]", encoding="utf-8")
+    assert read_outputs(root) == {}

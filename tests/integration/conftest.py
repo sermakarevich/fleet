@@ -213,6 +213,25 @@ class MemoryQueue(Queue):
         self.comments.append((task_id, body))
         self._fire("comment", task_id)
 
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        undefer: bool = False,
+    ) -> None:
+        """Rewrite a bead's text; un-deferring reopens a deferred bead."""
+        if task_id in self._tasks:
+            task = self._tasks[task_id]
+            self._tasks[task_id] = replace(
+                task,
+                title=title if title is not None else task.title,
+                description=description if description is not None else task.description,
+                status="open" if undefer and task.status == "deferred" else task.status,
+            )
+        self._fire("update_task", task_id)
+
     def get(self, task_id: str) -> Task:
         if task_id not in self._tasks:
             raise BdError(f"Task {task_id} not found")

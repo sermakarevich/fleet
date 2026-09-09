@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from pathlib import Path
 
 from fleet.core import limits as core_limits
+
+logger = logging.getLogger(__name__)
 
 TASK_JSON = "task.json"
 RUN_JSON = "run.json"
@@ -22,6 +26,10 @@ STATE_MD = "STATE.md"
 RESULT_JSON = "RESULT.json"
 PROMPT_MD = "prompt.md"
 OUTPUTS_DIR = "outputs"
+# ADR 0010 WI 2/3: a worker publishes values for later workflow steps by
+# writing this file in its task directory: a flat JSON object of string
+# values ({"paper_dir": "/.../papers/X"}). Read with read_outputs below.
+OUTPUTS_JSON = "outputs.json"
 # NOTE: the bare `.worktree` marker is gone. Isolation state lives in
 # task.json as repo_root/base_ref/worktree_path (see beads/queue.py::
 # set_isolation_info). Readers keep a legacy fallback for old task dirs.
@@ -76,6 +84,32 @@ def result_file(task_dir: Path) -> Path:
 def outputs_dir(task_dir: Path) -> Path:
     """The task-level deliverables directory (tasks/<id>/outputs/)."""
     return task_dir / OUTPUTS_DIR
+
+
+def outputs_file(task_dir: Path) -> Path:
+    """The task-level step-outputs file (tasks/<id>/outputs.json)."""
+    return task_dir / OUTPUTS_JSON
+
+
+def read_outputs(task_dir: Path) -> dict[str, str]:
+    """Step outputs published by a worker (`outputs.json` in its task dir).
+
+    A missing or invalid file means no outputs: return {} and log a
+    warning (invalid only — a missing file is normal for steps that
+    publish nothing).
+    """
+    path = outputs_file(task_dir)
+    if not path.is_file():
+        return {}
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        logger.warning("outputs_invalid: %s (%s)", path, exc)
+        return {}
+    if not isinstance(decoded, dict):
+        logger.warning("outputs_invalid: %s (not a JSON object)", path)
+        return {}
+    return {str(key): str(value) for key, value in decoded.items()}
 
 
 def prompt_file(attempt_dir: Path) -> Path:
