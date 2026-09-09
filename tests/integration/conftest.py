@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -116,6 +118,7 @@ class MemoryQueue(Queue):
         self._ignores: dict[str, str] = {}
         self._children: dict[str, list[BeadSummary]] = {}
         self._isolation: dict[str, dict] = {}
+        self._meta: dict[str, dict] = {}
         self._listeners: list[Callable[[str, str], None]] = []
 
     def add_task(self, task: Task) -> None:
@@ -248,7 +251,7 @@ class MemoryQueue(Queue):
         worker: str | None = None,
         extra_args: str | None = None,
     ) -> Task:
-        _ = (depends_on, labels, extra_args)
+        _ = (depends_on, labels)
         task_id = f"mem-{len(self._tasks):03d}"
         task = Task(
             id=task_id,
@@ -261,6 +264,7 @@ class MemoryQueue(Queue):
             worker=worker,
         )
         self._tasks[task_id] = task
+        self._meta[task_id] = _metadata_of(extra_args)
         return task
 
     def create_child(self, epic_id: str, spec: dict) -> Task:
@@ -286,6 +290,14 @@ class MemoryQueue(Queue):
             (self._tasks[tid], until) for tid, until in self._ignores.items() if tid in self._tasks
         ]
         return rows[:limit]
+
+    def list_by_metadata(self, field: str, value: str) -> list[Task]:
+        """Tasks whose recorded `--metadata` JSON has `field` equal to `value`."""
+        return [
+            task
+            for task_id, task in self._tasks.items()
+            if self._meta.get(task_id, {}).get(field) == value
+        ]
 
     def set_cwd(self, task_id: str, cwd: str) -> None:
         """Persist the invocation cwd for a task."""
@@ -314,6 +326,19 @@ class MemoryQueue(Queue):
 # ---------------------------------------------------------------------------
 # Beads helper
 # ---------------------------------------------------------------------------
+
+
+def _metadata_of(extra_args: str | None) -> dict:
+    """Parse the `--metadata <json>` payload out of a create extra_args string."""
+    if not extra_args:
+        return {}
+    try:
+        tokens = shlex.split(extra_args)
+        raw = tokens[tokens.index("--metadata") + 1]
+        parsed = json.loads(raw)
+    except (ValueError, IndexError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _git_init(path: Path) -> None:

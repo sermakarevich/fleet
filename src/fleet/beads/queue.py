@@ -87,6 +87,11 @@ class Queue(ABC):
         ...
 
     @abstractmethod
+    def list_by_metadata(self, field: str, value: str) -> list[Task]:
+        """Tasks whose bd metadata `field` equals `value` (one workflow run)."""
+        ...
+
+    @abstractmethod
     def list_children(self, epic_id: str) -> list[BeadSummary]:
         """List an epic's child beads with their statuses."""
         ...
@@ -351,6 +356,18 @@ class BeadsQueue(Queue):
     def list_ignored(self, limit: int = 100) -> list[tuple[Task, str]]:
         """Blocked tasks whose task.json ignore_until is still active."""
         return self._store.select_ignored(self.list_blocked(limit=limit))
+
+    def list_by_metadata(self, field: str, value: str) -> list[Task]:
+        """Tasks whose bd metadata `field` equals `value` (one workflow run)."""
+        data = self._client.run_json(
+            ["list", "--all", "--limit", "0", "--metadata-field", f"{field}={value}"]
+        )
+        items = data if isinstance(data, list) else []
+        return [
+            build_task(item, self._store.read(item["id"]))
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        ]
 
     def _rows(self, query: str, limit: int) -> list[dict]:
         """Run one list-shaped `bd` query and return its dict rows."""

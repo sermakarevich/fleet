@@ -1,3 +1,5 @@
+import json
+import shlex
 from collections.abc import Callable
 from dataclasses import is_dataclass, replace
 from datetime import UTC, datetime
@@ -41,6 +43,7 @@ class FakeQueue(Queue):
         self._ignores: dict[str, str] = {}
         self._children: dict[str, list[BeadSummary]] = {}
         self._isolation: dict[str, dict] = {}
+        self._meta: dict[str, dict] = {}
 
     def claim(self, task_id: str, claimer_id: str) -> Task:
         """Move one open task to in_progress and record the claim."""
@@ -111,6 +114,14 @@ class FakeQueue(Queue):
             (self._tasks[tid], until) for tid, until in self._ignores.items() if tid in self._tasks
         ][:limit]
 
+    def list_by_metadata(self, field: str, value: str) -> list[Task]:
+        """Tasks whose recorded `--metadata` JSON has `field` equal to `value`."""
+        return [
+            task
+            for task_id, task in self._tasks.items()
+            if self._meta.get(task_id, {}).get(field) == value
+        ]
+
     def list_children(self, epic_id: str) -> list[BeadSummary]:
         """List an epic's child beads with their statuses."""
         return list(self._children.get(epic_id, []))
@@ -132,7 +143,7 @@ class FakeQueue(Queue):
         extra_args: str | None = None,
     ) -> Task:
         """Open a new task and snapshot it to task.json."""
-        _ = (depends_on, labels, extra_args)
+        _ = (depends_on, labels)
         task_id = f"fake-{len(self._tasks):03d}"
         task = Task(
             id=task_id,
@@ -145,6 +156,7 @@ class FakeQueue(Queue):
             worker=worker,
         )
         self._tasks[task_id] = task
+        self._meta[task_id] = _metadata_of(extra_args)
         return task
 
     def create_child(self, epic_id: str, spec: dict) -> Task:
@@ -227,6 +239,19 @@ class FakeQueue(Queue):
     def clear_isolation_info(self, task_id: str) -> None:
         """Drop git isolation info after merge/cleanup."""
         self._isolation.pop(task_id, None)
+
+
+def _metadata_of(extra_args: str | None) -> dict:
+    """Parse the `--metadata <json>` payload out of a create extra_args string."""
+    if not extra_args:
+        return {}
+    try:
+        tokens = shlex.split(extra_args)
+        raw = tokens[tokens.index("--metadata") + 1]
+        parsed = json.loads(raw)
+    except (ValueError, IndexError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def make_supervisor(

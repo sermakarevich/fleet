@@ -29,12 +29,21 @@ from fleet.workflows.model import (
     step_state_of,
     validate,
 )
+from fleet.workflows.planning import (
+    PlannedStep,
+    derive_status,
+    labels_for,
+    metadata_for,
+    plan,
+)
+from fleet.workflows.runs import cancel_run, refresh_run, start_run, step_states
 from fleet.workflows.store import SCHEMA_VERSION, WorkflowStore
 from fleet.workflows.templates import TemplateContext, render
 from fleet.workflows.yaml_io import from_yaml, to_yaml
 
 __all__ = [
     "Defaults",
+    "PlannedStep",
     "RunStatus",
     "SCHEMA_VERSION",
     "STEP_STATE_OF_TASK_STATUS",
@@ -47,13 +56,21 @@ __all__ = [
     "Workflow",
     "WorkflowRun",
     "WorkflowStore",
+    "cancel_run",
     "dependencies_of",
+    "derive_status",
     "effective",
     "ensure_valid",
     "from_yaml",
+    "labels_for",
+    "metadata_for",
     "new_id",
     "new_run_id",
+    "plan",
+    "refresh_run",
     "render",
+    "start_run",
+    "step_states",
     "step_state_of",
     "to_yaml",
     "validate",
