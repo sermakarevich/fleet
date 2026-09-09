@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { api } from '../../../shared/api';
+import { usePoll } from '../../../shared/poll';
 
 interface Props {
   taskId: string;
@@ -12,7 +13,7 @@ export function DiffTab({ taskId, status }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ['task', taskId, 'diff'],
     queryFn: () => api.getDiff(taskId),
-    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+    refetchInterval: usePoll('normal', !status || status === 'in_progress'),
   });
 
   const diff = data?.diff ?? null;

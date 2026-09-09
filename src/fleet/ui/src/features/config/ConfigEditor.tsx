@@ -12,8 +12,6 @@ export function ConfigEditor({ config, onSave }: Props) {
   const [maxOverrides, setMaxOverrides] = useState(config.max_concurrent_overrides);
   const [model, setModel] = useState(config.model);
   const [coder, setCoder] = useState(config.coder);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -26,8 +24,7 @@ export function ConfigEditor({ config, onSave }: Props) {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setError(null);
-    setSaved(false);
+    // Success and failure both toast via usePutConfig; nothing to show inline.
     try {
       await onSave({
         max_concurrent: Number(maxConcurrent),
@@ -35,10 +32,6 @@ export function ConfigEditor({ config, onSave }: Props) {
         model,
         coder,
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -86,8 +79,6 @@ export function ConfigEditor({ config, onSave }: Props) {
           </label>
         </div>
         <div style={styles.footer}>
-          {saved && <span style={styles.savedMsg}>Saved</span>}
-          {error && <span style={styles.errorMsg}>{error}</span>}
           <button type="submit" style={styles.saveBtn} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -141,16 +132,6 @@ const styles = {
     alignItems: 'center',
     gap: '0.75rem',
     justifyContent: 'flex-end',
-  } as React.CSSProperties,
-  savedMsg: {
-    color: '#22c55e',
-    fontSize: '0.8125rem',
-    fontWeight: 500,
-  } as React.CSSProperties,
-  errorMsg: {
-    color: T.colors.danger,
-    fontSize: '0.8125rem',
-    flex: 1,
   } as React.CSSProperties,
   saveBtn: {
     ...T.btnPrimary,

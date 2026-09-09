@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
+import { usePoll } from '../../../shared/poll';
 import type { FileOp } from '../../../shared/types';
 
 interface Props {
@@ -11,7 +12,7 @@ export function FilesTab({ taskId, status }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ['task', taskId, 'files'],
     queryFn: () => api.getFiles(taskId),
-    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+    refetchInterval: usePoll('normal', !status || status === 'in_progress'),
   });
 
   const files: FileOp[] = data?.files ?? [];

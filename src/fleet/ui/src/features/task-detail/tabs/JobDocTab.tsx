@@ -1,65 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api } from '../../../shared/api';
+import { errorMessage, isNotFound } from '../../../shared/api';
+import { useArtifactDoc } from '../../../shared/hooks/useApi';
 
 interface Props {
   taskId: string;
   kind: 'research' | 'design';
 }
 
+const MISSING_COPY: Record<Props['kind'], string> = {
+  research: 'RESEARCH.md not available',
+  design: 'DESIGN.md not available',
+};
+
 // Job worker document tab: RESEARCH.md / DESIGN.md (see workers/job.py).
-// Same polling shape as StateTab; hidden unless the artifact exists.
+// Hidden unless the artifact exists; polling lives in useArtifactDoc.
 export function JobDocTab({ taskId, kind }: Props) {
-  const [content, setContent] = useState<string | null>(null);
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const mtimeRef = useRef<number | null>(null);
+  const { data, isLoading, isError, error } = useArtifactDoc(taskId, kind);
 
-  const load = useCallback(async (checkMtime = false) => {
-    try {
-      const data = kind === 'research'
-        ? await api.getArtifactResearch(taskId)
-        : await api.getArtifactDesign(taskId);
-      if (checkMtime && mtimeRef.current === data.mtime) return;
-      mtimeRef.current = data.mtime;
-      setContent(data.content);
-      setFilePath(data.path);
-      setError(null);
-    } catch {
-      if (!checkMtime) setError(kind === 'research' ? 'RESEARCH.md not available' : 'DESIGN.md not available');
+  if (isLoading || data == null) {
+    if (isError && data == null) {
+      const text = !isNotFound(error) ? errorMessage(error) : MISSING_COPY[kind];
+      return <p style={styles.empty}>{text}</p>;
     }
-  }, [taskId, kind]);
-
-  useEffect(() => {
-    load();
-    const timer = setInterval(() => load(true), 5000);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  if (error) {
-    return <p style={styles.empty}>{error}</p>;
-  }
-
-  if (content == null) {
     return <p style={styles.loading}>Loading…</p>;
   }
 
   return (
     <div style={styles.container}>
       <div style={styles.toolbar}>
-        {filePath && (
+        {data.path && (
           <a
-            href={`vscode://file/${filePath}`}
+            href={`vscode://file/${data.path}`}
             style={styles.editorLink}
-            title={filePath}
+            title={data.path}
           >
             Open in editor
           </a>
         )}
       </div>
       <div style={styles.markdown}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.content}</ReactMarkdown>
       </div>
     </div>
   );

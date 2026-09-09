@@ -1,13 +1,10 @@
-import { useRef, useState } from 'react';
 import { useCoders, useConfig, usePauseSupervisor, usePutConfig, useRestartSupervisor, useResumeSupervisor, useSupervisor } from '../../shared/hooks/useApi';
 import { SupervisorPanel } from './SupervisorPanel';
 import { ConfigEditor } from './ConfigEditor';
 import { useNativeNotifications } from '../../shared/hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../../shared/types';
+import { fmtKilo } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
-import { merge } from '../../shared/styles/recipes';
-
-interface SaveResult { ok: boolean; text: string }
 
 export function ConfigPage() {
   const { data: supervisor, isLoading: supervisorLoading } = useSupervisor();
@@ -19,55 +16,25 @@ export function ConfigPage() {
   const putConfig = usePutConfig();
   const { permissions, setPermission } = useNativeNotifications();
 
-  const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const loading = supervisorLoading || configLoading || codersLoading;
 
   if (loading) return <p style={styles.msg}>Loading…</p>;
 
   const coders = codersData?.coders ?? [];
 
-  const showSaveResult = (result: SaveResult) => {
-    if (dismissTimer.current !== null) clearTimeout(dismissTimer.current);
-    setSaveResult(result);
-    dismissTimer.current = setTimeout(() => setSaveResult(null), 4000);
-  };
-
   return (
     <div style={styles.page}>
       <div style={styles.pageHeader}>
         <h1 style={styles.heading}>config</h1>
-        {saveResult && (
-          <span style={merge(styles.saveBanner, (saveResult.ok ? styles.saveBannerOk : styles.saveBannerErr))}>
-            {saveResult.text}
-          </span>
-        )}
       </div>
       <div style={styles.grid}>
         <div>
           {supervisor && (
             <SupervisorPanel
               status={supervisor}
-              onPause={async () => {
-                try { await pauseSupervisor.mutateAsync(); }
-                catch (err) { showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) }); }
-              }}
-              onResume={async () => {
-                try { await resumeSupervisor.mutateAsync(); }
-                catch (err) { showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) }); }
-              }}
-              onRestart={async () => {
-                try {
-                  const result = await restartSupervisor.mutateAsync();
-                  const text = result.alive
-                    ? `Supervisor restarted — PID ${result.pid}`
-                    : 'Restart failed (process exited immediately)';
-                  showSaveResult({ ok: result.alive, text });
-                } catch (err) {
-                  showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
-                }
-              }}
+              onPause={() => pauseSupervisor.mutate()}
+              onResume={() => resumeSupervisor.mutate()}
+              onRestart={() => restartSupervisor.mutateAsync().then(() => undefined)}
               loading={pauseSupervisor.isPending || resumeSupervisor.isPending || restartSupervisor.isPending}
             />
           )}
@@ -107,7 +74,7 @@ export function ConfigPage() {
                   <li key={c.name} style={styles.coderItem}>
                     <strong>{c.name}</strong>
                     <span style={styles.coderMeta}>
-                      {Math.round(c.context_limit / 1000)}k ctx — {c.default_model}
+                      {fmtKilo(c.context_limit)} ctx — {c.default_model}
                     </span>
                   </li>
                 ))}
@@ -119,15 +86,7 @@ export function ConfigPage() {
           {config && (
             <ConfigEditor
               config={config}
-              onSave={async (updates: Partial<RuntimeConfig>) => {
-                try {
-                  await putConfig.mutateAsync(updates);
-                  showSaveResult({ ok: true, text: 'Config saved' });
-                } catch (err) {
-                  showSaveResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
-                  throw err;
-                }
-              }}
+              onSave={(updates: Partial<RuntimeConfig>) => putConfig.mutateAsync(updates).then(() => undefined)}
             />
           )}
         </div>
@@ -153,24 +112,6 @@ const styles = {
     fontSize: '0.9375rem',
     fontWeight: 600,
     color: T.colors.textPrimary,
-  } as React.CSSProperties,
-  saveBanner: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0.2rem 0.75rem',
-    borderRadius: 4,
-    fontSize: '0.8125rem',
-    fontWeight: 500,
-  } as React.CSSProperties,
-  saveBannerOk: {
-    background: 'rgba(22,163,74,0.15)',
-    border: '1px solid #16a34a',
-    color: '#22c55e',
-  } as React.CSSProperties,
-  saveBannerErr: {
-    background: 'rgba(239,68,68,0.12)',
-    border: '1px solid #dc2626',
-    color: T.colors.danger,
   } as React.CSSProperties,
   msg: {
     padding: '1rem',

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FleetEvent } from '../../../shared/types';
 import { computeLineDiff } from '../../../shared/diff';
+import { fmtInt } from '../../../shared/format';
 import * as T from '../../../shared/styles/tokens';
 import { DIFF_LINE_STYLE, merge } from '../../../shared/styles/recipes';
 import { eventKindColor } from '../../../shared/status';
@@ -153,7 +154,7 @@ export function LiveTab({ events }: Props) {
               <span style={styles.ts}>{event.ts.slice(11, 19)}</span>
               {event.usage && (
                 <span style={styles.tokens}>
-                  {((event.usage.input_tokens ?? 0) + (event.usage.output_tokens ?? 0)).toLocaleString()}t
+                  {fmtInt((event.usage.input_tokens ?? 0) + (event.usage.output_tokens ?? 0))}t
                 </span>
               )}
             </div>

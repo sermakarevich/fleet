@@ -11,6 +11,7 @@ import { NewTaskPanel } from '../features/tasks/NewTaskPanel';
 import { CommandPalette } from '../features/command-palette/CommandPalette';
 import { useCommandPalette } from '../shared/hooks/useCommandPalette';
 import { ToastProvider, useToast } from '../shared/contexts/ToastContext';
+import { TokenGate } from '../shared/ui/TokenGate';
 import { queryClient } from './queryClient';
 import { NavBar } from './NavBar';
 import { GlobalEvents } from './GlobalEvents';
@@ -28,14 +29,14 @@ function NotFound() {
 
 function AppInner() {
   const [showNewTask, setShowNewTask] = useState(false);
-  const [connected, setConnected] = useState(false);
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
   const { addToast } = useToast();
 
   return (
     <>
-      <GlobalEvents onConnectedChange={setConnected} />
-      <NavBar connected={connected} onNewTask={() => setShowNewTask(true)} />
+      <GlobalEvents />
+      <NavBar onNewTask={() => setShowNewTask(true)} />
+      <TokenGate />
       <main style={styles.main}>
         <Routes>
           <Route path="/" element={<Navigate to="/tasks" replace />} />

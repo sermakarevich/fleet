@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import { useChatQuestions } from '../../../shared/hooks/useApi';
+import { useTaskMutation } from '../../../shared/hooks/useTaskMutation';
 import { useToast } from '../../../shared/contexts/ToastContext';
 
 export function useChat() {
@@ -10,7 +10,6 @@ export function useChat() {
   const serverOffset = data ? data.now - Date.now() / 1000 : 0;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { addToast } = useToast();
-  const qc = useQueryClient();
 
   useEffect(() => {
     setSelectedId(prev => {
@@ -19,16 +18,15 @@ export function useChat() {
     });
   }, [questions]);
 
-  const answerMutation = useMutation({
-    mutationFn: ({ id, value }: { id: string; value: string | string[] }) =>
-      api.answerChatQuestion(id, value),
-    onSuccess: res => {
-      addToast(res.ok ? 'Answer sent' : `Already ${res.status} — refreshing`);
-      setSelectedId(null);
-      void qc.invalidateQueries({ queryKey: ['chat-questions'] });
+  const answerMutation = useTaskMutation(
+    'Answer question',
+    ({ id, value }: { id: string; value: string | string[] }) => api.answerChatQuestion(id, value),
+    {
+      invalidate: [['chat-questions']],
+      success: (res) => (res.ok ? 'Answer sent' : `Already ${res.status} — refreshing`),
+      failure: 'Network error — try again.',
     },
-    onError: () => addToast('Network error — try again.'),
-  });
+  );
 
   const selectedQuestion = questions.find(q => q.id === selectedId) ?? null;
 
@@ -37,7 +35,8 @@ export function useChat() {
     serverOffset,
     selectedQuestion,
     selectQuestion: setSelectedId,
-    submitAnswer: (id: string, value: string | string[]) => answerMutation.mutate({ id, value }),
+    submitAnswer: (id: string, value: string | string[]) =>
+      answerMutation.mutate({ id, value }, { onSuccess: () => setSelectedId(null) }),
     isSubmitting: answerMutation.isPending,
     notify: addToast,
   };

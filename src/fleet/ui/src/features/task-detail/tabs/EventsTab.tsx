@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
+import { usePoll } from '../../../shared/poll';
 import type { StreamEvent } from '../../../shared/types';
 import { fmtClockTime } from '../../../shared/format';
 import { eventKindColor } from '../../../shared/status';
@@ -40,7 +41,7 @@ export function EventsTab({ taskId, status }: Props) {
       // Default: no offset → load latest
       return loadEvents(taskId, offset ?? 0, pageSize, currentKinds);
     },
-    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+    refetchInterval: usePoll('normal', !status || status === 'in_progress'),
   });
 
   const events: StreamEvent[] = data?.events ?? [];

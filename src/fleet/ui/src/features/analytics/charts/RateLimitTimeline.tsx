@@ -1,3 +1,4 @@
+import { fmtShortDateTime } from '../../../shared/format';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { merge } from '../../../shared/styles/recipes';
@@ -9,13 +10,7 @@ interface Props {
 const MAX_VISIBLE = 30;
 
 function fmtShort(ts: string): string {
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts;
-  const mon = d.toLocaleString('en-US', { month: 'short' });
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${mon} ${dd} ${hh}:${mm}`;
+  return fmtShortDateTime(ts);
 }
 
 export function RateLimitTimeline({ events }: Props) {

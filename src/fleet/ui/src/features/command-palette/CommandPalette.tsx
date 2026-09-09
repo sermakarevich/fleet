@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../../shared/api';
-import { usePauseSupervisor, useResumeSupervisor } from '../../shared/hooks/useApi';
-import type { SearchResult, TaskSummary } from '../../shared/types';
+import { errorMessage } from '../../shared/api';
+import { usePauseSupervisor, useResumeSupervisor, useSearch } from '../../shared/hooks/useApi';
+import type { TaskSummary } from '../../shared/types';
 
 interface Props {
   open: boolean;
@@ -19,14 +19,11 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
   const resumeSupervisor = useResumeSupervisor();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setInputValue('');
       setDebouncedQuery('');
-      setSearchResults([]);
     }
   }, [open]);
 
@@ -39,17 +36,12 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
     return () => clearTimeout(timer);
   }, [inputValue]);
 
-  useEffect(() => {
-    if (!debouncedQuery) {
-      setSearchResults([]);
-      return;
-    }
-    setSearching(true);
-    api.search(debouncedQuery)
-      .then(results => setSearchResults(results))
-      .catch(() => setSearchResults([]))
-      .finally(() => setSearching(false));
-  }, [debouncedQuery]);
+  const {
+    data: searchResults = [],
+    isFetching: searching,
+    isError: searchFailed,
+    error: searchError,
+  } = useSearch(debouncedQuery);
 
   useEffect(() => {
     if (!open) return;
@@ -77,13 +69,13 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
     { id: 'config', label: 'Go to Config', run: () => go('/config') },
     {
       id: 'pause', label: 'Pause supervisor', run: () => {
-        void pauseSupervisor.mutateAsync().catch(() => null);
+        pauseSupervisor.mutate();
         setOpen(false);
       },
     },
     {
       id: 'resume', label: 'Resume supervisor', run: () => {
-        void resumeSupervisor.mutateAsync().catch(() => null);
+        resumeSupervisor.mutate();
         setOpen(false);
       },
     },
@@ -136,11 +128,14 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
                 </Command.Item>
               ))}
             </Command.Group>
-            {(searchResults.length > 0 || searching) && (
+            {(searchResults.length > 0 || searching || searchFailed) && (
               <Command.Group>
                 <div style={s.groupHeading}>
                   Search{searching ? ' …' : ''}
                 </div>
+                {searchFailed && (
+                  <div style={s.error}>Search failed: {errorMessage(searchError)}</div>
+                )}
                 {searchResults.map((r, i) => (
                   <Command.Item
                     key={`${r.task_id}-${i}`}
@@ -253,5 +248,10 @@ const s = {
     fontSize: '0.875rem',
     color: '#52525b',
     textAlign: 'center' as const,
+  },
+  error: {
+    padding: '0.5rem 1rem',
+    fontSize: '0.8125rem',
+    color: '#f87171',
   },
 };

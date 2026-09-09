@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { storageGet, storageSet } from '../storage';
 
 type NotificationKind = 'ask_human' | 'completed';
 type Permissions = Record<NotificationKind, boolean>;
@@ -8,21 +9,17 @@ const STORAGE_KEY = 'fleet_notif_prefs';
 const DEFAULTS: Permissions = { ask_human: true, completed: true };
 
 function load(): Permissions {
+  const raw = storageGet(STORAGE_KEY);
+  if (!raw) return { ...DEFAULTS };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Permissions>) };
+    return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<Permissions>) };
   } catch {
-    // ignore parse errors
+    return { ...DEFAULTS };
   }
-  return { ...DEFAULTS };
 }
 
 function save(perms: Permissions): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(perms));
-  } catch {
-    // ignore storage errors
-  }
+  storageSet(STORAGE_KEY, JSON.stringify(perms));
 }
 
 function fireNotification(title: string, body: string): void {

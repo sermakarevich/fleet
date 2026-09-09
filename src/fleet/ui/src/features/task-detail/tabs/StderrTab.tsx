@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
+import { usePoll } from '../../../shared/poll';
 
 interface Props {
   taskId: string;
@@ -13,7 +14,7 @@ export function StderrTab({ taskId, status }: Props) {
   const { data } = useQuery({
     queryKey: ['task', taskId, 'stderr'],
     queryFn: () => api.getStderr(taskId),
-    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+    refetchInterval: usePoll('normal', !status || status === 'in_progress'),
   });
 
   const content = data?.content ?? null;

@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import { useIsMobile } from '../shared/hooks/useIsMobile';
+import { useSocketStatus } from '../shared/hooks/useEventSocket';
 import { useChatQuestions, useSupervisor, useHealthz } from '../shared/hooks/useApi';
+import { Dot } from '../shared/ui/StatusDot';
 import { colors } from '../shared/styles/tokens';
 import { merge } from '../shared/styles/recipes';
 
@@ -24,6 +26,23 @@ function ChatIndicator() {
   );
 }
 
+// Connection dot for the shared events socket: green while streaming,
+// gray with a "reconnecting" title while the backoff reconnect runs.
+function ConnectionDot() {
+  const connected = useSocketStatus();
+  return (
+    <span style={styles.connWrap}>
+      <Dot
+        color={connected ? 'green' : 'gray'}
+        title={connected ? 'events socket: connected' : 'events socket: disconnected — reconnecting'}
+      />
+      <span style={merge(styles.dot, { color: connected ? colors.success : colors.danger })}>
+        {connected ? 'connected' : 'disconnected'}
+      </span>
+    </span>
+  );
+}
+
 function StalenessChip() {
   const { data: supervisor } = useSupervisor();
   const { data: healthz } = useHealthz();
@@ -41,7 +60,7 @@ function StalenessChip() {
   );
 }
 
-export function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask: () => void }) {
+export function NavBar({ onNewTask }: { onNewTask: () => void }) {
   const isMobile = useIsMobile();
   const navRef = useRef<HTMLElement>(null);
 
@@ -79,8 +98,8 @@ export function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask
             fleet
           </Link>
           <StalenessChip />
-          <span style={merge(styles.dot, { marginLeft: 'auto', fontSize: '0.7rem', color: connected ? colors.success : colors.danger })}>
-            {connected ? '●' : '○'}
+          <span style={merge(styles.dot, { marginLeft: 'auto', fontSize: '0.7rem' })}>
+            <ConnectionDot />
           </span>
           <button style={styles.newTaskBtn} onClick={onNewTask}>+ New</button>
         </div>
@@ -99,9 +118,7 @@ export function NavBar({ connected, onNewTask }: { connected: boolean; onNewTask
       {navLinks}
       <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
       <StalenessChip />
-      <span style={merge(styles.dot, { color: connected ? colors.success : colors.danger })}>
-        {connected ? '● connected' : '○ disconnected'}
-      </span>
+      <ConnectionDot />
     </nav>
   );
 }
@@ -194,6 +211,11 @@ const styles = {
   dot: {
     fontSize: '0.75rem',
     color: colors.textSecondary,
+  } as CSSProperties,
+  connWrap: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.375rem',
   } as CSSProperties,
   staleChip: {
     display: 'inline-flex',
