@@ -10,6 +10,8 @@ import httpx
 import pytest
 
 from fleet.serve.app import create_app
+from fleet.workflows.model import Defaults, Stage, Step, Workflow
+from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue
 
 _VALID = {
@@ -257,3 +259,99 @@ def test_disable_then_list_shows_disabled(tmp_path: Path, monkeypatch: pytest.Mo
     rows = _request(app, "GET", "/api/schedules").json()["schedules"]
     assert rows[0]["enabled"] is True
     assert rows[0]["next_fire_at"] is not None
+
+
+_WORKFLOW_BODY = {
+    "name": "nightly-flow",
+    "cron": "* * * * *",
+    "timezone": "UTC",
+    "enabled": True,
+    "target": "workflow",
+    "workflow_id": "wf-test0001",
+    "overlap": "skip",
+}
+
+
+def _save_workflow(tmp_path: Path) -> None:
+    """Seed one one-step workflow the schedules tests can target."""
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(
+        Workflow(
+            id="wf-test0001",
+            name="nightly",
+            description="d",
+            defaults=Defaults(priority=2),
+            stages=(Stage(name="checks", steps=(Step(name="lint", title="Lint"),)),),
+            created_at="2026-09-09T00:00:00+00:00",
+            updated_at="2026-09-09T00:00:00+00:00",
+        )
+    )
+
+
+def test_create_workflow_schedule_needs_no_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /schedules accepts a workflow target without a task title."""
+    _save_workflow(tmp_path)
+    app = _app(tmp_path, monkeypatch)
+    resp = _request(app, "POST", "/api/schedules", json=_WORKFLOW_BODY)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["target"] == "workflow"
+    assert body["workflow_id"] == "wf-test0001"
+
+
+def test_create_workflow_schedule_unknown_workflow_is_422(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /schedules answers 422 naming workflow_id for a missing workflow."""
+    app = _app(tmp_path, monkeypatch)
+    resp = _request(app, "POST", "/api/schedules", json=_WORKFLOW_BODY)
+    assert resp.status_code == 422
+    assert "workflow_id" in resp.json()["error"].lower()
+
+
+def test_run_workflow_schedule_returns_workflow_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /schedules/{id}/run starts a workflow run and returns its id."""
+    _save_workflow(tmp_path)
+    app = _app(tmp_path, monkeypatch)
+    app.state.fleet_state.queue = FakeQueue()
+    schedule_id = _request(app, "POST", "/api/schedules", json=_WORKFLOW_BODY).json()["id"]
+    resp = _request(app, "POST", f"/api/schedules/{schedule_id}/run")
+    assert resp.status_code == 200
+    run = resp.json()["run"]
+    assert run["task_id"] is None
+    assert run["workflow_run_id"] is not None
+    assert run["workflow_run_status"] == "running"
+
+
+def test_list_filters_by_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /schedules?target= narrows to workflow or task schedules."""
+    _save_workflow(tmp_path)
+    app = _app(tmp_path, monkeypatch)
+    _request(app, "POST", "/api/schedules", json=_VALID)
+    _request(app, "POST", "/api/schedules", json=_WORKFLOW_BODY)
+    assert len(_request(app, "GET", "/api/schedules").json()["schedules"]) == 2
+    workflows = _request(app, "GET", "/api/schedules?target=workflow").json()["schedules"]
+    assert [row["target"] for row in workflows] == ["workflow"]
+    tasks = _request(app, "GET", "/api/schedules?target=task").json()["schedules"]
+    assert [row["target"] for row in tasks] == ["task"]
+    bad = _request(app, "GET", "/api/schedules?target=fleet")
+    assert bad.status_code == 422
+
+
+def test_detail_enriches_workflow_run_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /schedules/{id} carries the live workflow run status on each run."""
+    _save_workflow(tmp_path)
+    app = _app(tmp_path, monkeypatch)
+    app.state.fleet_state.queue = FakeQueue()
+    schedule_id = _request(app, "POST", "/api/schedules", json=_WORKFLOW_BODY).json()["id"]
+    _request(app, "POST", f"/api/schedules/{schedule_id}/run")
+    body = _request(app, "GET", f"/api/schedules/{schedule_id}").json()
+    assert len(body["runs"]) == 1
+    assert body["runs"][0]["workflow_run_id"] is not None
+    assert body["runs"][0]["workflow_run_status"] == "running"

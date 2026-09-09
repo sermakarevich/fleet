@@ -88,6 +88,8 @@ export interface ScheduleInput {
   model?: string;
   priority?: number;
   overlap?: string;
+  target?: string;
+  workflow_id?: string | null;
 }
 
 export interface WorkflowStepInput {

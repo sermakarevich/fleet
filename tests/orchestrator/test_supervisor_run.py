@@ -72,6 +72,7 @@ def test_default_services_cover_all_concerns(tmp_path) -> None:  # type: ignore[
             "config_reload",
             "lease_reconcile",
             "scheduler",
+            "workflow_refresh",
             "claim",
             "merge_validation",
             "reap",

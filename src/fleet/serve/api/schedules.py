@@ -22,7 +22,7 @@ from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
 from fleet.coders import get_coder
 from fleet.schedules import cron, firing
-from fleet.schedules.model import OverlapPolicy, Schedule, Trigger, new_id
+from fleet.schedules.model import OverlapPolicy, Schedule, TargetKind, Trigger, new_id
 from fleet.schedules.store import ScheduleStore
 from fleet.serve.api.models import (
     CronPreviewResponse,
@@ -36,6 +36,8 @@ from fleet.serve.api.models import (
 from fleet.serve.auth import HTTP_AUTH
 from fleet.serve.errors import bad_gateway, not_found, parse_json_body, unprocessable
 from fleet.serve.state import StateDep
+from fleet.state.paths import workflows_db_path
+from fleet.workflows.store import WorkflowStore
 
 router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
@@ -46,7 +48,11 @@ _MAX_PRIORITY = 4
 
 
 def _run_view(
-    run: Any, task_status: str | None = None, task_title: str | None = None
+    run: Any,
+    task_status: str | None = None,
+    task_title: str | None = None,
+    workflow_run_id: str | None = None,
+    workflow_run_status: str | None = None,
 ) -> dict[str, Any]:
     """One run row plus the task it opened (nulls when gone)."""
     return {
@@ -60,6 +66,20 @@ def _run_view(
         "reason": run.reason,
         "task_status": task_status,
         "task_title": task_title,
+        "workflow_run_id": workflow_run_id if workflow_run_id is not None else run.workflow_run_id,
+        "workflow_run_status": workflow_run_status,
+    }
+
+
+def _workflow_statuses(fleet_home: Path, runs: list[Any]) -> dict[str, str | None]:
+    """Workflow run id to live status, without any extra bd call."""
+    wanted = {run.workflow_run_id for run in runs if run.workflow_run_id}
+    if not wanted:
+        return {}
+    store = WorkflowStore(workflows_db_path(fleet_home))
+    return {
+        run_id: (found.status.value if (found := store.get_run(run_id)) is not None else None)
+        for run_id in wanted
     }
 
 
@@ -68,16 +88,22 @@ def _schedule_view(schedule: Schedule, store: ScheduleStore, now: datetime) -> d
     last = store.last_run(schedule.id)
     last_cron = store.last_run(schedule.id, Trigger.cron)
     due = firing.next_due(schedule, last_cron, now)
-    return {
+    view = {
         **schedule.to_dict(),
         "overlap": schedule.overlap.value,
+        "target": schedule.target.value,
         "next_fire_at": due.isoformat() if due is not None else None,
         "run_count": store.run_count(schedule.id),
         "last_run": _run_view(last) if last is not None else None,
     }
+    if last is not None and last.workflow_run_id is not None:
+        view["last_run"] = _run_view(last, workflow_run_id=last.workflow_run_id)
+    return view
 
 
-def _validated(body: Any, *, schedule_id: str, created_at: str, now: datetime) -> Schedule:
+def _validated(
+    fleet_home: Path, body: Any, *, schedule_id: str, created_at: str, now: datetime
+) -> Schedule:
     """Build a Schedule from a JSON body, raising 422 naming the bad field."""
     if not isinstance(body, dict):
         raise unprocessable("schedule body must be a JSON object")
@@ -87,7 +113,17 @@ def _validated(body: Any, *, schedule_id: str, created_at: str, now: datetime) -
         raise unprocessable(str(exc)) from exc
     if not req.name.strip():
         raise unprocessable("name: required and must not be empty")
-    if not req.title.strip():
+    try:
+        target = TargetKind(req.target)
+    except ValueError:
+        raise unprocessable(f"target: unknown target {req.target!r}") from None
+    workflow_id = req.workflow_id or None
+    if target is TargetKind.workflow:
+        if not workflow_id:
+            raise unprocessable("workflow_id: required when target is workflow")
+        if WorkflowStore(workflows_db_path(fleet_home)).get(workflow_id) is None:
+            raise unprocessable(f"workflow_id: unknown workflow {workflow_id!r}")
+    elif not req.title.strip():
         raise unprocessable("title: required and must not be empty")
     try:
         cron.parse(req.cron)
@@ -124,6 +160,8 @@ def _validated(body: Any, *, schedule_id: str, created_at: str, now: datetime) -
         model=req.model,
         priority=req.priority,
         overlap=overlap,
+        target=target,
+        workflow_id=workflow_id,
         created_at=created_at,
         updated_at=now.isoformat(),
     )
@@ -133,15 +171,23 @@ def _create(fleet_home: Path, body: Any, now: datetime) -> dict[str, Any]:
     """Validate, save with a fresh id, and return the view (runs in a thread)."""
     store = ScheduleStore(fleet_home)
     moment = now.isoformat()
-    schedule = _validated(body, schedule_id=new_id(), created_at=moment, now=now)
+    schedule = _validated(fleet_home, body, schedule_id=new_id(), created_at=moment, now=now)
     store.save(schedule)
     return _schedule_view(schedule, store, now)
 
 
-def _list(fleet_home: Path, now: datetime) -> dict[str, Any]:
+def _list(fleet_home: Path, now: datetime, target: str | None = None) -> dict[str, Any]:
     """All schedules with next firing, run count, latest run (runs in a thread)."""
+    if target is not None:
+        try:
+            wanted = TargetKind(target)
+        except ValueError:
+            raise unprocessable(f"target: unknown target {target!r}") from None
+    else:
+        wanted = None
     store = ScheduleStore(fleet_home)
-    return {"schedules": [_schedule_view(item, store, now) for item in store.list()]}
+    items = [item for item in store.list() if wanted is None or item.target is wanted]
+    return {"schedules": [_schedule_view(item, store, now) for item in items]}
 
 
 def _task_map(schedule_id: str, items: Any) -> dict[str, tuple[Any, Any]]:
@@ -181,9 +227,15 @@ def _detail(fleet_home: Path, schedule_id: str, now: datetime) -> dict[str, Any]
     except BdError:
         items = []
     mapping = _task_map(schedule_id, items)
+    stored = store.runs(schedule_id, limit=_DETAIL_LIMIT)
+    wf_status = _workflow_statuses(fleet_home, stored)
     runs = [
-        _run_view(run, *mapping.get(run.task_id or "", (None, None)))
-        for run in store.runs(schedule_id, limit=_DETAIL_LIMIT)
+        _run_view(
+            run,
+            *mapping.get(run.task_id or "", (None, None)),
+            workflow_run_status=wf_status.get(run.workflow_run_id or ""),
+        )
+        for run in stored
     ]
     view = _schedule_view(schedule, store, now)
     view["last_run"] = runs[0] if runs else None
@@ -199,7 +251,9 @@ def _update(fleet_home: Path, schedule_id: str, body: Any, now: datetime) -> dic
     existing = store.get(schedule_id)
     if existing is None:
         return None
-    schedule = _validated(body, schedule_id=schedule_id, created_at=existing.created_at, now=now)
+    schedule = _validated(
+        fleet_home, body, schedule_id=schedule_id, created_at=existing.created_at, now=now
+    )
     store.save(schedule)
     return _schedule_view(schedule, store, now)
 
@@ -225,8 +279,16 @@ def _run_now(fleet_home: Path, queue: Any, schedule_id: str, now: datetime) -> A
     schedule = store.get(schedule_id)
     if schedule is None:
         return None
+    workflow_store = WorkflowStore(workflows_db_path(fleet_home))
     try:
-        run = firing.fire(schedule, store=store, queue=queue, now=now, trigger=Trigger.manual)
+        run = firing.fire(
+            schedule,
+            store=store,
+            queue=queue,
+            now=now,
+            trigger=Trigger.manual,
+            workflow_store=workflow_store,
+        )
     except BdError as exc:
         raise bad_gateway(str(exc) or "queue failed") from exc
     status: str | None = None
@@ -238,7 +300,11 @@ def _run_now(fleet_home: Path, queue: Any, schedule_id: str, now: datetime) -> A
             task = None
         if task is not None:
             status, title = task.status, task.title
-    return _run_view(run, status, title)
+    wf_status: str | None = None
+    if run.workflow_run_id is not None:
+        found = workflow_store.get_run(run.workflow_run_id)
+        wf_status = found.status.value if found is not None else None
+    return _run_view(run, status, title, workflow_run_status=wf_status)
 
 
 def _preview(body: Any, now: datetime) -> dict[str, Any]:
@@ -263,9 +329,9 @@ def _preview(body: Any, now: datetime) -> dict[str, Any]:
 
 
 @router.get("/schedules", response_model=ScheduleListResponse)
-async def list_schedules(state: StateDep) -> JSONResponse:
+async def list_schedules(state: StateDep, target: str | None = None) -> JSONResponse:
     """Every schedule with next firing, run count and latest run."""
-    payload = await asyncio.to_thread(_list, state.fleet_home, datetime.now(UTC))
+    payload = await asyncio.to_thread(_list, state.fleet_home, datetime.now(UTC), target)
     return JSONResponse(payload)
 
 

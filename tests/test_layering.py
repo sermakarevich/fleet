@@ -19,7 +19,7 @@ ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "state": {"core"},
     "beads": {"core", "state"},
-    "schedules": {"core", "state", "beads"},
+    "schedules": {"core", "state", "beads", "workflows"},
     "workflows": {"core", "state", "beads"},
     "coders": {"core", "state"},
     "workers": {"core", "state", "beads", "coders"},

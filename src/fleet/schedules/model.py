@@ -32,6 +32,13 @@ class Trigger(StrEnum):
     manual = "manual"
 
 
+class TargetKind(StrEnum):
+    """What a schedule opens when due: one bead, or one workflow run."""
+
+    task = "task"
+    workflow = "workflow"
+
+
 @dataclass(frozen=True, slots=True)
 class Schedule:
     """One saved recurring-worker template plus its cron expression."""
@@ -48,6 +55,8 @@ class Schedule:
     model: str | None = None
     priority: int = 2
     overlap: OverlapPolicy = OverlapPolicy.skip
+    target: TargetKind = TargetKind.task
+    workflow_id: str | None = None
     created_at: str = ""
     updated_at: str = ""
 
@@ -66,6 +75,8 @@ class Schedule:
             "model": self.model,
             "priority": self.priority,
             "overlap": self.overlap.value,
+            "target": self.target.value,
+            "workflow_id": self.workflow_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -87,9 +98,18 @@ class Schedule:
             ZoneInfo(timezone)
         except ZoneInfoNotFoundError:
             raise CronError(f"timezone: unknown zone {timezone!r}") from None
-        for key in ("id", "name", "title", "created_at", "updated_at"):
+        for key in ("id", "name", "created_at", "updated_at"):
             if not data.get(key):
                 raise ValueError(f"{key}: required and must not be empty")
+        try:
+            target = TargetKind(data.get("target", "task"))
+        except ValueError:
+            raise ValueError(f"target: unknown target {data.get('target')!r}") from None
+        workflow_id = data.get("workflow_id")
+        if target is TargetKind.workflow and not workflow_id:
+            raise ValueError("workflow_id: required when target is workflow")
+        if target is TargetKind.task and not data.get("title"):
+            raise ValueError("title: required and must not be empty")
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -103,6 +123,8 @@ class Schedule:
             model=data.get("model"),
             priority=int(data.get("priority", 2)),
             overlap=overlap,
+            target=target,
+            workflow_id=str(workflow_id) if workflow_id is not None else None,
             created_at=str(data["created_at"]),
             updated_at=str(data["updated_at"]),
         )
@@ -120,6 +142,7 @@ class ScheduleRun:
     task_id: str | None
     skipped: bool
     reason: str = ""
+    workflow_run_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return this run as plain JSON-safe data."""
@@ -132,6 +155,7 @@ class ScheduleRun:
             "task_id": self.task_id,
             "skipped": self.skipped,
             "reason": self.reason,
+            "workflow_run_id": self.workflow_run_id,
         }
 
     @classmethod
@@ -153,6 +177,7 @@ class ScheduleRun:
             task_id=data.get("task_id"),
             skipped=bool(data.get("skipped", False)),
             reason=str(data.get("reason", "")),
+            workflow_run_id=data.get("workflow_run_id"),
         )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +25,10 @@ from fleet.schedules.firing import (
 )
 from fleet.schedules.model import Schedule, ScheduleRun, Trigger
 from fleet.schedules.store import ScheduleStore
+from fleet.workflows.model import Defaults, RunStatus, Stage, Step, Workflow
+from fleet.workflows.model import Trigger as WorkflowTrigger
+from fleet.workflows.runs import start_run
+from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue
 
 CREATED = "2026-09-09T00:00:00+00:00"
@@ -343,3 +348,174 @@ def test_fire_due_skip_moves_baseline(tmp_path: Path) -> None:
     (run,) = fire_due(store=store, queue=queue, now=now, log=_log())
     assert run.skipped and run.scheduled_for == "2026-09-09T00:01:00+00:00"
     assert fire_due(store=store, queue=queue, now=now, log=_log()) == []
+
+
+def _workflow() -> Workflow:
+    """One single-step workflow for schedule firing tests."""
+    return Workflow(
+        id="wf-test0001",
+        name="nightly",
+        description="d",
+        defaults=Defaults(priority=2),
+        stages=(Stage(name="checks", steps=(Step(name="lint", title="Lint"),)),),
+    )
+
+
+def _workflow_store(tmp_path: Path) -> WorkflowStore:
+    """Throwaway workflow store with the demo workflow saved."""
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(replace(_workflow(), created_at=CREATED, updated_at=CREATED))
+    return store
+
+
+def _workflow_schedule(**overrides) -> Schedule:
+    """One every-minute schedule targeting the demo workflow."""
+    base = {"target": "workflow", "workflow_id": "wf-test0001", "title": ""}
+    base.update(overrides)
+    return _schedule(**base)
+
+
+def test_fire_workflow_target_starts_run(tmp_path: Path) -> None:
+    """fire() on a workflow schedule starts a run and records its id."""
+    store = ScheduleStore(tmp_path)
+    workflow_store = _workflow_store(tmp_path)
+    queue = FakeQueue()
+    run = fire(
+        _workflow_schedule(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:01:00+00:00"),
+        trigger=Trigger.cron,
+        scheduled_for=_at("2026-09-09T00:01:00+00:00"),
+        reason="due",
+        workflow_store=workflow_store,
+    )
+    assert run.task_id is None
+    assert run.skipped is False
+    assert run.workflow_run_id is not None
+    assert len(queue._tasks) == 1
+    workflow_run = workflow_store.get_run(run.workflow_run_id)
+    assert workflow_run is not None
+    assert workflow_run.schedule_id == "sch-abc123"
+
+
+def test_fire_workflow_missing_workflow_records_skip(tmp_path: Path) -> None:
+    """A deleted workflow becomes a skipped run naming the missing id."""
+    store = ScheduleStore(tmp_path)
+    workflow_store = _workflow_store(tmp_path)
+    queue = FakeQueue()
+    run = fire(
+        _workflow_schedule(workflow_id="wf-missing"),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:01:00+00:00"),
+        trigger=Trigger.cron,
+        scheduled_for=_at("2026-09-09T00:01:00+00:00"),
+        reason="due",
+        workflow_store=workflow_store,
+    )
+    assert (run.task_id, run.skipped, run.workflow_run_id) == (None, True, None)
+    assert run.reason == "workflow wf-missing not found"
+    assert queue._tasks == {}
+
+
+def test_previous_status_workflow_maps_running(tmp_path: Path) -> None:
+    """While the last workflow run is open, the overlap baseline is its status."""
+    store = ScheduleStore(tmp_path)
+    workflow_store = _workflow_store(tmp_path)
+    queue = FakeQueue()
+    schedule = _workflow_schedule()
+    run = fire(
+        schedule,
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:01:00+00:00"),
+        trigger=Trigger.cron,
+        scheduled_for=_at("2026-09-09T00:01:00+00:00"),
+        reason="due",
+        workflow_store=workflow_store,
+    )
+    assert run.workflow_run_id is not None
+    assert previous_task_status(store, schedule, queue, workflow_store) == (
+        run.workflow_run_id,
+        "running",
+    )
+
+
+def test_previous_status_workflow_maps_finished_to_closed(tmp_path: Path) -> None:
+    """Succeeded and cancelled runs read as closed, so the next minute opens."""
+    store = ScheduleStore(tmp_path)
+    workflow_store = _workflow_store(tmp_path)
+    queue = FakeQueue()
+    schedule = _workflow_schedule()
+    moment = _at("2026-09-09T00:01:00+00:00")
+    workflow_run = start_run(
+        _workflow(),
+        store=workflow_store,
+        queue=queue,
+        now=moment,
+        trigger=WorkflowTrigger.cron,
+        schedule_id=schedule.id,
+    )
+    store.append_run(
+        ScheduleRun(
+            schedule_id=schedule.id,
+            n=1,
+            scheduled_for=moment.isoformat(),
+            fired_at=moment.isoformat(),
+            trigger=Trigger.cron,
+            task_id=None,
+            skipped=False,
+            reason="due",
+            workflow_run_id=workflow_run.id,
+        )
+    )
+    assert previous_task_status(store, schedule, queue, workflow_store) == (
+        workflow_run.id,
+        "running",
+    )
+    workflow_store.finish_run(workflow_run.id, RunStatus.succeeded, "", "2026-09-09T00:02:00+00:00")
+    assert previous_task_status(store, schedule, queue, workflow_store) == (
+        workflow_run.id,
+        "closed",
+    )
+
+
+def test_fire_due_workflow_skips_while_running_then_opens(tmp_path: Path) -> None:
+    """Overlap skip holds while the run is open; a finished run opens the next."""
+    store = ScheduleStore(tmp_path)
+    workflow_store = _workflow_store(tmp_path)
+    store.save(_workflow_schedule())
+    queue = FakeQueue()
+    (first,) = fire_due(
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:01:00+00:00"),
+        log=_log(),
+        workflow_store=workflow_store,
+    )
+    assert first.skipped is False
+    assert first.workflow_run_id is not None
+    (skipped,) = fire_due(
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:02:00+00:00"),
+        log=_log(),
+        workflow_store=workflow_store,
+    )
+    assert skipped.skipped is True
+    assert "running" in skipped.reason
+    assert len(queue._tasks) == 1
+    assert workflow_store.finish_run(
+        first.workflow_run_id, RunStatus.succeeded, "", "2026-09-09T00:02:30+00:00"
+    )
+    (third,) = fire_due(
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T00:03:00+00:00"),
+        log=_log(),
+        workflow_store=workflow_store,
+    )
+    assert third.skipped is False
+    assert third.workflow_run_id is not None
+    assert third.workflow_run_id != first.workflow_run_id

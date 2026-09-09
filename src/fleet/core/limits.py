@@ -23,6 +23,9 @@ CONFIG_POLL_INTERVAL_SEC: int = 5
 CLAIM_POLL_INTERVAL_SEC: int = 5
 # Scheduler tick: cron resolution is one minute; 30 s keeps the worst-case delay under a minute.
 SCHEDULER_TICK_SEC: int = 30
+# Workflow refresh: fold bead statuses into open workflow runs so history
+# stays correct even when nobody opens the UI (see ADR 0008).
+WORKFLOW_REFRESH_SEC: int = 60
 SHUTDOWN_GRACE_SEC: int = 30
 RATE_LIMIT_DEFAULT_SLEEP_SEC: int = 300
 STATUS_LOG_INTERVAL_SEC: int = 30
@@ -104,6 +107,7 @@ TUNABLE_DOCS: dict[str, str] = {
     "CONFIG_POLL_INTERVAL_SEC": "How often the supervisor re-reads runtime.toml.",
     "CLAIM_POLL_INTERVAL_SEC": "How often the claim service polls the queue.",
     "SCHEDULER_TICK_SEC": "Scheduler tick; cron resolution is one minute.",
+    "WORKFLOW_REFRESH_SEC": "How often open workflow runs fold in bead statuses.",
     "SHUTDOWN_GRACE_SEC": "SIGTERM grace before shutdown escalates to SIGKILL.",
     "RATE_LIMIT_DEFAULT_SLEEP_SEC": "Wait before retrying a rate-limited attempt.",
     "STATUS_LOG_INTERVAL_SEC": "Heartbeat lines between supervisor status logs.",

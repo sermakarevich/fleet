@@ -1427,6 +1427,24 @@
         "summary": "List Schedules",
         "description": "Every schedule with next firing, run count and latest run.",
         "operationId": "list_schedules_api_schedules_get",
+        "parameters": [
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1434,6 +1452,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ScheduleListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -4315,6 +4343,22 @@
             "type": "string",
             "title": "Overlap"
           },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": "task"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -4480,6 +4524,28 @@
               }
             ],
             "title": "Task Title"
+          },
+          "workflow_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Run Id"
+          },
+          "workflow_run_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Run Status"
           }
         },
         "type": "object",
@@ -4568,6 +4634,22 @@
           "overlap": {
             "type": "string",
             "title": "Overlap"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": "task"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
           },
           "created_at": {
             "type": "string",

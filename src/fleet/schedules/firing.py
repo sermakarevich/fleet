@@ -19,8 +19,19 @@ from typing import Any
 from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
 from fleet.schedules.cron import next_fire
-from fleet.schedules.model import OverlapPolicy, Schedule, ScheduleRun, Trigger, render
+from fleet.schedules.model import (
+    OverlapPolicy,
+    Schedule,
+    ScheduleRun,
+    TargetKind,
+    Trigger,
+    render,
+)
 from fleet.schedules.store import ScheduleStore
+from fleet.workflows.model import RunStatus
+from fleet.workflows.model import Trigger as WorkflowTrigger
+from fleet.workflows.runs import start_run
+from fleet.workflows.store import WorkflowStore
 
 
 class Action(StrEnum):
@@ -139,7 +150,7 @@ def open_task(schedule: Schedule, queue: Queue, run_n: int, when: datetime) -> s
     return task.id
 
 
-def previous_task_status(
+def _previous_task_open(
     store: ScheduleStore, schedule_id: str, queue: Queue
 ) -> tuple[str | None, str | None]:
     """Task id and status of the last run that opened a task, if any."""
@@ -153,6 +164,64 @@ def previous_task_status(
     return None, None
 
 
+def _previous_workflow_run(
+    store: ScheduleStore, schedule_id: str, workflow_store: WorkflowStore | None
+) -> tuple[str | None, str | None]:
+    """Run id and mapped status of the last run that started a workflow."""
+    if workflow_store is None:
+        return None, None
+    for run in store.runs(schedule_id, limit=10_000):
+        if run.workflow_run_id is None:
+            continue
+        workflow_run = workflow_store.get_run(run.workflow_run_id)
+        if workflow_run is None or workflow_run.status in (
+            RunStatus.succeeded,
+            RunStatus.cancelled,
+        ):
+            return run.workflow_run_id, "closed"
+        return run.workflow_run_id, workflow_run.status.value
+    return None, None
+
+
+def _previous_for_task(
+    store: ScheduleStore, schedule: Schedule, queue: Queue, workflow_store: WorkflowStore | None
+) -> tuple[str | None, str | None]:
+    """Previous status for a task schedule: the last opened bead's status."""
+    _ = workflow_store
+    return _previous_task_open(store, schedule.id, queue)
+
+
+def _previous_for_workflow(
+    store: ScheduleStore, schedule: Schedule, queue: Queue, workflow_store: WorkflowStore | None
+) -> tuple[str | None, str | None]:
+    """Previous status for a workflow schedule: the last run's mapped status."""
+    _ = queue
+    return _previous_workflow_run(store, schedule.id, workflow_store)
+
+
+_PREVIOUS_STATUS_BY_TARGET = {
+    TargetKind.task: _previous_for_task,
+    TargetKind.workflow: _previous_for_workflow,
+}
+"""Dispatch over schedule targets for the overlap-policy baseline."""
+
+
+def previous_task_status(
+    store: ScheduleStore,
+    schedule: Schedule | str,
+    queue: Queue,
+    workflow_store: WorkflowStore | None = None,
+) -> tuple[str | None, str | None]:
+    """Id and status the overlap policy compares against, by target.
+
+    A plain id means the old task behaviour; a workflow schedule reports its
+    last workflow run (mapped to "closed" once finished) instead of a bead.
+    """
+    if isinstance(schedule, str):
+        return _previous_task_open(store, schedule, queue)
+    return _PREVIOUS_STATUS_BY_TARGET[schedule.target](store, schedule, queue, workflow_store)
+
+
 def _record(  # noqa: PLR0913, PLR0917  # one row, one call site shape
     store: ScheduleStore,
     schedule: Schedule,
@@ -163,6 +232,7 @@ def _record(  # noqa: PLR0913, PLR0917  # one row, one call site shape
     task_id: str | None,
     skipped: bool,
     reason: str,
+    workflow_run_id: str | None = None,
 ) -> ScheduleRun:
     """Append one run row to the store and hand it back."""
     run = ScheduleRun(
@@ -174,12 +244,58 @@ def _record(  # noqa: PLR0913, PLR0917  # one row, one call site shape
         task_id=task_id,
         skipped=skipped,
         reason=reason,
+        workflow_run_id=workflow_run_id,
     )
     store.append_run(run)
     return run
 
 
-def fire(
+def _fire_workflow(  # noqa: PLR0913, PLR0917  # one row, one call site shape
+    schedule: Schedule,
+    *,
+    store: ScheduleStore,
+    run_n: int,
+    moment: datetime,
+    now: datetime,
+    trigger: Trigger,
+    reason: str,
+    queue: Queue,
+    workflow_store: WorkflowStore | None,
+) -> ScheduleRun:
+    """Start one workflow run, or record a skip when its workflow is gone."""
+    reason = f"workflow {schedule.workflow_id} not found"
+    if workflow_store is None:
+        return _record(store, schedule, run_n, moment, now, trigger, None, True, reason)
+    workflow = workflow_store.get(schedule.workflow_id or "")
+    if workflow is None:
+        return _record(store, schedule, run_n, moment, now, trigger, None, True, reason)
+    try:
+        workflow_run = start_run(
+            workflow,
+            store=workflow_store,
+            queue=queue,
+            now=now,
+            trigger=WorkflowTrigger(trigger.value),
+            schedule_id=schedule.id,
+        )
+    except BdError as exc:
+        _record(store, schedule, run_n, moment, now, trigger, None, True, f"bd error: {exc}")
+        raise
+    return _record(
+        store,
+        schedule,
+        run_n,
+        moment,
+        now,
+        trigger,
+        None,
+        False,
+        reason,
+        workflow_run.id,
+    )
+
+
+def fire(  # noqa: PLR0913, PLR0917  # one row, one call site shape
     schedule: Schedule,
     *,
     store: ScheduleStore,
@@ -189,14 +305,27 @@ def fire(
     scheduled_for: datetime | None = None,
     reason: str = "",
     skipped: bool = False,
+    workflow_store: WorkflowStore | None = None,
 ) -> ScheduleRun:
-    """Write one run: open a task, or record a skip without opening."""
+    """Write one run: open a task, start a workflow run, or record a skip."""
     run_n = store.run_count(schedule.id) + 1
     moment = scheduled_for if scheduled_for is not None else now
     if trigger is Trigger.manual:
         moment, skipped = now, False
     if skipped:
         return _record(store, schedule, run_n, moment, now, trigger, None, True, reason)
+    if schedule.target is TargetKind.workflow:
+        return _fire_workflow(
+            schedule,
+            store=store,
+            run_n=run_n,
+            moment=moment,
+            now=now,
+            trigger=trigger,
+            reason=reason,
+            queue=queue,
+            workflow_store=workflow_store,
+        )
     try:
         task_id = open_task(schedule, queue, run_n, moment)
     except BdError as exc:
@@ -205,13 +334,20 @@ def fire(
     return _record(store, schedule, run_n, moment, now, trigger, task_id, False, reason)
 
 
-def fire_due(*, store: ScheduleStore, queue: Queue, now: datetime, log: Any) -> list[ScheduleRun]:
+def fire_due(
+    *,
+    store: ScheduleStore,
+    queue: Queue,
+    now: datetime,
+    log: Any,
+    workflow_store: WorkflowStore | None = None,
+) -> list[ScheduleRun]:
     """Decide and fire every enabled schedule; one failure never stops the rest."""
     fired: list[ScheduleRun] = []
     for schedule in store.list():
         try:
             last = store.last_run(schedule.id, Trigger.cron)
-            _, status = previous_task_status(store, schedule.id, queue)
+            _, status = previous_task_status(store, schedule, queue, workflow_store)
             decision = decide(schedule, last, status, now)
             if decision.action is Action.wait:
                 continue
@@ -224,6 +360,7 @@ def fire_due(*, store: ScheduleStore, queue: Queue, now: datetime, log: Any) -> 
                 scheduled_for=decision.scheduled_for,
                 reason=decision.reason,
                 skipped=decision.action is Action.skip,
+                workflow_store=workflow_store,
             )
         except Exception as exc:
             log.error("schedule_fire_failed", schedule_id=schedule.id, error=str(exc))
@@ -231,6 +368,12 @@ def fire_due(*, store: ScheduleStore, queue: Queue, now: datetime, log: Any) -> 
         if run.skipped:
             log.info("schedule_skipped", schedule_id=schedule.id, reason=run.reason, n=run.n)
         else:
-            log.info("schedule_fired", schedule_id=schedule.id, task_id=run.task_id, n=run.n)
+            log.info(
+                "schedule_fired",
+                schedule_id=schedule.id,
+                task_id=run.task_id,
+                workflow_run_id=run.workflow_run_id,
+                n=run.n,
+            )
         fired.append(run)
     return fired

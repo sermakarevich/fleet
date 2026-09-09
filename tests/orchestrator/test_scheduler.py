@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from fleet.core.clock import FakeClock
 from fleet.core.limits import SCHEDULER_TICK_SEC
+from fleet.core.task import Task
 from fleet.orchestrator import default_services
 from fleet.orchestrator.scheduler import make_scheduler, scheduler_tick
 from fleet.orchestrator.service import ServiceOrder
 from fleet.schedules.model import Schedule
 from fleet.schedules.store import ScheduleStore
+from fleet.workflows.model import Defaults, Stage, Step, Workflow
+from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue, make_supervisor
 
 CREATED = "2026-09-09T00:00:00+00:00"
@@ -124,3 +130,82 @@ def test_default_services_contains_scheduler() -> None:
     names = [svc.name for svc in default_services()]
     assert "scheduler" in names
     assert names.index("lease_reconcile") < names.index("scheduler") < names.index("claim")
+
+
+def test_default_services_contains_workflow_refresh() -> None:
+    """default_services() wires workflow_refresh right after the scheduler."""
+    names = [svc.name for svc in default_services()]
+    assert "workflow_refresh" in names
+    assert names.index("scheduler") < names.index("workflow_refresh")
+
+
+def _workflow() -> Workflow:
+    """Two stages, so the second step's bead must carry --deps."""
+    return Workflow(
+        id="wf-test0001",
+        name="nightly",
+        description="d",
+        defaults=Defaults(priority=2),
+        stages=(
+            Stage(name="checks", steps=(Step(name="lint", title="Lint"),)),
+            Stage(name="report", steps=(Step(name="summary", title="Summarise"),)),
+        ),
+    )
+
+
+def test_due_workflow_schedule_starts_run(tmp_path: Path) -> None:
+    """A due workflow schedule opens one bead per step with deps wired."""
+    queue = FakeQueue()
+    sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+    st = sup.state
+    st.clock = FakeClock(start=DUE)
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(replace(_workflow(), created_at=CREATED, updated_at=CREATED))
+    ScheduleStore(tmp_path).save(_schedule(target="workflow", workflow_id="wf-test0001", title=""))
+
+    asyncio.run(scheduler_tick(st))
+
+    assert len(queue._tasks) == 2
+    run_ids = {queue._meta[tid]["fleet_workflow_run"] for tid in queue._tasks}
+    assert len(run_ids) == 1
+    (run_id,) = run_ids
+    (run,) = ScheduleStore(tmp_path).runs("sch-abc123")
+    assert run.task_id is None
+    assert run.skipped is False
+    assert run.workflow_run_id == run_id
+    assert store.get_run(run_id) is not None
+
+
+def test_workflow_step_beads_carry_deps(tmp_path: Path) -> None:
+    """The second stage's bead is created with --deps on the first stage's bead."""
+
+    class DepsQueue(FakeQueue):
+        """FakeQueue that records every create_task extra_args string."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.seen_extra: list[Any] = []
+
+        def create_task(self, *args: Any, **kwargs: Any) -> Task:
+            """Record extra_args, then open the task as usual."""
+            extra = kwargs.get("extra_args")
+            if extra is None and len(args) > 8:
+                extra = args[8]
+            self.seen_extra.append(extra)
+            return super().create_task(*args, **kwargs)
+
+    queue = DepsQueue()
+    sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+    st = sup.state
+    st.clock = FakeClock(start=DUE)
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(replace(_workflow(), created_at=CREATED, updated_at=CREATED))
+    ScheduleStore(tmp_path).save(_schedule(target="workflow", workflow_id="wf-test0001", title=""))
+
+    asyncio.run(scheduler_tick(st))
+
+    assert len(queue.seen_extra) == 2
+    assert "--deps" not in (queue.seen_extra[0] or "")
+    assert "--deps" in (queue.seen_extra[1] or "")
+    first_id = next(iter(queue._tasks))
+    assert first_id in shlex.split(queue.seen_extra[1] or "")[-1]

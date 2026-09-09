@@ -29,6 +29,7 @@ class ServiceOrder(IntEnum):
     Schedule = 15
     Claim = 20
     Reap = 30
+    WorkflowRefresh = 35
     Stall = 40
     Triage = 50
     Gc = 60

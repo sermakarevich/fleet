@@ -94,6 +94,7 @@ runtime (unlike Settings, they need a code change + `fleet run restart`).
 | `CONFIG_POLL_INTERVAL_SEC` | `5` | How often the supervisor re-reads runtime.toml. |
 | `CLAIM_POLL_INTERVAL_SEC` | `5` | How often the claim service polls the queue. |
 | `SCHEDULER_TICK_SEC` | `30` | Scheduler tick; cron resolution is one minute. |
+| `WORKFLOW_REFRESH_SEC` | `60` | How often open workflow runs fold in bead statuses. |
 | `SHUTDOWN_GRACE_SEC` | `30` | SIGTERM grace before shutdown escalates to SIGKILL. |
 | `RATE_LIMIT_DEFAULT_SLEEP_SEC` | `300` | Wait before retrying a rate-limited attempt. |
 | `STATUS_LOG_INTERVAL_SEC` | `30` | Heartbeat lines between supervisor status logs. |

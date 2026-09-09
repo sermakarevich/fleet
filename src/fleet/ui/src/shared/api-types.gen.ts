@@ -1842,6 +1842,13 @@ export interface components {
             priority: number;
             /** Overlap */
             overlap: string;
+            /**
+             * Target
+             * @default task
+             */
+            target: string;
+            /** Workflow Id */
+            workflow_id?: string | null;
             /** Created At */
             created_at: string;
             /** Updated At */
@@ -1896,6 +1903,10 @@ export interface components {
             task_status: string | null;
             /** Task Title */
             task_title: string | null;
+            /** Workflow Run Id */
+            workflow_run_id?: string | null;
+            /** Workflow Run Status */
+            workflow_run_status?: string | null;
         };
         /**
          * ScheduleView
@@ -1926,6 +1937,13 @@ export interface components {
             priority: number;
             /** Overlap */
             overlap: string;
+            /**
+             * Target
+             * @default task
+             */
+            target: string;
+            /** Workflow Id */
+            workflow_id?: string | null;
             /** Created At */
             created_at: string;
             /** Updated At */
@@ -3557,7 +3575,9 @@ export interface operations {
     };
     list_schedules_api_schedules_get: {
         parameters: {
-            query?: never;
+            query?: {
+                target?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3571,6 +3591,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

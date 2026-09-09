@@ -11,6 +11,7 @@ from fleet.schedules.model import (
     OverlapPolicy,
     Schedule,
     ScheduleRun,
+    TargetKind,
     Trigger,
     new_id,
     render,
@@ -138,3 +139,60 @@ def test_run_bad_trigger_raises() -> None:
     data["trigger"] = "someday"
     with pytest.raises(ValueError, match="trigger"):
         ScheduleRun.from_dict(data)
+
+
+def test_workflow_target_round_trip() -> None:
+    """A workflow schedule keeps its target and workflow id through JSON."""
+    schedule = _schedule(target="workflow", workflow_id="wf-test0001", title="")
+    assert schedule.target == TargetKind.workflow
+    assert schedule.workflow_id == "wf-test0001"
+    assert Schedule.from_dict(schedule.to_dict()) == schedule
+
+
+def test_workflow_target_requires_workflow_id() -> None:
+    """A workflow schedule without a workflow id is rejected."""
+    with pytest.raises(ValueError, match="workflow_id"):
+        _schedule(target="workflow", title="")
+
+
+def test_workflow_target_needs_no_title() -> None:
+    """A workflow schedule may leave the task title empty."""
+    assert _schedule(target="workflow", workflow_id="wf-test0001", title="").title == ""
+
+
+def test_task_target_requires_title() -> None:
+    """A task schedule without a title is rejected."""
+    with pytest.raises(ValueError, match="title"):
+        _schedule(title="")
+
+
+def test_bad_target_raises() -> None:
+    """An unknown target value names the target field."""
+    with pytest.raises(ValueError, match="target"):
+        _schedule(target="fleet")
+
+
+def test_old_schedule_json_without_target_loads() -> None:
+    """Files written before targets existed load as task schedules."""
+    data = _schedule().to_dict()
+    del data["target"]
+    data.pop("workflow_id", None)
+    schedule = Schedule.from_dict(data)
+    assert schedule.target == TargetKind.task
+    assert schedule.workflow_id is None
+
+
+def test_old_run_json_without_workflow_run_id_loads() -> None:
+    """Run lines written before workflow runs load with a null run id."""
+    run = ScheduleRun(
+        schedule_id="sch-abc123",
+        n=1,
+        scheduled_for="2026-09-09T09:00:00+00:00",
+        fired_at="2026-09-09T09:00:05+00:00",
+        trigger=Trigger.cron,
+        task_id="fleet-abc",
+        skipped=False,
+    )
+    data = run.to_dict()
+    del data["workflow_run_id"]
+    assert ScheduleRun.from_dict(data) == run

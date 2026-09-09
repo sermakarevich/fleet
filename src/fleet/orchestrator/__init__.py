@@ -23,6 +23,7 @@ from .state import SupervisorState
 from .status_log import make_status_log
 from .supervisor import Supervisor
 from .triage import Triage
+from .workflow_refresh import make_workflow_refresh
 
 __all__ = [
     "Claim",
@@ -51,6 +52,7 @@ def default_services(question_store: QuestionStore | None = None) -> list[Servic
         Claim(),
         MergeValidation(),
         Reap(),
+        make_workflow_refresh(),
         StallWatch(),
         make_kill_sentinel(),
         Triage(store=question_store),

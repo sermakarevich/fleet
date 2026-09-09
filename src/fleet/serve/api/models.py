@@ -687,6 +687,8 @@ class ScheduleRequest(BaseModel):
     model: str | None = None
     priority: int = 2
     overlap: str = "skip"
+    target: str = "task"
+    workflow_id: str | None = None
 
 
 class ScheduleRunView(BaseModel):
@@ -702,6 +704,8 @@ class ScheduleRunView(BaseModel):
     reason: str
     task_status: str | None
     task_title: str | None
+    workflow_run_id: str | None = None
+    workflow_run_status: str | None = None
 
 
 class ScheduleView(BaseModel):
@@ -719,6 +723,8 @@ class ScheduleView(BaseModel):
     model: str | None
     priority: int
     overlap: str
+    target: str = "task"
+    workflow_id: str | None = None
     created_at: str
     updated_at: str
     next_fire_at: str | None
