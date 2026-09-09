@@ -218,7 +218,10 @@ export function taskColumns(cb: TaskListCallbacks): Array<DataColumn<TaskSummary
       },
     },
     {
-      key: 'actions', header: '', width: '10rem',
+      // Content-sized: a blocked row holds Unblock + Retry + Kill (≈14rem),
+      // wider than any fixed width that would also fit a single Kill. A
+      // fixed width here clips the last button with no way to scroll to it.
+      key: 'actions', header: '', width: 'auto',
       render: (task) => <TaskActionsCell task={task} cb={cb} />,
     },
   ];

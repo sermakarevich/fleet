@@ -137,11 +137,15 @@ export const rowStyles = {
     fontSize: '0.8125rem',
   } as React.CSSProperties,
   actionCell: {
-    width: '10rem',
+    // No fixed width: the actions column is content-sized (`width: 'auto'`)
+    // so every button (Unblock + Retry + Kill on blocked rows) stays
+    // visible. Buttons never wrap; the row scrolls sideways instead.
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     gap: '0.375rem',
+    flexWrap: 'nowrap' as const,
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   killBtn: {
     ...T.btnDanger,

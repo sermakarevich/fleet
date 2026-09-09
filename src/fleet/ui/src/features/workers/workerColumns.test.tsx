@@ -5,7 +5,10 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TaskSummary } from '../../shared/types';
+import { dataCellStyle } from '../../shared/styles/recipes';
+import { DataList } from '../../shared/ui/DataList';
 import { isStaleLease, taskColumns, TaskTitleCell, type TaskListCallbacks } from './workerColumns';
 
 afterEach(cleanup);
@@ -139,5 +142,43 @@ describe('coder cell', () => {
   it('renders (default) when coder and model are null', () => {
     render(<>{coderCell(makeTask({ id: 'h', coder: null, model: null }))}</>);
     expect(screen.getByText('(default)')).toBeInTheDocument();
+  });
+});
+
+describe('actions column', () => {
+  it('is content-sized so a blocked row never clips its buttons', () => {
+    const col = taskColumns(TEST_CB).find((c) => c.key === 'actions');
+    expect(col?.width).toBe('auto');
+    // The cell wrapper for a content-sized column must not clip.
+    expect(dataCellStyle(col?.width).overflow).not.toBe('hidden');
+  });
+
+  it('shows Unblock, Retry and Kill fully visible on a blocked task', () => {
+    const queryClient = new QueryClient();
+    const task = makeTask({ id: 'blocked-1', status: 'blocked' });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DataList
+          columns={taskColumns(TEST_CB)}
+          rows={[task]}
+          rowKey={(t) => t.id}
+          empty="Nothing here."
+          isMobile={false}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText('Unblock')).toBeInTheDocument();
+    expect(screen.getByText('Retry')).toBeInTheDocument();
+    expect(screen.getByText('Kill')).toBeInTheDocument();
+    // Neither the button row nor the cell wrapper may clip: the Kill
+    // button regressed to a sliver when either had a fixed width with
+    // overflow hidden.
+    const killBtn = screen.getByText('Kill');
+    const buttonRow = killBtn.parentElement as HTMLElement;
+    expect(buttonRow.style.width).not.toBe('10rem');
+    expect(buttonRow.style.overflow).not.toBe('hidden');
+    const cell = buttonRow.parentElement as HTMLElement;
+    expect(cell.style.flex).toBe('0 0 auto');
+    expect(cell.style.overflow).not.toBe('hidden');
   });
 });

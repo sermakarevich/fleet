@@ -193,14 +193,54 @@ export function inputStyle(): CSSProperties {
   };
 }
 
-// Data cell inside a DataList desktop row: fixed width or flex fill.
-// Both variants clip overflow so long values never paint across the next
-// column; the fixed variant is a flex row so inner content is blockified
-// and ellipsis works. Headers reuse this recipe and clip too.
+// Data cell inside a DataList desktop row: fixed width, content-sized
+// (`'auto'`), or flex fill. The fixed and fill variants clip overflow so
+// long values never paint across the next column; the fixed variant is a
+// flex row so inner content is blockified and ellipsis works. Headers reuse
+// this recipe and clip too. The `'auto'` variant sizes to its content and
+// never clips: for action-button cells, where clipping would lose reachable
+// buttons (the row scrolls sideways instead, see listScrollStyle).
 export function dataCellStyle(width?: string): CSSProperties {
+  if (width === 'auto') {
+    return { flex: '0 0 auto', overflow: 'visible', display: 'flex', alignItems: 'center' };
+  }
   return width
     ? { width, flexShrink: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center' }
     : { flex: 1, minWidth: 0, overflow: 'hidden' };
+}
+
+// Horizontal scroll wrapper inside a DataList panel: the header and all
+// rows scroll together, so on narrow windows the list scrolls sideways
+// instead of clipping its last column. The panel itself keeps
+// overflow hidden so its rounded corners stay intact.
+export function listScrollStyle(): CSSProperties {
+  return { overflowX: 'auto' };
+}
+
+// Minimum width shared by a DataList header and its rows: the sum of the
+// fixed column widths plus row gaps/padding, plus a minimum for the fill
+// column (16rem) and an estimate for content-sized (`'auto'`) columns
+// (14rem, the widest action-button set). Below this width the scroll
+// wrapper above takes over instead of squeezing fixed columns.
+export function listMinWidth(columns: Array<{ width?: string }>): string {
+  let total = 0;
+  let hasFill = false;
+  let autoCount = 0;
+  for (const col of columns) {
+    if (col.width == null) {
+      hasFill = true;
+    } else if (col.width === 'auto') {
+      autoCount += 1;
+    } else {
+      const match = col.width.match(/^([\d.]+)rem$/);
+      if (match) total += parseFloat(match[1]);
+      else autoCount += 1;
+    }
+  }
+  total += Math.max(0, columns.length - 1) * 0.75 + 2;
+  if (hasFill) total += 16;
+  total += autoCount * 14;
+  return `${total}rem`;
 }
 
 // Mobile card shell shared by every DataList card.

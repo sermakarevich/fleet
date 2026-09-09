@@ -94,4 +94,38 @@ describe('DataList', () => {
     expect(cell.style.overflow).toBe('hidden');
     expect(cell.style.width).toBe('8rem');
   });
+
+  it('sizes content columns to their content without clipping', () => {
+    const cols: Array<DataColumn<Item>> = [
+      { key: 'id', header: 'ID', width: '6rem', render: (row) => row.id },
+      { key: 'actions', header: '', width: 'auto', render: () => <span>action-buttons</span> },
+    ];
+    render(
+      <DataList
+        columns={cols}
+        rows={[{ id: 'a', title: 'Alpha' }]}
+        rowKey={(row) => row.id}
+        empty="Nothing here."
+        isMobile={false}
+      />,
+    );
+    const cell = screen.getByText('action-buttons').parentElement;
+    expect(cell?.style.flex).toBe('0 0 auto');
+    expect(cell?.style.overflow).not.toBe('hidden');
+  });
+
+  it('scrolls header and rows together inside the panel', () => {
+    const { container } = renderList();
+    const panel = container.firstElementChild as HTMLElement;
+    const scroller = panel.firstElementChild as HTMLElement;
+    // The panel keeps its rounded corners; the inner wrapper scrolls.
+    expect(panel.style.overflow).toBe('hidden');
+    expect(scroller.style.overflowX).toBe('auto');
+    // Header and rows share one min width so columns stay aligned and
+    // fixed columns never squeeze into clipping.
+    const header = scroller.firstElementChild as HTMLElement;
+    expect(header.style.minWidth).not.toBe('');
+    const row = scroller.children[1] as HTMLElement;
+    expect(row.style.minWidth).toBe(header.style.minWidth);
+  });
 });
