@@ -17,22 +17,22 @@ from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home
 
 
-def home() -> Path:
-    """Fleet home directory (``$FLEET_HOME`` or ``~/.fleet``)."""
+def fleet_home() -> Path:
+    """Fleet fleet_home directory (``$FLEET_HOME`` or ``~/.fleet``)."""
     return fleet_home()
 
 
-def log_dir(home: Path) -> Path:
-    """Supervisor log dir: absolute ``LOG_ROOT`` as-is, else under the fleet home."""
+def log_dir(fleet_home: Path) -> Path:
+    """Supervisor log dir: absolute ``LOG_ROOT`` as-is, else under the fleet fleet_home."""
     root = Path(LOG_ROOT)
-    return root if root.is_absolute() else home / root
+    return root if root.is_absolute() else fleet_home / root
 
 
-def queue(home: Path) -> BeadsQueue:
-    """Beads queue bound to the fleet home."""
-    return BeadsQueue(home)
+def queue(fleet_home: Path) -> BeadsQueue:
+    """Beads queue bound to the fleet fleet_home."""
+    return BeadsQueue(fleet_home)
 
 
-def config(home: Path) -> RuntimeConfig:
+def config(fleet_home: Path) -> RuntimeConfig:
     """Runtime config, creating ``runtime.toml`` with defaults when missing."""
-    return load_config(home / "runtime.toml")
+    return load_config(fleet_home / "runtime.toml")

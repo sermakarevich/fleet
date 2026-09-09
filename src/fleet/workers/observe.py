@@ -38,9 +38,9 @@ CHILDREN_MD_MAX_BYTES = 8 * 1024
 CHILD_SECTION_MAX_CHARS = 600
 
 
-def _default_queue(home: Path) -> Queue:
-    """Build the production queue for *home* (plan functions call this per attempt)."""
-    return BeadsQueue(home)
+def _default_queue(fleet_home: Path) -> Queue:
+    """Build the production queue for *fleet_home* (plan functions call this per attempt)."""
+    return BeadsQueue(fleet_home)
 
 
 def _as_summaries(children: list) -> list[BeadSummary]:

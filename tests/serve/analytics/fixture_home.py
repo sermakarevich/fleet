@@ -1,11 +1,11 @@
-"""Deterministic analytics fixture home shared by the analytics tests.
+"""Deterministic analytics fixture fleet_home shared by the analytics tests.
 
 Builds six tasks with fixed timestamps (no clock dependence): a closed
 success, a failed task with a rejected rate-limit event, a blocked task
 with an unknown coder, an active task with no events, a closed task whose
 journal released without closing (noclose), and a closed task whose
-journal ended in context_pressure. ``compute_summary(home, 0)`` over this
-home is fully deterministic and pinned by the snapshot fixture.
+journal ended in context_pressure. ``compute_summary(fleet_home, 0)`` over this
+fleet_home is fully deterministic and pinned by the snapshot fixture.
 """
 
 from __future__ import annotations
@@ -81,9 +81,9 @@ def _write_attempts(task_dir: Path, outcome: str, action: str) -> None:
     )
 
 
-def build_fixture_home(home: Path) -> Path:
-    """Create the fixture tasks under *home* and return *home*."""
-    tasks_root = home / "tasks"
+def build_fixture_home(fleet_home: Path) -> Path:
+    """Create the fixture tasks under *fleet_home* and return *fleet_home*."""
+    tasks_root = fleet_home / "tasks"
 
     alpha = _make_task(
         tasks_root, "task-alpha", status="closed", created_at="2025-05-30T09:00:00+00:00"
@@ -150,4 +150,4 @@ def build_fixture_home(home: Path) -> Path:
     _write_events(zeta, [_ev("2025-06-05T10:00:00Z", "session_started", session_id="s5")])
     _write_attempts(zeta, "context_pressure", "release")
 
-    return home
+    return fleet_home

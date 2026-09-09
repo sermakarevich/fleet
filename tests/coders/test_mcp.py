@@ -9,16 +9,16 @@ from fleet.coders.mcp import MCP_CONFIG_FILENAME, write_mcp_config
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 
 
-def _servers(home: Path) -> dict[str, dict]:
-    return fleet_mcp_servers(home)
+def _servers(fleet_home: Path) -> dict[str, dict]:
+    return fleet_mcp_servers(fleet_home)
 
 
 def test_write_mcp_config_matches_shared_definitions(tmp_path: Path):
-    home = tmp_path / "home"
-    cfg_path = write_mcp_config(tmp_path / "attempt", _servers(home))
+    fleet_home = tmp_path / "fleet_home"
+    cfg_path = write_mcp_config(tmp_path / "attempt", _servers(fleet_home))
     assert cfg_path == tmp_path / "attempt" / MCP_CONFIG_FILENAME
     payload = json.loads(cfg_path.read_text(encoding="utf-8"))
-    shared = _servers(home)
+    shared = _servers(fleet_home)
     for name, entry in shared.items():
         assert payload["mcpServers"][name]["command"] == entry["command"]
         assert payload["mcpServers"][name]["args"] == entry["args"]
@@ -26,8 +26,8 @@ def test_write_mcp_config_matches_shared_definitions(tmp_path: Path):
 
 
 def test_write_mcp_config_creates_attempt_dir(tmp_path: Path):
-    home = tmp_path / "home"
-    cfg_path = write_mcp_config(tmp_path / "new" / "attempt", _servers(home))
+    fleet_home = tmp_path / "fleet_home"
+    cfg_path = write_mcp_config(tmp_path / "new" / "attempt", _servers(fleet_home))
     assert cfg_path.exists()
 
 

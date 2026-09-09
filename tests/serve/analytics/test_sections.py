@@ -23,13 +23,13 @@ def _empty_window() -> Window:
     return Window(days=0, cutoff=None, bucket_size="day", context_overrides={})
 
 
-def _fixture_inputs(home: Path) -> tuple[list[AttemptRecord], Window]:
+def _fixture_inputs(fleet_home: Path) -> tuple[list[AttemptRecord], Window]:
     """Reconciled fixture records plus their all-time window."""
     records_mod._events_cache.clear()
-    build_fixture_home(home)
-    records = collect_records(home)
+    build_fixture_home(fleet_home)
+    records = collect_records(fleet_home)
     reconciled = reconcile(records, None)
-    return reconciled, build_window(home, 0)
+    return reconciled, build_window(fleet_home, 0)
 
 
 def test_registry_covers_every_response_key() -> None:
@@ -79,7 +79,7 @@ class TestEmptyInput:
 
 
 class TestFixtureInput:
-    """Every section computes real numbers on the fixture home."""
+    """Every section computes real numbers on the fixture fleet_home."""
 
     def test_kpis(self, tmp_path: Path) -> None:
         """Headline counts over the six fixture tasks."""

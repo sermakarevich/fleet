@@ -37,15 +37,15 @@ def retention_gc_pass(st: SupervisorState) -> None:
     Never raises: per-step handling is guarded so one bad directory
     cannot break the pass.
     """
-    home = st.project_root
+    fleet_home = st.fleet_home
     log = st.log
     try:
-        stale = find_stale_worktrees(home, days=st.config.gc_retention_days)
+        stale = find_stale_worktrees(fleet_home, days=st.config.gc_retention_days)
     except Exception as exc:  # noqa: BLE001 - selection failed, skip step
         log.warning("retention_worktrees_failed", error=str(exc))
         stale = []
     try:
-        gc = gc_tasks(home, days=st.config.gc_retention_days)
+        gc = gc_tasks(fleet_home, days=st.config.gc_retention_days)
         log.info(
             "retention_gc_tasks",
             archived=len(gc.archived),
@@ -55,7 +55,7 @@ def retention_gc_pass(st: SupervisorState) -> None:
     except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
         log.warning("retention_gc_tasks_failed", error=str(exc))
     try:
-        purged = purge_archive(home, days=st.config.gc_archive_days)
+        purged = purge_archive(fleet_home, days=st.config.gc_archive_days)
         log.info(
             "retention_purge_archive",
             deleted=len(purged.deleted),
@@ -68,10 +68,10 @@ def retention_gc_pass(st: SupervisorState) -> None:
     for item in stale:
         try:
             worktree_mod.cleanup_worktree(
-                item.repo_root or home,
+                item.repo_root or fleet_home,
                 item.task_id,
                 worktree_path_arg=item.path,
-                fleet_home=home,
+                fleet_home=fleet_home,
             )
             if item.path.exists():
                 # Not a git-registered worktree (or its repo is gone):

@@ -25,7 +25,7 @@ _events_cache = EventScanCache()
 
 
 def _latest_log(task_id: str, state: AppState, filename: str) -> Path:
-    task_dir = resolve_task_dir(state.home, task_id)
+    task_dir = resolve_task_dir(state.fleet_home, task_id)
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is not None:
         return attempt_dir / filename
@@ -66,7 +66,7 @@ async def get_task_stderr(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/files", response_model=FileListResponse)
 async def get_task_files(task_id: str, state: StateDep) -> JSONResponse:
     """Per-file read/edit/write counts from the event scan (FR-20)."""
-    counts = scan_cached(resolve_task_dir(state.home, task_id), _events_cache).files_touched
+    counts = scan_cached(resolve_task_dir(state.fleet_home, task_id), _events_cache).files_touched
     files = [
         {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
         for path, fc in sorted(counts.items())
@@ -83,7 +83,7 @@ async def get_task_events(
     kind: str | None = None,
 ) -> JSONResponse:
     """Whole-task event history across attempts, paged (tail by default)."""
-    task_dir = resolve_task_dir(state.home, task_id)
+    task_dir = resolve_task_dir(state.fleet_home, task_id)
     if not task_dir.is_dir():
         return JSONResponse({"error": "not found"}, status_code=404)
     allow_kinds = {k.strip() for k in kind.split(",") if k.strip()} if kind else None

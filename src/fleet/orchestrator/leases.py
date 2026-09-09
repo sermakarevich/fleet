@@ -122,10 +122,10 @@ def _task_names(tasks_root) -> list[str]:
 def sweep_orphan_worktrees(st: SupervisorState) -> None:
     """Remove worktrees with no corresponding active task (startup sweep)."""
 
-    worktrees_dir = worktree.worktrees_root(st.project_root)
+    worktrees_dir = worktree.worktrees_root(st.fleet_home)
     if not worktrees_dir.is_dir():
         return
-    tasks_root = _tasks_root(st.project_root)
+    tasks_root = _tasks_root(st.fleet_home)
     names = _task_names(tasks_root)
 
     # Worktree dirs still in use: every task.json worktree_path. Tasks
@@ -161,7 +161,7 @@ def sweep_orphan_worktrees(st: SupervisorState) -> None:
         if not keep:
             for cand in [task_id, *matched]:
                 try:
-                    if needs_validation(_task_dir(st.project_root, cand)):
+                    if needs_validation(_task_dir(st.fleet_home, cand)):
                         keep = True
                         break
                 except OSError:

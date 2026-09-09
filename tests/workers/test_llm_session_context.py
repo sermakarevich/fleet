@@ -56,7 +56,7 @@ def _ctx(tmp_path: Path, task_id: str = "t-ctx") -> StepContext:
     return StepContext(
         task=task,
         task_dir=task_dir,
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=None,  # replaced per-test below
         config=RuntimeConfig(),

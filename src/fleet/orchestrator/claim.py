@@ -141,7 +141,7 @@ class Claim:
         """Claim one bead and spawn its worker, or do nothing this tick."""
         if self._paused(st):
             return
-        if (st.project_root / ".pause").exists():
+        if (st.fleet_home / ".pause").exists():
             return
         # bd is a subprocess; run it in a worker thread
         # so the event loop keeps tailing runner output.

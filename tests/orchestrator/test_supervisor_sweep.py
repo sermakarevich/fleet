@@ -17,10 +17,10 @@ def _make_supervisor(fleet_home: Path) -> Supervisor:
 
 
 def _fleet_home(tmp_path: Path) -> Path:
-    home = tmp_path / ".fleet"
-    (home / "worktrees").mkdir(parents=True)
-    (home / "tasks").mkdir(parents=True)
-    return home
+    fleet_home = tmp_path / ".fleet"
+    (fleet_home / "worktrees").mkdir(parents=True)
+    (fleet_home / "tasks").mkdir(parents=True)
+    return fleet_home
 
 
 class TestSweepOrphanWorktrees:

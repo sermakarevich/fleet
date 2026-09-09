@@ -80,7 +80,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         `--cwd <path>` overrides the shell's working directory for the task cwd.
         When omitted, the shell cwd at invocation time is used (existing behaviour).
         """
-        home = fleet_home()
+        fleet_home = fleet_home()
         bd_args = list(ctx.args)
 
         sub = _first_positional(bd_args)
@@ -89,7 +89,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if not is_create:
             # Simple passthrough: stream stdout/stderr straight to the terminal
             # (no capture) so colors/interactivity behave like a direct `bd` call.
-            result = subprocess.run(["bd", *bd_args], cwd=home, check=False)
+            result = subprocess.run(["bd", *bd_args], cwd=fleet_home, check=False)
             raise typer.Exit(result.returncode)
 
         try:
@@ -111,7 +111,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if not user_wants_json:
             bd_args.append("--json")
 
-        result = beads_client.run(bd_args, cwd=home, check=False)
+        result = beads_client.run(bd_args, cwd=fleet_home, check=False)
         if result.stderr:
             typer.echo(result.stderr, err=True, nl=False)
 
@@ -135,7 +135,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
                 task_title = body.get("title")
 
         if task_id and not user_wants_dry_run:
-            queue = BeadsQueue(home)
+            queue = BeadsQueue(fleet_home)
             queue.set_cwd(task_id, invocation_cwd)
             queue.set_overrides(
                 task_id,

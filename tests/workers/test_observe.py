@@ -58,7 +58,7 @@ def _ctx(
     ctx = StepContext(
         task=Task(id=task_id, title="epic", description="goal", status="in_progress", type="epic"),
         task_dir=task_dir,
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=None,
         config=RuntimeConfig(),

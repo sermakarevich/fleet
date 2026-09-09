@@ -50,9 +50,9 @@ def git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture()
 def fleet_home(tmp_path: Path) -> Path:
-    home = tmp_path / ".fleet"
-    home.mkdir(exist_ok=True)
-    return home
+    fleet_home = tmp_path / ".fleet"
+    fleet_home.mkdir(exist_ok=True)
+    return fleet_home
 
 
 class TestDetectRepoRoot:

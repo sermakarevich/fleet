@@ -217,7 +217,7 @@ class LlmSession:
             argv=[*argv[:-1], "<see prompt.md>"] if argv else [],
         )
         proc = await CoderProcess.start(
-            argv, proc_env, ctx.project_root, stderr=task_log.stderr_file
+            argv, proc_env, ctx.workdir, stderr=task_log.stderr_file
         )
         self._proc = proc
         started_at = datetime.now(tz=UTC)

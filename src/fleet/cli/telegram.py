@@ -51,7 +51,7 @@ def register(app: typer.Typer) -> None:
         exits 1 otherwise — suitable for scripting.
         """
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        status = _probe_status(token, bootstrap.config(bootstrap.home()))
+        status = _probe_status(token, bootstrap.config(bootstrap.fleet_home()))
         render.print_telegram_status(status, render.mask_token(token) if token else "(not set)")
         if not render.telegram_verdict_ok(status):
             raise typer.Exit(1)
@@ -67,7 +67,7 @@ def register(app: typer.Typer) -> None:
         if not token:
             typer.echo("Error: TELEGRAM_BOT_TOKEN is not set.", err=True)
             raise typer.Exit(1)
-        cfg = bootstrap.config(bootstrap.home())
+        cfg = bootstrap.config(bootstrap.fleet_home())
         if not cfg.telegram_chat_id:
             typer.echo(
                 "Error: telegram_chat_id is not configured. "

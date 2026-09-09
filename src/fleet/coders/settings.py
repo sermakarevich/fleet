@@ -19,12 +19,12 @@ from fleet.coders.ollama import DEFAULT_OLLAMA_URL
 
 
 def default_log_file() -> Path:
-    """Default opencode CLI log path (the home-based location, no env)."""
+    """Default opencode CLI log path (the fleet_home-based location, no env)."""
     return Path.home() / ".local" / "share" / "opencode" / "log" / "opencode.log"
 
 
 def default_agent_dir() -> Path:
-    """Default pi agent dir (the home-based location, no env)."""
+    """Default pi agent dir (the fleet_home-based location, no env)."""
     return Path.home() / ".pi" / "agent"
 
 
@@ -68,7 +68,7 @@ def settings_from_env(environ: Mapping[str, str]) -> CoderEnvSettings:
 
     ``OPENCODE_LOG_FILE`` overrides where the opencode CLI writes its log;
     ``PI_CODING_AGENT_DIR`` overrides where pi reads ``models.json``. Either
-    may be absent or blank, in which case the home-based default applies.
+    may be absent or blank, in which case the fleet_home-based default applies.
     """
     log_file = environ.get("OPENCODE_LOG_FILE")
     agent_dir = environ.get("PI_CODING_AGENT_DIR")

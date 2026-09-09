@@ -546,8 +546,8 @@ def test_bd_create_human_summary_includes_overrides(tmp_path, monkeypatch) -> No
 # ---------------------------------------------------------------------------
 
 
-def _seed_log_dir(home: Path, filename: str, content: str) -> Path:
-    log_dir = home / "logging"
+def _seed_log_dir(fleet_home: Path, filename: str, content: str) -> Path:
+    log_dir = fleet_home / "logging"
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / filename
     path.write_text(content, encoding="utf-8")
@@ -658,8 +658,8 @@ def test_tasks_lists_in_progress_tasks(tmp_path, monkeypatch) -> None:
         assert header in result.output, header
 
 
-def _seed_task_dir(home: Path, task_id: str) -> Path:
-    task_dir = home / "tasks" / task_id
+def _seed_task_dir(fleet_home: Path, task_id: str) -> Path:
+    task_dir = fleet_home / "tasks" / task_id
     (task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     return task_dir
 

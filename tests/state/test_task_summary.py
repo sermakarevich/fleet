@@ -150,14 +150,14 @@ def test_attempt_row_reads_launch_from_run_json(tmp_path: Path) -> None:
     assert row["result"]["summary"] == "wip"
 
 
-def _summary(task_dir: Path, data: dict, home: Path) -> dict:
+def _summary(task_dir: Path, data: dict, fleet_home: Path) -> dict:
     """Build a summary with the caller-resolved context limit (as serve/cli do)."""
     return build_task_summary(
         task_dir,
         data,
-        home,
+        fleet_home,
         context_limit=context_limit_for(
-            data.get("coder"), data.get("model"), context_overrides_for_home(home)
+            data.get("coder"), data.get("model"), context_overrides_for_home(fleet_home)
         ),
     )
 

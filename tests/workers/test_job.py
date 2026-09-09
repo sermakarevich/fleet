@@ -110,7 +110,7 @@ def _ctx(
             job_gate=job_gate,
         ),
         task_dir=task_dir,
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=StubCoder(),  # type: ignore[arg-type]
         config=config or RuntimeConfig(),

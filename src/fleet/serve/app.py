@@ -34,7 +34,7 @@ _QUESTION_POLL_SEC = 2.0
 
 def _question_messages(state: AppState) -> MessageStore:
     """Reply-routing store for telegram question notifications."""
-    return MessageStore(state.home / _QUESTION_MSGS)
+    return MessageStore(state.fleet_home / _QUESTION_MSGS)
 
 
 async def _question_poller(app: FastAPI) -> None:
@@ -93,14 +93,14 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         refresh_config(state)
-        watcher_task = asyncio.create_task(state.watcher.start(state.home))
+        watcher_task = asyncio.create_task(state.watcher.start(state.fleet_home))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
             inbound_listener(
                 TelegramApi(os.environ.get("TELEGRAM_BOT_TOKEN", "")),
                 state.question_store,
                 _command_env(state),
-                OffsetStore(state.home / "telegram_update_offset"),
+                OffsetStore(state.fleet_home / "telegram_update_offset"),
             )
         )
         try:

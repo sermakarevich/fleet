@@ -96,8 +96,8 @@ async def search(q: str = Query(...)) -> JSONResponse:
     """Full-text search over task titles, descriptions and STATE.md."""
     if not q.strip():
         return JSONResponse({"results": []})
-    home = get_fleet_home()
-    results = await asyncio.to_thread(search_tasks, home, q)
+    fleet_home = get_fleet_home()
+    results = await asyncio.to_thread(search_tasks, fleet_home, q)
     return JSONResponse(
         {
             "results": [

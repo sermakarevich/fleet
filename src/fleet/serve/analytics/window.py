@@ -45,8 +45,8 @@ def clamp_days(days: int) -> int:
     return 0 if days <= 0 else min(days, 365)
 
 
-def build_window(home: Path, days: int) -> Window:
-    """Build the window for one summary call over *home*."""
+def build_window(fleet_home: Path, days: int) -> Window:
+    """Build the window for one summary call over *fleet_home*."""
     clamped = clamp_days(days)
     now = datetime.now(tz=UTC)
     cutoff = None if clamped == 0 else now - timedelta(days=clamped)
@@ -56,7 +56,7 @@ def build_window(home: Path, days: int) -> Window:
         cutoff=cutoff,
         now=now,
         bucket_size=bucket_size,
-        context_overrides=context_overrides_for_home(home),
+        context_overrides=context_overrides_for_home(fleet_home),
     )
 
 

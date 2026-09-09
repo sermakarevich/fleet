@@ -27,7 +27,7 @@ from fleet.state.paths import fleet_home
 class AppState:
     """Everything a serve handler needs, injected instead of module globals."""
 
-    home: Path
+    fleet_home: Path
     queue: Queue
     question_store: QuestionStore
     config_path: Path
@@ -39,13 +39,13 @@ class AppState:
 
 def build_state(queue: Queue | None = None) -> AppState:
     """Build the state for create_app; refreshes config in the lifespan."""
-    home = fleet_home()
+    fleet_home = fleet_home()
     mgr = ConnectionManager()
     return AppState(
-        home=home,
-        queue=queue if queue is not None else BeadsQueue(home),
-        question_store=QuestionStore(ask_human_db_path(home)),
-        config_path=home / "runtime.toml",
+        fleet_home=fleet_home,
+        queue=queue if queue is not None else BeadsQueue(fleet_home),
+        question_store=QuestionStore(ask_human_db_path(fleet_home)),
+        config_path=fleet_home / "runtime.toml",
         watcher=FileWatcher(mgr=mgr),
         connection_manager=mgr,
     )
@@ -53,8 +53,8 @@ def build_state(queue: Queue | None = None) -> AppState:
 
 def refresh_config(state: AppState) -> AppState:
     """(Re)load runtime.toml into *state*; returns the same object."""
-    state.home = fleet_home()
-    state.config_path = state.home / "runtime.toml"
+    state.fleet_home = fleet_home()
+    state.config_path = state.fleet_home / "runtime.toml"
     state.config = load_config(state.config_path)
     try:
         state.config_mtime = (

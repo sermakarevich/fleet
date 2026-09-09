@@ -60,9 +60,9 @@ GATE_OPTION_CANCEL = "cancel job"
 GATE_OPTIONS = [GATE_OPTION_APPROVE, GATE_OPTION_REVISE, GATE_OPTION_CANCEL]
 
 
-def _default_queue(home: Path) -> Queue:
-    """Build the production queue for *home* (plan functions call this per attempt)."""
-    return BeadsQueue(home)
+def _default_queue(fleet_home: Path) -> Queue:
+    """Build the production queue for *fleet_home* (plan functions call this per attempt)."""
+    return BeadsQueue(fleet_home)
 
 
 def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
@@ -159,7 +159,7 @@ class JobPrepare:
         assert ctx.coder is not None
         hook = getattr(ctx.coder, "write_runtime_config", None)
         if hook is not None:
-            hook(ctx.project_root, ctx.task)
+            hook(ctx.workdir, ctx.task)
         return StepResult(status=StepStatus.OK)
 
 

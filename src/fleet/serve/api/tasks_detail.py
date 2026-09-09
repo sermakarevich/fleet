@@ -27,18 +27,18 @@ router = APIRouter(prefix="/api")
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
 async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     """One task summary, overlaid with beads status/priority/depends_on."""
-    index = TaskIndex(state.home)
+    index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     data = index.read_raw(task_id) or {}
-    beads_info = await asyncio.to_thread(fetch_beads_info, task_id, state.home)
+    beads_info = await asyncio.to_thread(fetch_beads_info, task_id, state.fleet_home)
     if beads_info is not None:
         data = {**data, **beads_info}
     default_coder, default_model = config_defaults(state.config)
     return JSONResponse(
         build_summary(
-            task_dir, data, state.home, default_coder=default_coder, default_model=default_model
+            task_dir, data, state.fleet_home, default_coder=default_coder, default_model=default_model
         )
     )
 
@@ -46,7 +46,7 @@ async def get_task(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/attempts", response_model=TaskAttemptListResponse)
 async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     """Attempt timeline for one task, derived from attempts.jsonl."""
-    index = TaskIndex(state.home)
+    index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -54,7 +54,7 @@ async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     summary = build_summary(
         task_dir,
         index.read_raw(task_id) or {},
-        state.home,
+        state.fleet_home,
         default_coder=default_coder,
         default_model=default_model,
     )
@@ -64,12 +64,12 @@ async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/children", response_model=TaskChildren)
 async def get_task_children(task_id: str, state: StateDep) -> JSONResponse:
     """Children panel for epics: child id/status/RESULT plus CHILDREN.md."""
-    index = TaskIndex(state.home)
+    index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     try:
-        deps = await asyncio.to_thread(beads_client.children_of, task_id, state.home)
+        deps = await asyncio.to_thread(beads_client.children_of, task_id, state.fleet_home)
     except BdError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     children = [_child_row(dep, state) for dep in deps if _has_id(dep)]
@@ -92,7 +92,7 @@ def _has_id(dep: object) -> bool:
 
 def _child_row(dep: dict, state: AppState) -> dict:
     cid = str(dep["id"])
-    declared = read_result(resolve_task_dir(state.home, cid))
+    declared = read_result(resolve_task_dir(state.fleet_home, cid))
     return {
         "id": cid,
         "title": dep.get("title"),

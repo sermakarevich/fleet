@@ -47,7 +47,7 @@ class FakeClaudeCoder:
     Args:
         scenario:  Default scenario for all runs.
         scenarios: Sequential list of scenarios; consumed one per call to env().
-        fleet_home: Fleet home handed to the composed coder (defaults to the
+        fleet_home: Fleet fleet_home handed to the composed coder (defaults to the
             global one, exactly like the real coder used to resolve).
         **fake_env: Extra env vars forwarded to the subprocess.
     """
@@ -61,8 +61,8 @@ class FakeClaudeCoder:
         fleet_home: Path | str | None = None,
         **fake_env: str,
     ) -> None:
-        home = Path(fleet_home) if fleet_home is not None else _default_fleet_home()
-        self._cli = ClaudeCoder(fleet_home=home)
+        fleet_home = Path(fleet_home) if fleet_home is not None else _default_fleet_home()
+        self._cli = ClaudeCoder(fleet_home=fleet_home)
         self._scenario = scenario
         self._scenarios = scenarios
         self._fake_env = fake_env
@@ -389,7 +389,7 @@ def make_supervisor(
     log = structlog.get_logger()
     state = SupervisorState(
         config=cfg,
-        project_root=tmp_path,
+        fleet_home=tmp_path,
         runtime_toml_path=runtime_toml,
         queue=queue,
         log=log,

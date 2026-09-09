@@ -18,13 +18,13 @@ router = APIRouter()
 
 @router.get("/healthz", response_model=HealthResponse)
 async def healthz() -> JSONResponse:
-    """Liveness with fleet home, serve fingerprint and code staleness."""
-    home = fleet_home()
-    svc = service_status("serve", home)
+    """Liveness with fleet fleet_home, serve fingerprint and code staleness."""
+    fleet_home = fleet_home()
+    svc = service_status("serve", fleet_home)
     return JSONResponse(
         {
             "status": "ok",
-            "fleet_home": str(home),
+            "fleet_home": str(fleet_home),
             "version_fingerprint": svc.fingerprint,
             "current_fingerprint": code_fingerprint(),
             "stale": svc.stale,

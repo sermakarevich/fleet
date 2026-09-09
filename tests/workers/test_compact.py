@@ -102,7 +102,7 @@ def _ctx(
     return StepContext(
         task=task,
         task_dir=task_dir,
-        project_root=task_dir,
+        workdir=task_dir,
         fleet_home=task_dir,
         coder=None,
         config=config or RuntimeConfig(),

@@ -79,7 +79,7 @@ def test_build_monitors_sorted_by_order(tmp_path: Path) -> None:
     step = StepContext(
         task=Task(id="t", title="T", description=None, status="in_progress"),
         task_dir=tmp_path,
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=_StubCoder(),
         config=RuntimeConfig(),

@@ -1,4 +1,4 @@
-"""The one home for task artifact paths.
+"""The one fleet_home for task artifact paths.
 
 Called by ``cli/tasks.py`` (task/tail/log reads) and
 ``serve/api/tasks_artifacts.py``. Attempt-scoped artifacts resolve through
@@ -55,9 +55,9 @@ def _locate_result(task_dir: Path) -> Path:
     return task_dir / "artifacts" / RESULT_JSON
 
 
-def locate(home: Path, task_id: str, what: ArtifactKind, attempt: int | None = None) -> Path:
+def locate(fleet_home: Path, task_id: str, what: ArtifactKind, attempt: int | None = None) -> Path:
     """Filesystem path of one task artifact (may not exist yet)."""
-    task_dir = _task_dir(home, task_id)
+    task_dir = _task_dir(fleet_home, task_id)
     if what in _ATTEMPT_FILES:
         return attempt_dir_path(task_dir, _attempt_n(task_dir, attempt)) / _ATTEMPT_FILES[what]
     if what in _TASK_FILES:

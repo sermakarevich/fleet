@@ -18,8 +18,8 @@ runner = CliRunner()
 OLD = time.time() - 40 * 86400
 
 
-def _make_task(home: Path, task_id: str, status: str, old: bool) -> Path:
-    d = home / "tasks" / task_id
+def _make_task(fleet_home: Path, task_id: str, status: str, old: bool) -> Path:
+    d = fleet_home / "tasks" / task_id
     d.mkdir(parents=True, exist_ok=True)
     (d / "task.json").write_text(json.dumps({"id": task_id, "status": status}), encoding="utf-8")
     (d / "data.txt").write_text("payload", encoding="utf-8")
@@ -62,7 +62,7 @@ def test_gc_dry_run_moves_nothing(tmp_path: Path) -> None:
 
 def test_gc_cli_reports_archived(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-cli", "closed", old=True)
-    with patch("fleet.cli.bootstrap.home", return_value=tmp_path):
+    with patch("fleet.cli.bootstrap.fleet_home", return_value=tmp_path):
         result = runner.invoke(app, ["gc", "--days", "30"])
     assert result.exit_code == 0, result.output
     assert "archived" in result.output
@@ -75,8 +75,8 @@ def test_gc_days_zero_disables(tmp_path: Path) -> None:
     assert (tmp_path / "tasks" / "fleet-old").is_dir()
 
 
-def _make_archive(home: Path, name: str, old: bool, age_days: int = 40) -> Path:
-    d = home / "archive" / "tasks" / name
+def _make_archive(fleet_home: Path, name: str, old: bool, age_days: int = 40) -> Path:
+    d = fleet_home / "archive" / "tasks" / name
     d.mkdir(parents=True, exist_ok=True)
     (d / "data.txt").write_text("payload", encoding="utf-8")
     mtime = time.time() - age_days * 86400 if old else time.time()
@@ -109,8 +109,8 @@ def test_purge_dry_run_and_disabled(tmp_path: Path) -> None:
     assert result.deleted == []
 
 
-def _make_worktree(home: Path, name: str) -> Path:
-    d = home / "worktrees" / name
+def _make_worktree(fleet_home: Path, name: str) -> Path:
+    d = fleet_home / "worktrees" / name
     d.mkdir(parents=True, exist_ok=True)
     (d / "file.txt").write_text("work", encoding="utf-8")
     return d
@@ -134,7 +134,7 @@ def test_find_stale_worktrees_disabled(tmp_path: Path) -> None:
 
 def test_gc_cli_purge_flag(tmp_path: Path) -> None:
     _make_archive(tmp_path, "fleet-purge-me", old=True, age_days=100)
-    with patch("fleet.cli.bootstrap.home", return_value=tmp_path):
+    with patch("fleet.cli.bootstrap.fleet_home", return_value=tmp_path):
         result = runner.invoke(app, ["gc", "--days", "30", "--purge"])
     assert result.exit_code == 0, result.output
     assert "purged 1" in result.output

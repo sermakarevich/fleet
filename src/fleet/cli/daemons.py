@@ -60,7 +60,7 @@ def _repo_root() -> Path:
 
 def _serve_stored_port() -> int | None:
     """Port recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = read_pidfile(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
+    data = read_pidfile(serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
     if not data or data.get("port") is None:
         return None
     try:
@@ -71,7 +71,7 @@ def _serve_stored_port() -> int | None:
 
 def _serve_stored_host() -> str | None:
     """Host recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = read_pidfile(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
+    data = read_pidfile(serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
     host = data.get("host") if data else None
     return str(host) if host else None
 
@@ -90,9 +90,9 @@ def _report_start(spec: DaemonSpec, result: StartResult, label: str) -> None:
     render.print_start_report(result, label, spec.logfile)
 
 
-def _report_status(home: Path, name: str, label: str, restart_hint: str) -> None:
+def _report_status(fleet_home: Path, name: str, label: str, restart_hint: str) -> None:
     """Echo daemon liveness from the process registry; exit nonzero when stopped."""
-    status = service_status(name, home)
+    status = service_status(name, fleet_home)
     render.print_service_status(label, status, restart_hint)
     if not status.alive:
         raise typer.Exit(1)
@@ -108,18 +108,18 @@ def _ensure_tunnel(cfg: RuntimeConfig, log: structlog.BoundLogger) -> None:
         log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
 
 
-def _build_supervisor(home: Path, cfg: RuntimeConfig) -> Supervisor:
+def _build_supervisor(fleet_home: Path, cfg: RuntimeConfig) -> Supervisor:
     """Assemble the foreground supervisor with logging, tunnel, and services."""
-    runtime_toml = home / "runtime.toml"
-    log = setup_supervisor_logger(bootstrap.log_dir(home))
+    runtime_toml = fleet_home / "runtime.toml"
+    log = setup_supervisor_logger(bootstrap.log_dir(fleet_home))
     _ensure_tunnel(cfg, log)
     question_store = QuestionStore()
     return Supervisor(
         state=SupervisorState(
             config=cfg,
-            project_root=home,
+            fleet_home=fleet_home,
             runtime_toml_path=runtime_toml,
-            queue=bootstrap.queue(home),
+            queue=bootstrap.queue(fleet_home),
             log=log,
             rate_gauge=RateGauge(log=log),
             question_store=question_store,
@@ -165,8 +165,8 @@ def _register_run_commands(app: typer.Typer) -> None:
     @run_app.command("foreground")
     def run_foreground() -> None:
         """Run the supervisor in the foreground (blocks). This is what `start` execs."""
-        home = bootstrap.home()
-        cfg = bootstrap.config(home)
+        fleet_home = bootstrap.fleet_home()
+        cfg = bootstrap.config(fleet_home)
 
         # Validate the configured default coder up-front so a typo fails fast.
         try:
@@ -174,7 +174,7 @@ def _register_run_commands(app: typer.Typer) -> None:
         except ValueError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
-        supervisor = _build_supervisor(home, cfg)
+        supervisor = _build_supervisor(fleet_home, cfg)
         try:
             rc = asyncio.run(supervisor.run())
         except NotImplementedError as exc:
@@ -185,25 +185,25 @@ def _register_run_commands(app: typer.Typer) -> None:
     @run_app.command("start")
     def run_start() -> None:
         """Start the supervisor as a background daemon."""
-        spec = supervisor_spec(bootstrap.home())
+        spec = supervisor_spec(bootstrap.fleet_home())
         _report_start(spec, start(spec), "supervisor")
 
     @run_app.command("stop")
     def run_stop() -> None:
         """Stop the supervisor daemon (graceful SIGTERM, then SIGKILL)."""
-        stopped = stop(supervisor_spec(bootstrap.home()))
+        stopped = stop(supervisor_spec(bootstrap.fleet_home()))
         _console.print("supervisor stopped." if stopped else "supervisor not running.")
 
     @run_app.command("restart")
     def run_restart() -> None:
         """Restart the supervisor daemon to pick up code changes."""
-        spec = supervisor_spec(bootstrap.home())
+        spec = supervisor_spec(bootstrap.fleet_home())
         _report_start(spec, restart(spec), "supervisor")
 
     @run_app.command("status")
     def run_status() -> None:
         """Show whether the supervisor daemon is running."""
-        _report_status(bootstrap.home(), "supervisor", "supervisor", "fleet run restart")
+        _report_status(bootstrap.fleet_home(), "supervisor", "supervisor", "fleet run restart")
 
 
 def _register_serve_commands(app: typer.Typer) -> None:
@@ -233,13 +233,13 @@ def _register_serve_commands(app: typer.Typer) -> None:
         host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
     ) -> None:
         """Start the UI server as a background daemon (FR-48, FR-49)."""
-        spec = serve_spec(bootstrap.home(), host, port)
+        spec = serve_spec(bootstrap.fleet_home(), host, port)
         _report_start(spec, start(spec), "serve")
 
     @serve_app.command("stop")
     def serve_stop() -> None:
         """Stop the UI server daemon."""
-        stopped = stop(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
+        stopped = stop(serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
         _console.print("serve stopped." if stopped else "serve not running.")
 
     @serve_app.command("restart")
@@ -262,14 +262,14 @@ def _register_serve_commands(app: typer.Typer) -> None:
         the current server running. Pass --no-build to restart without rebuilding.
         """
         resolved_host, resolved_port = _resolve_serve_endpoint(port, host)
-        spec = serve_spec(bootstrap.home(), resolved_host, resolved_port)
+        spec = serve_spec(bootstrap.fleet_home(), resolved_host, resolved_port)
         before = None if no_build else _build_ui
         _report_start(spec, restart(spec, before_start=before), "serve")
 
     @serve_app.command("status")
     def serve_status() -> None:
         """Show whether the UI server daemon is running."""
-        _report_status(bootstrap.home(), "serve", "serve", "fleet serve restart")
+        _report_status(bootstrap.fleet_home(), "serve", "serve", "fleet serve restart")
 
 
 def register(app: typer.Typer) -> None:
@@ -279,7 +279,7 @@ def register(app: typer.Typer) -> None:
     @app.command("tunnel")
     def tunnel_cmd() -> None:
         """Ensure the SSH tunnel to the rtx Ollama box is up (starts it if needed)."""
-        cfg = bootstrap.config(bootstrap.home())
+        cfg = bootstrap.config(bootstrap.fleet_home())
         result = ensure_tunnel(cfg.opencode_ollama_url)
         if result.status == "failed":
             _console.print(f"[red]tunnel failed:[/red] {result.detail}")

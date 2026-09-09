@@ -69,10 +69,10 @@ _RATE_LIMIT_WINDOW = 5
 _STDERR_TAIL_CHARS = 1500
 
 
-def _read_meta(project_root: Path, task_id: str) -> dict:
+def _read_meta(fleet_home: Path, task_id: str) -> dict:
     """Read task.json; {} when missing or unparsable."""
     try:
-        data = json.loads((_task_dir(project_root, task_id) / "task.json").read_text())
+        data = json.loads((_task_dir(fleet_home, task_id) / "task.json").read_text())
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -124,7 +124,7 @@ def _read_result(task_dir: Path) -> dict | None:
 
 
 def collect_candidates(
-    queue: Queue, project_root: Path, store: QuestionStore, limit: int = 100
+    queue: Queue, fleet_home: Path, store: QuestionStore, limit: int = 100
 ) -> list[dict]:
     """Blocked beads that need a triage question.
 
@@ -139,7 +139,7 @@ def collect_candidates(
         return []
     for bead in blocked:
         task_id = bead.id
-        meta = _read_meta(project_root, task_id)
+        meta = _read_meta(fleet_home, task_id)
         blocked_reason = meta.get("blocked_reason")
         if not blocked_reason:
             continue
@@ -148,7 +148,7 @@ def collect_candidates(
         blocked_at = meta.get("blocked_at")
         if store.fetch_pending_for_task(task_id, blocked_at):
             continue
-        task_dir = _task_dir(project_root, task_id)
+        task_dir = _task_dir(fleet_home, task_id)
         history = attempts_mod.load_attempts(task_dir)
         rounds = rounds_for_history(history)
         rate_limited = any(
@@ -172,15 +172,15 @@ def collect_candidates(
     return candidates
 
 
-def _append_note_to_description(queue: Queue, project_root: Path, task_id: str, note: str) -> None:
+def _append_note_to_description(queue: Queue, fleet_home: Path, task_id: str, note: str) -> None:
     """Append the operator's note as a paragraph to the bead description."""
-    current = _read_meta(project_root, task_id).get("description") or ""
+    current = _read_meta(fleet_home, task_id).get("description") or ""
     updated = f"{current}\n\nOperator note: {note}" if current else f"Operator note: {note}"
     queue.set_bd_fields(task_id, {"description": updated})
 
 
 def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
-    queue: Queue, project_root: Path, question: Question
+    queue: Queue, fleet_home: Path, question: Question
 ) -> TriageApplyOutcome:
     """Apply one answered triage question; return what was done.
 
@@ -199,7 +199,7 @@ def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
     if task_id is None:
         return _apply_digest(queue, question, answer)
 
-    meta = _read_meta(project_root, task_id)
+    meta = _read_meta(fleet_home, task_id)
     if meta.get("status") != TaskStatus.BLOCKED.value or meta.get("blocked_at") != question.get(
         "context"
     ):
@@ -218,12 +218,12 @@ def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
     if answer == RETRY_OPUS:
         queue.set_overrides(task_id, coder="claude", model="opus")
         if note:
-            _append_note_to_description(queue, project_root, task_id, note)
+            _append_note_to_description(queue, fleet_home, task_id, note)
         queue.release(task_id, "triage: retry with claude/opus")
         return TriageApplyOutcome.RELEASED_OPUS
     if answer in (RETRY_SAME, EDIT_RETRY) or (answer is None and note):
         if note:
-            _append_note_to_description(queue, project_root, task_id, note)
+            _append_note_to_description(queue, fleet_home, task_id, note)
         queue.release(task_id, "triage: retry")
         return TriageApplyOutcome.RELEASED
     return TriageApplyOutcome.SKIPPED
@@ -249,7 +249,7 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
     applied = 0
     for question in store.fetch_answered_triage():
         try:
-            outcome = apply_answer(st.queue, st.project_root, question)
+            outcome = apply_answer(st.queue, st.fleet_home, question)
         except Exception as exc:  # noqa: BLE001 - one bad apply skips, rest continue
             st.log.warning(
                 "triage_apply_failed",
@@ -260,7 +260,7 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
         if outcome != TriageApplyOutcome.SKIPPED:
             applied += 1
 
-    candidates = collect_candidates(st.queue, st.project_root, store)
+    candidates = collect_candidates(st.queue, st.fleet_home, store)
     asked = 0
     if len(candidates) > MAX_PER_TASK_QUESTIONS:
         per_task = candidates[:MAX_PER_TASK_QUESTIONS]

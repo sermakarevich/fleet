@@ -1,6 +1,6 @@
 """Snapshot test: /api/analytics/summary output never changes on refactor.
 
-Rebuilds the deterministic fixture home, runs ``compute_summary(home, 0)``
+Rebuilds the deterministic fixture fleet_home, runs ``compute_summary(fleet_home, 0)``
 with beads unavailable, and asserts byte-equality with
 ``tests/fixtures/analytics_summary_snapshot.json`` (recorded from the
 pre-registry implementation). days=0 plus fixed timestamps keep the output
@@ -24,7 +24,7 @@ _SNAPSHOT = Path(__file__).resolve().parents[2] / "fixtures" / "analytics_summar
 
 
 def test_summary_matches_recorded_snapshot(tmp_path: Path) -> None:
-    """compute_summary(home, 0) equals the recorded fixture output."""
+    """compute_summary(fleet_home, 0) equals the recorded fixture output."""
     records_mod._events_cache.clear()
     build_fixture_home(tmp_path)
     with _patch("fleet.beads.cache.get_beads_status_map", MagicMock(return_value=None)):

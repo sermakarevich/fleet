@@ -67,7 +67,7 @@ class StubQueue:
 
 def _make_state(tmp_path: Path, queue: StubQueue, config: RuntimeConfig | None = None):
     sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
-    sup.state.project_root = tmp_path / ".fleet"
+    sup.state.fleet_home = tmp_path / ".fleet"
     if config is not None:
         sup.state.config = config
     return sup.state

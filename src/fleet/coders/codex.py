@@ -57,10 +57,10 @@ def _codex_home_path(task_dir: Path) -> Path:
     return (attempt_dir or task_dir) / CODEX_HOME_DIRNAME
 
 
-def _render_codex_config(home: Path) -> str:
+def _render_codex_config(fleet_home: Path) -> str:
     """Render a codex ``config.toml`` with the fleet MCP servers.
 
-    *home* is FLEET_HOME. One ``[mcp_servers.<name>]`` table per server from
+    *fleet_home* is FLEET_HOME. One ``[mcp_servers.<name>]`` table per server from
     ``integrations.mcp_servers.fleet_mcp_servers``.
     """
 
@@ -69,7 +69,7 @@ def _render_codex_config(home: Path) -> str:
         "# Regenerated before each spawn; do not edit by hand.",
         "",
     ]
-    for name, entry in fleet_mcp_servers(home).items():
+    for name, entry in fleet_mcp_servers(fleet_home).items():
         args = ", ".join(_toml_str(a) for a in entry["args"])
         lines.append(f"[mcp_servers.{name}]")
         lines.append(f"command = {_toml_str(entry['command'])}")
@@ -83,11 +83,11 @@ def _render_codex_config(home: Path) -> str:
     return "\n".join(lines)
 
 
-def _write_codex_config(codex_home: Path, home: Path) -> Path:
+def _write_codex_config(codex_home: Path, fleet_home: Path) -> Path:
     """Write ``config.toml`` into *codex_home* and return its path."""
     codex_home.mkdir(parents=True, exist_ok=True)
     path = codex_home / CODEX_CONFIG_FILENAME
-    path.write_text(_render_codex_config(home), encoding="utf-8")
+    path.write_text(_render_codex_config(fleet_home), encoding="utf-8")
     return path
 
 

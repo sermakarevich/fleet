@@ -35,10 +35,10 @@ def _file_response(f: Path) -> JSONResponse:
 @router.get("/tasks/{task_id}/artifacts/state", response_model=ArtifactResponse)
 async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
     """STATE.md, or the legacy view for old task dirs without one."""
-    task_dir = TaskIndex(state.home).find(task_id)
+    task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = locate(state.home, task_id, "state")
+    f = locate(state.fleet_home, task_id, "state")
     if f.exists():
         return _file_response(f)
     legacy = legacy_state_text(task_dir)
@@ -50,10 +50,10 @@ async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/artifacts/result", response_model=ArtifactResponse)
 async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
     """Live RESULT.json, else the latest attempt snapshot, else legacy."""
-    task_dir = TaskIndex(state.home).find(task_id)
+    task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = locate(state.home, task_id, "result")
+    f = locate(state.fleet_home, task_id, "result")
     if not f.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return _file_response(f)
@@ -62,7 +62,7 @@ async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/artifacts/outputs", response_model=OutputsResponse)
 async def get_artifact_outputs(task_id: str, state: StateDep) -> JSONResponse:
     """Deliverables under tasks/<id>/outputs/."""
-    outputs = resolve_task_dir(state.home, task_id) / "outputs"
+    outputs = resolve_task_dir(state.fleet_home, task_id) / "outputs"
     if not outputs.is_dir():
         return JSONResponse({"files": []})
     try:
@@ -85,7 +85,7 @@ async def get_artifact_design(task_id: str, state: StateDep) -> JSONResponse:
 
 
 def _named_artifact(task_id: str, state: AppState, filename: str) -> JSONResponse:
-    f = resolve_task_dir(state.home, task_id) / "artifacts" / filename
+    f = resolve_task_dir(state.fleet_home, task_id) / "artifacts" / filename
     if not f.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return _file_response(f)
@@ -94,7 +94,7 @@ def _named_artifact(task_id: str, state: AppState, filename: str) -> JSONRespons
 @router.get("/tasks/{task_id}/diff", response_model=DiffResponse)
 async def get_task_diff(task_id: str, state: StateDep) -> JSONResponse:
     """git diff of the task's cwd (empty when not a git repo)."""
-    raw = TaskIndex(state.home).read_raw(task_id) or {}
+    raw = TaskIndex(state.fleet_home).read_raw(task_id) or {}
     cwd = raw.get("cwd")
     if not cwd:
         return JSONResponse({"diff": ""})

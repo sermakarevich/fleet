@@ -15,7 +15,7 @@ runner = CliRunner()
 
 
 def _patch_root(tmp_path: Path):
-    return patch("fleet.cli.bootstrap.home", return_value=tmp_path)
+    return patch("fleet.cli.bootstrap.fleet_home", return_value=tmp_path)
 
 
 def _init_config(tmp_path: Path, **kwargs) -> Path:
@@ -204,7 +204,7 @@ def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> No
                 "--allowed-ids",
                 "111,222",
                 "--default-cwd",
-                "/home/user/proj",
+                "/fleet_home/user/proj",
                 "--yes",
             ],
             env={"TELEGRAM_BOT_TOKEN": "123:tok"},
@@ -212,7 +212,7 @@ def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> No
     assert result.exit_code == 0, result.output
     cfg = load_config(tmp_path / "runtime.toml")
     assert cfg.telegram_allowed_ids == "111,222"
-    assert cfg.telegram_default_cwd == "/home/user/proj"
+    assert cfg.telegram_default_cwd == "/fleet_home/user/proj"
 
 
 def test_telegram_setup_no_test_skips_send(tmp_path: Path) -> None:

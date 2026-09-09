@@ -53,16 +53,16 @@ class TaskQueue(Protocol):
         ...
 
 
-def _require_task_dir(home: Path, task_id: str) -> Path:
-    task_dir = task_dir_for(home, task_id)
+def _require_task_dir(fleet_home: Path, task_id: str) -> Path:
+    task_dir = task_dir_for(fleet_home, task_id)
     if TaskMeta.load(task_dir) is None:
         raise TaskNotFound(task_id)
     return task_dir
 
 
-def unblock(home: Path, queue: TaskQueue, task_id: str, note: str | None = None) -> None:
+def unblock(fleet_home: Path, queue: TaskQueue, task_id: str, note: str | None = None) -> None:
     """Release a blocked task and clear its retry state; journal the note."""
-    task_dir = _require_task_dir(home, task_id)
+    task_dir = _require_task_dir(fleet_home, task_id)
     reason = UNBLOCK_REASON if not note else f"{UNBLOCK_REASON}: {note}"
     queue.release(task_id, reason)
     TaskMeta.clear(task_dir, "retry_after")
@@ -71,7 +71,7 @@ def unblock(home: Path, queue: TaskQueue, task_id: str, note: str | None = None)
 
 
 def kill(
-    home: Path,
+    fleet_home: Path,
     queue: TaskQueue,
     task_id: str,
     *,
@@ -79,7 +79,7 @@ def kill(
     supervisor_running: bool,
 ) -> str:
     """Stop or close *task_id*; returns one of the KILL_* outcome strings."""
-    task_dir = _require_task_dir(home, task_id)
+    task_dir = _require_task_dir(fleet_home, task_id)
     if status == TaskStatus.IN_PROGRESS.value:
         (task_dir / KILL_MARKER).touch()
         return KILLING if supervisor_running else KILL_NO_SUPERVISOR
@@ -89,8 +89,8 @@ def kill(
     return KILL_NOOP
 
 
-def remove_assignee(home: Path, task_id: str, *, clear_assignee: Callable[[str], None]) -> None:
+def remove_assignee(fleet_home: Path, task_id: str, *, clear_assignee: Callable[[str], None]) -> None:
     """Clear the beads assignee and the task.json coder mirror."""
-    task_dir = _require_task_dir(home, task_id)
+    task_dir = _require_task_dir(fleet_home, task_id)
     clear_assignee(task_id)
     TaskMeta.update(task_dir, coder=None)

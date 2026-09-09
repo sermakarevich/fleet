@@ -38,7 +38,7 @@ def test_children_endpoint_reports_status_and_digest(
     )
     monkeypatch.setattr(
         "fleet.serve.api.tasks_detail.beads_client.children_of",
-        lambda epic_id, home: [{"id": "c-1", "title": "Kid", "status": "closed"}],
+        lambda epic_id, fleet_home: [{"id": "c-1", "title": "Kid", "status": "closed"}],
     )
     resp = _get(create_app(), "/api/tasks/epic-1/children")
     assert resp.status_code == 200

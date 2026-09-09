@@ -256,7 +256,7 @@ class TestShouldIsolate:
         assert should_isolate(self._stub(), _task(cwd=str(repo)), repo) is True
 
     def test_task_without_cwd_never_isolates(self, tmp_path: Path):
-        """No cwd means the task fell back to fleet's home; never worktree that."""
+        """No cwd means the task fell back to fleet's fleet_home; never worktree that."""
         repo = tmp_path / "repo"
         repo.mkdir()
         assert should_isolate(self._stub(), _task(cwd=None), repo) is False

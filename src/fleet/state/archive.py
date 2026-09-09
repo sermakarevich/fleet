@@ -38,10 +38,10 @@ def _dir_size(p: Path) -> int:
     return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
 
 
-def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
+def gc_tasks(fleet_home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     """Move closed task dirs older than *days* into the archive."""
-    tasks_dir = tasks_root(home)
-    archive_dir = home / "archive" / "tasks"
+    tasks_dir = tasks_root(fleet_home)
+    archive_dir = fleet_home / "archive" / "tasks"
     archived: list[str] = []
     skipped = 0
     bytes_moved = 0
@@ -50,7 +50,7 @@ def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     cutoff = time.time() - days * 86400
     if not tasks_dir.is_dir():
         return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
-    for task_dir, _raw in TaskIndex(home).iter_meta():
+    for task_dir, _raw in TaskIndex(fleet_home).iter_meta():
         meta = TaskMeta.load(task_dir)
         if meta is None:
             skipped += 1
@@ -67,16 +67,16 @@ def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
     return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
 
 
-def purge_archive(home: Path, days: int = 90, dry_run: bool = False) -> PurgeResult:
+def purge_archive(fleet_home: Path, days: int = 90, dry_run: bool = False) -> PurgeResult:
     """Permanently delete archived task dirs older than *days*.
 
-    Only directories under ``<home>/archive/tasks/`` are considered.
+    Only directories under ``<fleet_home>/archive/tasks/`` are considered.
     *days* <= 0 disables purging (returns everything as skipped).
     """
     deleted: list[str] = []
     skipped = 0
     bytes_freed = 0
-    archive_dir = home / "archive" / "tasks"
+    archive_dir = fleet_home / "archive" / "tasks"
     if days <= 0 or not archive_dir.is_dir():
         return PurgeResult(deleted=deleted, skipped=skipped, bytes_freed=bytes_freed)
     cutoff = time.time() - days * 86400
@@ -106,7 +106,7 @@ def _closed_and_old(task_dir: Path, cutoff: float) -> bool:
     return old_mtime and meta is not None and meta.status == TaskStatus.CLOSED.value
 
 
-def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
+def find_stale_worktrees(fleet_home: Path, days: int = 30) -> list[StaleWorktree]:
     """Worktrees whose task is closed and older than *days*.
 
     Selection only — the caller removes them (e.g. via
@@ -116,14 +116,14 @@ def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:
     """
     if days <= 0:
         return []
-    tasks_dir = tasks_root(home)
-    worktrees_dir = home / "worktrees"
+    tasks_dir = tasks_root(fleet_home)
+    worktrees_dir = fleet_home / "worktrees"
     if not worktrees_dir.is_dir():
         return []
     cutoff = time.time() - days * 86400
     stale_tasks: dict[str, TaskMeta] = {}
     if tasks_dir.is_dir():
-        for task_dir, _raw in TaskIndex(home).iter_meta():
+        for task_dir, _raw in TaskIndex(fleet_home).iter_meta():
             if _closed_and_old(task_dir, cutoff):
                 meta = _task_meta(task_dir)
                 if meta is not None:

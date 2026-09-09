@@ -89,7 +89,7 @@ def _ctx(tmp_path: Path, task_id: str = "job-1") -> StepContext:
             worker="job",
         ),
         task_dir=task_dir,
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=StubCoder(),  # type: ignore[arg-type]
         config=RuntimeConfig(),

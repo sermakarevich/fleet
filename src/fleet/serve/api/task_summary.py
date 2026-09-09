@@ -1,4 +1,4 @@
-"""Task view helpers for the serve API routers, one home.
+"""Task view helpers for the serve API routers, one fleet_home.
 
 Called by serve/api/tasks_list.py, tasks_detail.py and tasks_stream.py:
 summary building (with caller-resolved context limit and blocked notes),
@@ -54,27 +54,27 @@ def config_defaults(config: RuntimeConfig | None) -> tuple[str | None, str | Non
 def build_summary(
     task_dir: Path,
     data: dict,
-    home: Path,
+    fleet_home: Path,
     beads_map: dict[str, dict] | None = None,
     default_coder: str | None = None,
     default_model: str | None = None,
 ) -> TaskSummary:
     """One task summary with caller-resolved context limit and notes."""
-    overrides = context_overrides_for_home(home)
+    overrides = context_overrides_for_home(fleet_home)
     coder, model = effective_coder_model(
         data.get("coder"), data.get("model"), default_coder, default_model
     )
     limit = context_limit_for(coder, model, overrides)
     notes: str | None = None
     if data.get("blocked_reason") is None and data.get("status") == TaskStatus.BLOCKED.value:
-        resolved = beads_map if beads_map is not None else get_beads_status_map(home)
+        resolved = beads_map if beads_map is not None else get_beads_status_map(fleet_home)
         notes = (resolved or {}).get(data.get("id", ""), {}).get("notes")
-    return build_task_summary(task_dir, data, home, context_limit=limit, blocked_notes=notes)
+    return build_task_summary(task_dir, data, fleet_home, context_limit=limit, blocked_notes=notes)
 
 
 def build_all_summaries(
     tasks: list[dict],
-    home: Path,
+    fleet_home: Path,
     beads_map: dict[str, dict] | None = None,
     default_coder: str | None = None,
     default_model: str | None = None,
@@ -82,9 +82,9 @@ def build_all_summaries(
     """Summaries for raw task.json dicts (dir resolved from the id)."""
     return [
         build_summary(
-            resolve_task_dir(home, d.get("id", "")),
+            resolve_task_dir(fleet_home, d.get("id", "")),
             d,
-            home,
+            fleet_home,
             beads_map,
             default_coder,
             default_model,
@@ -93,10 +93,10 @@ def build_all_summaries(
     ]
 
 
-def fetch_beads_info(task_id: str, home: Path) -> dict | None:
+def fetch_beads_info(task_id: str, fleet_home: Path) -> dict | None:
     """{status, priority, depends_on} from bd show, or None if unavailable."""
     try:
-        body = beads_client.show(task_id, home)
+        body = beads_client.show(task_id, fleet_home)
     except Exception as exc:
         logger.debug("bd show failed for %s: %s", task_id, exc)
         return None
@@ -112,22 +112,22 @@ def fetch_beads_info(task_id: str, home: Path) -> dict | None:
     }
 
 
-def fetch_beads_status(task_id: str, home: Path) -> str | None:
+def fetch_beads_status(task_id: str, fleet_home: Path) -> str | None:
     """Beads status for one task, or None if unavailable."""
-    info = fetch_beads_info(task_id, home)
+    info = fetch_beads_info(task_id, fleet_home)
     return info.get("status") if info is not None else None
 
 
-def resolve_status(task_id: str, home: Path) -> str:
+def resolve_status(task_id: str, fleet_home: Path) -> str:
     """task.json status overlaid with beads status (beads wins)."""
-    raw = TaskIndex(home).read_raw(task_id) or {}
-    beads = fetch_beads_status(task_id, home)
+    raw = TaskIndex(fleet_home).read_raw(task_id) or {}
+    beads = fetch_beads_status(task_id, fleet_home)
     return beads if beads is not None else str(raw.get("status", ""))
 
 
-def beads_assignee_clearer(home: Path) -> Callable[[str], None]:
-    """clear_assignee(task_id) bound to *home*, for state.task_actions."""
-    return lambda tid: beads_client.update(tid, home, assignee="")
+def beads_assignee_clearer(fleet_home: Path) -> Callable[[str], None]:
+    """clear_assignee(task_id) bound to *fleet_home*, for state.task_actions."""
+    return lambda tid: beads_client.update(tid, fleet_home, assignee="")
 
 
 async def body_note(request: Request) -> Any:

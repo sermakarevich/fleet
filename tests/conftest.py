@@ -237,7 +237,7 @@ def make_supervisor(
     services: list[Service] | None = None,
     checks: list[StartupCheckSpec] | None = None,
     coder: Coder | None = None,
-    project_root: Path | None = None,
+    fleet_home: Path | None = None,
     intervals: dict[str, float] | None = None,
     shutdown_grace_sec: float | None = None,
 ) -> Supervisor:
@@ -252,10 +252,9 @@ def make_supervisor(
         runtime_toml.parent.mkdir(parents=True, exist_ok=True)
         runtime_toml.write_text("max_concurrent = 3\n", encoding="utf-8")
     log = structlog.get_logger()
-    home = project_root if project_root is not None else tmp_path
     state = SupervisorState(
         config=config if config is not None else load(runtime_toml),
-        project_root=home,
+        fleet_home=fleet_home if fleet_home is not None else tmp_path,
         runtime_toml_path=runtime_toml,
         queue=queue if queue is not None else BeadsQueue(repo_root=tmp_path),
         log=log,

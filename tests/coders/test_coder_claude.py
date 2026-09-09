@@ -503,10 +503,10 @@ def test_build_argv_includes_mcp_config_pointing_at_file_with_ask_human(
 
 def test_write_mcp_config_matches_shared_definitions(tmp_path: Path):
 
-    home = tmp_path / "home"
-    cfg_path = write_mcp_config(tmp_path / "attempt", fleet_mcp_servers(home))
+    fleet_home = tmp_path / "fleet_home"
+    cfg_path = write_mcp_config(tmp_path / "attempt", fleet_mcp_servers(fleet_home))
     payload = json.loads(cfg_path.read_text(encoding="utf-8"))
-    shared = fleet_mcp_servers(home)
+    shared = fleet_mcp_servers(fleet_home)
     for name, entry in shared.items():
         assert payload["mcpServers"][name]["command"] == entry["command"]
         assert payload["mcpServers"][name]["args"] == entry["args"]

@@ -1,7 +1,7 @@
 """Context-pressure histogram: peak context use as a share of the limit.
 
 Called by ``serve/analytics/summary.py`` (``SECTION`` joins
-``SUMMARY_SECTIONS``). Limits resolve per coder/model with the fleet-home
+``SUMMARY_SECTIONS``). Limits resolve per coder/model with the fleet-fleet_home
 overrides carried by the window; unknown coders fall back to 200k.
 """
 

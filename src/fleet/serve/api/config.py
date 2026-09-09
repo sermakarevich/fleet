@@ -19,15 +19,15 @@ router = APIRouter(prefix="/api")
 @router.get("/config", response_model=ConfigView)
 async def get_config() -> JSONResponse:
     """Full RuntimeConfig as JSON (FR-43)."""
-    home = get_fleet_home()
-    cfg = load_config(home / "runtime.toml")
+    fleet_home = get_fleet_home()
+    cfg = load_config(fleet_home / "runtime.toml")
     return JSONResponse(asdict(cfg))
 
 
 @router.put("/config", response_model=ConfigView)
 async def put_config(request: Request) -> JSONResponse:
     """Update runtime.toml atomically; rejects unknown coders/values."""
-    home = get_fleet_home()
+    fleet_home = get_fleet_home()
     body = await request.json()
     updates = {k: str(v) for k, v in body.items()}
     if "coder" in updates:
@@ -36,7 +36,7 @@ async def put_config(request: Request) -> JSONResponse:
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
     try:
-        new_cfg = write_config(home / "runtime.toml", updates)
+        new_cfg = write_config(fleet_home / "runtime.toml", updates)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     return JSONResponse(asdict(new_cfg))

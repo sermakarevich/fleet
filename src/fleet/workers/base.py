@@ -70,7 +70,7 @@ class StepContext:
 
     task: Task
     task_dir: Path  # tasks/<id>
-    project_root: Path  # where the coder runs (cwd or worktree)
+    workdir: Path  # where the coder runs (cwd or worktree)
     fleet_home: Path
     coder: Coder | None
     config: RuntimeConfig

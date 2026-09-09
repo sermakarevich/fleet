@@ -143,12 +143,12 @@ def task_record_cached(task_dir: Path) -> AttemptRecord:
     return _build_record(task_dir.name, data, task_dir)
 
 
-def collect_records(home: Path) -> list[AttemptRecord]:
-    """Return one record per task dir under *home* that has a task.json.
+def collect_records(fleet_home: Path) -> list[AttemptRecord]:
+    """Return one record per task dir under *fleet_home* that has a task.json.
 
     Task bodies come straight from TaskIndex.iter_meta, so the tasks
     directory is walked exactly once, by its owner.
     """
     return [
-        _build_record(task_dir.name, raw, task_dir) for task_dir, raw in TaskIndex(home).iter_meta()
+        _build_record(task_dir.name, raw, task_dir) for task_dir, raw in TaskIndex(fleet_home).iter_meta()
     ]

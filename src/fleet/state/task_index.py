@@ -21,15 +21,15 @@ from fleet.state.task_meta import TaskMeta
 
 @dataclass
 class TaskIndex:
-    """Cached listing of one fleet home's task directories."""
+    """Cached listing of one fleet fleet_home's task directories."""
 
-    home: Path
+    fleet_home: Path
     _raw_cache: dict[str, tuple[float, dict[str, Any] | None]] = field(
         default_factory=dict, repr=False
     )
 
     def _tasks_dir(self) -> Path:
-        return tasks_root(self.home)
+        return tasks_root(self.fleet_home)
 
     @property
     def tasks_dir(self) -> Path:

@@ -67,7 +67,7 @@ def _make_ctx(
     return StepContext(
         task=task,
         task_dir=_task_dir_path(tmp_path, task.id),
-        project_root=tmp_path,
+        workdir=tmp_path,
         fleet_home=tmp_path,
         coder=coder,
         config=config or RuntimeConfig(),

@@ -287,13 +287,13 @@ def python_module_argv(*args: str) -> list[str]:
     return [sys.executable, "-m", "fleet", *args]
 
 
-def _log_dir(home: Path) -> Path:
+def _log_dir(fleet_home: Path) -> Path:
 
     log_root = Path(LOG_ROOT)
-    return log_root if log_root.is_absolute() else home / log_root
+    return log_root if log_root.is_absolute() else fleet_home / log_root
 
 
-def supervisor_spec(home: Path) -> DaemonSpec:
+def supervisor_spec(fleet_home: Path) -> DaemonSpec:
     """Daemon spec for `fleet run`, shared by the CLI and the /api/supervisor route.
 
     PID file is `$FLEET_HOME/.supervisor.pid` so the UI's /api/supervisor route
@@ -303,23 +303,23 @@ def supervisor_spec(home: Path) -> DaemonSpec:
 
     return DaemonSpec(
         name="supervisor",
-        pidfile=home / ".supervisor.pid",
-        logfile=_log_dir(home) / "supervisor.daemon.log",
+        pidfile=fleet_home / ".supervisor.pid",
+        logfile=_log_dir(fleet_home) / "supervisor.daemon.log",
         argv=python_module_argv("run", "foreground"),
-        cwd=home,
+        cwd=fleet_home,
         stop_timeout=float(SHUTDOWN_GRACE_SEC + 5),
         extra={},
     )
 
 
-def serve_spec(home: Path, host: str, port: int) -> DaemonSpec:
+def serve_spec(fleet_home: Path, host: str, port: int) -> DaemonSpec:
     """Daemon spec for `fleet serve`. Stores host/port so `restart` can reuse them."""
     return DaemonSpec(
         name="serve",
-        pidfile=home / ".serve.pid",
-        logfile=_log_dir(home) / "serve.daemon.log",
+        pidfile=fleet_home / ".serve.pid",
+        logfile=_log_dir(fleet_home) / "serve.daemon.log",
         argv=python_module_argv("serve", "foreground", "--host", host, "--port", str(port)),
-        cwd=home,
+        cwd=fleet_home,
         stop_timeout=10.0,
         extra={"port": port, "host": host},
     )

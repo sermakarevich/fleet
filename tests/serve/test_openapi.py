@@ -14,7 +14,7 @@ from fleet.serve.app import create_app
 
 
 def _app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Serve app built against a throwaway fleet home (no daemon starts)."""
+    """Serve app built against a throwaway fleet fleet_home (no daemon starts)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     return create_app()
 

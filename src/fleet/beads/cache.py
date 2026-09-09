@@ -12,21 +12,21 @@ from pathlib import Path
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
 
-# TTL cache — key: str(home), value: (expires_at, result)
+# TTL cache — key: str(fleet_home), value: (expires_at, result)
 _beads_map_cache: dict[str, tuple[float, dict[str, dict] | None]] = {}
 _BEADS_CACHE_TTL: float = 5.0
 
 _beads_list_call_count: int = 0  # incremented on each real subprocess call; observable in tests
 
 
-def get_beads_status_map(home: Path) -> dict[str, dict] | None:
-    """Return {task_id: {status, ...}} for all tasks in the beads DB at `home`.
+def get_beads_status_map(fleet_home: Path) -> dict[str, dict] | None:
+    """Return {task_id: {status, ...}} for all tasks in the beads DB at `fleet_home`.
 
     Returns None if beads is unavailable so the caller can skip reconciliation.
     Results are cached for _BEADS_CACHE_TTL seconds to avoid a subprocess on every poll.
     """
     global _beads_list_call_count  # noqa: PLW0603  # ADR 0006 bead 4 owns beads/ shared state
-    key = str(home)
+    key = str(fleet_home)
     now = time.monotonic()
     cached = _beads_map_cache.get(key)
     if cached is not None and now < cached[0]:
@@ -35,7 +35,7 @@ def get_beads_status_map(home: Path) -> dict[str, dict] | None:
     result_value: dict[str, dict] | None = None
     try:
         _beads_list_call_count += 1
-        items = beads_client.list_all(home)
+        items = beads_client.list_all(fleet_home)
         result_value = {
             item["id"]: {
                 "status": item.get("status", "open"),

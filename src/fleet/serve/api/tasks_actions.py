@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api")
 
 
 def _missing(task_id: str, state: AppState) -> JSONResponse | None:
-    if TaskIndex(state.home).find(task_id) is None:
+    if TaskIndex(state.fleet_home).find(task_id) is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return None
 
@@ -39,12 +39,12 @@ async def kill_task(task_id: str, state: StateDep) -> JSONResponse:
     """Signal a running task (.kill) or close a queued one via the queue."""
     if (missing := _missing(task_id, state)) is not None:
         return missing
-    status = await asyncio.to_thread(resolve_status, task_id, state.home)
-    running = service_status("supervisor", state.home).alive
+    status = await asyncio.to_thread(resolve_status, task_id, state.fleet_home)
+    running = service_status("supervisor", state.fleet_home).alive
     try:
         outcome = await asyncio.to_thread(
             task_actions.kill,
-            state.home,
+            state.fleet_home,
             state.queue,
             task_id,
             status=status,
@@ -72,7 +72,7 @@ async def unblock_task(task_id: str, request: Request, state: StateDep) -> JSONR
     """Release a blocked task, clear retry state, journal the note."""
     note = await body_note(request)
     try:
-        await asyncio.to_thread(task_actions.unblock, state.home, state.queue, task_id, note)
+        await asyncio.to_thread(task_actions.unblock, state.fleet_home, state.queue, task_id, note)
     except task_actions.TaskNotFound:
         return JSONResponse({"error": "not found"}, status_code=404)
     except BdError as exc:
@@ -104,9 +104,9 @@ async def remove_assignee(task_id: str, state: StateDep) -> JSONResponse:
     try:
         await asyncio.to_thread(
             task_actions.remove_assignee,
-            state.home,
+            state.fleet_home,
             task_id,
-            clear_assignee=beads_assignee_clearer(state.home),
+            clear_assignee=beads_assignee_clearer(state.fleet_home),
         )
     except task_actions.TaskNotFound:
         return JSONResponse({"error": "not found"}, status_code=404)

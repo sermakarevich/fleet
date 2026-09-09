@@ -70,7 +70,7 @@ async def prepare_artifacts(ctx: StepContext) -> StepResult:
     assert ctx.coder is not None
     hook = getattr(ctx.coder, "write_runtime_config", None)
     if hook is not None:
-        hook(ctx.project_root, ctx.task)
+        hook(ctx.workdir, ctx.task)
     return StepResult(status=StepStatus.OK)
 
 
@@ -83,7 +83,7 @@ async def prepare_continue(ctx: StepContext) -> StepResult:
     assert ctx.coder is not None
     hook = getattr(ctx.coder, "write_runtime_config", None)
     if hook is not None:
-        hook(ctx.project_root, ctx.task)
+        hook(ctx.workdir, ctx.task)
     return StepResult(status=StepStatus.OK)
 
 

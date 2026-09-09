@@ -46,7 +46,7 @@ def test_db_path_does_not_point_at_personal_claude_dir(tmp_path: Path):
 def test_no_secrets_in_definitions(tmp_path: Path):
     blob = repr(fleet_mcp_servers(tmp_path)).lower()
     # The tmp dir itself embeds this test's name ("..._no_secrets_..."), so
-    # scrub the home path before scanning for secret-looking markers.
+    # scrub the fleet_home path before scanning for secret-looking markers.
     blob = blob.replace(str(tmp_path).lower(), "")
     for marker in ("token", "secret", "api_key", "apikey", "password"):
         assert marker not in blob

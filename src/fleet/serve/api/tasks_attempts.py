@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api")
 
 def _attempt_dir(task_id: str, n: int, state: AppState) -> Path | None:
     """Attempt dir for (task_id, n), or None when the task/attempt is missing."""
-    task_dir = TaskIndex(state.home).find(task_id)
+    task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
         return None
     adir = attempt_dir_path(task_dir, n)
@@ -29,7 +29,7 @@ def _attempt_dir(task_id: str, n: int, state: AppState) -> Path | None:
 @router.get("/tasks/{task_id}/attempts/{n}/summary", response_model=ContentResponse)
 async def get_attempt_summary(task_id: str, n: int, state: StateDep) -> JSONResponse:
     """Derived attempt summary, rendered on demand (never stored)."""
-    task_dir = TaskIndex(state.home).find(task_id)
+    task_dir = TaskIndex(state.fleet_home).find(task_id)
     attempt_dir = _attempt_dir(task_id, n, state)
     if task_dir is None or attempt_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)

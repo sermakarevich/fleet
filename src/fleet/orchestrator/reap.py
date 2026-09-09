@@ -160,7 +160,7 @@ def discard_isolation(st: SupervisorState, task: Task, task_dir: Path, info: dic
     repo_root = info.get("repo_root") or ""
     wt_path = Path(info["worktree_path"])
     if repo_root:
-        worktree.cleanup_worktree(repo_root, task.id, wt_path, fleet_home=st.project_root)
+        worktree.cleanup_worktree(repo_root, task.id, wt_path, fleet_home=st.fleet_home)
         with contextlib.suppress(Exception):  # noqa: BLE001
             worktree.delete_branch(repo_root, task.id)
     (task_dir / ".worktree").unlink(missing_ok=True)

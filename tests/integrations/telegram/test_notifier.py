@@ -79,13 +79,13 @@ def _insert_question(
 
 
 def _make_fake_app(
-    chat_id: str = "999", store: QuestionStore | None = None, home: Path | None = None
+    chat_id: str = "999", store: QuestionStore | None = None, fleet_home: Path | None = None
 ) -> MagicMock:
     cfg = RuntimeConfig(telegram_chat_id=chat_id)
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = cfg
     fake_app.state.fleet_state.question_store = store
-    fake_app.state.fleet_state.home = home
+    fake_app.state.fleet_state.fleet_home = fleet_home
     return fake_app
 
 
@@ -206,7 +206,7 @@ def test_poller_skips_send_when_token_missing(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, fleet_home=tmp_path)))
 
     assert sent == [], "No messages should be sent when token is absent"
 
@@ -245,7 +245,7 @@ def test_poller_does_not_send_preexisting_rows(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, fleet_home=tmp_path)))
 
     assert sent == [], "Pre-existing rows must not be sent"
 
@@ -282,7 +282,7 @@ def test_poller_sends_new_question_exactly_once(
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, fleet_home=tmp_path)))
 
     assert len(sent) == 1
     assert "new question?" in sent[0]
@@ -314,7 +314,7 @@ def test_poller_continues_after_send_error(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, home=tmp_path)))
+        asyncio.run(app_mod._question_poller(_make_fake_app(store=store, fleet_home=tmp_path)))
 
     assert call_n[0] >= 4, "Loop must keep running after a send error"
 
@@ -369,9 +369,9 @@ def test_telegram_allowed_ids_round_trips(tmp_path: Path) -> None:
 def test_telegram_default_cwd_round_trips(tmp_path: Path) -> None:
     cfg_path = tmp_path / "runtime.toml"
     load(cfg_path)
-    result = write_atomic(cfg_path, {"telegram_default_cwd": "/home/user/project"})
-    assert result.telegram_default_cwd == "/home/user/project"
-    assert load(cfg_path).telegram_default_cwd == "/home/user/project"
+    result = write_atomic(cfg_path, {"telegram_default_cwd": "/fleet_home/user/project"})
+    assert result.telegram_default_cwd == "/fleet_home/user/project"
+    assert load(cfg_path).telegram_default_cwd == "/fleet_home/user/project"
 
 
 # ---------------------------------------------------------------------------
@@ -1354,7 +1354,7 @@ def test_poller_records_message_id_mapping(tmp_path: Path, monkeypatch: pytest.M
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = cfg
     fake_app.state.fleet_state.question_store = store
-    fake_app.state.fleet_state.home = tmp_path
+    fake_app.state.fleet_state.fleet_home = tmp_path
 
     call_n = [0]
 

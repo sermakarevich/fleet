@@ -87,9 +87,9 @@ def _detail(body: dict) -> dict:
 
 
 async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
-    home = get_fleet_home()
+    fleet_home = get_fleet_home()
     try:
-        await asyncio.to_thread(beads_client.run, ["update", bead_id, *extra], cwd=home)
+        await asyncio.to_thread(beads_client.run, ["update", bead_id, *extra], cwd=fleet_home)
     except BdError as exc:
         return JSONResponse({"error": str(exc) or "bd update failed"}, status_code=502)
     return JSONResponse({"ok": True})
@@ -98,9 +98,9 @@ async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
 @router.get("/beads", response_model=BeadListResponse)
 async def list_beads() -> JSONResponse:
     """List every bead in the beads DB."""
-    home = get_fleet_home()
+    fleet_home = get_fleet_home()
     try:
-        items = await asyncio.to_thread(beads_client.list_all, home)
+        items = await asyncio.to_thread(beads_client.list_all, fleet_home)
     except BdError as exc:
         return JSONResponse({"error": str(exc) or "bd list failed"}, status_code=502)
     return JSONResponse({"beads": [_summary(it) for it in items if isinstance(it, dict)]})
@@ -109,9 +109,9 @@ async def list_beads() -> JSONResponse:
 @router.get("/beads/{bead_id}", response_model=BeadDetail)
 async def get_bead(bead_id: str) -> JSONResponse:
     """One bead with description, notes, dependencies, comments."""
-    home = get_fleet_home()
+    fleet_home = get_fleet_home()
     try:
-        body = await asyncio.to_thread(beads_client.show, bead_id, home)
+        body = await asyncio.to_thread(beads_client.show, bead_id, fleet_home)
     except BdError as exc:
         return JSONResponse({"error": str(exc) or "bd show failed"}, status_code=502)
     if not isinstance(body, dict):
@@ -127,12 +127,12 @@ async def set_status(bead_id: str, request: Request) -> JSONResponse:
     if status not in VALID_STATUSES:
         return JSONResponse({"error": f"invalid status: {status!r}"}, status_code=422)
     if status == "closed":
-        home = get_fleet_home()
+        fleet_home = get_fleet_home()
         try:
             await asyncio.to_thread(
                 beads_client.run,
                 ["close", bead_id, "--reason", "closed via BD portal"],
-                cwd=home,
+                cwd=fleet_home,
             )
         except BdError as exc:
             return JSONResponse({"error": str(exc) or "bd close failed"}, status_code=502)
@@ -149,13 +149,13 @@ async def unblock_bead(bead_id: str) -> JSONResponse:
 @router.post("/beads/{bead_id}/remove-assignee", response_model=OkResponse)
 async def remove_bead_assignee(bead_id: str) -> JSONResponse:
     """Clear the assignee; the portal targets beads, so a missing task dir is ok."""
-    home = get_fleet_home()
+    fleet_home = get_fleet_home()
     try:
         await asyncio.to_thread(
             task_actions.remove_assignee,
-            home,
+            fleet_home,
             bead_id,
-            clear_assignee=beads_assignee_clearer(home),
+            clear_assignee=beads_assignee_clearer(fleet_home),
         )
     except task_actions.TaskNotFound:
         return await _update(bead_id, ["--assignee", ""])

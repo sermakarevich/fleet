@@ -10,13 +10,13 @@ from fleet.core.config import RuntimeConfig
 
 
 def test_home_respects_fleet_home_env(tmp_path: Path, monkeypatch) -> None:
-    """home() resolves $FLEET_HOME."""
+    """fleet_home() resolves $FLEET_HOME."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    assert bootstrap.home() == tmp_path.resolve()
+    assert bootstrap.fleet_home() == tmp_path.resolve()
 
 
 def test_log_dir_joins_relative_root(tmp_path: Path, monkeypatch) -> None:
-    """A relative LOG_ROOT resolves under the fleet home."""
+    """A relative LOG_ROOT resolves under the fleet fleet_home."""
     monkeypatch.setattr(bootstrap, "LOG_ROOT", "logging")
     assert bootstrap.log_dir(tmp_path) == tmp_path / "logging"
 
@@ -28,7 +28,7 @@ def test_log_dir_keeps_absolute_root(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_queue_bound_to_home(tmp_path: Path) -> None:
-    """queue() builds a BeadsQueue rooted at the given home."""
+    """queue() builds a BeadsQueue rooted at the given fleet_home."""
     q = bootstrap.queue(tmp_path)
     assert isinstance(q, BeadsQueue)
     assert q.repo_root == tmp_path

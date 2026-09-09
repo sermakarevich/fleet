@@ -113,8 +113,8 @@ class TaskSummary(TypedDict):
     attempts: list[AttemptTimelineRow]
 
 
-def context_overrides_for_home(home: Path) -> dict[str, int]:
-    """Parse ``context_windows`` from ``<home>/runtime.toml`` into ``{model: tokens}``.
+def context_overrides_for_home(fleet_home: Path) -> dict[str, int]:
+    """Parse ``context_windows`` from ``<fleet_home>/runtime.toml`` into ``{model: tokens}``.
 
     Missing file, missing key, or malformed value all yield {} (built-in
     table only) — the summary display must never crash on config drift.
@@ -122,7 +122,7 @@ def context_overrides_for_home(home: Path) -> dict[str, int]:
     """
 
     try:
-        with (home / "runtime.toml").open("rb") as fh:
+        with (fleet_home / "runtime.toml").open("rb") as fh:
             raw = tomllib.load(fh).get("context_windows", "")
     except (OSError, ValueError):
         return {}
@@ -304,7 +304,7 @@ def _job_artifacts(task_dir: Path) -> dict:
 def build_task_summary(
     task_dir: Path,
     data: dict,
-    home: Path,
+    fleet_home: Path,
     *,
     context_limit: int | None = None,
     blocked_notes: str | None = None,
@@ -312,8 +312,8 @@ def build_task_summary(
     """Return the summary dict for one task.
 
     *data* is the task.json content, already reconciled against beads status
-    (see `fleet.beads.reconcile.merge_status`) by the caller. *home* is the
-    fleet home directory. *context_limit* is the resolved coder/model window
+    (see `fleet.beads.reconcile.merge_status`) by the caller. *fleet_home* is the
+    fleet fleet_home directory. *context_limit* is the resolved coder/model window
     (defaults to DEFAULT_CONTEXT_LIMIT); *blocked_notes* is the beads-notes
     fallback used when a blocked task has no blocked_reason.
     """

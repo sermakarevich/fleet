@@ -27,17 +27,17 @@ def _fleet_root() -> Path:
     return Path(__file__).parent.parent.parent.parent
 
 
-def ask_human_db_path(home: Path) -> Path:
+def ask_human_db_path(fleet_home: Path) -> Path:
     """SQLite file shared by the ask_human server and (via the same env var)
     the operator frontends. Lives under FLEET_HOME, never in ~/.claude."""
-    return home / "ask_human" / "questions.db"
+    return fleet_home / "ask_human" / "questions.db"
 
 
-def fleet_mcp_servers(home: Path) -> dict[str, dict]:
+def fleet_mcp_servers(fleet_home: Path) -> dict[str, dict]:
     """Return the MCP servers every fleet worker must be handed.
 
-    *home* is FLEET_HOME (``state.paths.fleet_home()`` in production).
-    ``ask_human`` gets ``ASK_HUMAN_DB`` pointed under *home* so questions land
+    *fleet_home* is FLEET_HOME (``state.paths.fleet_home()`` in production).
+    ``ask_human`` gets ``ASK_HUMAN_DB`` pointed under *fleet_home* so questions land
     where the operator frontends (same env var) read them. ``web_fetch``
     needs no env of its own; coders that select its model (opencode) layer
     their ``FLEET_WEBFETCH_*`` vars on top of the returned ``env``.
@@ -48,7 +48,7 @@ def fleet_mcp_servers(home: Path) -> dict[str, dict]:
         "ask_human": {
             "command": "uv",
             "args": [*base_args, ASK_HUMAN_SERVER_MODULE],
-            "env": {ASK_HUMAN_DB_ENV: str(ask_human_db_path(home))},
+            "env": {ASK_HUMAN_DB_ENV: str(ask_human_db_path(fleet_home))},
         },
         "web_fetch": {
             "command": "uv",

@@ -32,10 +32,10 @@ router = APIRouter(prefix="/api")
 @router.get("/tasks", response_model=TaskListResponse)
 async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     """List task summaries, active first then recently-closed (FR-07)."""
-    home = state.home
-    index = TaskIndex(home)
+    fleet_home = state.fleet_home
+    index = TaskIndex(fleet_home)
     raw_tasks = [raw for _, raw in index.iter_meta()]
-    beads_map = await asyncio.to_thread(get_beads_status_map, home)
+    beads_map = await asyncio.to_thread(get_beads_status_map, fleet_home)
     reconciled = [
         merge_status(raw, beads_map.get(raw.get("id", "")))
         if beads_map is not None and raw.get("id", "")
@@ -52,7 +52,7 @@ async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     summaries = await asyncio.to_thread(
         build_all_summaries,
         active + closed,
-        home,
+        fleet_home,
         beads_map,
         default_coder=default_coder,
         default_model=default_model,
@@ -99,8 +99,8 @@ async def create_task(request: Request, state: StateDep) -> JSONResponse:
 
 @router.get("/templates", response_model=TemplateListResponse)
 async def list_templates(state: StateDep) -> JSONResponse:
-    """Prompt templates stored under the fleet home."""
-    templates_dir = state.home / "templates"
+    """Prompt templates stored under the fleet fleet_home."""
+    templates_dir = state.fleet_home / "templates"
     templates = []
     if templates_dir.is_dir():
         for f in sorted(templates_dir.glob("*.md")):

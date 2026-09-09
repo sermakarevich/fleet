@@ -39,7 +39,7 @@ class SupervisorState:
     """Shared blackboard. Each field names its single writer in a comment."""
 
     config: RuntimeConfig  # writer: ConfigReload (bead 2)
-    project_root: Path
+    fleet_home: Path
     runtime_toml_path: Path
     queue: Queue
     log: structlog.BoundLogger
@@ -59,4 +59,4 @@ class SupervisorState:
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""
-        return state_paths.task_dir(self.project_root, task_id)
+        return state_paths.task_dir(self.fleet_home, task_id)

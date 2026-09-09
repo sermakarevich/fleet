@@ -70,9 +70,9 @@ def reconcile(records: list[AttemptRecord], beads: dict[str, dict] | None) -> li
     return [_reconcile_one(record, beads) for record in records]
 
 
-def compute_summary(home: Path, days: int) -> dict:
+def compute_summary(fleet_home: Path, days: int) -> dict:
     """Compute the /summary analytics endpoint data."""
-    records = records_module.collect_records(home)
-    beads = beads_info.get_beads_status_map(home)
-    window = build_window(home, days)
+    records = records_module.collect_records(fleet_home)
+    beads = beads_info.get_beads_status_map(fleet_home)
+    window = build_window(fleet_home, days)
     return {"window_days": window.days, **summarize(reconcile(records, beads), window)}

@@ -260,8 +260,8 @@ class TestCollectRecords:
     """Test 5: collect_records skips dirs without task.json."""
 
     def test_skips_no_task_json(self, tmp_path: Path) -> None:
-        home = tmp_path
-        tasks = home / "tasks"
+        fleet_home = tmp_path
+        tasks = fleet_home / "tasks"
 
         # Dir with task.json
         td1 = tasks / "task-a"
@@ -277,7 +277,7 @@ class TestCollectRecords:
         not_dir = tasks / "not-a-dir"
         not_dir.touch()
 
-        records = collect_records(home)
+        records = collect_records(fleet_home)
         ids = [r.id for r in records]
         assert "task-a" in ids
         assert "task-b" not in ids

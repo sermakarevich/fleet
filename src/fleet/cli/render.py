@@ -117,7 +117,7 @@ def format_override(task_value: str | None, default: str) -> Text:
 
 
 def render_tasks_table(
-    tasks: list[Task], home: Path, default_coder: str, default_model: str
+    tasks: list[Task], fleet_home: Path, default_coder: str, default_model: str
 ) -> Table:
     """Rich table of running tasks with start/elapsed/idle/context/coder/model."""
     table = Table(
@@ -139,8 +139,8 @@ def render_tasks_table(
     table.add_column("Title", overflow="fold")
     table.add_column("cwd", style="dim", overflow="fold")
 
-    overrides = context_overrides_for_home(home)
-    beads_map = get_beads_status_map(home)
+    overrides = context_overrides_for_home(fleet_home)
+    beads_map = get_beads_status_map(fleet_home)
     for t in tasks:
         coder, model = effective_coder_model(t.coder, t.model, default_coder, default_model)
         data = {
@@ -154,9 +154,9 @@ def render_tasks_table(
             "cwd": t.cwd,
         }
         summary = build_task_summary(
-            _task_dir(home, t.id),
+            _task_dir(fleet_home, t.id),
             data,
-            home,
+            fleet_home,
             context_limit=context_limit_for(coder, model, overrides),
             blocked_notes=(beads_map or {}).get(t.id, {}).get("notes"),
         )
@@ -176,13 +176,13 @@ def render_tasks_table(
 
 
 def print_tasks_table(
-    tasks: list[Task], home: Path, default_coder: str, default_model: str
+    tasks: list[Task], fleet_home: Path, default_coder: str, default_model: str
 ) -> None:
     """Print the running-tasks table, or the empty message when there are none."""
     if not tasks:
         typer.echo("No running tasks.")
         return
-    Console(soft_wrap=False).print(render_tasks_table(tasks, home, default_coder, default_model))
+    Console(soft_wrap=False).print(render_tasks_table(tasks, fleet_home, default_coder, default_model))
 
 
 def print_ready_tasks(tasks: list[Task]) -> None:
@@ -303,9 +303,9 @@ def print_file_or_exit(path: Path, missing_msg: str) -> None:
     typer.echo(path.read_text(encoding="utf-8"), nl=False)
 
 
-def print_init_done(home: Path) -> None:
-    """Confirm `fleet init` created the home directory."""
-    typer.echo(f"Fleet home initialized at {home}")
+def print_init_done(fleet_home: Path) -> None:
+    """Confirm `fleet init` created the fleet_home directory."""
+    typer.echo(f"Fleet fleet_home initialized at {fleet_home}")
 
 
 def print_kill_sent(task_id: str) -> None:

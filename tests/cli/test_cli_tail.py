@@ -250,9 +250,9 @@ def test_session_different_id_second_separator() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _seed_tail_task_dir(home: Path, task_id: str) -> Path:
-    """Create <home>/tasks/<id>/ with attempts/1/events.jsonl from samples."""
-    task_dir = home / "tasks" / task_id
+def _seed_tail_task_dir(fleet_home: Path, task_id: str) -> Path:
+    """Create <fleet_home>/tasks/<id>/ with attempts/1/events.jsonl from samples."""
+    task_dir = fleet_home / "tasks" / task_id
     attempt_dir = make_attempt(task_dir, 1)
     events_path = attempt_dir / "events.jsonl"
     events_path.write_text(

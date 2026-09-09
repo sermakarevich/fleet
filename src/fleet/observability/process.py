@@ -32,14 +32,14 @@ class ServiceStatus:
     stale: bool = False
 
 
-def _serve_spec(home: Path) -> DaemonSpec:
+def _serve_spec(fleet_home: Path) -> DaemonSpec:
     """Reader spec for `fleet serve` (pidfile only; argv unused for status)."""
     return DaemonSpec(
         name="serve",
-        pidfile=home / ".serve.pid",
-        logfile=home / "logs" / "serve.daemon.log",
+        pidfile=fleet_home / ".serve.pid",
+        logfile=fleet_home / "logs" / "serve.daemon.log",
         argv=[],
-        cwd=home,
+        cwd=fleet_home,
         stop_timeout=10.0,
     )
 
@@ -56,17 +56,17 @@ def registered_services() -> list[str]:
 
 
 class ServiceRegistry:
-    """Liveness of managed services for one fleet home."""
+    """Liveness of managed services for one fleet fleet_home."""
 
-    def __init__(self, home: Path) -> None:
-        self.home = home
+    def __init__(self, fleet_home: Path) -> None:
+        self.fleet_home = fleet_home
 
     def status(self, name: str) -> ServiceStatus:
         """Read the pid file for *name*; unknown names report not alive."""
         build = _SPECS.get(name)
         if build is None:
             return ServiceStatus(pid=None, alive=False, since=None, fingerprint=None)
-        data = read_pidfile(build(self.home)) or {}
+        data = read_pidfile(build(self.fleet_home)) or {}
         return _from_pid_data(data)
 
     def supervisor_running(self) -> bool:
@@ -91,6 +91,6 @@ def _from_pid_data(data: dict) -> ServiceStatus:
     )
 
 
-def service_status(name: str, home: Path | None = None) -> ServiceStatus:
+def service_status(name: str, fleet_home: Path | None = None) -> ServiceStatus:
     """Liveness fact for *name* (`supervisor` or `serve`)."""
-    return ServiceRegistry(home if home is not None else fleet_home()).status(name)
+    return ServiceRegistry(fleet_home if fleet_home is not None else fleet_home()).status(name)

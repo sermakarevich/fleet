@@ -19,7 +19,7 @@ from fleet.core.errors import WorktreeError
 
 
 def _fleet_home(fleet_home: Path | None = None) -> Path:
-    """Resolve the fleet home for worktree placement."""
+    """Resolve the fleet fleet_home for worktree placement."""
     if fleet_home is not None:
         return Path(fleet_home)
     env = os.environ.get("FLEET_HOME")

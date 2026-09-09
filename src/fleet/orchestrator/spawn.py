@@ -62,7 +62,7 @@ def resolve_coder(st: SupervisorState, task: Task) -> tuple[Coder, str, str | No
     kwargs = coder_kwargs(
         coder_name,
         model=model,
-        fleet_home=st.project_root,
+        fleet_home=st.fleet_home,
         config=st.config,
         env=settings_from_env(os.environ),
     )
@@ -96,8 +96,8 @@ def should_isolate(st: SupervisorState, task: Task, repo_root: Path | None) -> b
     """True when a git task should run in an isolated worktree.
 
     Non-git tasks (repo_root None) never isolate. A task without a cwd
-    never isolates either: it only fell back to fleet's home, and a
-    worktree of fleet's home is never the repo the task works on.
+    never isolates either: it only fell back to fleet's fleet_home, and a
+    worktree of fleet's fleet_home is never the repo the task works on.
     Isolation also stays off when the global `isolation` config is
     "none", when the repo root is listed in `isolation_exclude` (a
     comma-separated list of repo paths, for repos that auto-commit and
@@ -115,12 +115,12 @@ def should_isolate(st: SupervisorState, task: Task, repo_root: Path | None) -> b
 
 def _purge_stale_kill_marker(st: SupervisorState, task: Task) -> None:
     """Delete a leftover .kill sentinel before the runner is registered."""
-    (_task_dir(st.project_root, task.id) / ".kill").unlink(missing_ok=True)
+    (_task_dir(st.fleet_home, task.id) / ".kill").unlink(missing_ok=True)
 
 
 def _resolve_cwd_and_repo(st: SupervisorState, task: Task) -> tuple[Path, Path | None] | None:
     """Resolve the task cwd and its repo root, or block when terminal."""
-    base_cwd = Path(task.cwd) if task.cwd else st.project_root
+    base_cwd = Path(task.cwd) if task.cwd else st.fleet_home
     if task.cwd is not None and not Path(task.cwd).is_dir():
         block_terminal(st, task, f"terminal: cwd is not a directory: {task.cwd}")
         return None
@@ -150,7 +150,7 @@ def _ensure_isolation(
     base_ref = worktree.resolve_base_ref(repo_root)
     try:
         task_root = worktree.create_worktree(
-            repo_root, task.id, base_ref=base_ref, fleet_home=st.project_root
+            repo_root, task.id, base_ref=base_ref, fleet_home=st.fleet_home
         )
     except Exception as exc:
         block_terminal(st, task, f"terminal: worktree setup failed: {exc}")
@@ -178,8 +178,8 @@ def _build_step_context(
     return StepContext(
         task=task,
         task_dir=task_dir,
-        project_root=task_root,
-        fleet_home=st.project_root,
+        workdir=task_root,
+        fleet_home=st.fleet_home,
         coder=coder,
         config=st.config,
         rate_gauge=st.rate_gauge,

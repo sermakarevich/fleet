@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
-    fleet_home = tmp_path / "fleet-home"
+    fleet_home = tmp_path / "fleet-fleet_home"
     fleet_home.mkdir()
     project_dir = tmp_path / "projectA"
     project_dir.mkdir()

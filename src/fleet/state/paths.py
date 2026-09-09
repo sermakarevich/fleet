@@ -41,12 +41,12 @@ def fleet_home() -> Path:
     return Path.home() / ".fleet"
 
 
-def tasks_root(home: Path) -> Path:
-    return home / "tasks"
+def tasks_root(fleet_home: Path) -> Path:
+    return fleet_home / "tasks"
 
 
-def task_dir(home: Path, task_id: str) -> Path:
-    return tasks_root(home) / task_id
+def task_dir(fleet_home: Path, task_id: str) -> Path:
+    return tasks_root(fleet_home) / task_id
 
 
 def attempts_root(task_dir: Path) -> Path:

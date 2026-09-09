@@ -234,7 +234,7 @@ def register(telegram_app: typer.Typer) -> None:
         Pass --chat-id / --allowed-ids / --default-cwd to skip the corresponding
         interactive steps for non-interactive / scripted use.
         """
-        path = bootstrap.home() / "runtime.toml"
+        path = bootstrap.fleet_home() / "runtime.toml"
         written_keys: dict[str, str] = {}
         token, bot_username = _wizard_token(yes)
         chosen_chat_id, offset = _wizard_chat_id(token, bot_username, chat_id, yes)

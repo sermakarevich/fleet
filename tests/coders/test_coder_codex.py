@@ -416,13 +416,13 @@ def test_env_points_codex_home_at_attempt_dir(tmp_path: Path):
 
 def test_write_codex_config_lists_fleet_servers(tmp_path: Path):
 
-    home = tmp_path / "fleet_home"
-    cfg_path = _write_codex_config(tmp_path / "codex_home", home)
+    fleet_home = tmp_path / "fleet_home"
+    cfg_path = _write_codex_config(tmp_path / "codex_home", fleet_home)
     text = cfg_path.read_text(encoding="utf-8")
     assert "[mcp_servers.ask_human]" in text
     assert "[mcp_servers.web_fetch]" in text
     assert "fleet.integrations.ask_human.server" in text
-    assert str(home / "ask_human" / "questions.db") in text
+    assert str(fleet_home / "ask_human" / "questions.db") in text
 
 
 def test_build_argv_cd_flag_follows_the_isolated_worktree(tmp_path: Path) -> None:

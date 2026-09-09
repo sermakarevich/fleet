@@ -74,7 +74,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
             f"validation failed: worktree not clean/ahead of {base_ref}; merge manually",
         )
         st.log.warning("task.validation_not_clean", task_id=task_id)
-        worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
+        worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
         finish_validation(st, task_dir, task_id)
         return
 
@@ -87,7 +87,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         )
         await asyncio.to_thread(st.queue.set_blocked, task_id, reason)
         st.log.warning("task.validation_failed", task_id=task_id, conflict=result.conflict)
-        worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
+        worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
         finish_validation(st, task_dir, task_id)
         return
 
@@ -99,7 +99,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
                 st.queue.set_blocked, task_id, f"post-merge command failed:\n{tail}"
             )
             st.log.warning("task.post_merge_failed", task_id=task_id)
-            worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
+            worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
             finish_validation(st, task_dir, task_id)
             return
 
@@ -107,7 +107,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         st.queue.close, task_id, reason=f"validated: merged fleet/{task_id} into {base_ref}"
     )
     st.log.info("task.validated", task_id=task_id)
-    worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.project_root)
+    worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
     with contextlib.suppress(Exception):
         await asyncio.to_thread(worktree.delete_branch, repo_root, task_id)
     finish_validation(st, task_dir, task_id)
@@ -115,7 +115,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
 
 async def run_pending_validations(st: SupervisorState) -> None:
     """Merge the first validated task dir found; at most one per tick."""
-    tasks_root = _tasks_root(st.project_root)
+    tasks_root = _tasks_root(st.fleet_home)
     if not tasks_root.exists():
         return
     for task_dir in sorted(tasks_root.iterdir()):

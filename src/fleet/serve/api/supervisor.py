@@ -18,20 +18,20 @@ from fleet.state.task_index import TaskIndex
 router = APIRouter(prefix="/api/supervisor")
 
 
-def _count_active(home: Path) -> int:
+def _count_active(fleet_home: Path) -> int:
     """In-progress tasks, counted only when the supervisor is alive."""
-    return sum(1 for _, raw in TaskIndex(home).iter_meta() if raw.get("status") == "in_progress")
+    return sum(1 for _, raw in TaskIndex(fleet_home).iter_meta() if raw.get("status") == "in_progress")
 
 
 @router.get("", response_model=SupervisorResponse)
 async def get_supervisor_status() -> JSONResponse:
     """Supervisor liveness, slot counts, pause flag, code staleness (FR-42)."""
-    home = get_fleet_home()
-    cfg = load_config(home / "runtime.toml")
-    svc = ServiceRegistry(home).status("supervisor")
+    fleet_home = get_fleet_home()
+    cfg = load_config(fleet_home / "runtime.toml")
+    svc = ServiceRegistry(fleet_home).status("supervisor")
     running = svc.alive
-    active_count = _count_active(home) if running else 0
-    paused = (home / ".pause").exists()
+    active_count = _count_active(fleet_home) if running else 0
+    paused = (fleet_home / ".pause").exists()
     max_concurrent = cfg.max_concurrent
     return JSONResponse(
         {
@@ -51,16 +51,16 @@ async def get_supervisor_status() -> JSONResponse:
 @router.post("/pause", response_model=PauseResponse)
 async def pause_supervisor() -> JSONResponse:
     """Pause claiming (running workers finish)."""
-    home = get_fleet_home()
-    (home / ".pause").touch()
+    fleet_home = get_fleet_home()
+    (fleet_home / ".pause").touch()
     return JSONResponse({"paused": True})
 
 
 @router.post("/resume", response_model=PauseResponse)
 async def resume_supervisor() -> JSONResponse:
     """Clear the pause flag."""
-    home = get_fleet_home()
-    pause_file = home / ".pause"
+    fleet_home = get_fleet_home()
+    pause_file = fleet_home / ".pause"
     if pause_file.exists():
         pause_file.unlink()
     return JSONResponse({"paused": False})
@@ -69,8 +69,8 @@ async def resume_supervisor() -> JSONResponse:
 @router.post("/restart", response_model=RestartResponse)
 async def restart_supervisor() -> JSONResponse:
     """Restart the supervisor daemon; returns the new pid facts."""
-    home = get_fleet_home()
-    spec = supervisor_spec(home)
+    fleet_home = get_fleet_home()
+    spec = supervisor_spec(fleet_home)
     result = await asyncio.to_thread(restart, spec)
     pid_data = read_pidfile(spec) or {}
     return JSONResponse(
