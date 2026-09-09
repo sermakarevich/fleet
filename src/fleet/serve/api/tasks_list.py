@@ -23,6 +23,7 @@ from fleet.serve.api.task_summary import (
     build_all_summaries,
     config_defaults,
     list_raw_tasks,
+    list_unclaimed_raw_tasks,
     recency_key,
 )
 from fleet.serve.auth import HTTP_AUTH
@@ -37,10 +38,18 @@ async def list_tasks(
     state: StateDep,
     closed_limit: int = Query(default=CLOSED_TASKS_DEFAULT, ge=0, le=CLOSED_TASKS_MAX),
 ) -> JSONResponse:
-    """List task summaries, active first then recently-closed (FR-07)."""
+    """List task summaries, active first then recently-closed (FR-07).
+
+    Fleet beads without a task dir yet (created via plain `bd create`)
+    appear as synthetic rows with `has_task_dir: false`; the GET handler
+    itself never writes a task dir.
+    """
     fleet_home = state.fleet_home
     raw_tasks = await asyncio.to_thread(list_raw_tasks, fleet_home)
     beads_map = await asyncio.to_thread(get_beads_status_map, fleet_home)
+    if beads_map is not None:
+        known_ids = {str(r.get("id", "")) for r in raw_tasks}
+        raw_tasks = raw_tasks + list_unclaimed_raw_tasks(beads_map, known_ids)
     reconciled = [
         merge_status(raw, beads_map.get(raw.get("id", "")))
         if beads_map is not None and raw.get("id", "")

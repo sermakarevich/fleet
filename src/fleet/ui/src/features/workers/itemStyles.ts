@@ -54,6 +54,15 @@ export const rowStyles = {
     fontWeight: 600,
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
+  queuedBadge: {
+    display: 'inline-block',
+    padding: '0.05rem 0.4rem',
+    borderRadius: '0.25rem',
+    color: T.colors.textMuted,
+    fontSize: '0.7rem',
+    fontStyle: 'italic',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
   coderCell: {
     width: '9rem',
     flexShrink: 0,

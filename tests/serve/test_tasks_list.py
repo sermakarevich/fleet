@@ -126,6 +126,47 @@ def test_default_returns_all_active_plus_most_recent_closed(
     )
 
 
+def test_unclaimed_fleet_bead_appears_with_open_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fleet bead with no task dir appears as a synthetic open row."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    tasks_root = tmp_path / "tasks"
+    _make_task_dir(tasks_root, "task-claimed", "in_progress", created_at="2024-06-15T10:00:00Z")
+
+    bead_info = {
+        "status": "open",
+        "priority": 2,
+        "created_at": "2024-06-16T10:00:00Z",
+        "title": "Unclaimed bead",
+        "description": "Created via plain bd create",
+        "metadata": {
+            "fleet_cwd": "/repo",
+            "fleet_coder": "claude",
+            "fleet_model": "sonnet",
+        },
+    }
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map",
+        MagicMock(return_value={"fleet-unclaimed": bead_info}),
+    )
+
+    app = create_app()
+
+    resp = _get(app, "/api/tasks")
+    assert resp.status_code == 200
+    tasks = {t["id"]: t for t in resp.json()["tasks"]}
+    assert "fleet-unclaimed" in tasks
+    row = tasks["fleet-unclaimed"]
+    assert row["status"] == "open"
+    assert row["has_task_dir"] is False
+    assert row["cwd"] == "/repo"
+    assert row["coder"] == "claude"
+    assert row["model"] == "sonnet"
+    # The GET handler stays side-effect free: no task dir was written.
+    assert not (tasks_root / "fleet-unclaimed").exists()
+
+
 def test_closed_limit_keeps_exactly_n_most_recent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

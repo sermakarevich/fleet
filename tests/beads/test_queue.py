@@ -293,6 +293,40 @@ def test_set_cwd_preserves_existing_fields(tmp_path: Path) -> None:
     assert meta["model"] == "qwen3.6:latest"
 
 
+def test_create_task_passes_deps_atomically(tmp_path: Path) -> None:
+    """create_task puts --deps on the one bd create; no dep add follows."""
+    q = BeadsQueue(repo_root=tmp_path)
+    seen_argv: list[list[str]] = []
+    runs: list[list[str]] = []
+
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        seen_argv.append(list(argv))
+        if argv and argv[0] == "create":
+            return {"id": "t-dep"}
+        if argv and argv[0] == "show":
+            return {"id": "t-dep", "title": "Dep", "description": None, "status": "open"}
+        return []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        runs.append(list(argv))
+        return _ok_run()
+
+    with (
+        patch.object(q._client, "run_json", side_effect=fake_run_json),
+        patch.object(q._client, "run", side_effect=fake_run),
+    ):
+        task = q.create_task("Dep", depends_on=["a-1", "b-2"])
+
+    creates = [argv for argv in seen_argv if argv and argv[0] == "create"]
+    assert len(creates) == 1
+    assert "--deps" in creates[0]
+    assert creates[0][creates[0].index("--deps") + 1] == "a-1,b-2"
+    assert [argv for argv in runs if argv[:2] == ["dep", "add"]] == []
+    assert task.id == "t-dep"
+    meta = json.loads((tmp_path / "tasks" / "t-dep" / "task.json").read_text())
+    assert meta["depends_on"] == ["a-1", "b-2"]
+
+
 def test_set_bd_fields_writes_title_and_preserves_fleet_fields(tmp_path: Path) -> None:
     """set_bd_fields snapshots title/description from a bd body, keeping cwd/coder/model."""
 

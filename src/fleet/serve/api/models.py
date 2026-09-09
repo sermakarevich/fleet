@@ -125,6 +125,7 @@ class TaskSummary(BaseModel):
     job_artifacts: JobArtifacts
     steps: list[RunStep]
     lease: TaskLease | None
+    has_task_dir: bool = True
 
 
 class TaskAttempt(BaseModel):

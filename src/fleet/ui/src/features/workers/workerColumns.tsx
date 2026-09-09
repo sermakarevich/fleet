@@ -71,6 +71,11 @@ export function TaskTitleCell({ task }: { task: TaskSummary }) {
           ignored
         </span>
       )}
+      {task.has_task_dir === false && (
+        <span style={rowStyles.queuedBadge} title="Created in beads, not yet claimed: no task directory on disk">
+          queued
+        </span>
+      )}
     </span>
   );
 }
@@ -234,6 +239,11 @@ export function TaskCard({ task, cb }: { task: TaskSummary; cb: TaskListCallback
       {task.ignored && (
         <div style={rowStyles.ignoredBadge} title={`Triage ignored until ${task.ignore_until ?? '—'}`}>
           ignored until {task.ignore_until ?? '—'}
+        </div>
+      )}
+      {task.has_task_dir === false && (
+        <div style={rowStyles.queuedBadge} title="Created in beads, not yet claimed: no task directory on disk">
+          queued
         </div>
       )}
       <div style={cardStyles.cardMeta}>

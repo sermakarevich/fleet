@@ -111,6 +111,7 @@ class TaskSummary(TypedDict):
     steps: list
     lease: LeaseInfo | None
     attempts: list[AttemptTimelineRow]
+    has_task_dir: bool
 
 
 def context_overrides_for_home(fleet_home: Path) -> dict[str, int]:
@@ -389,4 +390,5 @@ def build_task_summary(
         "steps": steps,
         "lease": _read_lease(task_dir),
         "attempts": attempt_rows,
+        "has_task_dir": bool(data.get("has_task_dir", True)),
     }
