@@ -2,7 +2,32 @@
 
 ## Status
 
-Proposed
+Accepted
+
+## Outcome (2026-09-09, all 30 beads + docs bead done)
+
+The program shipped. The five files named in Consequences changed shape
+as follows (`wc -l`, before = audit-time size from Context above, after =
+today; "before" for the two split files is the single function/closure
+that dominated them):
+
+| File | Before | After |
+|---|---|---|
+| `workers/llm_session.py` (`LlmSession.run`, 370 lines, 9 responsibilities) | ~370 in one function | `llm_session.py` 299 total, delegating to `workers/session/` (`process.py` 148, `stream.py` 102, `monitors.py` 397, `classify.py` 165) |
+| `serve/analytics/summary.py` (`compute_summary`, 466 lines) | 466 in one function | 78: `SUMMARY_SECTIONS` registry over `metrics/*` |
+| the old tasks.py router (`create_tasks_router`, 567-line closure, 25 routes) | 567 in one closure | split into 6 routers, 581 lines total (`tasks_list.py`, `tasks_detail.py`, `tasks_actions.py`, `tasks_artifacts.py`, `tasks_attempts.py`, `tasks_stream.py`, all in `ROUTERS`) |
+| the old telegram bot.py (`inbound_listener`, 7 deep) | one file | split into 7 modules, 693 lines total (`api.py`, `commands.py`, `listener.py`, `messages.py`, `notify.py`, `setup.py`, `COMMANDS` registry) |
+| `core/retry_policy.py` (`decide`, 129-line switch) | 129 in one switch | 468: the explicit `RETRY_TABLE` plus per-rule detail |
+| `beads/queue.py` | oversized, talked raw `bd` everywhere | 452, talks to `bd` only via `beads/client.py`, `_FLAGS` registry in `beads/create_args.py` |
+
+Final module names where they differ from the Rule 1 table: none — every
+owner landed under the name the ADR proposed (`state/task_meta.py`,
+`state/attempt_journal.py`, `state/run_file.py`, `state/artifacts.py`,
+`state/task_index.py`, `state/config_file.py`,
+`integrations/ask_human/store.py::QuestionStore`,
+`observability/process.py`). The startup-checks registry of Rule 3 is
+`DEFAULT_CHECKS` in `orchestrator/checks.py`. `just check` is green on
+the merge commit.
 
 ## Date
 
@@ -17,9 +42,11 @@ four problems repeated everywhere. Numbers below are from that audit.
 
 **1. Files and records have no single owner.**
 `task.json` is written by `beads/queue.py` and rewritten directly by
-`serve/api/tasks.py:82,371`; it is parsed in eight modules. `STATE.md` and
+the old tasks router (now split — see Outcome); it is parsed in eight
+modules. `STATE.md` and
 `RESULT.json` have no writer inside `state/` at all (written by
-`workers/task.py`, `workers/compact.py`, `workers/job.py`, snapshotted by
+the task worker module (now `workers/task_family.py`),
+`workers/compact.py`, `workers/job.py`, snapshotted by
 `orchestrator/reap.py`). `run.json` is read-merge-written in `workers/base.py`
 and parsed in three other modules with no dataclass. The
 `ask_human` question database is reached through a class and six module
@@ -28,9 +55,9 @@ functions that resolve the path from a mutable global.
 **2. One function does many jobs at many levels.**
 `workers/llm_session.py::LlmSession.run` is 370 lines with nine
 responsibilities. `serve/analytics/summary.py::compute_summary` is 466 lines.
-`serve/api/tasks.py::create_tasks_router` is a 567-line closure holding 25
+the old tasks router's `create_tasks_router` was a 567-line closure holding 25
 routes. `core/retry_policy.py::decide` is a 129-line switch over a table
-that exists only in comments. `integrations/telegram/bot.py::inbound_listener`
+that exists only in comments. the old telegram bot's `inbound_listener`
 nests seven deep.
 
 **3. The same helper exists many times.**
@@ -43,8 +70,9 @@ Dependency-cycle check: 2. Worktree resolution: 2. The FLEET_* env dict: 5.
 **4. Layers leak.**
 `state/task_summary.py` imports `beads`, `serve` and `coders`. `state/journal.py`
 imports `observability`. `core/config.py` does file I/O. `orchestrator/supervisor.py`
-and `cli/tasks.py` import `serve/stats.py`, a file that is state-layer code.
-`integrations/telegram/bot.py` reaches into FastAPI `app.state`. Nothing
+and `cli/tasks.py` import the old stats module (now
+`state/runtime_stats.py`), a file that is state-layer code.
+the old telegram bot reached into FastAPI `app.state`. Nothing
 checks the import direction, so every violation is silent.
 
 Vocabulary drifts with the code: task / bead / issue; attempt / run / round;
@@ -128,8 +156,8 @@ and is the model.
 
 - About 3,000 lines move; behaviour does not change. Each bead keeps the
   suite green and is reviewable alone.
-- `beads/queue.py`, `serve/api/tasks.py`, `llm_session.py`, `summary.py`,
-  `bot.py` each lose more than half their length.
+- `beads/queue.py`, the tasks routers, `llm_session.py`, `summary.py`,
+  the telegram bot each lose more than half their length.
 - New contributors can answer "who writes this file" and "where is the
   list of X" by opening one module.
 - Cost: one serial chain of 31 beads after the ADR 0005 chain (15 structural beads, then a second batch of 15 from the composition/typing/naming/runtime audits, then the docs bead) (same working
