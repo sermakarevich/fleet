@@ -12,22 +12,22 @@ from fleet.core.config import RuntimeConfig, merge, parse, render_toml
 
 
 def test_parse_partial_dict_overlays_defaults() -> None:
-    cfg = parse({"max_concurrent": 8})
+    config = parse({"max_concurrent": 8})
 
-    assert cfg.max_concurrent == 8
-    assert cfg.model == RuntimeConfig().model
+    assert config.max_concurrent == 8
+    assert config.model == RuntimeConfig().model
 
 
 def test_parse_ignores_unknown_keys() -> None:
-    cfg = parse({"not_a_real_key": 42})
+    config = parse({"not_a_real_key": 42})
 
-    assert cfg == RuntimeConfig()
+    assert config == RuntimeConfig()
 
 
 def test_parse_coerces_string_ints() -> None:
-    cfg = parse({"max_concurrent": "7"})
+    config = parse({"max_concurrent": "7"})
 
-    assert cfg.max_concurrent == 7
+    assert config.max_concurrent == 7
 
 
 def test_parse_rejects_bad_bool() -> None:
@@ -71,26 +71,26 @@ def test_deprecated_context_keys_are_ignored_with_warning(caplog: pytest.LogCapt
     """Old single-number keys warn and fall back to defaults."""
 
     with caplog.at_level(logging.WARNING, logger="fleet.core.config"):
-        cfg = parse({"opencode_context_limit": 64000, "opencode_bedrock_context_limit": 300000})
+        config = parse({"opencode_context_limit": 64000, "opencode_bedrock_context_limit": 300000})
 
-    assert cfg.context_windows == ""
+    assert config.context_windows == ""
     assert any("opencode_context_limit" in r.message for r in caplog.records)
 
 
 def test_parse_picks_up_context_windows() -> None:
-    cfg = parse(
+    config = parse(
         {
             "context_windows": "muse-spark-1.3-contributor:1048576",
             "opencode_default_model": "qwen3.6:latest",
         }
     )
 
-    assert cfg.context_windows == "muse-spark-1.3-contributor:1048576"
-    assert cfg.opencode_default_model == "qwen3.6:latest"
+    assert config.context_windows == "muse-spark-1.3-contributor:1048576"
+    assert config.opencode_default_model == "qwen3.6:latest"
 
 
 def test_bedrock_config_defaults() -> None:
-    cfg = RuntimeConfig()
-    assert cfg.opencode_bedrock_region == ""
-    assert cfg.opencode_bedrock_profile == ""
-    assert cfg.context_windows == ""
+    config = RuntimeConfig()
+    assert config.opencode_bedrock_region == ""
+    assert config.opencode_bedrock_profile == ""
+    assert config.context_windows == ""

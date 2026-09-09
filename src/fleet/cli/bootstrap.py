@@ -13,23 +13,23 @@ from pathlib import Path
 from fleet.beads.queue import BeadsQueue
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import LOG_ROOT
+from fleet.state import paths as _state_paths
 from fleet.state.config_file import load as load_config
-from fleet.state.paths import fleet_home
 
 
 def fleet_home() -> Path:
-    """Fleet fleet_home directory (``$FLEET_HOME`` or ``~/.fleet``)."""
-    return fleet_home()
+    """Fleet home directory (``$FLEET_HOME`` or ``~/.fleet``)."""
+    return _state_paths.fleet_home()
 
 
 def log_dir(fleet_home: Path) -> Path:
-    """Supervisor log dir: absolute ``LOG_ROOT`` as-is, else under the fleet fleet_home."""
+    """Supervisor log dir: absolute ``LOG_ROOT`` as-is, else under the fleet home."""
     root = Path(LOG_ROOT)
     return root if root.is_absolute() else fleet_home / root
 
 
 def queue(fleet_home: Path) -> BeadsQueue:
-    """Beads queue bound to the fleet fleet_home."""
+    """Beads queue bound to the fleet home."""
     return BeadsQueue(fleet_home)
 
 

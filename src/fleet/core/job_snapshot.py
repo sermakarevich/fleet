@@ -21,7 +21,7 @@ class JobSnapshot:
 
     - *has_research*: artifacts/RESEARCH.md exists.
     - *has_tasks*: artifacts/tasks.json exists.
-    - *gate_enabled*: cfg.job_gate and bead metadata fleet_job_gate != "off".
+    - *gate_enabled*: config.job_gate and bead metadata fleet_job_gate != "off".
     - *approved*: artifacts/APPROVED exists.
     - *has_children*: the epic already has child beads.
     """

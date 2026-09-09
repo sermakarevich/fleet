@@ -10,7 +10,7 @@ from fleet.observability.process import service_status
 from fleet.serve.api.models import HealthResponse
 from fleet.serve.auth import websocket_authorized
 from fleet.serve.state import StateDep
-from fleet.state.paths import fleet_home
+from fleet.state import paths as state_paths
 from fleet.state.paths import task_dir as _task_dir
 
 router = APIRouter()
@@ -18,8 +18,8 @@ router = APIRouter()
 
 @router.get("/healthz", response_model=HealthResponse)
 async def healthz() -> JSONResponse:
-    """Liveness with fleet fleet_home, serve fingerprint and code staleness."""
-    fleet_home = fleet_home()
+    """Liveness with fleet home, serve fingerprint and code staleness."""
+    fleet_home = state_paths.fleet_home()
     svc = service_status("serve", fleet_home)
     return JSONResponse(
         {
@@ -55,7 +55,7 @@ async def ws_task_events(ws: WebSocket, id: str, state: StateDep) -> None:
     if not websocket_authorized(ws):
         await ws.close(code=4401)
         return
-    task_dir = _task_dir(fleet_home(), id)
+    task_dir = _task_dir(state_paths.fleet_home(), id)
     if not task_dir.is_dir():
         await ws.accept()
         await ws.close(code=4004)

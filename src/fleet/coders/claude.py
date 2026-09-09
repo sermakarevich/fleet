@@ -307,8 +307,8 @@ class ClaudeCoder:
 
         task_id = getattr(task, "id", None)
         if task_id:
-            tdir = _resolve_task_dir(self.fleet_home, task_id)
-            write_mcp_config(_attempt_dir_for(tdir), fleet_mcp_servers(self.fleet_home))
+            task_dir = _resolve_task_dir(self.fleet_home, task_id)
+            write_mcp_config(_attempt_dir_for(task_dir), fleet_mcp_servers(self.fleet_home))
 
     def normalize_event(self, raw_line: str) -> Event | None:
         """Parse one stdout line: hard-reject check, then EVENT_MAP on (type, subtype)."""

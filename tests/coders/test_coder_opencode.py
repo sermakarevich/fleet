@@ -133,8 +133,8 @@ def test_build_argv_default_model_custom_used_directly():
 
 def test_build_config_default_model_in_provider_models():
     coder = _coder(model="sonnet", default_model="qwen3.6:latest")
-    cfg = coder._build_config()
-    entry = cfg["provider"]["ollama-rtx"]
+    config = coder._build_config()
+    entry = config["provider"]["ollama-rtx"]
     assert "qwen3.6:latest" in entry["models"]
 
 
@@ -263,9 +263,9 @@ def test_env_keys_ollama(tmp_path: Path):
 
 def test_env_config_content_is_valid_json_with_provider(tmp_path: Path):
     env = _coder().env(_task(), tmp_path)
-    cfg = json.loads(env["OPENCODE_CONFIG_CONTENT"])
-    assert "ollama-rtx" in cfg["provider"]
-    assert cfg["$schema"] == "https://opencode.ai/config.json"
+    config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+    assert "ollama-rtx" in config["provider"]
+    assert config["$schema"] == "https://opencode.ai/config.json"
 
 
 def test_env_does_not_write_opencode_json(tmp_path: Path):
@@ -435,14 +435,14 @@ def test_write_runtime_config_hook_absent(tmp_path: Path):
 
 
 def test_build_config_schema_and_provider():
-    cfg = _coder()._build_config()
-    assert cfg["$schema"] == "https://opencode.ai/config.json"
-    assert "ollama-rtx" in cfg["provider"]
+    config = _coder()._build_config()
+    assert config["$schema"] == "https://opencode.ai/config.json"
+    assert "ollama-rtx" in config["provider"]
 
 
 def test_build_config_provider_entry_structure():
-    cfg = _coder()._build_config()
-    entry = cfg["provider"]["ollama-rtx"]
+    config = _coder()._build_config()
+    entry = config["provider"]["ollama-rtx"]
     assert entry["npm"] == "@ai-sdk/openai-compatible"
     assert entry["name"] == "Ollama (rtx)"
     assert entry["options"]["baseURL"] == "http://127.0.0.1:11435/v1"
@@ -452,24 +452,24 @@ def test_build_config_provider_entry_structure():
 
 def test_build_config_ollama_url_constructor():
     coder = _coder(settings=OpencodeSettings(ollama_url="http://127.0.0.1:12345/v1"))
-    cfg = coder._build_config()
-    assert cfg["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
+    config = coder._build_config()
+    assert config["provider"]["ollama-rtx"]["options"]["baseURL"] == "http://127.0.0.1:12345/v1"
 
 
 def test_build_config_permission_block():
-    cfg = _coder()._build_config()
-    assert cfg["permission"] == {"external_directory": "allow"}
+    config = _coder()._build_config()
+    assert config["permission"] == {"external_directory": "allow"}
 
 
 def test_build_config_mcp_matches_shared_definitions():
     """The ask-human/web_fetch entries must come from integrations.mcp_servers."""
 
     shared = fleet_mcp_servers(fleet_home())
-    cfg = _coder()._build_config()
-    ask_entry = cfg["mcp"]["ask-human"]
+    config = _coder()._build_config()
+    ask_entry = config["mcp"]["ask-human"]
     assert ask_entry["command"] == [shared["ask_human"]["command"], *shared["ask_human"]["args"]]
     assert shared["ask_human"]["env"]["ASK_HUMAN_DB"] in repr(ask_entry)
-    web_entry = cfg["mcp"]["web_fetch"]
+    web_entry = config["mcp"]["web_fetch"]
     assert web_entry["command"] == [shared["web_fetch"]["command"], *shared["web_fetch"]["args"]]
 
 
@@ -496,14 +496,14 @@ def test_build_config_mcp_playwright_available():
 
 
 def test_build_config_mcp_web_fetch_available():
-    cfg = _coder()._build_config()
-    entry = cfg["mcp"]["web_fetch"]
+    config = _coder()._build_config()
+    entry = config["mcp"]["web_fetch"]
     assert entry["enabled"] is True
     assert entry["type"] == "local"
     assert entry["command"][-1] == "fleet.integrations.web_fetch.server"
     assert entry["environment"]["FLEET_WEBFETCH_MODEL"]
     assert entry["environment"]["FLEET_WEBFETCH_OLLAMA_URL"]
-    assert "ask-human" in cfg["mcp"]
+    assert "ask-human" in config["mcp"]
 
 
 # ---------------------------------------------------------------------------
@@ -616,26 +616,26 @@ def test_bedrock_model_with_custom_context_limit():
 
 def test_build_config_bedrock_model_has_bedrock_provider():
     coder = _coder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
-    cfg = coder._build_config()
-    bedrock_entry = cfg["provider"]["amazon-bedrock"]
+    config = coder._build_config()
+    bedrock_entry = config["provider"]["amazon-bedrock"]
     assert bedrock_entry["name"] == "Amazon Bedrock"
     model_key = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert bedrock_entry["models"][model_key]["limit"]["context"] == 200_000
     assert bedrock_entry["models"][model_key]["tools"] is True
-    assert "ollama-rtx" in cfg["provider"]
+    assert "ollama-rtx" in config["provider"]
 
 
 def test_build_config_bedrock_not_added_for_ollama_model():
     coder = _coder(model="qwen3.6:latest")
-    cfg = coder._build_config()
-    assert "amazon-bedrock" not in cfg.get("provider", {})
+    config = coder._build_config()
+    assert "amazon-bedrock" not in config.get("provider", {})
 
 
 def test_build_config_bedrock_preserves_mcp_and_permission():
     coder = _coder(model="amazon-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0")
-    cfg = coder._build_config()
-    assert "ask-human" in cfg["mcp"]
-    assert cfg["permission"]["external_directory"] == "allow"
+    config = coder._build_config()
+    assert "ask-human" in config["mcp"]
+    assert config["permission"]["external_directory"] == "allow"
 
 
 def test_non_bedrock_model_is_bedrock_false():

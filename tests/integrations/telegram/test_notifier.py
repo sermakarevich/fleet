@@ -81,9 +81,9 @@ def _insert_question(
 def _make_fake_app(
     chat_id: str = "999", store: QuestionStore | None = None, fleet_home: Path | None = None
 ) -> MagicMock:
-    cfg = RuntimeConfig(telegram_chat_id=chat_id)
+    config = RuntimeConfig(telegram_chat_id=chat_id)
     fake_app = MagicMock()
-    fake_app.state.fleet_state.config = cfg
+    fake_app.state.fleet_state.config = config
     fake_app.state.fleet_state.question_store = store
     fake_app.state.fleet_state.fleet_home = fleet_home
     return fake_app
@@ -93,15 +93,15 @@ def _listener_parts(
     app: MagicMock, tmp_path: Path, *, qmsgs: str = "qmsgs.json", db: Path | None = None
 ) -> tuple[TelegramApi, QuestionStore, CommandEnv, OffsetStore]:
     """Build (api, store, env, offsets) for inbound_listener from the fake app."""
-    cfg = app.state.fleet_state.config
+    config = app.state.fleet_state.config
     return (
         TelegramApi("tok"),
         QuestionStore(db or tmp_path / "questions.db"),
         CommandEnv(
             queue=app.state.queue,
             messages=MessageStore(tmp_path / qmsgs),
-            allowed_ids=lambda: parse_allowed_ids(cfg.telegram_allowed_ids),
-            default_cwd=lambda: cfg.telegram_default_cwd or None,
+            allowed_ids=lambda: parse_allowed_ids(config.telegram_allowed_ids),
+            default_cwd=lambda: config.telegram_default_cwd or None,
         ),
         OffsetStore(tmp_path / "offset"),
     )
@@ -339,8 +339,8 @@ def test_telegram_chat_id_round_trips(tmp_path: Path) -> None:
 def test_telegram_chat_id_default_is_empty_string(tmp_path: Path) -> None:
     """telegram_chat_id defaults to empty string in a freshly created config."""
     cfg_path = tmp_path / "runtime.toml"
-    cfg = load(cfg_path)
-    assert cfg.telegram_chat_id == ""
+    config = load(cfg_path)
+    assert config.telegram_chat_id == ""
 
 
 # ---------------------------------------------------------------------------
@@ -349,13 +349,13 @@ def test_telegram_chat_id_default_is_empty_string(tmp_path: Path) -> None:
 
 
 def test_telegram_allowed_ids_default_is_empty_string(tmp_path: Path) -> None:
-    cfg = load(tmp_path / "runtime.toml")
-    assert cfg.telegram_allowed_ids == ""
+    config = load(tmp_path / "runtime.toml")
+    assert config.telegram_allowed_ids == ""
 
 
 def test_telegram_default_cwd_default_is_empty_string(tmp_path: Path) -> None:
-    cfg = load(tmp_path / "runtime.toml")
-    assert cfg.telegram_default_cwd == ""
+    config = load(tmp_path / "runtime.toml")
+    assert config.telegram_default_cwd == ""
 
 
 def test_telegram_allowed_ids_round_trips(tmp_path: Path) -> None:
@@ -531,9 +531,9 @@ def test_inbound_listener_skips_polling_when_allowlist_empty(
 ) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="")
+    config = RuntimeConfig(telegram_allowed_ids="")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     fetched: list = []
 
@@ -567,9 +567,9 @@ def test_inbound_listener_rejects_unknown_sender(
 ) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 is allowed
+    config = RuntimeConfig(telegram_allowed_ids="999")  # only 999 is allowed
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -609,9 +609,9 @@ def test_inbound_listener_creates_task_and_replies(
 ) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="/my/project")
+    config = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="/my/project")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     fake_task = Task(id="fleet-abc1", title="Fix the bug", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
@@ -667,9 +667,9 @@ def test_inbound_listener_backs_off_on_network_error(
 ) -> None:
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     call_n = [0]
     sleep_durations: list[float] = []
@@ -705,9 +705,9 @@ def test_inbound_listener_malformed_task_sends_error_reply(
     """Malformed /new_task command (empty title) sends error reply; no task is created."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -756,9 +756,9 @@ def test_inbound_listener_new_task_botname_creates_task(
     """/new_task@mybot <title> creates a task just like /new_task <title>."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
+    config = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     fake_task = Task(id="fleet-bot1", title="Bot task", description=None, status="open")
     app.state.queue.create_task.return_value = fake_task
@@ -811,9 +811,9 @@ def test_inbound_listener_tasks_command_lists_tasks(
     """/tasks replies with in-progress and ready task sections."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     app.state.queue.list_in_progress.return_value = [
         Task(id="fleet-aaa1", title="Task A", description=None, status="in_progress")
@@ -853,9 +853,9 @@ def test_inbound_listener_tasks_both_empty_replies_no_open_tasks(
     """/tasks with no tasks in any state replies 'No open tasks.'"""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
     app.state.queue.list_in_progress.return_value = []
     app.state.queue.list_ready.return_value = []
 
@@ -883,9 +883,9 @@ def test_inbound_listener_tasks_queue_error_replies_could_not_fetch(
     """Queue error during /tasks sends 'Could not fetch tasks.' and keeps loop alive."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
     app.state.queue.list_in_progress.side_effect = RuntimeError("bd failed")
 
     updates = [
@@ -912,9 +912,9 @@ def test_inbound_listener_tasks_rejected_sender_no_queue_call(
     """/tasks from a non-allowlisted sender gets no reply and no queue access."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
+    config = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 45, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/tasks"}}
@@ -949,9 +949,9 @@ def test_inbound_listener_task_command_sends_usage(
     """Bare /task (no id) sends the combined usage reply."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 41, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/task"}}
@@ -990,9 +990,9 @@ def test_inbound_listener_tasks_not_confused_with_task(
     """/tasks must NOT create a task; token dispatch prevents /task prefix match."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 42, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/tasks"}}
@@ -1031,9 +1031,9 @@ def test_inbound_listener_task_id_shows_details(
     """/task <id> replies with the task's id, status, and title."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     fake_task = Task(
         id="fleet-xyz1", title="Fix the widget", description=None, status="in_progress"
@@ -1070,9 +1070,9 @@ def test_inbound_listener_task_id_unknown_sends_hint(
     """Unknown task id replies with 'No task <id>. To create a task use /new_task <title>'."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
     app.state.queue.get.side_effect = RuntimeError("task not found")
 
     updates = [
@@ -1103,9 +1103,9 @@ def test_inbound_listener_task_id_rejected_sender_no_reply(
     """/task <id> from a non-allowlisted sender gets no reply and no queue access."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="999")
+    config = RuntimeConfig(telegram_allowed_ids="999")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1148,7 +1148,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
     preventing the same update from being processed twice."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
 
-    cfg = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
+    config = RuntimeConfig(telegram_allowed_ids="123", telegram_default_cwd="")
 
     updates = [
         {
@@ -1166,7 +1166,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
 
     # --- First run: process the update and save offset ---
     app1 = MagicMock()
-    app1.state.fleet_state.config = cfg
+    app1.state.fleet_state.config = config
     app1.state.queue.create_task.return_value = fake_task
 
     async def _fake_send(self, chat_id: str, text: str) -> None:
@@ -1193,7 +1193,7 @@ def test_inbound_listener_offset_prevents_duplicate_on_restart(
 
     # --- Second run: offset=8 should be passed to _fetch_updates ---
     app2 = MagicMock()
-    app2.state.fleet_state.config = cfg
+    app2.state.fleet_state.config = config
 
     fetched_offsets: list = []
     run2_n = [0]
@@ -1350,9 +1350,9 @@ def test_poller_records_message_id_mapping(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(TelegramApi, "send_with_id", _fake_send_with_id)
 
-    cfg = RuntimeConfig(telegram_chat_id="999")
+    config = RuntimeConfig(telegram_chat_id="999")
     fake_app = MagicMock()
-    fake_app.state.fleet_state.config = cfg
+    fake_app.state.fleet_state.config = config
     fake_app.state.fleet_state.question_store = store
     fake_app.state.fleet_state.fleet_home = tmp_path
 
@@ -1411,9 +1411,9 @@ def test_inbound_listener_answer_via_reply_to(
     MessageStore(qmsg_path).record(42, "q-reply")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1455,9 +1455,9 @@ def test_inbound_listener_reply_to_unknown_mapping(
 ) -> None:
     """Reply-to a message not in the mapping replies 'Unknown or expired question'."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1500,9 +1500,9 @@ def test_inbound_listener_reply_to_already_answered(
     MessageStore(qmsg_path).record(77, "q-done")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1540,9 +1540,9 @@ def test_inbound_listener_single_pending_fallback(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-one", prompt="scale?", created_at=1000.0)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1586,9 +1586,9 @@ def test_inbound_listener_multiple_pending_reply(
     _insert_question(db_path, qid="q-a", prompt="first?", created_at=1000.0)
     _insert_question(db_path, qid="q-b", prompt="second?", created_at=1001.0)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1625,9 +1625,9 @@ def test_inbound_listener_zero_pending_silently_dropped(
     db_path = tmp_path / "questions.db"
     _create_questions_db(db_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1673,9 +1673,9 @@ def test_inbound_listener_numeric_option_shortcut(
     MessageStore(qmsg_path).record(55, "q-opt")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1729,9 +1729,9 @@ def test_inbound_listener_numeric_out_of_range_stored_as_string(
     MessageStore(qmsg_path).record(88, "q-out")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1775,9 +1775,9 @@ def test_inbound_listener_help_replies_with_help_text(
 ) -> None:
     """/help replies with HELP_TEXT."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 100, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/help"}}
@@ -1802,9 +1802,9 @@ def test_inbound_listener_start_replies_with_help_text(
 ) -> None:
     """/start replies with the same HELP_TEXT as /help."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 101, "message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}
@@ -1829,9 +1829,9 @@ def test_inbound_listener_help_botname_replies_with_help_text(
 ) -> None:
     """/help@botname replies with HELP_TEXT via the existing @-strip."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {
@@ -1859,9 +1859,9 @@ def test_inbound_listener_help_rejected_sender_no_reply(
 ) -> None:
     """/help from a non-allowlisted sender gets no reply (security gate)."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
+    config = RuntimeConfig(telegram_allowed_ids="999")  # only 999 allowed
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {"update_id": 103, "message": {"from": {"id": 111}, "chat": {"id": 111}, "text": "/help"}}
@@ -1897,9 +1897,9 @@ def test_inbound_listener_slash_command_not_intercepted_by_fallback(
     _create_questions_db(db_path)
     _insert_question(db_path, qid="q-cmd", prompt="pending?", created_at=1000.0)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
-    cfg = RuntimeConfig(telegram_allowed_ids="123")
+    config = RuntimeConfig(telegram_allowed_ids="123")
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
 
     updates = [
         {

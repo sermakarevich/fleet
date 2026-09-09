@@ -309,10 +309,10 @@ class TestPostMergeCommand:
         _commit(wt, "f.txt", "work")
 
         queue = StubQueue(status="in_progress")
-        cfg = RuntimeConfig(
+        config = RuntimeConfig(
             post_merge_command="python3 -c 'import sys; print(\"gate-boom\"); sys.exit(1)'"
         )
-        st = _make_state(tmp_path, queue, config=cfg)
+        st = _make_state(tmp_path, queue, config=config)
         _run(st)
 
         assert queue.closed == []
@@ -338,8 +338,8 @@ class TestPostMergeCommand:
         _commit(wt, "f.txt", "work")
 
         queue = StubQueue(status="in_progress")
-        cfg = RuntimeConfig(post_merge_command="python3 -c 'import sys; sys.exit(0)'")
-        st = _make_state(tmp_path, queue, config=cfg)
+        config = RuntimeConfig(post_merge_command="python3 -c 'import sys; sys.exit(0)'")
+        st = _make_state(tmp_path, queue, config=config)
         _run(st)
 
         assert len(queue.closed) == 1
@@ -368,10 +368,10 @@ class TestPostMergeCommand:
         _commit(wt, "f.txt", "work")
 
         queue = StubQueue(status="in_progress")
-        cfg = RuntimeConfig(
+        config = RuntimeConfig(
             post_merge_command="python3 -c 'import sys; print(\"gate-tail-marker\"); sys.exit(2)'"
         )
-        st = _make_state(tmp_path, queue, config=cfg)
+        st = _make_state(tmp_path, queue, config=config)
         _run(st)
 
         assert queue.closed == []

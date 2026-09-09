@@ -14,17 +14,11 @@ from pathlib import Path
 from fleet.core.retry_policy import Action
 from fleet.core.task import AttemptKind, TaskOutcome
 from fleet.state.attempt_journal import AttemptJournal
-from fleet.state.paths import attempt_dir_path
 
 
 def current_attempt_n(task_dir: Path) -> int:
     """Highest start N seen so far, or 0 if none."""
     return AttemptJournal.load(task_dir).current_n
-
-
-def attempt_dir(task_dir: Path, n: int) -> Path:
-    """The on-disk directory for attempt *n* of this task."""
-    return attempt_dir_path(task_dir, n)
 
 
 def latest_attempt_dir(task_dir: Path, before_n: int | None = None) -> Path | None:

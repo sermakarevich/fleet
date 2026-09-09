@@ -153,8 +153,8 @@ def _running_tasks_help_text() -> str:
     if not tasks:
         return f"{header}\n\n  (none)"
     try:
-        cfg = bootstrap.config(fleet_home)
-        default_coder, default_model = cfg.coder, cfg.model
+        config = bootstrap.config(fleet_home)
+        default_coder, default_model = config.coder, config.model
     except OSError:
         default_coder, default_model = "claude", "sonnet"
     width = max(len(t.id) for t in tasks) + 2
@@ -224,8 +224,8 @@ def run_show(fleet_home: Path, task_id: str, json_output: bool) -> None:
         typer.echo(result.stdout, nl=False)
         return
     task = _fetch_job(bootstrap.queue(fleet_home), task_id)
-    cfg = bootstrap.config(fleet_home)
-    coder, model = effective_coder_model(task.coder, task.model, cfg.coder, cfg.model)
+    config = bootstrap.config(fleet_home)
+    coder, model = effective_coder_model(task.coder, task.model, config.coder, config.model)
     render.print_task_show(task, coder, model, task.coder is None, task.model is None)
 
 
@@ -246,8 +246,8 @@ def run_tasks(fleet_home: Path, limit: int, ignored: bool) -> None:
         render.print_ignored_tasks(_fetch_ignored(q, limit))
         return
     tasks = _fetch_in_progress(q, limit)
-    cfg = bootstrap.config(fleet_home)
-    render.print_tasks_table(tasks, fleet_home, cfg.coder, cfg.model)
+    config = bootstrap.config(fleet_home)
+    render.print_tasks_table(tasks, fleet_home, config.coder, config.model)
 
 
 def run_gc(fleet_home: Path, days: int, dry_run: bool, purge: bool) -> None:
@@ -261,8 +261,8 @@ def run_gc(fleet_home: Path, days: int, dry_run: bool, purge: bool) -> None:
         dry_run,
     )
     if purge:
-        cfg = bootstrap.config(fleet_home)
-        purged = purge_archive(fleet_home, cfg.gc_archive_days, dry_run)
+        config = bootstrap.config(fleet_home)
+        purged = purge_archive(fleet_home, config.gc_archive_days, dry_run)
         render.print_gc_purged(
             len(purged.deleted), purged.bytes_freed / (1024 * 1024), purged.skipped, dry_run
         )

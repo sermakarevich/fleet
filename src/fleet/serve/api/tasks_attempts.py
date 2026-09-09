@@ -11,7 +11,7 @@ from fleet.serve.api.models import ContentResponse
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.legacy import attempt_state_snapshot
-from fleet.state.paths import attempt_dir_path
+from fleet.state.paths import attempt_dir
 from fleet.state.task_index import TaskIndex
 
 router = APIRouter(prefix="/api")
@@ -22,7 +22,7 @@ def _attempt_dir(task_id: str, n: int, state: AppState) -> Path | None:
     task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
         return None
-    adir = attempt_dir_path(task_dir, n)
+    adir = attempt_dir(task_dir, n)
     return adir if adir.is_dir() else None
 
 

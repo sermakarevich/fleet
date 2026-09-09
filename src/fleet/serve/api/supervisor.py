@@ -20,19 +20,20 @@ router = APIRouter(prefix="/api/supervisor")
 
 def _count_active(fleet_home: Path) -> int:
     """In-progress tasks, counted only when the supervisor is alive."""
-    return sum(1 for _, raw in TaskIndex(fleet_home).iter_meta() if raw.get("status") == "in_progress")
+    rows = TaskIndex(fleet_home).iter_meta()
+    return sum(1 for _, raw in rows if raw.get("status") == "in_progress")
 
 
 @router.get("", response_model=SupervisorResponse)
 async def get_supervisor_status() -> JSONResponse:
     """Supervisor liveness, slot counts, pause flag, code staleness (FR-42)."""
     fleet_home = get_fleet_home()
-    cfg = load_config(fleet_home / "runtime.toml")
+    config = load_config(fleet_home / "runtime.toml")
     svc = ServiceRegistry(fleet_home).status("supervisor")
     running = svc.alive
     active_count = _count_active(fleet_home) if running else 0
     paused = (fleet_home / ".pause").exists()
-    max_concurrent = cfg.max_concurrent
+    max_concurrent = config.max_concurrent
     return JSONResponse(
         {
             "pid": svc.pid,

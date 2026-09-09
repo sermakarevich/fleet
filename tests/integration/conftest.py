@@ -383,12 +383,11 @@ def make_supervisor(
     if config is not None:
         runtime_toml.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(runtime_toml, {k: str(v) for k, v in asdict(config).items()})
-        cfg = config
     else:
-        cfg = load(runtime_toml)
+        config = load(runtime_toml)
     log = structlog.get_logger()
     state = SupervisorState(
-        config=cfg,
+        config=config,
         fleet_home=tmp_path,
         runtime_toml_path=runtime_toml,
         queue=queue,

@@ -8,7 +8,7 @@ from pathlib import Path
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import Task
 from fleet.state.attempts import load_attempts
-from fleet.state.paths import attempt_dir_path
+from fleet.state.paths import attempt_dir
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
@@ -125,7 +125,7 @@ def test_non_failures_dont_burn_retries(tmp_path: Path) -> None:
     # attempt dirs (one per run) instead of one shared task-root file.
     starts = 0
     for row in load_attempts(task_dir):
-        log_path = attempt_dir_path(task_dir, row["n"]) / "log.jsonl"
+        log_path = attempt_dir(task_dir, row["n"]) / "log.jsonl"
         if not log_path.exists():
             continue
         starts += sum(

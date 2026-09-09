@@ -25,10 +25,10 @@ from fleet.core.task import AttemptKind, TaskOutcome, TaskStatus
 from fleet.core.triage_policy import ignore_active
 from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
-from fleet.state.attempts import attempt_dir as _attempt_dir_path
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import iter_attempt_events, scan_rows
 from fleet.state.legacy import legacy_result, legacy_state_text
+from fleet.state.paths import attempt_dir
 from fleet.state.run_file import RunRecord
 from fleet.state.runtime_stats import task_runtime_info_cached
 
@@ -139,7 +139,7 @@ def _parse_result_text(text: str) -> dict | None:
     return asdict(result) if result is not None else None
 
 
-def read_result(task_dir: Path) -> dict | None:
+def read_declared_result(task_dir: Path) -> dict | None:
     """The task's latest declared result as a plain dict, or None.
 
     Reads the live task-level RESULT.json first (present between worker
@@ -168,11 +168,6 @@ def read_result(task_dir: Path) -> dict | None:
     except (ValueError, TypeError):
         return None
     return asdict(result) if result is not None else None
-
-
-def _read_result(task_dir: Path) -> dict | None:
-    """Read and parse the task's latest declared result, if present."""
-    return read_result(task_dir)
 
 
 def _read_run_info(task_dir: Path) -> tuple[str | None, list]:
@@ -223,7 +218,7 @@ def _build_attempts_summary(task_dir: Path, limit: int) -> list[AttemptTimelineR
     rows: list[AttemptTimelineRow] = []
     for entry in attempts.load_attempts(task_dir):
         n = entry["n"]
-        adir = _attempt_dir_path(task_dir, n)
+        adir = attempt_dir(task_dir, n)
         run = RunRecord.load(adir)
         raw_launch = run.launch if run is not None else None
         launch: dict = raw_launch if isinstance(raw_launch, dict) else {}
@@ -386,7 +381,7 @@ def build_task_summary(
         "last_outcome": last_attempt.get("outcome") if last_attempt else None,
         "last_outcome_reason": last_attempt.get("reason") if last_attempt else None,
         "last_action": last_attempt.get("action") if last_attempt else None,
-        "result": _read_result(task_dir),
+        "result": read_declared_result(task_dir),
         "state_excerpt": _read_state_excerpt(task_dir),
         "worker": worker,
         "job_phase": _job_phase(worker),

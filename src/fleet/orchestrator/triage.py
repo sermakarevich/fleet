@@ -1,7 +1,7 @@
 """Supervisor triage loop over blocked beads.
 
 Blocked tasks pile up silently; this scheduled service (every
-``cfg.triage_interval_minutes``; 0 disables) posts one non-blocking
+``config.triage_interval_minutes``; 0 disables) posts one non-blocking
 ask_human question per blocked bead with a rule-based fix proposal (see
 core/triage_policy.py) and applies the operator's answer on the next
 tick.
@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import asdict
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,7 +24,6 @@ from fleet.beads.queue import Queue
 from fleet.core import triage_policy
 from fleet.core.errors import FleetError
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
-from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import TaskOutcome, TaskStatus
 from fleet.core.triage_policy import (
@@ -42,9 +40,8 @@ from fleet.orchestrator.service import ServiceOrder
 from fleet.state import attempts as attempts_mod
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.legacy import legacy_result
-from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as _task_dir
+from fleet.state.task_summary import read_declared_result
 
 if TYPE_CHECKING:
     from fleet.integrations.ask_human.store import Question, QuestionStore
@@ -95,34 +92,6 @@ def _stderr_tail(task_dir: Path) -> str | None:
     return tail or None
 
 
-def _read_result(task_dir: Path) -> dict | None:
-    """Parsed task-level RESULT.json as a plain dict, or None.
-
-    Falls back to the latest attempt's RESULT.json snapshot, then to the
-    legacy artifacts/RESULT.json for old task dirs.
-    """
-    paths = [task_dir / RESULT_JSON]
-    prev_attempt = latest_attempt_dir(task_dir)
-    if prev_attempt is not None:
-        paths.append(prev_attempt / RESULT_JSON)
-    for path in paths:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        result = parse_result(text)
-        if result is not None:
-            return asdict(result)
-    legacy = legacy_result(task_dir)
-    if legacy is None:
-        return None
-    try:
-        result = parse_result(json.dumps(legacy))
-    except (ValueError, TypeError):
-        return None
-    return asdict(result) if result is not None else None
-
-
 def collect_candidates(
     queue: Queue, fleet_home: Path, store: QuestionStore, limit: int = 100
 ) -> list[dict]:
@@ -166,7 +135,7 @@ def collect_candidates(
                     "rate_limited": rate_limited,
                     "stderr_tail": _stderr_tail(task_dir),
                 },
-                "result": _read_result(task_dir),
+                "result": read_declared_result(task_dir),
             }
         )
     return candidates

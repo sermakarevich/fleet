@@ -89,7 +89,9 @@ def kill(
     return KILL_NOOP
 
 
-def remove_assignee(fleet_home: Path, task_id: str, *, clear_assignee: Callable[[str], None]) -> None:
+def remove_assignee(
+    fleet_home: Path, task_id: str, *, clear_assignee: Callable[[str], None]
+) -> None:
     """Clear the beads assignee and the task.json coder mirror."""
     task_dir = _require_task_dir(fleet_home, task_id)
     clear_assignee(task_id)

@@ -117,7 +117,7 @@ class TaskOutcome(StrEnum):
     FAILURE = "failure"
     RATE_LIMIT = "rate_limit"
     CONTEXT_PRESSURE = "context_pressure"
-    BLOCKED_BY_AGENT = "blocked_by_agent"
+    BLOCKED_BY_CODER = "blocked_by_agent"
     KILLED = "killed"
     PARTIAL = "partial"
     TERMINAL = "terminal"

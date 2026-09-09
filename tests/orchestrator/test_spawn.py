@@ -231,9 +231,9 @@ def test_block_terminal_journals_blocks_comments(tmp_path: Path) -> None:
 
 
 class TestShouldIsolate:
-    def _stub(self, **cfg) -> types.SimpleNamespace:
+    def _stub(self, **config) -> types.SimpleNamespace:
         base = {"isolation": "worktree", "isolation_exclude": ""}
-        base.update(cfg)
+        base.update(config)
         return types.SimpleNamespace(config=types.SimpleNamespace(**base))
 
     def test_non_git_dir_runs_in_place(self, tmp_path: Path):

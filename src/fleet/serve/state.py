@@ -19,8 +19,8 @@ from fleet.core.config import RuntimeConfig
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.mcp_servers import ask_human_db_path
 from fleet.serve.watcher import ConnectionManager, FileWatcher
+from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
-from fleet.state.paths import fleet_home
 
 
 @dataclass
@@ -39,7 +39,7 @@ class AppState:
 
 def build_state(queue: Queue | None = None) -> AppState:
     """Build the state for create_app; refreshes config in the lifespan."""
-    fleet_home = fleet_home()
+    fleet_home = state_paths.fleet_home()
     mgr = ConnectionManager()
     return AppState(
         fleet_home=fleet_home,
@@ -53,7 +53,7 @@ def build_state(queue: Queue | None = None) -> AppState:
 
 def refresh_config(state: AppState) -> AppState:
     """(Re)load runtime.toml into *state*; returns the same object."""
-    state.fleet_home = fleet_home()
+    state.fleet_home = state_paths.fleet_home()
     state.config_path = state.fleet_home / "runtime.toml"
     state.config = load_config(state.config_path)
     try:

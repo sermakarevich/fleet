@@ -20,8 +20,8 @@ router = APIRouter(prefix="/api")
 async def get_config() -> JSONResponse:
     """Full RuntimeConfig as JSON (FR-43)."""
     fleet_home = get_fleet_home()
-    cfg = load_config(fleet_home / "runtime.toml")
-    return JSONResponse(asdict(cfg))
+    config = load_config(fleet_home / "runtime.toml")
+    return JSONResponse(asdict(config))
 
 
 @router.put("/config", response_model=ConfigView)

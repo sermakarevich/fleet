@@ -81,9 +81,9 @@ def _insert_question(
 
 
 def _make_fake_app(allowed_ids: str = "123", default_cwd: str = "") -> MagicMock:
-    cfg = RuntimeConfig(telegram_allowed_ids=allowed_ids, telegram_default_cwd=default_cwd)
+    config = RuntimeConfig(telegram_allowed_ids=allowed_ids, telegram_default_cwd=default_cwd)
     app = MagicMock()
-    app.state.fleet_state.config = cfg
+    app.state.fleet_state.config = config
     return app
 
 
@@ -91,15 +91,15 @@ def _listener_parts(
     app: MagicMock, tmp_path: Path, *, qmsgs: str = "qmsgs.json", db: Path | None = None
 ) -> tuple[TelegramApi, QuestionStore, CommandEnv, OffsetStore]:
     """Build (api, store, env, offsets) for inbound_listener from the fake app."""
-    cfg = app.state.fleet_state.config
+    config = app.state.fleet_state.config
     return (
         TelegramApi("tok"),
         QuestionStore(db or tmp_path / "questions.db"),
         CommandEnv(
             queue=app.state.queue,
             messages=MessageStore(tmp_path / qmsgs),
-            allowed_ids=lambda: parse_allowed_ids(cfg.telegram_allowed_ids),
-            default_cwd=lambda: cfg.telegram_default_cwd or None,
+            allowed_ids=lambda: parse_allowed_ids(config.telegram_allowed_ids),
+            default_cwd=lambda: config.telegram_default_cwd or None,
         ),
         OffsetStore(tmp_path / "offset"),
     )

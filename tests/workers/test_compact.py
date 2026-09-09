@@ -282,8 +282,8 @@ def test_plan_task_skips_compaction_when_disabled(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
     (task_dir / "STATE.md").write_text("s" * 20000)
     state_attempts.record_start(task_dir, coder="claude", model="sonnet")
-    cfg = RuntimeConfig(compaction_enabled=False)
-    ctx = _ctx(task, task_dir, 2, config=cfg)
+    config = RuntimeConfig(compaction_enabled=False)
+    ctx = _ctx(task, task_dir, 2, config=config)
 
     worker = plan_task(ctx)
 

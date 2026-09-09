@@ -18,7 +18,7 @@ from fleet.observability.daemon import (
     read_pidfile,
     supervisor_spec,
 )
-from fleet.state.paths import fleet_home
+from fleet.state import paths as state_paths
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ def registered_services() -> list[str]:
 
 
 class ServiceRegistry:
-    """Liveness of managed services for one fleet fleet_home."""
+    """Liveness of managed services for one fleet home."""
 
     def __init__(self, fleet_home: Path) -> None:
         self.fleet_home = fleet_home
@@ -93,4 +93,6 @@ def _from_pid_data(data: dict) -> ServiceStatus:
 
 def service_status(name: str, fleet_home: Path | None = None) -> ServiceStatus:
     """Liveness fact for *name* (`supervisor` or `serve`)."""
-    return ServiceRegistry(fleet_home if fleet_home is not None else fleet_home()).status(name)
+    return ServiceRegistry(
+        fleet_home if fleet_home is not None else state_paths.fleet_home()
+    ).status(name)

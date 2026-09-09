@@ -525,10 +525,10 @@ def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.M
     scan_count = 0
     _orig = events_mod.scan
 
-    def _counting(tdir: Path):
+    def _counting(task_dir: Path):
         nonlocal scan_count
         scan_count += 1
-        return _orig(tdir)
+        return _orig(task_dir)
 
     monkeypatch.setattr(events_mod, "scan", _counting)
 

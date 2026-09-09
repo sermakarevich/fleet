@@ -182,7 +182,8 @@ def print_tasks_table(
     if not tasks:
         typer.echo("No running tasks.")
         return
-    Console(soft_wrap=False).print(render_tasks_table(tasks, fleet_home, default_coder, default_model))
+    table = render_tasks_table(tasks, fleet_home, default_coder, default_model)
+    Console(soft_wrap=False).print(table)
 
 
 def print_ready_tasks(tasks: list[Task]) -> None:

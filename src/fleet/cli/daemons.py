@@ -98,25 +98,25 @@ def _report_status(fleet_home: Path, name: str, label: str, restart_hint: str) -
         raise typer.Exit(1)
 
 
-def _ensure_tunnel(cfg: RuntimeConfig, log: structlog.BoundLogger) -> None:
+def _ensure_tunnel(config: RuntimeConfig, log: structlog.BoundLogger) -> None:
     """Bring up the SSH tunnel to the rtx Ollama box (non-fatal when it fails)."""
-    tunnel = ensure_tunnel(cfg.opencode_ollama_url)
+    tunnel = ensure_tunnel(config.opencode_ollama_url)
     if tunnel.status == "failed":
-        log.warning("ollama_tunnel_failed", detail=tunnel.detail, url=cfg.opencode_ollama_url)
+        log.warning("ollama_tunnel_failed", detail=tunnel.detail, url=config.opencode_ollama_url)
         typer.echo(f"warning: ollama tunnel not available ({tunnel.detail})", err=True)
     else:
         log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
 
 
-def _build_supervisor(fleet_home: Path, cfg: RuntimeConfig) -> Supervisor:
+def _build_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
     """Assemble the foreground supervisor with logging, tunnel, and services."""
     runtime_toml = fleet_home / "runtime.toml"
     log = setup_supervisor_logger(bootstrap.log_dir(fleet_home))
-    _ensure_tunnel(cfg, log)
+    _ensure_tunnel(config, log)
     question_store = QuestionStore()
     return Supervisor(
         state=SupervisorState(
-            config=cfg,
+            config=config,
             fleet_home=fleet_home,
             runtime_toml_path=runtime_toml,
             queue=bootstrap.queue(fleet_home),
@@ -166,15 +166,15 @@ def _register_run_commands(app: typer.Typer) -> None:
     def run_foreground() -> None:
         """Run the supervisor in the foreground (blocks). This is what `start` execs."""
         fleet_home = bootstrap.fleet_home()
-        cfg = bootstrap.config(fleet_home)
+        config = bootstrap.config(fleet_home)
 
         # Validate the configured default coder up-front so a typo fails fast.
         try:
-            get_coder(cfg.coder)
+            get_coder(config.coder)
         except ValueError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
-        supervisor = _build_supervisor(fleet_home, cfg)
+        supervisor = _build_supervisor(fleet_home, config)
         try:
             rc = asyncio.run(supervisor.run())
         except NotImplementedError as exc:
@@ -279,8 +279,8 @@ def register(app: typer.Typer) -> None:
     @app.command("tunnel")
     def tunnel_cmd() -> None:
         """Ensure the SSH tunnel to the rtx Ollama box is up (starts it if needed)."""
-        cfg = bootstrap.config(bootstrap.fleet_home())
-        result = ensure_tunnel(cfg.opencode_ollama_url)
+        config = bootstrap.config(bootstrap.fleet_home())
+        result = ensure_tunnel(config.opencode_ollama_url)
         if result.status == "failed":
             _console.print(f"[red]tunnel failed:[/red] {result.detail}")
             raise typer.Exit(1)

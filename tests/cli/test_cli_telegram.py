@@ -183,8 +183,8 @@ def test_telegram_setup_writes_chat_id(tmp_path: Path) -> None:
             env={"TELEGRAM_BOT_TOKEN": "123:tok"},
         )
     assert result.exit_code == 0, result.output
-    cfg = load_config(tmp_path / "runtime.toml")
-    assert cfg.telegram_chat_id == "-100xyz"
+    config = load_config(tmp_path / "runtime.toml")
+    assert config.telegram_chat_id == "-100xyz"
 
 
 def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> None:
@@ -210,9 +210,9 @@ def test_telegram_setup_writes_allowed_ids_and_default_cwd(tmp_path: Path) -> No
             env={"TELEGRAM_BOT_TOKEN": "123:tok"},
         )
     assert result.exit_code == 0, result.output
-    cfg = load_config(tmp_path / "runtime.toml")
-    assert cfg.telegram_allowed_ids == "111,222"
-    assert cfg.telegram_default_cwd == "/fleet_home/user/proj"
+    config = load_config(tmp_path / "runtime.toml")
+    assert config.telegram_allowed_ids == "111,222"
+    assert config.telegram_default_cwd == "/fleet_home/user/proj"
 
 
 def test_telegram_setup_no_test_skips_send(tmp_path: Path) -> None:
@@ -310,8 +310,8 @@ def test_telegram_setup_chat_discovery_persists_selection(tmp_path: Path) -> Non
             env={"TELEGRAM_BOT_TOKEN": "123:tok"},
         )
     assert result.exit_code == 0, result.output
-    cfg = load_config(tmp_path / "runtime.toml")
-    assert cfg.telegram_chat_id == "-100555"
+    config = load_config(tmp_path / "runtime.toml")
+    assert config.telegram_chat_id == "-100555"
 
 
 def test_telegram_setup_chat_discovery_deduplicates_chats(tmp_path: Path) -> None:

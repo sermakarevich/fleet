@@ -154,7 +154,7 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 00
 
 
 def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
-    """BLOCKED_BY_AGENT does not increment failure_count. (FR-16)"""
+    """BLOCKED_BY_CODER does not increment failure_count. (FR-16)"""
 
     queue = init_beads_queue(tmp_path)
     task = queue.create_task(title="qa-no-failure-task")
@@ -197,5 +197,5 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / task_id
 
     assert rounds_for_history(load_attempts(task_dir))["failure"] == 0, (
-        "BLOCKED_BY_AGENT must not burn retries"
+        "BLOCKED_BY_CODER must not burn retries"
     )

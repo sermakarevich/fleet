@@ -178,8 +178,8 @@ def test_config_exclude_repo_runs_in_place(tmp_path: Path) -> None:
     other.mkdir()
     _git_init(other)
     queue = StubQueue(status="in_progress")
-    cfg = RuntimeConfig(isolation_exclude=f"{tmp_path / 'unrelated'}, {repo}")
-    s = _make_supervisor(tmp_path, queue, config=cfg)
+    config = RuntimeConfig(isolation_exclude=f"{tmp_path / 'unrelated'}, {repo}")
+    s = _make_supervisor(tmp_path, queue, config=config)
     _spawn(s, Task(id="t-wt-x1", title="X", description=None, status="in_progress", cwd=str(repo)))
     _spawn(s, Task(id="t-wt-x2", title="X", description=None, status="in_progress", cwd=str(other)))
 

@@ -18,10 +18,10 @@ def test_load_creates_defaults_when_missing(tmp_path: Path) -> None:
     cfg_path = tmp_path / ".fleet" / "runtime.toml"
     assert not cfg_path.exists()
 
-    cfg = load(cfg_path)
+    config = load(cfg_path)
 
     assert cfg_path.exists()
-    assert cfg == RuntimeConfig()
+    assert config == RuntimeConfig()
     # File should contain the max_concurrent default
     content = cfg_path.read_text()
     assert "max_concurrent" in content
@@ -31,9 +31,9 @@ def test_load_partial_toml_overlays_defaults(tmp_path: Path) -> None:
     cfg_path = tmp_path / "runtime.toml"
     cfg_path.write_text("max_concurrent = 8\n", encoding="utf-8")
 
-    cfg = load(cfg_path)
+    config = load(cfg_path)
 
-    assert cfg.max_concurrent == 8
+    assert config.max_concurrent == 8
     # Unset fields fall back to defaults — now represented as module constants
     # (rate_limit_threshold_pct and retry_limit are no longer RuntimeConfig fields)
 
@@ -165,7 +165,7 @@ opencode_default_model = "qwen3.6:latest"
         encoding="utf-8",
     )
 
-    cfg = load(cfg_path)
+    config = load(cfg_path)
 
-    assert cfg.context_windows == "muse-spark-1.3-contributor:1048576"
-    assert cfg.opencode_default_model == "qwen3.6:latest"
+    assert config.context_windows == "muse-spark-1.3-contributor:1048576"
+    assert config.opencode_default_model == "qwen3.6:latest"

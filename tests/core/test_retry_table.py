@@ -45,7 +45,7 @@ def test_retry_table_covers_every_outcome() -> None:
     """Every TaskOutcome is matched by at least one row on an open bead."""
     grid: dict[TaskOutcome, TaskOutcomeRecord] = {
         TaskOutcome.TERMINAL: _record(TaskOutcome.TERMINAL, reason="t"),
-        TaskOutcome.BLOCKED_BY_AGENT: _record(TaskOutcome.BLOCKED_BY_AGENT, reason="b"),
+        TaskOutcome.BLOCKED_BY_CODER: _record(TaskOutcome.BLOCKED_BY_CODER, reason="b"),
         TaskOutcome.SUCCESS: _record(TaskOutcome.SUCCESS, close_reason="shipped"),
         TaskOutcome.PARTIAL: _record(TaskOutcome.PARTIAL, reason="p"),
         TaskOutcome.CONTEXT_PRESSURE: _record(TaskOutcome.CONTEXT_PRESSURE),
@@ -62,10 +62,10 @@ def test_retry_table_covers_every_outcome() -> None:
 
 def test_retry_table_first_match_wins() -> None:
     """decide() returns what the first matching row resolves to (action+reason)."""
-    cfg = RuntimeConfig()
+    config = RuntimeConfig()
     cases = [
         (_record(TaskOutcome.TERMINAL, reason="t"), "in_progress"),
-        (_record(TaskOutcome.BLOCKED_BY_AGENT, reason="b"), "closed"),
+        (_record(TaskOutcome.BLOCKED_BY_CODER, reason="b"), "closed"),
         (_record(TaskOutcome.SUCCESS, close_reason="shipped"), "in_progress"),
         (_record(TaskOutcome.SUCCESS, close_reason="shipped"), "closed"),
         (_record(TaskOutcome.SUCCESS), "in_progress"),
@@ -91,7 +91,7 @@ def test_retry_table_first_match_wins() -> None:
         winners = [r for r in RETRY_TABLE if _rule_matches(r, record, bead_status)]
         assert winners, (record, bead_status)
         expected = _apply_rule(winners[0], record, [])
-        got = decide(record, [], bead_status, cfg)
+        got = decide(record, [], bead_status, config)
         assert (got.action, got.reason) == (expected.action, expected.reason), (
             record,
             bead_status,

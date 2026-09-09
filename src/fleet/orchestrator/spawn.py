@@ -24,6 +24,7 @@ from fleet.core.retry_policy import Action
 from fleet.core.task import Task, TaskOutcome
 from fleet.orchestrator.state import RunningWorker
 from fleet.state import attempts
+from fleet.state.paths import attempt_dir
 from fleet.state.paths import task_dir as _task_dir
 from fleet.workers import select_worker
 from fleet.workers.base import StepContext, WorkerRun
@@ -173,8 +174,8 @@ def _build_step_context(
     """Journal the attempt start and build the worker step context."""
     task_dir = st.task_dir_for(task.id)
     attempt_n = attempts.record_start(task_dir, coder=coder_name, model=model, worker=None)
-    attempt_dir = attempts.attempt_dir(task_dir, attempt_n)
-    attempt_dir.mkdir(parents=True, exist_ok=True)
+    adir = attempt_dir(task_dir, attempt_n)
+    adir.mkdir(parents=True, exist_ok=True)
     return StepContext(
         task=task,
         task_dir=task_dir,
@@ -184,7 +185,7 @@ def _build_step_context(
         config=st.config,
         rate_gauge=st.rate_gauge,
         log=st.log.bind(task_id=task.id),
-        attempt_dir=attempt_dir,
+        attempt_dir=adir,
         attempt_n=attempt_n,
         question_store=st.question_store,
     )

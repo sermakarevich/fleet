@@ -102,7 +102,7 @@ def test_waiting_releases_with_delay() -> None:
 
 
 def test_waiting_rows_neither_count_nor_break_streaks() -> None:
-    cfg = RuntimeConfig()
+    config = RuntimeConfig()
     rec = TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, exit_code=1, reason="boom")
     history = [
         {"n": 1, "outcome": "failure", "reason": "boom", "action": "release"},
@@ -110,7 +110,7 @@ def test_waiting_rows_neither_count_nor_break_streaks() -> None:
         {"n": 3, "outcome": "failure", "reason": "boom", "action": "release"},
     ]
     # Two real failures around one waiting row: round 3 -> BLOCK.
-    d = decide(rec, history, "in_progress", cfg)
+    d = decide(rec, history, "in_progress", config)
     assert d.action == Action.BLOCK
 
 

@@ -658,8 +658,8 @@ def test_write_runtime_config_custom_default_used_for_alias(monkeypatch, tmp_pat
 def test_write_runtime_config_ollama_url_constructor(monkeypatch, tmp_path: Path):
     coder = _coder(settings=PiSettings(agent_dir=tmp_path, ollama_url="http://127.0.0.1:12345/v1"))
     coder.write_runtime_config(tmp_path, _task())
-    cfg = _read_models(tmp_path)
-    assert cfg["providers"]["ollama"]["baseUrl"] == "http://127.0.0.1:12345/v1"
+    config = _read_models(tmp_path)
+    assert config["providers"]["ollama"]["baseUrl"] == "http://127.0.0.1:12345/v1"
 
 
 def test_write_runtime_config_preserves_foreign_top_level_keys(monkeypatch, tmp_path: Path):

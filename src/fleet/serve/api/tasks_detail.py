@@ -19,7 +19,7 @@ from fleet.serve.api.task_summary import build_summary, config_defaults, fetch_b
 from fleet.serve.state import AppState, StateDep
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
-from fleet.state.task_summary import read_result
+from fleet.state.task_summary import read_declared_result
 
 router = APIRouter(prefix="/api")
 
@@ -38,7 +38,11 @@ async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     default_coder, default_model = config_defaults(state.config)
     return JSONResponse(
         build_summary(
-            task_dir, data, state.fleet_home, default_coder=default_coder, default_model=default_model
+            task_dir,
+            data,
+            state.fleet_home,
+            default_coder=default_coder,
+            default_model=default_model,
         )
     )
 
@@ -92,7 +96,7 @@ def _has_id(dep: object) -> bool:
 
 def _child_row(dep: dict, state: AppState) -> dict:
     cid = str(dep["id"])
-    declared = read_result(resolve_task_dir(state.fleet_home, cid))
+    declared = read_declared_result(resolve_task_dir(state.fleet_home, cid))
     return {
         "id": cid,
         "title": dep.get("title"),

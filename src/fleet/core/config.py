@@ -67,8 +67,8 @@ _TOML_HEADER_PATH = Path(__file__).parent.parent / "templates" / "runtime.toml.h
 
 
 def _defaults() -> dict:
-    cfg = RuntimeConfig()
-    return {f.name: getattr(cfg, f.name) for f in fields(cfg) if f.name in _KEY_TYPES}
+    config = RuntimeConfig()
+    return {f.name: getattr(config, f.name) for f in fields(config) if f.name in _KEY_TYPES}
 
 
 def _coerce(key: str, value: object) -> object:

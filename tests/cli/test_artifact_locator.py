@@ -65,4 +65,5 @@ def test_locate_result_falls_back_to_snapshot_then_legacy(tmp_path: Path) -> Non
     snapshot.write_text("{}")
     assert locate(fleet_home, "t-1", "result") == snapshot
     snapshot.unlink()
-    assert locate(fleet_home, "t-1", "result") == fleet_home / "tasks" / "t-1" / "artifacts" / "RESULT.json"
+    want = fleet_home / "tasks" / "t-1" / "artifacts" / "RESULT.json"
+    assert locate(fleet_home, "t-1", "result") == want

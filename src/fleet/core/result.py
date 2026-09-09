@@ -25,7 +25,7 @@ _VALID_STATUSES = {s.value for s in ResultStatus}
 
 
 @dataclass(frozen=True, slots=True)
-class Result:
+class WorkerResult:
     """Parsed RESULT.json: the worker's declared outcome."""
 
     schema: int
@@ -44,7 +44,7 @@ class Result:
 SCHEMA_VERSION = 1
 
 
-def parse_result(text: str) -> Result | None:
+def parse_result(text: str) -> WorkerResult | None:
     """Parse RESULT.json content.
 
     Returns ``None`` when the text is not valid JSON, is not an object, or
@@ -64,7 +64,7 @@ def parse_result(text: str) -> Result | None:
     open_questions = data.get("open_questions") or []
     tests = data.get("tests")
     followups = data.get("followups") or []
-    return Result(
+    return WorkerResult(
         schema=data.get("schema", SCHEMA_VERSION),
         status=ResultStatus(status),
         summary=str(data.get("summary") or ""),

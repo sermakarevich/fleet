@@ -23,7 +23,7 @@ from fleet.core.iso import now_iso, parse_iso
 from fleet.core.retry_policy import Action
 from fleet.core.task import AttemptKind
 from fleet.state.atomic import write_text_atomic
-from fleet.state.paths import ATTEMPTS_JSONL, attempt_dir_path
+from fleet.state.paths import ATTEMPTS_JSONL, attempt_dir
 
 logger = structlog.get_logger(__name__)
 
@@ -289,5 +289,5 @@ class AttemptJournal:
             return None
         running = [row["n"] for row in rows if row.get("started_at") and not row.get("ended_at")]
         if running:
-            return attempt_dir_path(self.task_dir, max(running))
-        return attempt_dir_path(self.task_dir, max(row["n"] for row in rows))
+            return attempt_dir(self.task_dir, max(running))
+        return attempt_dir(self.task_dir, max(row["n"] for row in rows))

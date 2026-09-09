@@ -79,7 +79,7 @@ def test_prepare_artifacts_leaves_previous_result_json_alone(tmp_path: Path) -> 
 
 
 def test_prepare_artifacts_calls_write_runtime_config(tmp_path: Path) -> None:
-    ctx = _ctx(tmp_path, task_id="t-cfg")
+    ctx = _ctx(tmp_path, task_id="t-config")
 
     asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 

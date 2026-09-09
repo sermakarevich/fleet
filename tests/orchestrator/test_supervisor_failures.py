@@ -359,23 +359,23 @@ def test_no_counter_files_created(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BLOCKED_BY_AGENT outcome → no bd writes when the bead is already blocked
+# BLOCKED_BY_CODER outcome → no bd writes when the bead is already blocked
 # ---------------------------------------------------------------------------
 
 
-def test_blocked_by_agent_already_blocked_no_queue_writes(tmp_path: Path) -> None:
+def test_blocked_by_coder_already_blocked_no_queue_writes(tmp_path: Path) -> None:
     queue = StubQueue(status="blocked")
     s = _make_supervisor(tmp_path, queue)
-    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT))
+    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_CODER))
     assert len(queue.released) == 0
     assert len(queue.blocked) == 0
     assert len(queue.comments) == 0
 
 
-def test_blocked_by_agent_still_open_calls_set_blocked(tmp_path: Path) -> None:
+def test_blocked_by_coder_still_open_calls_set_blocked(tmp_path: Path) -> None:
     queue = StubQueue(status="open")
     s = _make_supervisor(tmp_path, queue)
-    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_AGENT, reason="need creds"))
+    _handle(s, _task(), _outcome(TaskOutcome.BLOCKED_BY_CODER, reason="need creds"))
     assert queue.blocked == [("t-001", "need creds")]
 
 
@@ -595,5 +595,5 @@ def test_failure_release_writes_attempt_end_line(tmp_path: Path) -> None:
     ]
     assert end_lines, "expected an end line in attempts.jsonl"
     assert end_lines[-1]["outcome"] == "failure"
-    # The recorded action comes from the Decision just applied.
+    # The recorded action comes from the RetryDecision just applied.
     assert end_lines[-1]["action"] == "release"

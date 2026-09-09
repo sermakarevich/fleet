@@ -49,7 +49,7 @@ class Action(Enum):
 
 
 @dataclass
-class Decision:
+class RetryDecision:
     action: Action
     reason: str = ""
     # Seconds the caller should wait before the task becomes claimable
@@ -141,7 +141,7 @@ RETRY_TABLE: list[RetryRule] = [
         default_reason="terminal setup error",
     ),
     RetryRule(
-        TaskOutcome.BLOCKED_BY_AGENT,
+        TaskOutcome.BLOCKED_BY_CODER,
         action=Action.BLOCK,
         block_reason_tmpl="{reason}",
         default_reason="agent set task to blocked",
@@ -282,7 +282,7 @@ def _category_of(  # noqa: PLR0911  # ADR 0006 bead 5
     if outcome == TaskOutcome.SUCCESS.value:
         # SUCCESS that closed the bead is not a round: it ends the streak.
         # History rows don't carry close_reason, but reap journals the
-        # Decision action ("close") on every end line, so use that.
+        # RetryDecision action ("close") on every end line, so use that.
         if close_reason or action in ("close", "closed"):
             return None
         return "noclose"
@@ -389,20 +389,22 @@ def _render(tmpl: str, rule: RetryRule, record: TaskOutcomeRecord, rounds: int) 
     )
 
 
-def _apply_rule(rule: RetryRule, record: TaskOutcomeRecord, history: list[dict]) -> Decision:
-    """Turn the first matching rule into a Decision, counting rounds once."""
+def _apply_rule(rule: RetryRule, record: TaskOutcomeRecord, history: list[dict]) -> RetryDecision:
+    """Turn the first matching rule into a RetryDecision, counting rounds once."""
     if rule.max_rounds is None:
         if rule.action is Action.BLOCK:
-            return Decision(Action.BLOCK, reason=_render(rule.block_reason_tmpl, rule, record, 0))
+            reason = _render(rule.block_reason_tmpl, rule, record, 0)
+            return RetryDecision(Action.BLOCK, reason=reason)
         wait = rule.wait_for(record, 0) if rule.wait_for is not None else None
-        return Decision(
+        return RetryDecision(
             rule.action, reason=_render(rule.release_reason_tmpl, rule, record, 0), wait_sec=wait
         )
     rounds = streak_of(history, record.outcome, record.reason) + 1
     if rounds >= rule.max_rounds:
-        return Decision(Action.BLOCK, reason=_render(rule.block_reason_tmpl, rule, record, rounds))
+        reason = _render(rule.block_reason_tmpl, rule, record, rounds)
+        return RetryDecision(Action.BLOCK, reason=reason)
     wait = rule.wait_for(record, rounds) if rule.wait_for is not None else None
-    return Decision(
+    return RetryDecision(
         Action.RELEASE,
         reason=_render(rule.release_reason_tmpl, rule, record, rounds),
         wait_sec=wait,
@@ -413,8 +415,8 @@ def decide(
     record: TaskOutcomeRecord,
     history: list[dict],
     bead_status: str | None,
-    cfg: RuntimeConfig,
-) -> Decision:
+    config: RuntimeConfig,
+) -> RetryDecision:
     """Apply the first matching RETRY_TABLE row to *record* given *history*."""
     for rule in RETRY_TABLE:
         if _rule_matches(rule, record, bead_status):

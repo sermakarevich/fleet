@@ -150,5 +150,6 @@ def collect_records(fleet_home: Path) -> list[AttemptRecord]:
     directory is walked exactly once, by its owner.
     """
     return [
-        _build_record(task_dir.name, raw, task_dir) for task_dir, raw in TaskIndex(fleet_home).iter_meta()
+        _build_record(task_dir.name, raw, task_dir)
+        for task_dir, raw in TaskIndex(fleet_home).iter_meta()
     ]

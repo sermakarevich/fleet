@@ -36,7 +36,7 @@ def test_queue_bound_to_home(tmp_path: Path) -> None:
 
 def test_config_creates_defaults_when_missing(tmp_path: Path) -> None:
     """config() writes runtime.toml with defaults on first read."""
-    cfg = bootstrap.config(tmp_path)
-    assert isinstance(cfg, RuntimeConfig)
-    assert cfg.coder == RuntimeConfig().coder
+    config = bootstrap.config(tmp_path)
+    assert isinstance(config, RuntimeConfig)
+    assert config.coder == RuntimeConfig().coder
     assert (tmp_path / "runtime.toml").exists()

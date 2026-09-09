@@ -29,11 +29,11 @@ def register(app: typer.Typer) -> None:
             else:
                 typer.echo("# No config file found (using defaults)")
             return
-        cfg = load_config(path)
+        config = load_config(path)
         typer.echo(f"{'key':<38} value")
         typer.echo("-" * 55)
-        for f in dc_fields(cfg):
-            typer.echo(f"{f.name:<38} {getattr(cfg, f.name)!s}")
+        for f in dc_fields(config):
+            typer.echo(f"{f.name:<38} {getattr(config, f.name)!s}")
 
     @config_app.command("set")
     def config_set(

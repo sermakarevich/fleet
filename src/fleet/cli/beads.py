@@ -12,7 +12,7 @@ from fleet.beads import client as beads_client
 from fleet.beads.create_args import rewrite_create_argv
 from fleet.beads.queue import BeadsQueue
 from fleet.coders import get_coder
-from fleet.state.paths import fleet_home
+from fleet.state import paths as state_paths
 
 
 def _first_positional(args: list[str]) -> str | None:
@@ -80,7 +80,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         `--cwd <path>` overrides the shell's working directory for the task cwd.
         When omitted, the shell cwd at invocation time is used (existing behaviour).
         """
-        fleet_home = fleet_home()
+        fleet_home = state_paths.fleet_home()
         bd_args = list(ctx.args)
 
         sub = _first_positional(bd_args)

@@ -63,7 +63,7 @@ def phase_attempts(history: list[dict], phase_name: str) -> int:
 def phase_failures(history: list[dict], phase_name: str) -> int:
     """Count failed ``job.<phase>`` attempts (outcome failure or stall/timeout kill).
 
-    The per-phase cap (cfg.job_max_phase_attempts) counts failures only: a
+    The per-phase cap (config.job_max_phase_attempts) counts failures only: a
     research/design attempt that ends PARTIAL succeeded and must move the
     job forward, never toward a block.
     """

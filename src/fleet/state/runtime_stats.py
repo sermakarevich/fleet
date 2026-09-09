@@ -44,8 +44,8 @@ class TaskRuntimeInfo:
     last_event_detail: str | None
 
 
-def _read_started_at(tdir: Path) -> datetime | None:
-    attempt_dir = latest_attempt_dir(tdir)
+def _read_started_at(task_dir: Path) -> datetime | None:
+    attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is None:
         return None
     log = attempt_dir / "log.jsonl"
@@ -69,11 +69,11 @@ def _read_started_at(tdir: Path) -> datetime | None:
         return None
 
 
-def task_runtime_info_cached(tdir: Path) -> TaskRuntimeInfo:
-    """Return TaskRuntimeInfo for tdir; re-scans events.jsonl only on change."""
-    stats = scan_cached(tdir, _events_cache)
+def task_runtime_info_cached(task_dir: Path) -> TaskRuntimeInfo:
+    """Return TaskRuntimeInfo for task_dir; re-scans events.jsonl only on change."""
+    stats = scan_cached(task_dir, _events_cache)
     return TaskRuntimeInfo(
-        started_at=_read_started_at(tdir),
+        started_at=_read_started_at(task_dir),
         last_event_at=stats.last_ts,
         events=stats.event_count,
         context_tokens=stats.peak_context_tokens,
@@ -82,11 +82,11 @@ def task_runtime_info_cached(tdir: Path) -> TaskRuntimeInfo:
     )
 
 
-def task_runtime_stats_from_dir(tdir: Path) -> TaskRuntimeStats:
+def task_runtime_stats_from_dir(task_dir: Path) -> TaskRuntimeStats:
     """Same fields as TaskRuntimeInfo, minus the last-event-kind/detail pair."""
-    stats = scan_cached(tdir, _events_cache)
+    stats = scan_cached(task_dir, _events_cache)
     return TaskRuntimeStats(
-        started_at=_read_started_at(tdir),
+        started_at=_read_started_at(task_dir),
         last_event_at=stats.last_ts,
         events=stats.event_count,
         context_tokens=stats.peak_context_tokens,
@@ -98,6 +98,6 @@ def task_runtime_stats(task_id: str) -> TaskRuntimeStats:
     return task_runtime_stats_from_dir(_task_dir(fleet_home(), task_id))
 
 
-def task_files_touched_from_dir(tdir: Path) -> int:
+def task_files_touched_from_dir(task_dir: Path) -> int:
     """Count unique files touched (read/edited/written) across a task's events."""
-    return scan_cached(tdir, _events_cache).files_touched_count
+    return scan_cached(task_dir, _events_cache).files_touched_count
