@@ -15,6 +15,7 @@ import {
   useTemplates,
 } from '../../../shared/hooks/useApi';
 import type { CoderInfo, Template } from '../../../shared/types';
+import { buildTriggerPayload } from '../../triggers/useTriggerForm';
 
 export type RunMode = 'now' | 'schedule';
 
@@ -121,20 +122,21 @@ export function useNewWorkerForm(onClose: () => void, onCreated: (id: string) =>
     }
     setScheduleError('');
     try {
-      const saved = await createSchedule.mutateAsync({
+      // One payload shape for task schedules (TriggerForm's builder).
+      const saved = await createSchedule.mutateAsync(buildTriggerPayload('task', {
         name,
-        cron: cron.trim(),
-        timezone: timezone.trim() || undefined,
+        cron,
+        timezone,
         enabled: true,
-        title: title.trim(),
-        description: description || undefined,
-        cwd: cwd || undefined,
-        coder: coder || undefined,
-        model: model || undefined,
-        priority: priority ? Number(priority) : 2,
         overlap,
-        target: 'task',
-      });
+        title: title.trim(),
+        description: description || '',
+        cwd: cwd || '',
+        coder: coder || '',
+        model: model || '',
+        priority: priority ? Number(priority) : 2,
+        workflowId: '',
+      }));
       onCreated(saved.id);
       onClose();
     } catch {

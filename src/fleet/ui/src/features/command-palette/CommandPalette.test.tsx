@@ -56,6 +56,28 @@ function seedTask(partial: Partial<TaskSummary> & { id: string }): TaskSummary {
   return { title: `title-${partial.id}`, ...partial } as TaskSummary;
 }
 
+describe('CommandPalette schedule entries', () => {
+  it('jumps to the scheduled workflows sub-tab', async () => {
+    render(<CommandPalette open setOpen={() => {}} onCreateWorker={() => {}} />, {
+      wrapper: wrapper([]),
+    });
+
+    fireEvent.click(await screen.findByText('Scheduled workflows'));
+    expect(screen.getByTestId('location').textContent).toBe('/workflows?tab=scheduled');
+  });
+
+  it('New schedule asks for the target before navigating', async () => {
+    render(<CommandPalette open setOpen={() => {}} onCreateWorker={() => {}} />, {
+      wrapper: wrapper([]),
+    });
+
+    expect(screen.queryByText('Schedule a worker')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByText('New schedule…'));
+    fireEvent.click(await screen.findByText('Schedule a workflow'));
+    expect(screen.getByTestId('location').textContent).toBe('/workflows?tab=scheduled&new=1');
+  });
+});
+
 describe('CommandPalette worker jump', () => {
   it('jumps to an uncached bead id via /workers/:id', async () => {
     render(<CommandPalette open setOpen={() => {}} onCreateWorker={() => {}} />, {

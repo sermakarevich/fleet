@@ -5,8 +5,8 @@
 import { useSearchParams } from 'react-router-dom';
 import { useTasks } from '../../shared/hooks/useApi';
 import { PageShell } from '../../shared/ui/PageShell';
+import { TriggerTable } from '../triggers/TriggerTable';
 import { RunsTab } from './RunsTab';
-import { ScheduledWorkersPanel } from './ScheduledWorkersPanel';
 
 const TABS = [
   { id: 'runs', label: 'Runs' },
@@ -34,7 +34,7 @@ export function WorkersPage() {
       activeTab={tab}
       onTabChange={handleTabChange}
     >
-      {tab === 'runs' ? <RunsTab /> : <ScheduledWorkersPanel />}
+      {tab === 'runs' ? <RunsTab /> : <TriggerTable target="task" />}
     </PageShell>
   );
 }

@@ -133,6 +133,7 @@ function mockQuestions(n: number): { now: number; pending: ChatQuestion[] } {
 function mockCommon(opts?: { tasks?: TaskSummary[]; schedules?: Schedule[]; questions?: number }) {
   vi.spyOn(api, 'getTasks').mockResolvedValue(opts?.tasks ?? []);
   vi.spyOn(api, 'getSchedules').mockResolvedValue(opts?.schedules ?? []);
+  vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
   vi.spyOn(api, 'getAnalyticsSummary').mockResolvedValue(mockSummary());
   vi.spyOn(api, 'getChatQuestions').mockResolvedValue(mockQuestions(opts?.questions ?? 0));
 }
@@ -350,6 +351,7 @@ describe('Runs history Load more', () => {
   function mockHistory(tasks: TaskSummary[]) {
     const tasksSpy = vi.spyOn(api, 'getTasks').mockResolvedValue(tasks);
     vi.spyOn(api, 'getSchedules').mockResolvedValue([]);
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
     vi.spyOn(api, 'getAnalyticsSummary').mockResolvedValue(mockSummary());
     vi.spyOn(api, 'getChatQuestions').mockResolvedValue(mockQuestions(0));
     return tasksSpy;

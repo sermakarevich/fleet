@@ -8,7 +8,7 @@
 import * as R from '../../shared/styles/recipes';
 import { formatShortDateTime as fmtTs } from '../../shared/format';
 import { Modal } from '../../shared/ui/Modal';
-import { CRON_PRESETS } from '../schedules/cronPresets';
+import { CRON_PRESETS } from '../triggers/cronPresets';
 import { useNewWorkerForm } from './hooks/useNewWorkerForm';
 import { CoderModelPriority, DepsAndArgs, TemplatePicker } from './NewWorkerOptions';
 import { styles } from './newWorkerPanelStyles';

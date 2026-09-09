@@ -2,8 +2,9 @@
  * Workflows browser: list of saved worker stage-graphs, YAML import with
  * replace-on-conflict, and the stage/step editor for new and existing
  * workflows. Composes DataList on the shared PageShell with
- * Definitions/Runs sub-tabs; the edited id lives in the URL so it is
- * shareable. Called by App's /workflows, /workflows/new and
+ * Definitions/Runs/Scheduled sub-tabs (Scheduled shows workflow-target
+ * triggers via the shared TriggerTable); the edited id lives in the URL
+ * so it is shareable. Called by App's /workflows, /workflows/new and
  * /workflows/:id routes.
  */
 import { useRef, useState } from 'react';
@@ -24,6 +25,7 @@ import { DataList } from '../../shared/ui/DataList';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageShell } from '../../shared/ui/PageShell';
 import type { Workflow } from '../../shared/types';
+import { TriggerTable } from '../triggers/TriggerTable';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowCard, workflowColumns } from './workflowColumns';
 import { RunCard, runColumns } from './runColumns';
@@ -105,7 +107,7 @@ function WorkflowRunsView({ workflowId, onOpen }: {
   return (
     <div>
       <p style={styles.backLine}>
-        <Link to="/workflows?view=runs">← All runs</Link>
+        <Link to="/workflows?tab=runs">← All runs</Link>
         {' · '}
         {workflow?.name ?? workflowId} <span style={R.countStyle()}>({total})</span>
       </p>
@@ -163,7 +165,10 @@ export function WorkflowsPage() {
   const runsOfId = location.pathname.endsWith('/runs') ? (selectedId ?? null) : null;
   const editingId = isNew || runsOfId ? null : (selectedId ?? null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get('view') === 'runs' ? 'runs' : 'definitions';
+  // Sub-tab from ?tab= (canonical, ADR 0009); ?view= is the legacy alias
+  // from before the Scheduled sub-tab existed.
+  const tabParam = searchParams.get('tab') ?? searchParams.get('view');
+  const view = tabParam === 'runs' ? 'runs' : tabParam === 'scheduled' ? 'scheduled' : 'definitions';
 
   async function importYaml(yaml: string, replace_id?: string) {
     try {
@@ -220,8 +225,8 @@ export function WorkflowsPage() {
     );
   }
 
-  function setView(next: 'definitions' | 'runs') {
-    setSearchParams(next === 'runs' ? { view: 'runs' } : {});
+  function setView(next: 'definitions' | 'runs' | 'scheduled') {
+    setSearchParams(next === 'definitions' ? {} : { tab: next });
   }
 
   const cb = {
@@ -233,15 +238,17 @@ export function WorkflowsPage() {
 
   return (
     <PageShell
-      title={view === 'runs' ? 'Runs' : 'Workflows'}
-      count={view === 'runs' ? undefined : items.length}
+      title={view === 'runs' ? 'Runs' : view === 'scheduled' ? 'Scheduled' : 'Workflows'}
+      count={view === 'definitions' ? items.length : undefined}
       tabs={[
         { id: 'definitions', label: 'Definitions' },
         { id: 'runs', label: 'Runs' },
+        { id: 'scheduled', label: 'Scheduled' },
       ]}
       activeTab={view}
-      onTabChange={(id) => setView(id as 'definitions' | 'runs')}
+      onTabChange={(id) => setView(id as 'definitions' | 'runs' | 'scheduled')}
       actions={
+        view === 'scheduled' ? undefined : (
         <span style={styles.topActions}>
           <input
             ref={fileRef}
@@ -262,6 +269,7 @@ export function WorkflowsPage() {
             + New workflow
           </button>
         </span>
+        )
       }
     >
       {conflict && (
@@ -281,6 +289,8 @@ export function WorkflowsPage() {
           onClose={() => navigate('/workflows')}
           onSaved={onSaved}
         />
+      ) : view === 'scheduled' ? (
+        <TriggerTable target="workflow" />
       ) : view === 'runs' ? (
         <AllRunsView
           onOpen={(runId) => navigate(`/workflow-runs/${runId}`)}
