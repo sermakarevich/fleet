@@ -163,12 +163,21 @@ export function taskColumns(cb: TaskListCallbacks): Array<DataColumn<TaskSummary
     { key: 'id', header: 'ID', width: '6rem', render: (task) => <span style={R.idCellStyle()}>{task.id}</span> },
     { key: 'title', header: 'Title', render: (task) => <TaskTitleCell task={task} /> },
     {
-      key: 'coder', header: 'Coder / Model', width: '9rem',
+      key: 'coder', header: 'Coder / Model', width: '11rem',
       render: (task) => {
         const coderModelStr = [task.coder, task.model].filter(Boolean).join(' · ');
+        if (!coderModelStr) {
+          return (
+            <span style={rowStyles.coderCell}>
+              <span style={R.dimStyle()}>(default)</span>
+            </span>
+          );
+        }
+        const modelShort = task.model ? task.model.split('/').pop() ?? task.model : null;
         return (
-          <span style={rowStyles.coderCell}>
-            {coderModelStr ? coderModelStr : <span style={R.dimStyle()}>(default)</span>}
+          <span style={rowStyles.coderCell} title={coderModelStr}>
+            {task.coder ? <span style={rowStyles.coderName}>{task.coder}</span> : null}
+            {modelShort ? <span style={rowStyles.coderModel}>{modelShort}</span> : null}
           </span>
         );
       },

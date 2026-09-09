@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { TaskSummary } from '../../shared/types';
-import { isStaleLease, TaskTitleCell } from './workerColumns';
+import { isStaleLease, taskColumns, TaskTitleCell, type TaskListCallbacks } from './workerColumns';
 
 afterEach(cleanup);
 
@@ -107,5 +107,37 @@ describe('TaskTitleCell stale-lease badge', () => {
   it('does not render the badge when alive is true, even with an expired lease_until', () => {
     render(<TaskTitleCell task={makeTask({ id: 'f', lease: { ...OLD_LEASE } })} />);
     expect(screen.queryByText('stale lease')).not.toBeInTheDocument();
+  });
+});
+
+const TEST_CB: TaskListCallbacks = {
+  confirming: null,
+  stoppingIds: new Set<string>(),
+  onActionClick: () => {},
+  onActionConfirm: () => {},
+  onActionCancel: () => {},
+};
+
+function coderCell(task: TaskSummary) {
+  const col = taskColumns(TEST_CB).find((c) => c.key === 'coder');
+  if (!col) throw new Error('coder column missing');
+  return col.render(task);
+}
+
+describe('coder cell', () => {
+  it('renders coder and provider-stripped model on separate lines with full string as title', () => {
+    const { container } = render(
+      <>{coderCell(makeTask({ id: 'g', coder: 'opencode', model: 'opencode-go/muse-spark-1.3-contributor' }))}</>,
+    );
+    expect(screen.getByText('opencode')).toBeInTheDocument();
+    expect(screen.getByText('muse-spark-1.3-contributor')).toBeInTheDocument();
+    expect(screen.queryByText('opencode-go/muse-spark-1.3-contributor')).not.toBeInTheDocument();
+    const wrapper = container.querySelector('[title]');
+    expect(wrapper?.getAttribute('title')).toBe('opencode · opencode-go/muse-spark-1.3-contributor');
+  });
+
+  it('renders (default) when coder and model are null', () => {
+    render(<>{coderCell(makeTask({ id: 'h', coder: null, model: null }))}</>);
+    expect(screen.getByText('(default)')).toBeInTheDocument();
   });
 });

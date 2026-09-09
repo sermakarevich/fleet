@@ -72,4 +72,26 @@ describe('DataList', () => {
     expect(screen.getByText('Loading…')).toBeInTheDocument();
     expect(screen.queryByText('Nothing here.')).not.toBeInTheDocument();
   });
+
+  it('clips fixed-width cells with overflow hidden', () => {
+    const longStr = 'x'.repeat(300);
+    const cols: Array<DataColumn<Item>> = [
+      { key: 'id', header: 'ID', width: '6rem', render: (row) => row.id },
+      { key: 'title', header: 'Title', width: '8rem', render: () => longStr },
+    ];
+    render(
+      <DataList
+        columns={cols}
+        rows={[{ id: 'a', title: 'Alpha' }]}
+        rowKey={(row) => row.id}
+        empty="Nothing here."
+        isMobile={false}
+      />,
+    );
+    const cell = screen.getByText(longStr);
+    // The text renders directly inside the fixed-width cell wrapper, so
+    // the wrapper itself carries the clipping style.
+    expect(cell.style.overflow).toBe('hidden');
+    expect(cell.style.width).toBe('8rem');
+  });
 });

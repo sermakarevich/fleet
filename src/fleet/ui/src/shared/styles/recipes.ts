@@ -194,10 +194,13 @@ export function inputStyle(): CSSProperties {
 }
 
 // Data cell inside a DataList desktop row: fixed width or flex fill.
+// Both variants clip overflow so long values never paint across the next
+// column; the fixed variant is a flex row so inner content is blockified
+// and ellipsis works. Headers reuse this recipe and clip too.
 export function dataCellStyle(width?: string): CSSProperties {
   return width
-    ? { width, flexShrink: 0, minWidth: 0 }
-    : { flex: 1, minWidth: 0 };
+    ? { width, flexShrink: 0, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center' }
+    : { flex: 1, minWidth: 0, overflow: 'hidden' };
 }
 
 // Mobile card shell shared by every DataList card.
