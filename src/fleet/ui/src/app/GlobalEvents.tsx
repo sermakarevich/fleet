@@ -4,7 +4,7 @@ import { useChatQuestions } from '../shared/hooks/useApi';
 import { useEventSocket } from '../shared/hooks/useEventSocket';
 import { useNativeNotifications } from '../shared/hooks/useNativeNotifications';
 import { useToast } from '../shared/contexts/ToastContext';
-import { fmtDuration } from '../shared/format';
+import { formatDuration } from '../shared/format';
 import type { FleetEvent } from '../shared/types';
 import { queryClient } from './queryClient';
 
@@ -52,7 +52,7 @@ export function GlobalEvents() {
         const filesTouched = event.extra?.files_touched as number | undefined;
         let summary = '';
         if (durationSec != null) {
-          summary += ` in ${fmtDuration(durationSec)}`;
+          summary += ` in ${formatDuration(durationSec)}`;
         }
         if (filesTouched != null && filesTouched > 0) {
           summary += ` - ${filesTouched} file${filesTouched === 1 ? '' : 's'}`;

@@ -3,7 +3,7 @@ import { SupervisorPanel } from './SupervisorPanel';
 import { ConfigEditor } from './ConfigEditor';
 import { useNativeNotifications } from '../../shared/hooks/useNativeNotifications';
 import type { RuntimeConfig } from '../../shared/types';
-import { fmtKilo } from '../../shared/format';
+import { formatKiloTokens } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
 
 export function ConfigPage() {
@@ -74,7 +74,7 @@ export function ConfigPage() {
                   <li key={c.name} style={styles.coderItem}>
                     <strong>{c.name}</strong>
                     <span style={styles.coderMeta}>
-                      {fmtKilo(c.context_limit)} ctx — {c.default_model}
+                      {formatKiloTokens(c.context_limit)} ctx — {c.default_model}
                     </span>
                   </li>
                 ))}

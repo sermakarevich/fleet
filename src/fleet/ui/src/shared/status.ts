@@ -1,4 +1,5 @@
-// Single home for status -> color/label and event-kind -> color mappings.
+// Single home for status -> color/label.
+// Event-kind colors live in shared/colors.ts (a different concept).
 // Previously forked 3 ways (Tasks.tsx, BD.tsx, TaskDetail/Header.tsx) with
 // inconsistent colors for the same status; this is now the one source.
 
@@ -35,24 +36,4 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
-}
-
-// Event-kind colors: union of the previous ActivityGutter (task/tool events)
-// and EventsTab (session-level events) maps. Where both defined a color for
-// the same kind they already agreed.
-const KIND_COLORS: Record<string, string> = {
-  tool_use: '#3b82f6',
-  tool_result: '#22c55e',
-  api_request: '#8b5cf6',
-  api_response: '#a855f7',
-  message: '#f59e0b',
-  error: '#ef4444',
-  assistant_text: '#22c55e',
-  thinking: '#6366f1',
-  session_started: '#a78bfa',
-  session_ended: '#94a3b8',
-};
-
-export function eventKindColor(kind: string): string {
-  return KIND_COLORS[kind] ?? '#71717a';
 }

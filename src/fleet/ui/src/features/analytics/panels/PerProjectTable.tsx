@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import type { AnalyticsByProjectRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
-import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
+import { formatDuration, formatTokens, formatPercent } from '../../../shared/format';
 import { altRowStyle, merge } from '../../../shared/styles/recipes';
 
 interface Props {
@@ -72,7 +72,7 @@ export function PerProjectTable({ rows }: Props) {
         <span style={styles.track}>
           <span style={merge(styles.fill, { width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' })} />
         </span>
-        <span style={styles.pctText}>{fmtPct(rate)}</span>
+        <span style={styles.pctText}>{formatPercent(rate)}</span>
       </span>
     );
   };
@@ -92,10 +92,17 @@ export function PerProjectTable({ rows }: Props) {
                 {COLUMNS.map(col => (
                   <th
                     key={col.key}
-                    onClick={() => handleSort(col.key)}
-                    style={merge(styles.th, { cursor: 'pointer' })}
+                    scope="col"
+                    aria-sort={sortKey === col.key ? (sortDir === 'desc' ? 'descending' : 'ascending') : 'none'}
+                    style={styles.th}
                   >
-                    {col.label} {sortIndicator(col.key)}
+                    <button
+                      style={styles.sortBtn}
+                      onClick={() => handleSort(col.key)}
+                      aria-label={`Sort by ${col.label}`}
+                    >
+                      {col.label} {sortIndicator(col.key)}
+                    </button>
                   </th>
                 ))}
               </tr>
@@ -108,8 +115,8 @@ export function PerProjectTable({ rows }: Props) {
                   </td>
                   <td style={merge(styles.td, { textAlign: 'right' })}>{r.total}</td>
                   <td style={styles.td}>{successBarFor(r.success_rate)}</td>
-                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtDuration(r.median_run_sec)}</td>
-                  <td style={merge(styles.td, { textAlign: 'right' })}>{fmtTokens(r.output_tokens)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{formatDuration(r.median_run_sec)}</td>
+                  <td style={merge(styles.td, { textAlign: 'right' })}>{formatTokens(r.output_tokens)}</td>
                 </tr>
               ))}
             </tbody>
@@ -138,6 +145,15 @@ const styles = {
     fontWeight: 500,
     whiteSpace: 'nowrap',
     userSelect: 'none',
+  } as React.CSSProperties,
+  sortBtn: {
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    color: 'inherit',
+    font: 'inherit',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   } as React.CSSProperties,
   td: {
     padding: '0.4rem 0.75rem',

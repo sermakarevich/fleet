@@ -2,7 +2,7 @@ import type { AnalyticsKpis } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import { merge } from '../../../shared/styles/recipes';
 import { seriesColors } from '../chartTheme';
-import { fmtDuration, fmtTokens, fmtPct } from '../../../shared/format';
+import { formatDuration, formatTokens, formatPercent } from '../../../shared/format';
 
 interface CardProps {
   kpis: AnalyticsKpis;
@@ -34,7 +34,7 @@ export function KpiCards({ kpis }: CardProps) {
     { label: 'Completed', value: String(kpis.completed) },
     {
       label: 'Success rate',
-      value: fmtPct(kpis.success_rate),
+      value: formatPercent(kpis.success_rate),
       color:
         kpis.success_rate >= 0.8
           ? seriesColors.success
@@ -46,13 +46,13 @@ export function KpiCards({ kpis }: CardProps) {
     { label: 'Queued', value: String(kpis.queued) },
     {
       label: 'Median run',
-      value: fmtDuration(kpis.median_run_sec),
-      sub: kpis.p90_run_sec != null ? `p90 ${fmtDuration(kpis.p90_run_sec)}` : undefined,
+      value: formatDuration(kpis.median_run_sec),
+      sub: kpis.p90_run_sec != null ? `p90 ${formatDuration(kpis.p90_run_sec)}` : undefined,
     },
-    { label: 'Median wait', value: fmtDuration(kpis.median_queue_wait_sec) },
-    { label: 'Output tokens', value: fmtTokens(kpis.total_output_tokens) },
-    { label: 'Input tokens', value: fmtTokens(kpis.total_input_tokens ?? null) },
-    { label: 'Cache tokens', value: fmtTokens(cacheTotal) },
+    { label: 'Median wait', value: formatDuration(kpis.median_queue_wait_sec) },
+    { label: 'Output tokens', value: formatTokens(kpis.total_output_tokens) },
+    { label: 'Input tokens', value: formatTokens(kpis.total_input_tokens ?? null) },
+    { label: 'Cache tokens', value: formatTokens(cacheTotal) },
     {
       label: 'Errors',
       value: String(errors),

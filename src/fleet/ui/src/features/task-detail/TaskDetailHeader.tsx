@@ -3,7 +3,7 @@ import type { RuntimeConfig, TaskDetail } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 import { useUnblockTask } from '../../shared/hooks/useApi';
 import { statusColor, statusLabel } from '../../shared/status';
-import { fmtTs, fmtTokens, fmtContextTitle } from '../../shared/format';
+import { formatTimestamp, formatTokens, formatContextTitle } from '../../shared/format';
 import { merge } from '../../shared/styles/recipes';
 
 interface Props {
@@ -30,7 +30,7 @@ function CoderModel({ task, config }: { task: TaskDetail; config: RuntimeConfig 
   );
 }
 
-export function Header({ task, config }: Props) {
+export function TaskDetailHeader({ task, config }: Props) {
   const [descExpanded, setDescExpanded] = useState(false);
   const desc = task.description;
   const descLong = typeof desc === 'string' && desc.length > 400;
@@ -68,7 +68,7 @@ export function Header({ task, config }: Props) {
           <span style={styles.blockedLabel}>Blocked</span>
           <span style={styles.blockedText}>{task.blocked_reason ?? 'No recorded reason'}</span>
           <span style={styles.metaSep}>·</span>
-          <span style={styles.metaItem}>{fmtTs(task.blocked_at)}</span>
+          <span style={styles.metaItem}>{formatTimestamp(task.blocked_at)}</span>
           {counters.length > 0 && (
             <>
               <span style={styles.metaSep}>·</span>
@@ -103,15 +103,15 @@ export function Header({ task, config }: Props) {
       <div style={styles.meta}>
         <CoderModel task={task} config={config} />
         <span style={styles.metaSep}>·</span>
-        <span style={styles.metaItem} title={fmtContextTitle(task.context_tokens, task.context_limit)}>
-          ctx: {fmtTokens(task.context_tokens, task.context_pct)}
+        <span style={styles.metaItem} title={formatContextTitle(task.context_tokens, task.context_limit)}>
+          ctx: {formatTokens(task.context_tokens, task.context_pct)}
         </span>
         <span style={styles.metaSep}>·</span>
-        <span style={styles.metaItem}>started: {fmtTs(task.started_at)}</span>
+        <span style={styles.metaItem}>started: {formatTimestamp(task.started_at)}</span>
         {task.ended_at && (
           <>
             <span style={styles.metaSep}>·</span>
-            <span style={styles.metaItem}>ended: {fmtTs(task.ended_at)}</span>
+            <span style={styles.metaItem}>ended: {formatTimestamp(task.ended_at)}</span>
           </>
         )}
         {task.cwd && (

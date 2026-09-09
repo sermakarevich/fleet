@@ -6,7 +6,7 @@
  */
 import * as T from '../../shared/styles/tokens';
 
-export const styles = {
+export const rowStyles = {
   filterBtnInner: {
     display: 'inline-flex',
     alignItems: 'center',

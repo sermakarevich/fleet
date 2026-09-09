@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
-import { fmtCount } from '../../../shared/format';
+import { formatCount } from '../../../shared/format';
 import { merge } from '../../../shared/styles/recipes';
 
 interface ActivityHeatmapProps {
@@ -57,7 +57,7 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
                   <div
                     key={ci}
                     style={merge(cell, { background: bg,  })}
-                    title={`${DAYS[ri]} ${String(ci).padStart(2, '0')}:00 — ${fmtCount(count)}`}
+                    title={`${DAYS[ri]} ${String(ci).padStart(2, '0')}:00 — ${formatCount(count)}`}
                   />
                 );
               })}

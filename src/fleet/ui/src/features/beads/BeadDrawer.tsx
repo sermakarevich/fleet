@@ -6,6 +6,7 @@
 import { useBead } from '../../shared/hooks/useApi';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
+import { Modal } from '../../shared/ui/Modal';
 import { StatusChip } from '../../shared/ui/StatusChip';
 import { BeadActions } from './BeadActions';
 
@@ -20,11 +21,10 @@ export function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () =>
   const incompleteDeps = (bead?.dependencies ?? []).filter((d) => d.status !== 'closed');
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <aside style={R.drawerStyle()} onClick={(e) => e.stopPropagation()}>
+    <Modal labelledBy="bead-drawer-title" onClose={onClose} placement="right" panelStyle={R.drawerStyle()}>
         <div style={styles.header}>
-          <span style={styles.id}>{beadId}</span>
-          <button style={styles.closeBtn} onClick={onClose} title="Close">✕</button>
+          <span id="bead-drawer-title" style={styles.id}>{beadId}</span>
+          <button style={styles.closeBtn} onClick={onClose} title="Close" aria-label="Close">✕</button>
         </div>
 
         {isLoading && <p style={R.msgStyle()}>Loading…</p>}
@@ -104,16 +104,11 @@ export function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () =>
             </section>
           </div>
         )}
-      </aside>
-    </div>
+    </Modal>
   );
 }
 
 const styles = {
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-    display: 'flex', justifyContent: 'flex-end', zIndex: 900,
-  } as React.CSSProperties,
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '0.625rem 1rem', borderBottom: `1px solid ${T.colors.borderSubtle}`, flexShrink: 0,

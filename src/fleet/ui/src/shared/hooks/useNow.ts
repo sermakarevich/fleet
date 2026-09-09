@@ -1,7 +1,7 @@
 /**
  * The one ticking clock in the UI (1 s). Called by ChatPage (which passes
  * `now` down so the whole tree ticks together) and ActivityGutter;
- * relative-time text comes from relTime in shared/format.ts.
+ * relative-time text comes from formatRelativeAge in shared/format.ts.
  */
 import { useEffect, useState } from 'react';
 

@@ -7,10 +7,6 @@
 import * as T from '../../shared/styles/tokens';
 
 export const styles = {
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex',
-    alignItems: 'flex-start', justifyContent: 'center', paddingTop: '5rem', zIndex: 500,
-  } as React.CSSProperties,
   panel: {
     ...T.panel, width: '100%', maxWidth: '36rem',
     maxHeight: 'calc(100vh - 8rem)', overflowY: 'auto', fontFamily: 'system-ui, sans-serif',

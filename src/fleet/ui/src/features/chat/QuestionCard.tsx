@@ -5,6 +5,7 @@
 import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
 import { merge } from '../../shared/styles/recipes';
+import { useClickableProps } from '../../shared/ui/Clickable';
 
 // Short type tag: text, choice or multi.
 export function typeLabel(q: ChatQuestion): string {
@@ -21,12 +22,12 @@ interface Props {
 
 // Sidebar row showing agent, age, prompt preview and tags.
 export function QuestionCard({ question: q, selected, age, onSelect }: Props) {
+  const cardClick = useClickableProps(() => onSelect(q.id));
   return (
     <div
       style={merge(styles.item, selected && styles.itemSel)}
       className="row-interactive"
-      tabIndex={0}
-      onClick={() => onSelect(q.id)}
+      {...cardClick}
     >
       <div style={styles.itemTop}>
         <span style={styles.agent}>{q.agent_id || 'unknown'}</span>

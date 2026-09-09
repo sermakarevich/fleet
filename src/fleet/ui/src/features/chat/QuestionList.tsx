@@ -6,7 +6,7 @@ import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
 import { merge } from '../../shared/styles/recipes';
 import { QuestionCard } from './QuestionCard';
-import { relTime } from '../../shared/format';
+import { formatRelativeAge } from '../../shared/format';
 
 interface Props {
   questions: ChatQuestion[];
@@ -38,7 +38,7 @@ export function QuestionList({ questions, selectedId, onSelect, serverOffset, no
             key={q.id}
             question={q}
             selected={q.id === selectedId}
-            age={relTime(q.created_at, serverOffset, now)}
+            age={formatRelativeAge(q.created_at, serverOffset, now)}
             onSelect={onSelect}
           />
         ))}

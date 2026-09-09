@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
-import { fmtHourMinute, fmtMonthDay } from '../../../shared/format';
+import { formatHourMinute, formatMonthDay } from '../../../shared/format';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
+import { useClickableProps } from '../../../shared/ui/Clickable';
 import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
@@ -26,16 +27,14 @@ const outColors: Record<string, string> = {
   rate_limited: '#3b82f6',
 };
 
-function fmtEnded(ts: string | null): string {
-  if (!ts) return '';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts;
-  return `${fmtMonthDay(d)} ${fmtHourMinute(d)}`;
+function formatEndedAt(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${formatMonthDay(date)} ${formatHourMinute(date)}`;
 }
 
 export function NeedsAttention({ rows }: Props) {
-  const navigate = useNavigate();
-
   return (
     <div style={merge(P.panel, { flex: '1 1 30rem', minWidth: 0 })}>
       <div style={P.panelTitle}>
@@ -48,46 +47,51 @@ export function NeedsAttention({ rows }: Props) {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>ID</th>
-                <th style={styles.th}>Title</th>
-                <th style={styles.th}>Ended</th>
+                <th scope="col" style={styles.th}>Status</th>
+                <th scope="col" style={styles.th}>ID</th>
+                <th scope="col" style={styles.th}>Title</th>
+                <th scope="col" style={styles.th}>Ended</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => {
-                const key = (r.outcome || '').toLowerCase();
-                const chipColor = outColors[key] || '#60a5fa';
-                return (
-                  <tr
-                    key={r.id}
-                    className="row-interactive"
-                    tabIndex={0}
-                    onClick={() => navigate('/tasks/' + r.id)}
-                    style={styles.tr}
-                  >
-                    <td style={styles.td}>
-                      <span style={merge(styles.chip, { background: chipColor + '20', color: chipColor })}>
-                        {(r.outcome || '—').replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td style={merge(styles.td, styles.monospace, { color: '#60a5fa' })}>
-                      {r.id.slice(0, 8)}
-                    </td>
-                    <td style={merge(styles.td, styles.ellipsis)}>
-                      {r.title}
-                    </td>
-                    <td style={merge(styles.td, styles.monospace, { color: T.colors.textDim, whiteSpace: 'nowrap' })}>
-                      {fmtEnded(r.ended_at)}
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map(r => (
+                <AttentionRow key={r.id} row={r} />
+              ))}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+// One attention row: keyboard-operable, navigates to the task on activate.
+function AttentionRow({ row: r }: { row: Props['rows'][number] }) {
+  const navigate = useNavigate();
+  const rowClick = useClickableProps(() => navigate('/tasks/' + r.id));
+  const key = (r.outcome || '').toLowerCase();
+  const chipColor = outColors[key] || '#60a5fa';
+  return (
+    <tr
+      className="row-interactive"
+      {...rowClick}
+      style={styles.tr}
+    >
+      <td style={styles.td}>
+        <span style={merge(styles.chip, { background: chipColor + '20', color: chipColor })}>
+          {(r.outcome || '—').replace(/_/g, ' ')}
+        </span>
+      </td>
+      <td style={merge(styles.td, styles.monospace, { color: '#60a5fa' })}>
+        {r.id.slice(0, 8)}
+      </td>
+      <td style={merge(styles.td, styles.ellipsis)}>
+        {r.title}
+      </td>
+      <td style={merge(styles.td, styles.monospace, { color: T.colors.textDim, whiteSpace: 'nowrap' })}>
+        {formatEndedAt(r.ended_at)}
+      </td>
+    </tr>
   );
 }
 
