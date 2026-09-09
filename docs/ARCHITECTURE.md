@@ -107,6 +107,7 @@ src/fleet/
     kill_sentinel.py     # KillSentinel service: honour .kill files promptly
     merge_validation.py  # MergeValidation service: merge isolated work back, validate
     retention_gc.py      # RetentionGc service: archive old tasks, purge worktrees
+    scheduler.py         # Scheduler service: fire due schedules, open beads
     status_log.py        # StatusLog service: periodic supervisor_status heartbeat
     spawn.py             # functions: resolve coder, isolate, start a WorkerRun
     worktree.py          # git worktree create/sweep/remove helpers

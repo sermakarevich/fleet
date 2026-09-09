@@ -12,6 +12,7 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
+from fleet.orchestrator.pause import is_paused
 from fleet.orchestrator.service import ServiceOrder, emit, run_periodic
 from fleet.orchestrator.spawn import spawn_worker
 
@@ -87,23 +88,9 @@ class Claim:
     def __init__(self, interval_sec: float | None = None) -> None:
         self.interval_sec = interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
 
-    def _paused(self, st: SupervisorState) -> bool:
-        """True while the rate-limit pause holds; clears it once it passes.
-
-        Claim is the only service that clears `paused_until` (Reap sets it).
-        """
-        if st.paused_until is None:
-            return False
-        if st.clock.now() < st.paused_until:
-            return True
-        st.paused_until = None
-        return False
-
     async def tick(self, st: SupervisorState) -> None:
         """Claim one bead and spawn its worker, or do nothing this tick."""
-        if self._paused(st):
-            return
-        if (st.fleet_home / ".pause").exists():
+        if is_paused(st):
             return
         # bd is a subprocess; run it in a worker thread
         # so the event loop keeps tailing runner output.

@@ -16,6 +16,7 @@ from .leases import LeaseReconcile
 from .merge_validation import MergeValidation
 from .reap import Reap
 from .retention_gc import make_retention_gc
+from .scheduler import make_scheduler
 from .service import Service
 from .stall import StallWatch
 from .state import SupervisorState
@@ -46,6 +47,7 @@ def default_services(question_store: QuestionStore | None = None) -> list[Servic
     return [
         make_config_reload(),
         LeaseReconcile(),
+        make_scheduler(),
         Claim(),
         MergeValidation(),
         Reap(),

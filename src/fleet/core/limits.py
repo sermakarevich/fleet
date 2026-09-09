@@ -10,6 +10,8 @@ LOG_ROTATE_KEEP: int = 5
 
 CONFIG_POLL_INTERVAL_SEC: int = 5
 CLAIM_POLL_INTERVAL_SEC: int = 5
+# Scheduler tick: cron resolution is one minute; 30 s keeps the worst-case delay under a minute.
+SCHEDULER_TICK_SEC: int = 30
 SHUTDOWN_GRACE_SEC: int = 30
 RATE_LIMIT_DEFAULT_SLEEP_SEC: int = 300
 STATUS_LOG_INTERVAL_SEC: int = 30

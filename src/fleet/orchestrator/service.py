@@ -26,6 +26,7 @@ class ServiceOrder(IntEnum):
 
     Config = 0
     Leases = 10
+    Schedule = 15
     Claim = 20
     Reap = 30
     Stall = 40
