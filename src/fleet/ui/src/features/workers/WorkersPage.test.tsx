@@ -154,7 +154,7 @@ function wrapper(initialEntries: string[]) {
           <MemoryRouter initialEntries={initialEntries}>
             <Routes>
               <Route path="/workers" element={children} />
-              <Route path="/chat" element={<div>chat marker</div>} />
+              <Route path="/inbox" element={<div>inbox marker</div>} />
             </Routes>
             <LocationProbe />
           </MemoryRouter>
@@ -224,7 +224,7 @@ describe('NeedsAttentionStrip', () => {
     expect(screen.getByRole('button', { name: 'pending questions: 2' })).toBeInTheDocument();
   });
 
-  it('blocked tile filters the list, questions tile opens chat', async () => {
+  it('blocked tile filters the list, questions tile opens inbox', async () => {
     mockCommon({
       tasks: [
         makeTask({ id: 'w1', status: 'in_progress' }),
@@ -240,7 +240,7 @@ describe('NeedsAttentionStrip', () => {
     expect(screen.getByTestId('location').textContent).toContain('status=blocked');
 
     fireEvent.click(screen.getByRole('button', { name: 'pending questions: 1' }));
-    expect(await screen.findByText('chat marker')).toBeInTheDocument();
+    expect(await screen.findByText('inbox marker')).toBeInTheDocument();
   });
 });
 

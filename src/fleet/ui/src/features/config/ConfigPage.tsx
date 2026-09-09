@@ -49,7 +49,7 @@ export function ConfigPage() {
                   onChange={e => setPermission('ask_human', e.target.checked)}
                   style={styles.checkbox}
                 />
-                Chat questions
+                Inbox questions
               </label>
             </div>
             <div style={styles.toggleRow}>

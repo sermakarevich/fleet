@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
-import { ChatPage } from '../features/chat/ChatPage';
+import { InboxPage } from '../features/inbox/InboxPage';
+import { InboxDetailPage } from '../features/inbox/InboxDetailPage';
 import { WorkersPage } from '../features/workers/WorkersPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
@@ -64,6 +65,11 @@ export function BdRedirect() {
   return <Navigate to={{ pathname: '/workers', search: mapped ? `?status=${mapped}` : '' }} replace />;
 }
 
+// Legacy /chat URLs redirect to the renamed inbox (ADR 0009).
+export function ChatRedirect() {
+  return <Navigate to="/inbox" replace />;
+}
+
 function AppInner() {
   const [showNewWorker, setShowNewWorker] = useState(false);
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
@@ -93,7 +99,9 @@ function AppInner() {
           <Route path="/workflow-runs/:runId" element={<WorkflowRunPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/config" element={<ConfigPage />} />
-          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/inbox/:id" element={<InboxDetailPage />} />
+          <Route path="/chat" element={<ChatRedirect />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

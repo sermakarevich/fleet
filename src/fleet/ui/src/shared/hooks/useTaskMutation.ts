@@ -2,7 +2,7 @@
  * The one factory behind every UI mutation: runs the API call,
  * invalidates query keys, and toasts the outcome — failures always
  * toast, so no failed action is ever silent. Called by every mutation
- * hook in useApi.ts and features/chat/hooks/useChat.ts.
+ * hook in useApi.ts and features/inbox/hooks/useInbox.ts.
  */
 import { useMutation, useQueryClient, type QueryKey, type UseMutationResult } from '@tanstack/react-query';
 import { errorMessage } from '../api';

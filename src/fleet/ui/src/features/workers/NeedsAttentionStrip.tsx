@@ -102,8 +102,8 @@ export function NeedsAttentionStrip({ tasks, onSelectBlocked, onSelectFailed }: 
         label="pending questions"
         count={pendingQuestions}
         color={T.colors.link}
-        title="Unanswered inbox questions — open chat"
-        onClick={() => navigate('/chat')}
+        title="Unanswered inbox questions — open inbox"
+        onClick={() => navigate('/inbox')}
       />
     </div>
   );

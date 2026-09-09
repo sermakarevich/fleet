@@ -8,21 +8,26 @@ import { Dot } from '../shared/ui/StatusDot';
 import { colors } from '../shared/styles/tokens';
 import { merge } from '../shared/styles/recipes';
 
-// Always-visible circle next to the Chat tab: green when there are unanswered
-// (pending) ask_human questions, dim gray when the queue is empty.
-function ChatIndicator() {
+// Pending-count badge next to the Inbox tab: the count in a small pill
+// while questions wait, a dim dot when the queue is empty.
+function InboxIndicator() {
   const { data } = useChatQuestions();
   const count = data?.pending.length ?? 0;
-  const active = count > 0;
+  if (count === 0) {
+    return (
+      <span
+        title="No pending questions"
+        style={merge(styles.inboxDot, styles.inboxDotIdle)}
+      />
+    );
+  }
   return (
     <span
-      title={
-        active
-          ? `${count} unanswered question${count === 1 ? '' : 's'}`
-          : 'No pending questions'
-      }
-      style={merge(styles.chatDot, (active ? styles.chatDotActive : styles.chatDotIdle))}
-    />
+      title={`${count} unanswered question${count === 1 ? '' : 's'}`}
+      style={styles.inboxBadge}
+    >
+      {count}
+    </span>
   );
 }
 
@@ -81,10 +86,10 @@ export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
       <NavLink style={navLinkStyle} to="/workflows">workflows</NavLink>
       <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>
       <NavLink style={navLinkStyle} to="/config">config</NavLink>
-      <NavLink style={navLinkStyle} to="/chat">
-        <span style={styles.chatLink}>
-          chat
-          <ChatIndicator />
+      <NavLink style={navLinkStyle} to="/inbox">
+        <span style={styles.inboxLink}>
+          Inbox
+          <InboxIndicator />
         </span>
       </NavLink>
     </>
@@ -174,12 +179,12 @@ const styles = {
     textDecoration: 'none',
     cursor: 'pointer',
   } as CSSProperties,
-  chatLink: {
+  inboxLink: {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '0.375rem',
   } as CSSProperties,
-  chatDot: {
+  inboxDot: {
     display: 'inline-block',
     width: '0.5rem',
     height: '0.5rem',
@@ -187,13 +192,24 @@ const styles = {
     flexShrink: 0,
     transition: 'background-color 0.2s, box-shadow 0.2s',
   } as CSSProperties,
-  chatDotActive: {
-    background: colors.success,
-    boxShadow: '0 0 0 3px rgba(34,197,94,0.18)',
-  } as CSSProperties,
-  chatDotIdle: {
+  inboxDotIdle: {
     background: colors.border,
     boxShadow: 'none',
+  } as CSSProperties,
+  inboxBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '1.125rem',
+    height: '1.125rem',
+    padding: '0 0.3125rem',
+    borderRadius: '9999px',
+    background: colors.success,
+    color: colors.bgDeep,
+    fontSize: '0.6875rem',
+    fontWeight: 700,
+    lineHeight: 1,
+    flexShrink: 0,
   } as CSSProperties,
   newTaskBtn: {
     marginLeft: 'auto',

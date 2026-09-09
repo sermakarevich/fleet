@@ -40,9 +40,9 @@ export function GlobalEvents() {
       if (questionId && seenAskHumanIds.current.has(questionId)) return;
       if (questionId) seenAskHumanIds.current.add(questionId);
       const question = (event.extra?.question as string | undefined) ?? 'New question';
-      addToast(`chat: ${question.slice(0, 80)}`);
+      addToast(`inbox: ${question.slice(0, 80)}`);
       const title = (event.extra?.task_title as string | undefined) ?? taskId;
-      notify('ask_human', 'Fleet chat', `${title}: ${question.slice(0, 100)}`);
+      notify('ask_human', 'Fleet inbox', `${title}: ${question.slice(0, 100)}`);
       void queryClient.invalidateQueries({ queryKey: ['chat-questions'] });
     }
     if (event.kind === 'session_ended') {

@@ -1,12 +1,17 @@
-/**
- * Selected question detail plus the answer form.
- * Called by ChatPage; parses the form into a string|string[] answer
- * and hands it to the chat hook's submit.
- */
+// Selected inbox question detail plus the answer form. Rendered by
+// InboxPage (desktop right pane) and InboxDetailPage (mobile full page);
+// parses the form into a string|string[] answer and hands it to the
+// inbox hook's submit. Options render exactly as before (radio or
+// checkbox rows); triage proposals gain a triage chip plus the asking
+// task's status chip.
 import { useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
 import { formatRelativeAge } from '../../shared/format';
+import { useTask } from '../../shared/hooks/useApi';
+import { StatusChip } from '../../shared/ui/StatusChip';
+import { isTriageQuestion, triageChipStyle } from './questionMeta';
 
 interface Props {
   question: ChatQuestion;
@@ -29,9 +34,18 @@ function readAnswer(form: HTMLFormElement, q: ChatQuestion): string | string[] |
   return v || null;
 }
 
+// The asking task's status chip (triage proposals only); null while the
+// task loads or when it is gone.
+function TaskStatusChip({ taskId }: { taskId: string }) {
+  const { data, isError } = useTask(taskId);
+  if (isError || !data) return null;
+  return <StatusChip status={data.status} />;
+}
+
 // Detail header, prompt and answer form for one question.
 export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notify, onSubmit }: Props) {
   const answerRef = useRef<HTMLTextAreaElement>(null);
+  const triage = isTriageQuestion(q);
 
   // Focus the answer box when a new question is selected (the autoFocus
   // prop is banned by jsx-a11y, so focus imperatively on question change).
@@ -55,11 +69,22 @@ export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notif
         <div style={styles.detailAgent}>{q.agent_id || 'unknown'}</div>
         <div style={styles.detailMeta}>
           <span style={styles.mono}>#{q.id.slice(0, 8)}</span>
+          {q.task_id && (
+            <Link to={`/workers/${q.task_id}`} style={styles.taskLink}>
+              worker {q.task_id}
+            </Link>
+          )}
           {q.session_id && <span>session {q.session_id}</span>}
           <span>asked {formatRelativeAge(q.created_at, serverOffset, now)} ago</span>
           {q.timeout_s != null && <span>timeout {Math.round(q.timeout_s)}s</span>}
           {q.priority > 0 && <span style={styles.prioText}>priority {q.priority}</span>}
         </div>
+        {triage && (
+          <div style={styles.chips}>
+            <span style={triageChipStyle()}>triage</span>
+            {q.task_id && <TaskStatusChip taskId={q.task_id} />}
+          </div>
+        )}
       </div>
 
       <div style={styles.detailPrompt}>{q.prompt}</div>
@@ -124,8 +149,14 @@ const styles = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     color: colors.textSecondary,
   } as React.CSSProperties,
+  taskLink: {
+    color: colors.link, textDecoration: 'none',
+  } as React.CSSProperties,
   prioText: {
     color: colors.amberLight, fontWeight: 600,
+  } as React.CSSProperties,
+  chips: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem',
   } as React.CSSProperties,
   detailPrompt: {
     fontSize: '1.125rem', fontWeight: 500, lineHeight: 1.5,

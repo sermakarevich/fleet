@@ -78,6 +78,7 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
     { id: 'scheduled-workflows', label: 'Scheduled workflows', run: () => go('/workflows?tab=scheduled') },
     { id: 'new-schedule', label: 'New schedule…', run: () => setPickTarget(true) },
     { id: 'workflows', label: 'Go to Workflows', run: () => go('/workflows') },
+    { id: 'inbox', label: 'Go to Inbox', run: () => go('/inbox') },
     { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?tab=runs') },
     { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
     { id: 'analytics', label: 'Go to Analytics', run: () => go('/analytics') },

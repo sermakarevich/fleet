@@ -6,7 +6,7 @@
  */
 import { useSocketStatus } from './hooks/useEventSocket';
 
-/** Polling cadences: fast for detail/chat, normal for lists, slow for analytics/health. */
+/** Polling cadences: fast for detail/inbox, normal for lists, slow for analytics/health. */
 export const POLL = {
   fast: 3000,
   normal: 5000,
