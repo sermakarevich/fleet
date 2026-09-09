@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from fleet.core.limits import GC_INTERVAL_SEC
 from fleet.orchestrator.service import PeriodicService, ServiceOrder
-from fleet.state.archive import find_stale_worktrees, gc_tasks, purge_archive
+from fleet.state.archive import apply_gc, apply_purge, find_stale_worktrees, plan_gc, plan_purge
 
 from . import worktree as worktree_mod
 
@@ -45,7 +45,7 @@ def retention_gc_pass(st: SupervisorState) -> None:
         log.warning("retention_worktrees_failed", error=str(exc))
         stale = []
     try:
-        gc = gc_tasks(fleet_home, days=st.config.gc_retention_days)
+        gc = apply_gc(fleet_home, plan_gc(fleet_home, days=st.config.gc_retention_days))
         log.info(
             "retention_gc_tasks",
             archived=len(gc.archived),
@@ -55,7 +55,7 @@ def retention_gc_pass(st: SupervisorState) -> None:
     except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
         log.warning("retention_gc_tasks_failed", error=str(exc))
     try:
-        purged = purge_archive(fleet_home, days=st.config.gc_archive_days)
+        purged = apply_purge(fleet_home, plan_purge(fleet_home, days=st.config.gc_archive_days))
         log.info(
             "retention_purge_archive",
             deleted=len(purged.deleted),

@@ -89,7 +89,7 @@ def _detail(body: dict) -> dict:
 async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
     fleet_home = get_fleet_home()
     try:
-        await asyncio.to_thread(beads_client.run, ["update", bead_id, *extra], cwd=fleet_home)
+        await asyncio.to_thread(beads_client.run_bd, ["update", bead_id, *extra], cwd=fleet_home)
     except BdError as exc:
         return JSONResponse({"error": str(exc) or "bd update failed"}, status_code=502)
     return JSONResponse({"ok": True})
@@ -130,7 +130,7 @@ async def set_status(bead_id: str, request: Request) -> JSONResponse:
         fleet_home = get_fleet_home()
         try:
             await asyncio.to_thread(
-                beads_client.run,
+                beads_client.run_bd,
                 ["close", bead_id, "--reason", "closed via BD portal"],
                 cwd=fleet_home,
             )

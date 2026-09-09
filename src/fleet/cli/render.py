@@ -314,22 +314,30 @@ def print_kill_sent(task_id: str) -> None:
     typer.echo(f"Kill signal sent for task {task_id}.")
 
 
-def print_gc_result(
-    archived: int, mb: float, archive_dir: Path, skipped: int, dry_run: bool
-) -> None:
-    """Print how many task dirs archiving moved (or would move on dry-run)."""
-    prefix = "dry-run: " if dry_run else ""
+def print_gc_preview(archived: int, mb: float, archive_dir: Path, skipped: int) -> None:
+    """Print what archiving would move (dry-run: nothing moved)."""
     typer.echo(
-        f"{prefix}archived {archived} task dirs ({mb:.1f} MB) -> {archive_dir}; skipped {skipped}"
+        f"dry-run: archived {archived} task dirs ({mb:.1f} MB) -> {archive_dir}; skipped {skipped}"
     )
 
 
-def print_gc_purged(deleted: int, freed_mb: float, skipped: int, dry_run: bool) -> None:
-    """Print how many archived task dirs purging deleted (or would delete)."""
-    prefix = "dry-run: " if dry_run else ""
+def print_gc_result(archived: int, mb: float, archive_dir: Path, skipped: int) -> None:
+    """Print how many task dirs archiving moved."""
     typer.echo(
-        f"{prefix}purged {deleted} archived task dirs ({freed_mb:.1f} MB freed); skipped {skipped}"
+        f"archived {archived} task dirs ({mb:.1f} MB) -> {archive_dir}; skipped {skipped}"
     )
+
+
+def print_purge_preview(deleted: int, freed_mb: float, skipped: int) -> None:
+    """Print what purging would delete (dry-run: nothing deleted)."""
+    typer.echo(
+        f"dry-run: purged {deleted} archived task dirs ({freed_mb:.1f} MB freed); skipped {skipped}"
+    )
+
+
+def print_purge_result(deleted: int, freed_mb: float, skipped: int) -> None:
+    """Print how many archived task dirs purging deleted."""
+    typer.echo(f"purged {deleted} archived task dirs ({freed_mb:.1f} MB freed); skipped {skipped}")
 
 
 def print_start_report(result: StartResult, label: str, logfile: Path) -> None:

@@ -38,10 +38,9 @@ def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-def gc_tasks(fleet_home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
-    """Move closed task dirs older than *days* into the archive."""
+def plan_gc(fleet_home: Path, days: int = 30) -> GcResult:
+    """Select closed task dirs older than *days* for archiving (no moves)."""
     tasks_dir = tasks_root(fleet_home)
-    archive_dir = fleet_home / "archive" / "tasks"
     archived: list[str] = []
     skipped = 0
     bytes_moved = 0
@@ -58,17 +57,25 @@ def gc_tasks(fleet_home: Path, days: int = 30, dry_run: bool = False) -> GcResul
         if meta.status != TaskStatus.CLOSED.value or task_dir.stat().st_mtime > cutoff:
             skipped += 1
             continue
-        size = _dir_size(task_dir)
         archived.append(task_dir.name)
-        bytes_moved += size
-        if not dry_run:
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(task_dir), str(archive_dir / task_dir.name))
+        bytes_moved += _dir_size(task_dir)
     return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
 
 
-def purge_archive(fleet_home: Path, days: int = 90, dry_run: bool = False) -> PurgeResult:
-    """Permanently delete archived task dirs older than *days*.
+def apply_gc(fleet_home: Path, plan: GcResult) -> GcResult:
+    """Move the task dirs selected by :func:`plan_gc` into the archive."""
+    archive_dir = fleet_home / "archive" / "tasks"
+    tasks_dir = tasks_root(fleet_home)
+    for name in plan.archived:
+        task_dir = tasks_dir / name
+        if task_dir.is_dir():
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(task_dir), str(archive_dir / name))
+    return plan
+
+
+def plan_purge(fleet_home: Path, days: int = 90) -> PurgeResult:
+    """Select archived task dirs older than *days* for deletion (no removes).
 
     Only directories under ``<fleet_home>/archive/tasks/`` are considered.
     *days* <= 0 disables purging (returns everything as skipped).
@@ -84,12 +91,17 @@ def purge_archive(fleet_home: Path, days: int = 90, dry_run: bool = False) -> Pu
         if not entry.is_dir() or entry.stat().st_mtime > cutoff:
             skipped += 1
             continue
-        size = _dir_size(entry)
         deleted.append(entry.name)
-        bytes_freed += size
-        if not dry_run:
-            shutil.rmtree(entry, ignore_errors=True)
+        bytes_freed += _dir_size(entry)
     return PurgeResult(deleted=deleted, skipped=skipped, bytes_freed=bytes_freed)
+
+
+def apply_purge(fleet_home: Path, plan: PurgeResult) -> PurgeResult:
+    """Delete the archived task dirs selected by :func:`plan_purge`."""
+    archive_dir = fleet_home / "archive" / "tasks"
+    for name in plan.deleted:
+        shutil.rmtree(archive_dir / name, ignore_errors=True)
+    return plan
 
 
 def _task_meta(task_dir: Path) -> TaskMeta | None:

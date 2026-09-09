@@ -258,7 +258,7 @@ RETRY_TABLE: list[RetryRule] = [
 def _category_of(  # noqa: PLR0911  # ADR 0006 bead 5
     outcome: str | None,
     reason: str | None,
-    close_reason: bool = False,
+    is_close: bool = False,
     action: str | None = None,
 ) -> str | None:
     """Map a history entry (or the current record) to a rounds category.
@@ -283,7 +283,7 @@ def _category_of(  # noqa: PLR0911  # ADR 0006 bead 5
         # SUCCESS that closed the bead is not a round: it ends the streak.
         # History rows don't carry close_reason, but reap journals the
         # RetryDecision action ("close") on every end line, so use that.
-        if close_reason or action in ("close", "closed"):
+        if is_close or action in ("close", "closed"):
             return None
         return "noclose"
     return None

@@ -46,15 +46,15 @@ def test_beads_error_on_nonzero_rc(tmp_path: Path) -> None:
         patch("fleet.beads.client.subprocess.run", return_value=failed),
         pytest.raises(BdError, match="not found"),
     ):
-        beads_client.run(["show", "nope"], cwd=tmp_path)
+        beads_client.run_bd(["show", "nope"], cwd=tmp_path)
 
 
-def test_run_check_false_does_not_raise(tmp_path: Path) -> None:
+def test_try_run_bd_does_not_raise(tmp_path: Path) -> None:
     failed = subprocess.CompletedProcess(
         args=["bd", "show", "nope"], returncode=1, stdout="", stderr="not found"
     )
     with patch("fleet.beads.client.subprocess.run", return_value=failed):
-        result = beads_client.run(["show", "nope"], cwd=tmp_path, check=False)
+        result = beads_client.try_run_bd(["show", "nope"], cwd=tmp_path)
     assert result.returncode == 1
 
 
@@ -67,7 +67,7 @@ def test_run_raises_bd_error_on_timeout(tmp_path: Path) -> None:
         ),
         pytest.raises(BdError, match="timed out"),
     ):
-        beads_client.run(["list"], cwd=tmp_path, timeout=1)
+        beads_client.run_bd(["list"], cwd=tmp_path, timeout=1)
 
 
 def test_bd_client_run_json_carries_timeout_and_actor(tmp_path: Path) -> None:

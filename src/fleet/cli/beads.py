@@ -111,7 +111,7 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if not user_wants_json:
             bd_args.append("--json")
 
-        result = beads_client.run(bd_args, cwd=fleet_home, check=False)
+        result = beads_client.try_run_bd(bd_args, cwd=fleet_home)
         if result.stderr:
             typer.echo(result.stderr, err=True, nl=False)
 

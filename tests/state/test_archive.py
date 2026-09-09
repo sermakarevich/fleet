@@ -11,7 +11,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from fleet.cli.main import app
-from fleet.state.archive import find_stale_worktrees, gc_tasks, purge_archive
+from fleet.state.archive import apply_gc, apply_purge, find_stale_worktrees, plan_gc, plan_purge
 
 runner = CliRunner()
 
@@ -30,7 +30,7 @@ def _make_task(fleet_home: Path, task_id: str, status: str, old: bool) -> Path:
 
 def test_gc_moves_closed_old(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-old", "closed", old=True)
-    result = gc_tasks(tmp_path, days=30)
+    result = apply_gc(tmp_path, plan_gc(tmp_path, days=30))
     assert result.archived == ["fleet-old"]
     assert (tmp_path / "archive" / "tasks" / "fleet-old").is_dir()
     assert not (tmp_path / "tasks" / "fleet-old").exists()
@@ -38,7 +38,7 @@ def test_gc_moves_closed_old(tmp_path: Path) -> None:
 
 def test_gc_skips_closed_recent(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-recent", "closed", old=False)
-    result = gc_tasks(tmp_path, days=30)
+    result = apply_gc(tmp_path, plan_gc(tmp_path, days=30))
     assert result.archived == []
     assert result.skipped == 1
     assert (tmp_path / "tasks" / "fleet-recent").is_dir()
@@ -46,15 +46,15 @@ def test_gc_skips_closed_recent(tmp_path: Path) -> None:
 
 def test_gc_skips_open_old(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-open", "in_progress", old=True)
-    result = gc_tasks(tmp_path, days=30)
+    result = apply_gc(tmp_path, plan_gc(tmp_path, days=30))
     assert result.archived == []
     assert result.skipped == 1
     assert (tmp_path / "tasks" / "fleet-open").is_dir()
 
 
-def test_gc_dry_run_moves_nothing(tmp_path: Path) -> None:
+def test_gc_plan_moves_nothing(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-dry", "closed", old=True)
-    result = gc_tasks(tmp_path, days=30, dry_run=True)
+    result = plan_gc(tmp_path, days=30)
     assert result.archived == ["fleet-dry"]
     assert (tmp_path / "tasks" / "fleet-dry").is_dir()
     assert not (tmp_path / "archive" / "tasks" / "fleet-dry").exists()
@@ -70,7 +70,7 @@ def test_gc_cli_reports_archived(tmp_path: Path) -> None:
 
 def test_gc_days_zero_disables(tmp_path: Path) -> None:
     _make_task(tmp_path, "fleet-old", "closed", old=True)
-    result = gc_tasks(tmp_path, days=0)
+    result = plan_gc(tmp_path, days=0)
     assert result.archived == []
     assert (tmp_path / "tasks" / "fleet-old").is_dir()
 
@@ -86,7 +86,7 @@ def _make_archive(fleet_home: Path, name: str, old: bool, age_days: int = 40) ->
 
 def test_purge_deletes_old_archives(tmp_path: Path) -> None:
     _make_archive(tmp_path, "fleet-gone", old=True, age_days=100)
-    result = purge_archive(tmp_path, days=90)
+    result = apply_purge(tmp_path, plan_purge(tmp_path, days=90))
     assert result.deleted == ["fleet-gone"]
     assert result.bytes_freed > 0
     assert not (tmp_path / "archive" / "tasks" / "fleet-gone").exists()
@@ -94,18 +94,18 @@ def test_purge_deletes_old_archives(tmp_path: Path) -> None:
 
 def test_purge_skips_recent_archives(tmp_path: Path) -> None:
     _make_archive(tmp_path, "fleet-fresh", old=False)
-    result = purge_archive(tmp_path, days=90)
+    result = apply_purge(tmp_path, plan_purge(tmp_path, days=90))
     assert result.deleted == []
     assert result.skipped == 1
     assert (tmp_path / "archive" / "tasks" / "fleet-fresh").is_dir()
 
 
-def test_purge_dry_run_and_disabled(tmp_path: Path) -> None:
+def test_purge_plan_and_disabled(tmp_path: Path) -> None:
     _make_archive(tmp_path, "fleet-dry", old=True, age_days=100)
-    result = purge_archive(tmp_path, days=90, dry_run=True)
+    result = plan_purge(tmp_path, days=90)
     assert result.deleted == ["fleet-dry"]
     assert (tmp_path / "archive" / "tasks" / "fleet-dry").is_dir()
-    result = purge_archive(tmp_path, days=0)
+    result = plan_purge(tmp_path, days=0)
     assert result.deleted == []
 
 

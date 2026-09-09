@@ -28,7 +28,7 @@ from fleet.integrations.ask_human.store import Question, QuestionStore
 from fleet.observability import tailview
 from fleet.state import paths as state_paths
 from fleet.state import runtime_stats
-from fleet.state.archive import gc_tasks, purge_archive
+from fleet.state.archive import apply_gc, apply_purge, plan_gc, plan_purge
 from fleet.state.artifact_locator import locate
 from fleet.state.legacy import legacy_state_text
 from fleet.state.tail import read_new_bytes
@@ -204,7 +204,7 @@ def run_init(fleet_home: Path, force: bool) -> None:
     fleet_home.mkdir(parents=True, exist_ok=True)
     if force or not (fleet_home / ".beads").exists():
         try:
-            beads_client.run(["init"], cwd=fleet_home)
+            beads_client.run_bd(["init"], cwd=fleet_home)
         except BdError as exc:
             if "already" not in str(exc).lower():
                 typer.echo(f"bd init failed: {exc}", err=True)
@@ -217,7 +217,7 @@ def run_init(fleet_home: Path, force: bool) -> None:
 def run_show(fleet_home: Path, task_id: str, json_output: bool) -> None:
     """Print one task as raw bd JSON (--json) or as detail lines."""
     if json_output:
-        result = beads_client.run(["show", task_id, "--json"], cwd=fleet_home, check=False)
+        result = beads_client.try_run_bd(["show", task_id, "--json"], cwd=fleet_home)
         if result.returncode != 0:
             typer.echo(result.stderr.strip(), err=True)
             raise typer.Exit(result.returncode)
@@ -250,22 +250,44 @@ def run_tasks(fleet_home: Path, limit: int, ignored: bool) -> None:
     render.print_tasks_table(tasks, fleet_home, config.coder, config.model)
 
 
-def run_gc(fleet_home: Path, days: int, dry_run: bool, purge: bool) -> None:
-    """Archive closed task dirs (and optionally purge old archives)."""
-    result = gc_tasks(fleet_home, days, dry_run)
+def preview_gc(fleet_home: Path, days: int) -> None:
+    """Print what archiving closed task dirs would move (no moves)."""
+    result = plan_gc(fleet_home, days)
+    render.print_gc_preview(
+        len(result.archived),
+        result.bytes_moved / (1024 * 1024),
+        fleet_home / "archive" / "tasks",
+        result.skipped,
+    )
+
+
+def run_gc(fleet_home: Path, days: int) -> None:
+    """Archive closed task dirs older than *days* and print the result."""
+    result = apply_gc(fleet_home, plan_gc(fleet_home, days))
     render.print_gc_result(
         len(result.archived),
         result.bytes_moved / (1024 * 1024),
         fleet_home / "archive" / "tasks",
         result.skipped,
-        dry_run,
     )
-    if purge:
-        config = bootstrap.config(fleet_home)
-        purged = purge_archive(fleet_home, config.gc_archive_days, dry_run)
-        render.print_gc_purged(
-            len(purged.deleted), purged.bytes_freed / (1024 * 1024), purged.skipped, dry_run
-        )
+
+
+def preview_purge(fleet_home: Path) -> None:
+    """Print what purging old archives would delete (no deletes)."""
+    config = bootstrap.config(fleet_home)
+    purged = plan_purge(fleet_home, config.gc_archive_days)
+    render.print_purge_preview(
+        len(purged.deleted), purged.bytes_freed / (1024 * 1024), purged.skipped
+    )
+
+
+def run_purge(fleet_home: Path) -> None:
+    """Permanently delete archived task dirs past retention and print the result."""
+    config = bootstrap.config(fleet_home)
+    purged = apply_purge(fleet_home, plan_purge(fleet_home, config.gc_archive_days))
+    render.print_purge_result(
+        len(purged.deleted), purged.bytes_freed / (1024 * 1024), purged.skipped
+    )
 
 
 def _print_state(fleet_home: Path, task_id: str, task_dir: Path) -> None:
@@ -431,7 +453,15 @@ def register(app: typer.Typer) -> None:
         ] = False,
     ) -> None:
         """Archive closed task directories older than N days to archive/tasks."""
-        run_gc(bootstrap.fleet_home(), days, dry_run, purge)
+        fleet_home = bootstrap.fleet_home()
+        if dry_run:
+            preview_gc(fleet_home, days)
+            if purge:
+                preview_purge(fleet_home)
+        else:
+            run_gc(fleet_home, days)
+            if purge:
+                run_purge(fleet_home)
 
     @app.command("task", cls=_TaskHelpCommand)
     def task_cmd(

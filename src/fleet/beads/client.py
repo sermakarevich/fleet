@@ -31,18 +31,20 @@ class BdError(RuntimeError):
         self.returncode = returncode
 
 
-def run(
+def try_run_bd(
     args: list[str],
     *,
     cwd: Path,
-    check: bool = True,
     env: dict[str, str] | None = None,
     timeout: int = BD_TIMEOUT_SEC,
 ) -> subprocess.CompletedProcess:
-    """Run `bd <args>` with cwd=cwd. Raises BdError on non-zero rc unless check=False."""
+    """Run `bd <args>` with cwd=cwd; return the result even on non-zero rc.
+
+    Only a missing binary or a timeout raises BdError.
+    """
     full_env = {**os.environ, **env} if env else None
     try:
-        result = subprocess.run(
+        return subprocess.run(
             ["bd", *args],
             capture_output=True,
             text=True,
@@ -58,7 +60,18 @@ def run(
             f"bd {' '.join(args)} timed out after {timeout}s",
             stderr=(exc.stderr or "") if isinstance(exc.stderr, str) else "",
         ) from exc
-    if check and result.returncode != 0:
+
+
+def run_bd(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+    timeout: int = BD_TIMEOUT_SEC,
+) -> subprocess.CompletedProcess:
+    """Run `bd <args>` with cwd=cwd. Raises BdError on non-zero rc."""
+    result = try_run_bd(args, cwd=cwd, env=env, timeout=timeout)
+    if result.returncode != 0:
         message = result.stderr.strip()
         raise BdError(message, stderr=message, returncode=result.returncode)
     return result
@@ -79,17 +92,33 @@ class BdClient:
         argv: list[str],
         *,
         timeout: int | None = None,
-        check: bool = True,
         env: dict[str, str] | None = None,
         actor: str | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run `bd <argv>`; BEADS_ACTOR is set when *actor* is given."""
+        """Run `bd <argv>`; BEADS_ACTOR is set when *actor* is given. Raises on rc."""
         if actor is not None:
             env = {**(env or {}), "BEADS_ACTOR": actor}
-        return run(
+        return run_bd(
             argv,
             cwd=self.repo_root,
-            check=check,
+            env=env,
+            timeout=self.timeout if timeout is None else timeout,
+        )
+
+    def try_run(
+        self,
+        argv: list[str],
+        *,
+        timeout: int | None = None,
+        env: dict[str, str] | None = None,
+        actor: str | None = None,
+    ) -> subprocess.CompletedProcess:
+        """Run `bd <argv>`; return the result even on non-zero rc."""
+        if actor is not None:
+            env = {**(env or {}), "BEADS_ACTOR": actor}
+        return try_run_bd(
+            argv,
+            cwd=self.repo_root,
             env=env,
             timeout=self.timeout if timeout is None else timeout,
         )
@@ -134,7 +163,7 @@ def run_json(
     full_args = list(args)
     if "--json" not in full_args:
         full_args.append("--json")
-    result = run(full_args, cwd=cwd, env=env, timeout=timeout)
+    result = run_bd(full_args, cwd=cwd, env=env, timeout=timeout)
     if not result.stdout.strip():
         return None
     return _unwrap(json.loads(result.stdout))
@@ -172,11 +201,11 @@ def update_bead(
         else:
             args += [flag, str(value)]
     env = {"BEADS_ACTOR": actor} if actor is not None else None
-    run(args, cwd=cwd, env=env, timeout=timeout)
+    run_bd(args, cwd=cwd, env=env, timeout=timeout)
 
 
 def comment(task_id: str, text: str, cwd: Path, *, timeout: int = BD_TIMEOUT_SEC) -> None:
-    run(["comment", task_id, text], cwd=cwd, timeout=timeout)
+    run_bd(["comment", task_id, text], cwd=cwd, timeout=timeout)
 
 
 # Dependency relations that make a bead an epic's *child*: the epic is
