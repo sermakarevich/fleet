@@ -208,4 +208,6 @@ def test_workflow_step_beads_carry_deps(tmp_path: Path) -> None:
     assert "--deps" not in (queue.seen_extra[0] or "")
     assert "--deps" in (queue.seen_extra[1] or "")
     first_id = next(iter(queue._tasks))
-    assert first_id in shlex.split(queue.seen_extra[1] or "")[-1]
+    tokens = shlex.split(queue.seen_extra[1] or "")
+    assert first_id in tokens[tokens.index("--deps") + 1]
+    assert "--defer" in tokens  # later stages park deferred until release

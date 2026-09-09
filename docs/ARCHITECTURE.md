@@ -397,8 +397,9 @@ $FLEET_HOME/tasks/<id>/
                       # repo_root, base_ref, worktree_path (replaces the old .worktree marker)
    attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
    STATE.md           # worker memory: ## Plan, ## Done, ## In flight, ## Next, ## Facts
-   RESULT.json        # completion contract, present only between worker exit and reap
-   outputs/           # real deliverables (reports, data) referenced from RESULT.json
+    RESULT.json        # completion contract, present only between worker exit and reap
+    outputs.json       # workflow step outputs: flat string map for later steps (ADR 0010)
+    outputs/           # real deliverables (reports, data) referenced from RESULT.json
    .kill .needs_validation                      # signals, not artifacts
    attempts/<n>/
      run.json         # identity, lease, launch {mode, pack_bytes, kind}, steps, exit metrics

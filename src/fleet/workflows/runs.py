@@ -295,9 +295,7 @@ def _release_ready(
             store.mark_step_released(run.id, step.step_name, warning, stamp)
             continue
         try:
-            queue.update_task(
-                step.task_id, title=title, description=description or None, undefer=True
-            )
+            queue.update_task(step.task_id, title=title, description=description, undefer=True)
         except BdError as exc:
             logger.warning(
                 "workflow_step_release_failed: run %s step %s (%s)",
