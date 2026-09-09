@@ -8,7 +8,17 @@ from __future__ import annotations
 
 import typer
 
-from fleet.cli import ask_human, beads, config, daemons, schedule, tasks, telegram, workflow
+from fleet.cli import (
+    ask_human,
+    beads,
+    config,
+    daemons,
+    schedule,
+    tasks,
+    telegram,
+    trigger,
+    workflow,
+)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -36,4 +46,5 @@ config.register(app)
 telegram.register(app)
 ask_human.register(app)
 schedule.register(app)
+trigger.register(app)
 workflow.register(app)

@@ -34,7 +34,9 @@ from fleet.state.task_summary import build_task_summary, context_overrides_for_h
 
 if TYPE_CHECKING:
     from fleet.cli.schedule import RunLine, ScheduleRow
+    from fleet.cli.trigger import TriggerRow
     from fleet.schedules.model import Schedule
+    from fleet.triggers.model import Firing
     from fleet.workflows.model import Workflow, WorkflowRun
 
 _SEC_PER_MINUTE = 60
@@ -567,6 +569,70 @@ def print_schedule_show(
     typer.echo(f"runs: {len(lines)}")
     for line in lines:
         typer.echo(_format_run_line(line))
+
+
+def print_trigger_list(rows: list[TriggerRow]) -> None:
+    """Print the triggers table, or the empty message when there are none."""
+    if not rows:
+        typer.echo("No triggers.")
+        return
+    table = Table(
+        title="Fleet — triggers",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("ID", style="bold cyan", no_wrap=True)
+    table.add_column("Name", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Enabled", no_wrap=True)
+    table.add_column("Max open", justify="right", no_wrap=True)
+    table.add_column("Firings", justify="right", no_wrap=True)
+    table.add_column("Last fired", no_wrap=True)
+    for row in rows:
+        item = row.trigger
+        table.add_row(
+            item.id,
+            item.name,
+            item.source,
+            "yes" if item.enabled else "no",
+            str(item.max_open),
+            str(row.firing_count),
+            row.last_fired_at or "-",
+        )
+    Console(soft_wrap=False).print(table)
+
+
+def print_trigger_firings(firings: list[Firing]) -> None:
+    """Print one trigger's firing history, or the empty message."""
+    if not firings:
+        typer.echo("No firings.")
+        return
+    table = Table(
+        title="Fleet — firings",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("#", justify="right", no_wrap=True)
+    table.add_column("Event", overflow="fold")
+    table.add_column("Fired at", no_wrap=True)
+    table.add_column("Task", no_wrap=True)
+    table.add_column("Outcome", overflow="fold")
+    for firing in firings:
+        outcome = f"skipped ({firing.reason})" if firing.skipped else "opened"
+        table.add_row(
+            str(firing.n),
+            firing.event_key,
+            firing.fired_at,
+            firing.task_id or "-",
+            outcome,
+        )
+    Console(soft_wrap=False).print(table)
 
 
 @dataclass(frozen=True)
