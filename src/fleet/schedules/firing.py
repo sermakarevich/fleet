@@ -83,6 +83,25 @@ def decide(
     return Decision(Action.open, due, "due")
 
 
+def next_due(
+    schedule: Schedule,
+    last_cron_run: ScheduleRun | None,
+    now: datetime,
+) -> datetime | None:
+    """Next firing for display: None when disabled, else after baseline or now."""
+    if not schedule.enabled:
+        return None
+    moment = _as_utc(now)
+    if last_cron_run is not None:
+        baseline = _parse_moment(last_cron_run.scheduled_for)
+    else:
+        baseline = _parse_moment(schedule.created_at)
+    first = next_fire(schedule.cron, baseline, schedule.timezone)
+    if first <= moment:
+        return next_fire(schedule.cron, moment, schedule.timezone)
+    return first
+
+
 def _metadata(schedule: Schedule, run_n: int) -> dict[str, Any]:
     """Bead metadata mirroring `beads/create_args.py` fleet_* keys."""
     meta: dict[str, Any] = {

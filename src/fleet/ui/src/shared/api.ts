@@ -5,10 +5,15 @@ import type {
   ChatQuestion,
   CoderInfo,
   CreateTaskInput,
+  CronPreview,
   FileOp,
   HealthzStatus,
   LogLine,
   RuntimeConfig,
+  Schedule,
+  ScheduleDetail,
+  ScheduleInput,
+  ScheduleRun,
   SearchResult,
   StreamEvent,
   SupervisorStatus,
@@ -312,5 +317,42 @@ export const api = {
 
   answerChatQuestion(id: string, answer: string | string[]): Promise<{ ok: boolean; status: string }> {
     return request(`/api/chat/questions/${id}/answer`, json('POST', { answer }));
+  },
+
+  // --- Schedules (recurring workers) ---------------------------------------
+
+  async getSchedules(): Promise<Schedule[]> {
+    const result = await request<{ schedules: Schedule[] }>('/api/schedules');
+    return result.schedules;
+  },
+
+  getSchedule(id: string): Promise<ScheduleDetail> {
+    return request(`/api/schedules/${id}`);
+  },
+
+  createSchedule(payload: ScheduleInput): Promise<Schedule> {
+    return request('/api/schedules', json('POST', payload));
+  },
+
+  updateSchedule(id: string, payload: ScheduleInput): Promise<Schedule> {
+    return request(`/api/schedules/${id}`, json('PUT', payload));
+  },
+
+  deleteSchedule(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/schedules/${id}`, { method: 'DELETE' });
+  },
+
+  runSchedule(id: string): Promise<{ run: ScheduleRun }> {
+    return request(`/api/schedules/${id}/run`, { method: 'POST' });
+  },
+
+  setScheduleEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }> {
+    return request(`/api/schedules/${id}/${enabled ? 'enable' : 'disable'}`, {
+      method: 'POST',
+    });
+  },
+
+  previewCron(cron: string, timezone = 'UTC', count = 5): Promise<CronPreview> {
+    return request('/api/schedules/preview', json('POST', { cron, timezone, count }));
   },
 };
