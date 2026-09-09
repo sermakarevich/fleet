@@ -1,3 +1,5 @@
+"""Tests for blocked-reason plumbing (unit under test: beads/queue.py)."""
+
 import json
 import subprocess
 from pathlib import Path

@@ -1,3 +1,5 @@
+"""Tests for worker family routing (unit under test: workers/__init__.py select_worker)."""
+
 from pathlib import Path
 
 import pytest

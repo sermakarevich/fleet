@@ -10,11 +10,12 @@ from pathlib import Path
 
 from fleet.workers.session.process import CoderProcess
 
-_SLEEPER = [sys.executable, "-c", "import time; time.sleep(30)"]
+_SLEEPER = [sys.executable, "-c", "import threading; threading.Event().wait()"]
 _IGNORER = [
     sys.executable,
     "-c",
-    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+    "import signal, threading; "
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN); threading.Event().wait()",
 ]
 
 

@@ -1,3 +1,5 @@
+"""Shared fixtures and doubles for the whole unit-test suite."""
+
 from collections.abc import Callable
 from dataclasses import is_dataclass, replace
 from datetime import UTC, datetime
@@ -23,6 +25,7 @@ from fleet.state.config_file import load
 
 @pytest.fixture
 def queue(tmp_path: Path) -> BeadsQueue:
+    """A real BeadsQueue rooted at a throwaway repo (needs no `bd` binary to construct)."""
     return BeadsQueue(repo_root=tmp_path)
 
 

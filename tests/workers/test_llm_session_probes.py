@@ -20,6 +20,7 @@ from fleet.workers.base import StepContext
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.session.monitors import HealthProbe, MonitorContext
 from fleet.workers.session.process import SubprocessRunner
+from tests.helpers.wait import await_until
 from tests.workers.conftest import StubCoder, StubRateGauge, _make_session, _run
 from tests.workers.fake_runner import FakeProcess, FakeProcessRunner
 
@@ -41,9 +42,8 @@ def _fast_forward_ctx(
     """Session context where sleeps advance a fake clock (no real waiting)."""
     clock = FakeClock(start=datetime.now(tz=UTC))
 
-    async def _sleep(sec: float) -> None:
+    async def _advance(sec: float) -> None:
         clock.advance(sec)
-        await asyncio.sleep(0)
 
     return (
         StepContext(
@@ -57,7 +57,7 @@ def _fast_forward_ctx(
             log=structlog.get_logger(),
             runner=runner,
             clock=clock,
-            sleep=_sleep,
+            sleep=_advance,
             tick_sec=tick_sec,
         ),
         clock,
@@ -143,11 +143,7 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
 
     async def _run_it():
         run_task = asyncio.create_task(session.run(ctx))
-        for _ in range(10_000):
-            if coder.probe_calls >= 1:
-                break
-            await asyncio.sleep(0)
-        assert coder.probe_calls >= 1
+        assert await await_until(lambda: coder.probe_calls >= 1), "health probe never fired"
         # Still inside the retry window: the probe reported, nothing died.
         assert clock.monotonic() < 300
         assert proc.terminated is False

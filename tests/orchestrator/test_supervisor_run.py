@@ -8,6 +8,7 @@ from fleet.orchestrator import default_services
 from fleet.orchestrator.service import ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
+from tests.helpers.wait import await_until
 
 
 class _HookRecorder:
@@ -35,8 +36,7 @@ def test_run_emits_start_in_order_then_stop_after_shutdown(tmp_path) -> None:  #
 
     async def _run() -> int:
         run_task = asyncio.create_task(sup.run())
-        while len(calls) < 2:
-            await asyncio.sleep(0.005)
+        assert await await_until(lambda: len(calls) >= 2), "on_start hooks never fired"
         await sup._shutdown()
         return await asyncio.wait_for(run_task, timeout=5.0)
 
@@ -56,7 +56,6 @@ def test_run_returns_zero_with_no_services(tmp_path) -> None:  # type: ignore[no
 
     async def _run() -> int:
         run_task = asyncio.create_task(sup.run())
-        await asyncio.sleep(0.02)
         await sup._shutdown()
         return await asyncio.wait_for(run_task, timeout=5.0)
 

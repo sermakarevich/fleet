@@ -1,3 +1,5 @@
+"""Tests for the Codex coder CLI shape (unit under test: coders/codex.py)."""
+
 import json
 from pathlib import Path
 

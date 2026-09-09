@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -67,7 +66,6 @@ def test_log_picks_most_recent_file(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     older = _seed_log_dir(tmp_path, "fleet-2026-05-22.jsonl", "old\n")
-    time.sleep(0.01)
     newer = _seed_log_dir(tmp_path, "fleet-2026-05-23.jsonl", "new\n")
     # Force older mtime to be earlier in case the FS coarse-grains it.
     os.utime(older, (older.stat().st_atime, newer.stat().st_mtime - 1))

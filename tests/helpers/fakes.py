@@ -48,9 +48,10 @@ class FakeTelegramApi(TelegramApi):
         self,
         token: str = "tok",
         *,
-        updates: list[list[dict]] | None = None,
+        updates: list[list[dict] | BaseException] | None = None,
         message_ids: list[int | None] | None = None,
         fail_with: BaseException | None = None,
+        send_failures: list[BaseException] | None = None,
     ) -> None:
         super().__init__(token)
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -58,6 +59,7 @@ class FakeTelegramApi(TelegramApi):
         self.updates_pages = list(updates or [])
         self._message_ids = list(message_ids or [])
         self.fail_with = fail_with
+        self._send_failures = list(send_failures or [])
 
     def call(self, method: str, *, http_timeout: float = 10, **params: Any) -> Any:
         """Record the call; raise the scripted error or return canned data."""
@@ -76,13 +78,21 @@ class FakeTelegramApi(TelegramApi):
         raise ValueError(f"unstubbed telegram method {method!r}")
 
     def fetch_updates(self, offset: int | None) -> list[dict]:
-        """Play back the next scripted updates page (records the offset)."""
+        """Play back the next scripted updates page (records the offset).
+
+        A page may be an exception instance, which is raised — so a test
+        ends the poll loop deterministically with ``CancelledError`` as
+        the last page instead of stubbing ``asyncio.to_thread``.
+        """
         _ = offset
         self.calls.append(("getUpdates", {"offset": offset}))
         if self.fail_with is not None:
             raise self.fail_with
         if self.updates_pages:
-            return self.updates_pages.pop(0)
+            page = self.updates_pages.pop(0)
+            if isinstance(page, BaseException):
+                raise page
+            return page
         return []
 
     async def send(self, chat_id: str, text: str) -> None:
@@ -90,7 +100,13 @@ class FakeTelegramApi(TelegramApi):
         self.sent.append((chat_id, text[:MAX_TEXT]))
 
     async def send_with_id(self, chat_id: str, text: str) -> int | None:
-        """Record the question send; return the next scripted message id."""
+        """Record the question send; return the next scripted message id.
+
+        Pops one scripted ``send_failures`` entry first when present, so a
+        test can fail one send and succeed the next without patching.
+        """
+        if self._send_failures:
+            raise self._send_failures.pop(0)
         self.sent.append((chat_id, text[:MAX_TEXT]))
         return self._next_id()
 

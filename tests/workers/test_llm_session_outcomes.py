@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from fleet.core.task import TaskOutcome
+from tests.helpers.wait import await_until
 from tests.workers.conftest import _make_session, _run
 from tests.workers.fake_runner import FakeProcess
 
@@ -151,7 +152,7 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
 
     async def _run_it() -> None:
         run_task = asyncio.create_task(session.run(ctx))
-        await asyncio.sleep(0.2)
+        assert await await_until(proc.started.is_set), "session never started the process"
         await session.cancel("supervisor_shutdown")
         step_result = await run_task
         result = step_result.outcome
@@ -169,7 +170,7 @@ def test_kill_returns_killed_with_reason(tmp_path: Path) -> None:
 
     async def _run_it() -> None:
         run_task = asyncio.create_task(session.run(ctx))
-        await asyncio.sleep(0.2)
+        assert await await_until(proc.started.is_set), "session never started the process"
         await session.cancel("stalled")
         step_result = await run_task
         result = step_result.outcome

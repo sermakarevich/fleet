@@ -2,7 +2,7 @@
 
 The real ``TelegramApi`` client talks to a local ``FakeTelegramServer``
 instead of patched ``urlopen`` doubles, so URL shape, payload, truncation,
-and error mapping are covered without a single monkeypatch.
+and error mapping are covered without patching anything.
 """
 
 from __future__ import annotations

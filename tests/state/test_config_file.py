@@ -5,7 +5,6 @@ Pure parse/render/merge is tested in tests/core/test_config.py.
 
 import os
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -61,7 +60,6 @@ def test_write_concurrent_writes_produce_valid_toml(tmp_path: Path) -> None:
         try:
             for _ in range(10):
                 write(cfg_path, {"max_concurrent": "2"})
-                time.sleep(0.001)
         except Exception as exc:
             errors.append(exc)
 
@@ -69,7 +67,6 @@ def test_write_concurrent_writes_produce_valid_toml(tmp_path: Path) -> None:
         try:
             for _ in range(10):
                 write(cfg_path, {"stall_warning_minutes": "85"})
-                time.sleep(0.001)
         except Exception as exc:
             errors.append(exc)
 

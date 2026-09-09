@@ -1,3 +1,5 @@
+"""Tests for the web_fetch tool server (unit under test: integrations/web_fetch/server.py)."""
+
 from fleet.integrations.web_fetch.server import _TextExtractor, web_fetch
 
 

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import subprocess
-import time
 from pathlib import Path
 
 from fleet.core.task import Task
@@ -14,35 +12,13 @@ from tests.integration.conftest import (
     MemoryQueue,
     fast_config,
     make_supervisor,
+    no_orphans,
+    wait_in_flight,
 )
-
-_FAKE_CLAUDE_NAME = "fake_claude.py"
-
-
-def _no_orphans(tag: str, timeout: float = 2.0) -> bool:
-    pattern = f"{_FAKE_CLAUDE_NAME}.*{tag}"
-    deadline = time.monotonic() + timeout
-    while True:
-        result = subprocess.run(
-            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
-        )
-        if result.returncode != 0:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.05)
 
 
 def _task(tid: str) -> Task:
     return Task(id=tid, title=f"kill-{tid}", description=None, status="open")
-
-
-async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
-    deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.state.running) < count:
-        await asyncio.sleep(0.1)
-        if asyncio.get_event_loop().time() > deadline:
-            raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
 
 
 def test_kill_blocks_task_with_comment(tmp_path: Path) -> None:
@@ -67,7 +43,7 @@ def test_kill_blocks_task_with_comment(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 1, timeout=8.0)
+            await wait_in_flight(sup, 1, timeout=8.0)
             # Write the kill sentinel
             task_dir.mkdir(parents=True, exist_ok=True)
             (task_dir / ".kill").touch()
@@ -92,7 +68,7 @@ def test_kill_blocks_task_with_comment(tmp_path: Path) -> None:
     assert any(tid == "t-001" and "manual" in body.lower() for tid, body in queue.comments), (
         f"expected a 'manual interruption' comment; got {queue.comments}"
     )
-    assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should survive kill"
+    assert no_orphans(str(tmp_path)), "no fake_claude.py processes should survive kill"
 
 
 def test_kill_sentinel_removed_after_processing(tmp_path: Path) -> None:
@@ -118,7 +94,7 @@ def test_kill_sentinel_removed_after_processing(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 1, timeout=8.0)
+            await wait_in_flight(sup, 1, timeout=8.0)
             task_dir.mkdir(parents=True, exist_ok=True)
             kill_file.touch()
             await asyncio.wait_for(done.wait(), timeout=8.0)

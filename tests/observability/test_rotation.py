@@ -45,7 +45,7 @@ def test_daemon_start_rotates_overgrown_log(tmp_path: Path, monkeypatch) -> None
         name="svc",
         pidfile=tmp_path / ".svc.pid",
         logfile=tmp_path / "logs" / "svc.log",
-        argv=[sys.executable, "-c", "import time; time.sleep(30)"],
+        argv=[sys.executable, "-c", "import threading; threading.Event().wait()"],
         cwd=tmp_path,
         stop_timeout=5.0,
     )

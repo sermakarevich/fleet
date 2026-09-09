@@ -125,10 +125,11 @@ class SleepScript:
     Poll-loop tests pass it as ``sleep_fn``/``sleep`` instead of patching
     ``asyncio.sleep``: ``hooks`` maps a 1-based call number to a callable
     (e.g. insert a question after the watermark is set); the ``stop_after``
-    call raises ``CancelledError`` to end the loop under test.
+    call raises ``CancelledError`` to end the loop under test, or never
+    when ``stop_after`` is None (the loop ends another way).
     """
 
-    def __init__(self, stop_after: int, hooks: dict[int, Any] | None = None) -> None:
+    def __init__(self, stop_after: int | None, hooks: dict[int, Any] | None = None) -> None:
         self.stop_after = stop_after
         self.hooks = dict(hooks or {})
         self.calls: list[float] = []
@@ -139,5 +140,5 @@ class SleepScript:
         hook = self.hooks.get(len(self.calls))
         if hook is not None:
             hook()
-        if len(self.calls) >= self.stop_after:
+        if self.stop_after is not None and len(self.calls) >= self.stop_after:
             raise asyncio.CancelledError()

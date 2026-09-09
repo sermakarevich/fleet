@@ -1,3 +1,5 @@
+"""Tests for opencode log classification (unit under test: coders/opencode.py probe)."""
+
 from datetime import UTC, datetime
 
 from fleet.coders.opencode import classify_opencode_log_lines

@@ -1,3 +1,5 @@
+"""Tests for config hot-reload polling (unit under test: orchestrator/config_reload.py)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -86,7 +88,7 @@ def test_lowered_max_concurrent_in_flight_unchanged(tmp_path: Path) -> None:
             task_id = f"t-{i:03d}"
 
             async def forever() -> TaskOutcomeRecord:
-                await asyncio.sleep(999)
+                await asyncio.Event().wait()  # block until cancelled; no fixed sleep
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())
@@ -131,7 +133,7 @@ def test_lowered_max_concurrent_new_spawns_blocked_until_count_drops(
             task_id = f"t-{i:03d}"
 
             async def forever() -> TaskOutcomeRecord:
-                await asyncio.sleep(999)
+                await asyncio.Event().wait()  # block until cancelled; no fixed sleep
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())
@@ -182,7 +184,7 @@ def test_lowered_rate_threshold_does_not_cancel_in_flight(tmp_path: Path) -> Non
             task_id = f"t-{i:03d}"
 
             async def forever() -> TaskOutcomeRecord:
-                await asyncio.sleep(999)
+                await asyncio.Event().wait()  # block until cancelled; no fixed sleep
                 return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
             t = asyncio.create_task(forever())

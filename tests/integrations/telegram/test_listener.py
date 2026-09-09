@@ -19,6 +19,7 @@ from fleet.integrations.telegram.api import TelegramApi
 from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
 from fleet.integrations.telegram.listener import inbound_listener
 from fleet.integrations.telegram.messages import MessageStore, OffsetStore
+from tests.integrations.telegram.conftest import SleepScript
 
 
 class FakeApi(TelegramApi):
@@ -86,15 +87,9 @@ def test_empty_allowlist_never_fetches(tmp_path: Path) -> None:
     api = FakeApi([_update("/help")])
     store, env, offsets = _parts(tmp_path, api, allowed_ids="")
 
-    calls = [0]
-
-    async def _sleep(_: float) -> None:
-        calls[0] += 1
-        if calls[0] >= 2:
-            raise asyncio.CancelledError()
-
+    sleep = SleepScript(stop_after=2)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=_sleep))
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=sleep))
     assert api.seen_offsets == []
 
 
@@ -148,14 +143,11 @@ def test_network_error_backs_off_and_continues(tmp_path: Path) -> None:
     api.fetch_updates = _flaky  # type: ignore[method-assign]
     store, env, offsets = _parts(tmp_path, api)
 
-    sleeps: list[float] = []
-
-    async def _sleep(s: float) -> None:
-        sleeps.append(s)
+    sleep = SleepScript(stop_after=None)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=_sleep))
-    assert sleeps[:1] == [1.0]
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=sleep))
+    assert sleep.calls[:1] == [1.0]
     assert len(api.sent) == 1
 
 

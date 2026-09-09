@@ -1,3 +1,5 @@
+"""Tests for coder event types (unit under test: coders event mapping, core/task.py Event)."""
+
 from datetime import UTC, datetime
 
 from fleet.core.task import Event

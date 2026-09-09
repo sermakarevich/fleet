@@ -1,3 +1,5 @@
+"""Tests for the attempt journal (unit under test: state/attempts.py)."""
+
 import json
 from pathlib import Path
 

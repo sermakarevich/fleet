@@ -1,3 +1,5 @@
+"""Tests for plan_task step assembly (unit under test: workers/task_family.py)."""
+
 import asyncio
 import json
 from pathlib import Path

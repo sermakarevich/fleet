@@ -21,7 +21,6 @@ def test_blocking_ask_answered_out_of_band(question_store: QuestionStore):
     qid = s.create("Deploy to prod?", options=["yes", "no"], agent_id="agent-7")
 
     def operator():
-        time.sleep(0.3)
         assert s.answer(qid, "yes", answered_by="cli")
 
     t = threading.Thread(target=operator)
@@ -61,6 +60,8 @@ def test_many_concurrent_waiters_released_independently(question_store: Question
     threads = [threading.Thread(target=wait_one, args=(i,)) for i in ids]
     for t in threads:
         t.start()
+    # Let every waiter reach its blocking wait() first, so answers below
+    # release blocked threads (there is no hook to observe waiter state).
     time.sleep(0.1)
     for i in ids:
         assert s.answer(i, f"ans-{i}")

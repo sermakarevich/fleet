@@ -26,6 +26,9 @@ from fleet.orchestrator.service import Service
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load
 from fleet.state.config_file import write as write_atomic
+from tests.helpers.wait import await_until, wait_until
+
+_FAKE_CLAUDE_NAME = "fake_claude.py"
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -435,6 +438,30 @@ async def run_until(
             sup_task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await sup_task
+
+
+async def wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
+    """Wait until the supervisor runs *count* tasks; raise TimeoutError on expiry."""
+    if not await await_until(lambda: len(sup.state.running) >= count, timeout=timeout):
+        raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
+
+
+def no_orphans(tag: str, timeout: float = 2.0) -> bool:
+    """True once no `fake_claude.py` child scoped to *tag* survives (reap polling).
+
+    *tag* is matched against the subprocess command line — FakeClaudeCoder
+    embeds its artifact dir (rooted under the test tmp_path), so one test's
+    children are never confused with another's.
+    """
+    pattern = f"{_FAKE_CLAUDE_NAME}.*{tag}"
+
+    def _gone() -> bool:
+        result = subprocess.run(
+            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
+        )
+        return result.returncode != 0  # pgrep exits 1 when no match
+
+    return wait_until(_gone, timeout=timeout)
 
 
 @pytest.fixture(autouse=True)

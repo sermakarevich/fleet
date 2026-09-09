@@ -21,6 +21,11 @@ Scenarios:
   slow_ignore_sigterm  same as slow but ignores SIGTERM (for SIGKILL test)
   block_via_bd         write Q&A.md Q block, bd update blocked, result, exit 0
   read_qa_and_close    verify A block in Q&A.md, bd close, result, exit 0
+
+Timing note (test-hygiene budget): the three time.sleep calls below are the
+fake CLI's own timing contract — a double that returns instantly would not
+exercise supervisor timeouts, grace windows, or poll loops. They pace event
+emission (rate_limit_rejected, slow) or model a long run (slow_ignore_sigterm).
 """
 
 import json

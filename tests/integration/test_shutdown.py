@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import subprocess
-import time
 from pathlib import Path
 
 from fleet.core.task import Task
@@ -14,45 +12,13 @@ from tests.integration.conftest import (
     MemoryQueue,
     fast_config,
     make_supervisor,
+    no_orphans,
+    wait_in_flight,
 )
-
-_FAKE_CLAUDE_NAME = "fake_claude.py"
-
-
-def _no_orphans(tag: str, timeout: float = 2.0) -> bool:
-    """Return True if no `fake_claude.py` processes scoped to `tag` survive.
-
-    `tag` should be a string unique to the current test (typically `str(tmp_path)`).
-    It is matched against the subprocess command line — `FakeClaudeCoder`
-    embeds `artifact_dir` (which is rooted under `tmp_path`) in the prompt argv,
-    so this filter reliably distinguishes one test's children from another's.
-
-    A short poll loop tolerates the brief window where a SIGTERM'd child has
-    exited but the kernel has not yet finished reaping it.
-    """
-    pattern = f"{_FAKE_CLAUDE_NAME}.*{tag}"
-    deadline = time.monotonic() + timeout
-    while True:
-        result = subprocess.run(
-            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
-        )
-        if result.returncode != 0:  # pgrep exits 1 when no match
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.05)
 
 
 def _task(tid: str) -> Task:
     return Task(id=tid, title=f"slow-{tid}", description=None, status="open")
-
-
-async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
-    deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.state.running) < count:
-        await asyncio.sleep(0.1)
-        if asyncio.get_event_loop().time() > deadline:
-            raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
 
 
 def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
@@ -68,7 +34,7 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 3, timeout=8.0)
+            await wait_in_flight(sup, 3, timeout=8.0)
             assert len(sup.state.running) == 3
 
             await sup._shutdown()
@@ -89,7 +55,7 @@ def test_shutdown_releases_all_tasks(tmp_path: Path) -> None:
 
     # No orphan subprocesses (scoped to this test's tmp_path to avoid
     # cross-test contamination within the same pytest run).
-    assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should remain after shutdown"
+    assert no_orphans(str(tmp_path)), "no fake_claude.py processes should remain after shutdown"
 
 
 def test_shutdown_all_tasks_back_to_open(tmp_path: Path) -> None:
@@ -105,7 +71,7 @@ def test_shutdown_all_tasks_back_to_open(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 3, timeout=8.0)
+            await wait_in_flight(sup, 3, timeout=8.0)
             await sup._shutdown()
             await asyncio.wait_for(sup_task, timeout=8.0)
         except TimeoutError:
@@ -145,7 +111,7 @@ def test_shutdown_stubborn_child_gets_sigkill(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 3, timeout=8.0)
+            await wait_in_flight(sup, 3, timeout=8.0)
             await sup._shutdown()
             # Allow enough time: grace (2s) + SIGKILL wait + cleanup
             await asyncio.wait_for(sup_task, timeout=10.0)
@@ -158,7 +124,7 @@ def test_shutdown_stubborn_child_gets_sigkill(tmp_path: Path) -> None:
 
     released_ids = {tid for tid, _ in queue.released}
     assert "t-stubborn" in released_ids, "stubborn task should be released after SIGKILL"
-    assert _no_orphans(str(tmp_path)), "no fake_claude.py processes should survive shutdown"
+    assert no_orphans(str(tmp_path)), "no fake_claude.py processes should survive shutdown"
 
 
 def test_shutdown_exit_code_zero(tmp_path: Path) -> None:
@@ -172,7 +138,7 @@ def test_shutdown_exit_code_zero(tmp_path: Path) -> None:
 
     async def _run() -> int:
         sup_task = asyncio.create_task(sup.run())
-        await _wait_in_flight(sup, 1, timeout=5.0)
+        await wait_in_flight(sup, 1, timeout=5.0)
         await sup._shutdown()
         try:
             rc = await asyncio.wait_for(sup_task, timeout=8.0)
