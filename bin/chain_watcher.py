@@ -62,6 +62,13 @@ CHAIN = [
     "fleet-9b7aj",  # Clean 29/30 tests hygiene
     "fleet-1ywc8",  # Clean 30/30 config surface
     "fleet-4jsuo",  # Clean 30/30 (final): docs, ADR 0006 accepted
+    # ADR 0007 recurring workers (Sched 1-6), after the clean chain
+    "fleet-f2zih",  # Sched 1/6 ADR 0007 + schedules package (cron, model, store)
+    "fleet-0oals",  # Sched 2/6 firing policy
+    "fleet-gymxh",  # Sched 3/6 scheduler service
+    "fleet-pghoo",  # Sched 4/6 /api/schedules + UI types
+    "fleet-0i5re",  # Sched 5/6 UI schedules tab
+    "fleet-cdzxs",  # Sched 6/6 CLI + docs + ADR accepted
 ]
 REPO = str(Path(__file__).resolve().parent.parent)
 HOME = Path.home() / ".fleet"
