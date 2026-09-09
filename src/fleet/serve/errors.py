@@ -39,6 +39,11 @@ def bad_gateway(msg: str) -> HTTPException:
     return HTTPException(status_code=502, detail=msg)
 
 
+def conflict(msg: str) -> HTTPException:
+    """409 when the request clashes with current state (taken name, busy run)."""
+    return HTTPException(status_code=409, detail=msg)
+
+
 def unauthorized() -> HTTPException:
     """401 for a missing or wrong API token."""
     return HTTPException(status_code=401, detail="unauthorized")

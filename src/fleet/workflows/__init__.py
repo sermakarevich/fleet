@@ -36,7 +36,14 @@ from fleet.workflows.planning import (
     metadata_for,
     plan,
 )
-from fleet.workflows.runs import cancel_run, refresh_run, start_run, step_states
+from fleet.workflows.runs import (
+    cancel_run,
+    enrich,
+    refresh_run,
+    refresh_run_with_tasks,
+    start_run,
+    step_states,
+)
 from fleet.workflows.store import SCHEMA_VERSION, WorkflowStore
 from fleet.workflows.templates import TemplateContext, render
 from fleet.workflows.yaml_io import from_yaml, to_yaml
@@ -60,6 +67,7 @@ __all__ = [
     "dependencies_of",
     "derive_status",
     "effective",
+    "enrich",
     "ensure_valid",
     "from_yaml",
     "labels_for",
@@ -68,6 +76,7 @@ __all__ = [
     "new_run_id",
     "plan",
     "refresh_run",
+    "refresh_run_with_tasks",
     "render",
     "start_run",
     "step_states",

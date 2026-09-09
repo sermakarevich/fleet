@@ -759,3 +759,123 @@ class ScheduleRunResponse(BaseModel):
     """Envelope for POST /api/schedules/{id}/run."""
 
     run: ScheduleRunView
+
+
+class StepRequest(BaseModel):
+    """One step template in a workflow create/update body."""
+
+    name: str = ""
+    title: str = ""
+    description: str = ""
+    cwd: str | None = None
+    coder: str | None = None
+    model: str | None = None
+    priority: int | None = None
+    needs: list[str] = Field(default_factory=list)
+
+
+class StageRequest(BaseModel):
+    """One stage (parallel group) in a workflow create/update body."""
+
+    name: str = ""
+    steps: list[StepRequest] = Field(default_factory=list)
+
+
+class WorkflowDefaultsModel(BaseModel):
+    """Fallback worker settings for steps that leave a field empty."""
+
+    cwd: str | None = None
+    coder: str | None = None
+    model: str | None = None
+    priority: int = 2
+
+
+class WorkflowRequest(BaseModel):
+    """Body for POST /api/workflows and PUT /api/workflows/{id}."""
+
+    name: str = ""
+    description: str = ""
+    defaults: WorkflowDefaultsModel = Field(default_factory=WorkflowDefaultsModel)
+    stages: list[StageRequest] = Field(default_factory=list)
+
+
+class StepRunView(BaseModel):
+    """One step inside one run, with its display state and task title."""
+
+    step_name: str
+    stage_index: int
+    task_id: str
+    task_status: str
+    state: str
+    task_title: str | None
+
+
+class WorkflowRunView(BaseModel):
+    """One workflow run with its step runs (titles null when tasks are gone)."""
+
+    id: str
+    workflow_id: str
+    workflow_name: str
+    n: int
+    trigger: str
+    schedule_id: str | None
+    status: str
+    reason: str
+    started_at: str
+    finished_at: str | None
+    steps: list[StepRunView]
+
+
+class WorkflowView(BaseModel):
+    """One saved workflow with counts and its latest run."""
+
+    id: str
+    name: str
+    description: str
+    defaults: WorkflowDefaultsModel
+    stages: list[StageRequest]
+    step_count: int
+    stage_count: int
+    created_at: str
+    updated_at: str
+    run_count: int
+    last_run: WorkflowRunView | None
+
+
+class WorkflowListResponse(BaseModel):
+    """Envelope for GET /api/workflows."""
+
+    workflows: list[WorkflowView]
+
+
+class WorkflowRunListResponse(BaseModel):
+    """Paged envelope for the workflow run list routes."""
+
+    runs: list[WorkflowRunView]
+    total: int
+
+
+class WorkflowValidateResponse(BaseModel):
+    """Validation outcome; invalid content is 200 with problems, never 4xx."""
+
+    valid: bool
+    problems: list[str]
+
+
+class WorkflowImportRequest(BaseModel):
+    """Body for POST /api/workflows/import (parsed manually today)."""
+
+    yaml: str = ""
+    replace_id: str | None = None
+
+
+class WorkflowExportResponse(BaseModel):
+    """Envelope for GET /api/workflows/{id}/export (YAML text)."""
+
+    yaml: str
+
+
+class StartRunResponse(BaseModel):
+    """Envelope for POST /api/workflows/{id}/run."""
+
+    run: WorkflowRunView
