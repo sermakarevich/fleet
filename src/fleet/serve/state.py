@@ -18,7 +18,7 @@ from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.config import RuntimeConfig
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.mcp_servers import ask_human_db_path
-from fleet.serve.watcher import FileWatcher, WebSocketBroadcaster
+from fleet.serve.event_stream import FileWatcher, WebSocketBroadcaster
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
 

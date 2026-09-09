@@ -15,7 +15,7 @@ from fleet.serve.api.models import (
 )
 from fleet.serve.state import AppState, StateDep
 from fleet.state.artifact_locator import locate
-from fleet.state.legacy import legacy_state_text
+from fleet.state.legacy_task_dir import legacy_state_text
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
 

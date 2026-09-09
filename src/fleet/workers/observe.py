@@ -20,12 +20,12 @@ from pathlib import Path
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.job_plan import validate_followups
 from fleet.core.job_ready import BeadSummary, children_terminal
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.result import ResultStatus, parse_result
 from fleet.core.task import AttemptKind, TaskOutcome, TaskOutcomeRecord, TaskStatus
 from fleet.state import attempts as state_attempts
 from fleet.state.attempt_summary import summarize
-from fleet.state.legacy import legacy_result
+from fleet.state.legacy_task_dir import legacy_result
 from fleet.state.paths import RESULT_JSON, fleet_home
 from fleet.state.paths import task_dir as task_dir_path
 

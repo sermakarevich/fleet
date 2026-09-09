@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from fleet.beads import cache as beads_info
+from fleet.beads import status_cache as beads_info
 from fleet.beads.reconcile import merge_status
 from fleet.serve.analytics import records as records_module
 from fleet.serve.analytics.metrics import Section

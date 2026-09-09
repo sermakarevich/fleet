@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.state.legacy import (
+from fleet.state.legacy_task_dir import (
     attempt_state_snapshot,
     legacy_result,
     legacy_state_text,

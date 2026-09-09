@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from fleet.serve.api.models import SearchResponse
-from fleet.state.legacy import legacy_state_text
+from fleet.state.legacy_task_dir import legacy_state_text
 from fleet.state.paths import STATE_MD
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.task_index import TaskIndex

@@ -8,7 +8,7 @@ from fleet.core.task import Task
 from fleet.state.paths import task_dir
 from fleet.workers import select_worker
 from fleet.workers.base import StepContext
-from fleet.workers.task import FreshTask
+from fleet.workers.task_family import FreshTask
 
 
 def _ctx(tmp_path: Path, task_id: str = "t-001") -> StepContext:

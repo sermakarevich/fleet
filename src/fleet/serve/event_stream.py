@@ -13,8 +13,8 @@ from fastapi import WebSocket
 from fleet.core.redact import redact
 from fleet.core.task import EventKind
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.incremental_read import read_new_bytes
 from fleet.state.runtime_stats import task_files_touched, task_runtime_stats
-from fleet.state.tail import read_new_bytes
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_meta import TaskMeta
 

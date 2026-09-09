@@ -19,7 +19,7 @@ from fleet.state import runtime_stats as stats_mod
 def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkey-patch get_beads_status_map to return None (bd unavailable in tests)."""
     monkeypatch.setattr(
-        "fleet.beads.cache.get_beads_status_map",
+        "fleet.beads.status_cache.get_beads_status_map",
         MagicMock(return_value=None),
     )
 

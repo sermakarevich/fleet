@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Protocol
 
 from fleet.core.context_window import resolve_window
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.prompts import PromptContext
 

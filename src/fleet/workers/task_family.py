@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.core.launch import LaunchLimits, LaunchPlan, plan_launch
+from fleet.core.launch_policy import LaunchLimits, LaunchPlan, plan_launch
 from fleet.core.task import AttemptKind
 from fleet.state.artifacts import StateFile, read_artifacts
 from fleet.state.attempts import load_attempts

@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.core.iso import now_iso
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.limits import SHUTDOWN_GRACE_SEC
 from fleet.core.task import Event, TaskOutcomeRecord
 from fleet.state.atomic import write_text_atomic

@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import Request
 
 from fleet.beads import client as beads_client
-from fleet.beads.cache import get_beads_status_map
+from fleet.beads.status_cache import get_beads_status_map
 from fleet.coders import context_limit_for
 from fleet.core.config import RuntimeConfig
 from fleet.core.effective import effective_coder_model

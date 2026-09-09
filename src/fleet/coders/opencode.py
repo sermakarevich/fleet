@@ -12,7 +12,7 @@ from fleet.coders.base import CoderSpec, context_limit_for, lookup_handler, prom
 from fleet.coders.env import bedrock_env, fleet_env
 from fleet.coders.model_ref import resolve_model
 from fleet.coders.settings import OpencodeSettings
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, EventKind, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.integrations.mcp_servers import fleet_mcp_servers

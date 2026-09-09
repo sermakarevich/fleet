@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.task import Task
 from fleet.prompts import PromptContext, render
 

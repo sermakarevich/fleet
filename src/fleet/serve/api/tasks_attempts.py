@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fleet.serve.api.models import ContentResponse
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempt_summary import render_markdown, summarize
-from fleet.state.legacy import attempt_state_snapshot
+from fleet.state.legacy_task_dir import attempt_state_snapshot
 from fleet.state.paths import attempt_dir
 from fleet.state.task_index import TaskIndex
 

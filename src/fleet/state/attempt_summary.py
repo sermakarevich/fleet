@@ -103,7 +103,7 @@ def _attempt_row(task_dir: Path, attempt_no: int) -> AttemptRow:
     for row in state_attempts.load_attempts(task_dir):
         if row.get("n") == attempt_no:
             return AttemptRow.from_dict(row)
-    return AttemptRow(attempt_no=attempt_no)
+    return AttemptRow(n=attempt_no)
 
 
 def _extract_text(row: dict) -> str:
@@ -167,7 +167,7 @@ def summarize(task_dir: Path, attempt_no: int) -> AttemptSummary:
     result = _read_json(attempt_dir / "RESULT.json") or None
 
     return AttemptSummary(
-        attempt_no=attempt_no,
+        n=attempt_no,
         kind=str(launch.get("kind") or row.get("kind") or AttemptKind.WORK.value),
         mode=str(launch.get("mode") or "unknown"),
         coder=row.get("coder"),

@@ -9,7 +9,7 @@ from fleet.core.task import Task
 from fleet.state.paths import task_dir
 from fleet.workers.base import FnStep, StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
-from fleet.workers.task import PREPARE_ARTIFACTS, FreshTask, plan_task
+from fleet.workers.task_family import PREPARE_ARTIFACTS, FreshTask, plan_task
 
 
 class StubCoder:

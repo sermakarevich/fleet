@@ -7,7 +7,7 @@ by hand for each case.
 
 from __future__ import annotations
 
-from fleet.core.launch import ArtifactSnapshot, LaunchLimits, LaunchPlan, plan_launch
+from fleet.core.launch_policy import ArtifactSnapshot, LaunchLimits, LaunchPlan, plan_launch
 
 
 def _stub_snapshot(**overrides) -> ArtifactSnapshot:

@@ -2,7 +2,7 @@
 
 Old task dirs keep worker memory in ``artifacts/{PLAN,HANDOFF,KNOWLEDGE}.md``
 and the declared outcome in ``artifacts/RESULT.json``. Nothing ever writes
-this layout anymore (see ``workers/task.py::_ensure_state``); these helpers
+this layout anymore (see ``workers/task_family.py::ensure_state``); these helpers
 only let ``state/artifacts.py`` (launch planning) and
 ``state/task_summary.py`` (UI) read old dirs. There is no migration command.
 """

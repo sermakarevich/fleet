@@ -27,7 +27,7 @@ from fleet.core.errors import Json, PlanError
 from fleet.core.job_phase import phase_failures, phase_of
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.result import ResultStatus
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
@@ -44,7 +44,7 @@ from .base import (
 )
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
-from .task import ensure_state
+from .task_family import ensure_state
 
 # artifacts/RESEARCH.md cap the research prompt enforces (also truncates reads).
 RESEARCH_MAX_BYTES = 12 * 1024

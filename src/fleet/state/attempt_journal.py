@@ -272,7 +272,7 @@ class AttemptJournal:
             )
             return False
         try:
-            write_text_atomic(path, "\attempt_no".join(out_lines) + "\attempt_no")
+            write_text_atomic(path, "\n".join(out_lines) + "\n")
         except OSError:
             logger.exception(
                 "attempt_journal_rewrite_failed", task=str(self.task_dir), attempt_no=attempt_no

@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fleet.core.launch import ArtifactSnapshot
+from fleet.core.launch_policy import ArtifactSnapshot
 from fleet.state.atomic import write_text_atomic
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.legacy import legacy_result, legacy_state_text
+from fleet.state.legacy_task_dir import legacy_result, legacy_state_text
 from fleet.state.paths import RESULT_JSON, STATE_MD, outputs_dir
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"

@@ -19,7 +19,7 @@ import structlog
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
 from fleet.core.iso import now_iso
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import RUN_JSON
 from fleet.state.run_file import RunRecord

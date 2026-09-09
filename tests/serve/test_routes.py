@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from fleet.beads import cache as beads_info
+from fleet.beads import status_cache as beads_info
 from fleet.serve.app import create_app
 from fleet.state import events as events_mod
 from fleet.state import runtime_stats as stats_mod
@@ -523,14 +523,14 @@ def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.M
     stats_mod._events_cache.clear()
 
     scan_count = 0
-    _orig = events_mod.scan
+    _orig = events_mod.event_stats
 
     def _counting(task_dir: Path):
         nonlocal scan_count
         scan_count += 1
         return _orig(task_dir)
 
-    monkeypatch.setattr(events_mod, "scan", _counting)
+    monkeypatch.setattr(events_mod, "event_stats", _counting)
 
     app = create_app()
 
@@ -596,8 +596,8 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     _make_task_dir(tmp_path / "tasks", "task-bdcache")
 
     # Reset module-level cache and counter so this test is isolated.
-    monkeypatch.setattr("fleet.beads.cache._beads_map_cache", {})
-    monkeypatch.setattr("fleet.beads.cache._beads_list_call_count", 0)
+    monkeypatch.setattr("fleet.beads.status_cache._beads_map_cache", {})
+    monkeypatch.setattr("fleet.beads.status_cache._beads_list_call_count", 0)
 
     app = create_app()
 

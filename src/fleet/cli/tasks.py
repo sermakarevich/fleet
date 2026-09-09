@@ -30,8 +30,8 @@ from fleet.state import paths as state_paths
 from fleet.state import runtime_stats
 from fleet.state.archive import apply_gc, apply_purge, plan_gc, plan_purge
 from fleet.state.artifact_locator import locate
-from fleet.state.legacy import legacy_state_text
-from fleet.state.tail import read_new_bytes
+from fleet.state.incremental_read import read_new_bytes
+from fleet.state.legacy_task_dir import legacy_state_text
 
 if TYPE_CHECKING:
     from fleet.beads.queue import BeadsQueue

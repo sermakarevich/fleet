@@ -26,7 +26,7 @@ from fleet.workers.compact import (
     render_compaction_prompt,
 )
 from fleet.workers.llm_session import LlmSession
-from fleet.workers.task import ContinueLargeTask, ContinueTask, plan_task
+from fleet.workers.task_family import ContinueLargeTask, ContinueTask, plan_task
 
 _STATE_BODY = (
     "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n"

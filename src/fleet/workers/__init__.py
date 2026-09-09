@@ -25,7 +25,7 @@ from fleet.core.task import Task
 from .base import StepContext, Worker
 from .job import plan_job
 from .observe import plan_observer
-from .task import plan_task
+from .task_family import plan_task
 
 WORKERS: dict[str, Callable[[StepContext], Worker]] = {
     "task": plan_task,

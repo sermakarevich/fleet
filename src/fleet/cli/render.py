@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from fleet.beads.cache import get_beads_status_map
+from fleet.beads.status_cache import get_beads_status_map
 from fleet.coders import context_limit_for
 from fleet.core.effective import effective_coder_model
 from fleet.core.job_snapshot import JobSnapshot

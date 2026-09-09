@@ -1,7 +1,7 @@
 """Read bytes appended to a growing file since a byte offset.
 
 The one increment-read primitive behind both `fleet tail --follow` (cli) and
-the websocket event streamer (serve/watcher.py) — each has its own idea of
+the websocket event streamer (serve/event_stream.py) — each has its own idea of
 what to do with the new bytes, but both need "what's new since I last looked."
 """
 

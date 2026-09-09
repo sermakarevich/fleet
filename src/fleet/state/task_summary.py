@@ -27,7 +27,7 @@ from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import iter_attempt_events, stats_from_rows
-from fleet.state.legacy import legacy_result, legacy_state_text
+from fleet.state.legacy_task_dir import legacy_result, legacy_state_text
 from fleet.state.paths import attempt_dir
 from fleet.state.run_file import RunRecord
 from fleet.state.runtime_stats import task_runtime_info

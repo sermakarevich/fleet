@@ -7,7 +7,7 @@ from typing import ClassVar
 
 from fleet.coders.base import CoderSpec, lookup_handler, prompt_context
 from fleet.coders.env import fleet_env
-from fleet.core.launch import LaunchPlan
+from fleet.core.launch_policy import LaunchPlan
 from fleet.core.task import Event, EventKind, Task
 from fleet.prompts import render
 

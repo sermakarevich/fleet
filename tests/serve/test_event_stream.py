@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from fleet.serve.watcher import FileWatcher, WebSocketBroadcaster, _TailState
+from fleet.serve.event_stream import FileWatcher, WebSocketBroadcaster, _TailState
 
 
 def test_file_watcher_detects_new_line(tmp_path: Path) -> None:

@@ -26,7 +26,7 @@ def test_summary_matches_recorded_snapshot(tmp_path: Path) -> None:
     """compute_summary(fleet_home, 0) equals the recorded fixture output."""
     records_mod._events_cache.clear()
     build_fixture_home(tmp_path)
-    with patch("fleet.beads.cache.get_beads_status_map", MagicMock(return_value=None)):
+    with patch("fleet.beads.status_cache.get_beads_status_map", MagicMock(return_value=None)):
         actual = compute_summary(tmp_path, 0)
     expected = json.loads(_SNAPSHOT.read_text("utf-8"))
     assert actual == expected
