@@ -78,6 +78,33 @@ describe('CommandPalette schedule entries', () => {
   });
 });
 
+describe('CommandPalette entries', () => {
+  // Every entry must target a live route or action (ADR 0009 UI 7/7):
+  // no analytics, no bd, no chat/config/tasks/schedules/recurring.
+  const NAV_TARGETS: Record<string, string> = {
+    'Go to workers': '/workers',
+    'Scheduled workers': '/workers?tab=scheduled',
+    'Scheduled workflows': '/workflows?tab=scheduled',
+    'Go to Workflows': '/workflows',
+    'Go to Inbox': '/inbox',
+    'Go to workflow runs': '/workflows?tab=runs',
+    'Create new workflow': '/workflows/new',
+    'Go to Settings': '/settings',
+  };
+
+  it('lists only live entries and each one resolves', async () => {
+    render(<CommandPalette open setOpen={() => {}} onCreateWorker={() => {}} />, {
+      wrapper: wrapper([]),
+    });
+
+    expect(screen.queryByText('Go to Analytics')).not.toBeInTheDocument();
+    for (const [label, target] of Object.entries(NAV_TARGETS)) {
+      fireEvent.click(await screen.findByText(label));
+      expect(screen.getByTestId('location').textContent).toBe(target);
+    }
+  });
+});
+
 describe('CommandPalette worker jump', () => {
   it('jumps to an uncached bead id via /workers/:id', async () => {
     render(<CommandPalette open setOpen={() => {}} onCreateWorker={() => {}} />, {

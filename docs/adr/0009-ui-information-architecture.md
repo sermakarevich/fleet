@@ -1,7 +1,7 @@
 # ADR 0009: UI information architecture — workers and workflows, four tabs
 
 Date: 2026-09-09
-Status: Accepted
+Status: Accepted (implemented 2026-09-09; UI 1/7–7/7, commits 4104576..HEAD)
 Builds on: ADR 0007 (recurring workers / schedules), ADR 0008 (workflows),
 ADR 0006 (clean-code rules, applied to the UI as well).
 

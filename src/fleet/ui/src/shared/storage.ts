@@ -1,7 +1,6 @@
 /**
  * localStorage access that never throws (private mode can raise
- * SecurityError). Called by AnalyticsPage for the persisted range;
- * every other UI state lives in react-query or the URL.
+ * SecurityError). Every other UI state lives in react-query or the URL.
  */
 
 /** Read a string value; null when storage is unavailable or the key is missing. */

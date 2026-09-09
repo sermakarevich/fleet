@@ -23,7 +23,7 @@ many projects — and across multiple agent backends — spawning many concurren
   <img src="assets/tasks.png" alt="fleet tasks output">
 </p>
 
-Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and chat with blocked agents via the Chat tab, all from a single dashboard.
+Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and answer questions from blocked agents, all from a single dashboard with four tabs: **Workers** (runs, schedules and a needs-attention strip), **Workflows** (definitions, runs, schedules), **Inbox** (questions waiting for a human) and **Settings** (every runtime knob).
 
 <p align="center">
   <img src="assets/fleet_ui.png" alt="fleet web UI">
@@ -166,8 +166,8 @@ agent that keeps exiting without closing its bead), fleet records why in
 `task.json` as `blocked_reason` / `blocked_at`, and appends a line to
 `attempts.jsonl` for every worker run with its outcome, the reason, and
 the action fleet took (released, blocked, closed, ...). You can see this
-in the web UI: the **Tasks** tab shows the block reason inline, the task
-detail header shows a banner with the same reason, and the **Runs** tab
+in the web UI: the **Workers** tab shows the block reason inline, the worker
+detail header shows a banner with the same reason, and the **Attempts** tab
 lists the full attempt history for that task.
 
 `POST /api/tasks/{id}/unblock` (also reachable from the Unblock button in
@@ -186,13 +186,13 @@ older tasks won't have retroactive history.
 
 Every `triage_interval_minutes` (15 by default, 0 disables) the supervisor
 scans fleet-blocked beads and posts one non-blocking question per bead to
-the ask_human store (visible in the Chat tab / Telegram) with a rule-based
+the ask_human store (visible in the Inbox tab / Telegram) with a rule-based
 fix proposal: rate limits suggest switching coder/model, repeated stalls
 suggest a stronger model, exhausted context retries suggest splitting the
 task, and worker-reported blocks quote the report verbatim. Answering
 applies the fix (retry, retry with `claude/opus`, append your note to the
 task and retry, close as won't-do, or ignore 24h / forever). Ignored tasks
-show an "ignored" badge in the Tasks table with an Unignore button
+show an "ignored" badge in the Workers table with an Unignore button
 (`POST /api/tasks/{id}/unignore`, `fleet tasks --ignored` lists them);
 unblocking or re-blocking a bead clears the ignore.
 
@@ -422,8 +422,9 @@ fleet schedule show sch-abc123       # definition, next 5 firings, last 20 runs
 fleet schedule run sch-abc123        # fire one manual run now
 ```
 
-The same schedules are visible in the web UI under the **schedules** tab
-(`fleet serve`, `/schedules`). Definitions live in
+The same schedules are visible in the web UI under the **Scheduled**
+sub-tabs of **Workers** (worker schedules) and **Workflows** (workflow
+schedules) (`fleet serve`). Definitions live in
 `~/.fleet/schedules/<id>.json`, run history in
 `~/.fleet/schedules/<id>.runs.jsonl`. See ADR 0007 and
 `docs/ARCHITECTURE.md` (section "Schedules").
@@ -466,9 +467,9 @@ fleet workflow run nightly-quality    # start a manual run, prints run id + step
 fleet workflow runs nightly-quality   # run history with done/total steps
 ```
 
-The same workflows are visible in the web UI under the **workflows** tab
-(`fleet serve`); recurring workflow runs live under the **recurring** tab
-(`fleet schedule create --workflow <id|name> ...`). Definitions and run
+The same workflows are visible in the web UI under the **Workflows** tab
+(`fleet serve`); recurring workflow runs live under its **Scheduled**
+sub-tab (`fleet schedule create --workflow <id|name> ...`). Definitions and run
 history live in `~/.fleet/workflows.db` (SQLite). See ADR 0008.
 
 ### `fleet bd <args...>`
@@ -665,7 +666,7 @@ fleet ask-human install --scope project     # register at project/local scope in
 fleet ask-human serve                       # run the MCP server on stdio (what `install` registers — only one you'll need)
 ```
 
-Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. Answer from the Fleet web UI Chat tab (`fleet serve`) or Telegram.
+Fleet bundles the `ask_human` human-in-the-loop MCP server that its agents use to ask you questions mid-task. Answer from the Fleet web UI Inbox tab (`fleet serve`) or Telegram.
 
 `fleet ask-human install` requires the `claude` CLI on your `PATH`. It first
 removes any existing `ask_human` registration at the chosen scope, then runs
@@ -942,7 +943,7 @@ Headless agents have no built-in way to ask you anything — Claude Code filters
  │ (MCP server, stdio)   │     │ table (WAL)      │
  └──────────────────────┘     └──────────────────┘
                                   ▲           ▲
-                       web UI chat tab     Telegram reply
+                       web UI inbox tab    Telegram reply
                         fleet ask-human     (see section above)
 ```
 
@@ -967,7 +968,7 @@ Agents spawned by the fleet supervisor pick up the user-scope registration autom
 
 Every frontend writes to the same store, so use whichever is closest:
 
-- **Fleet web UI** — the chat tab in `fleet serve` (questions appear live). Use this as your primary interface.
+- **Fleet web UI** — the Inbox tab in `fleet serve` (questions appear live). Use this as your primary interface.
 - **Telegram** — reply to the question notification (see [Answering chat questions from Telegram](#answering-chat-questions-from-telegram)).
 
 On an options question the operator is never boxed in: a free-text `note` can supplement or replace the selection, and agents are instructed to treat it as authoritative.

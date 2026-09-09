@@ -351,24 +351,25 @@ src/fleet/
 
 ## Target layout (UI)
 
+Four tabs (ADR 0009): Workers, Workflows, Inbox, Settings.
+
 ```
 src/fleet/ui/src/
-  app/                   # App.tsx (routes only), NavBar.tsx, GlobalEvents.tsx, queryClient.ts
+  app/                   # App.tsx (routes + legacy redirects), NavBar.tsx, GlobalEvents.tsx, queryClient.ts
   shared/
     api.ts  types.ts     # single source of API types; must match serve/api
-    hooks/               # useApi.ts (every endpoint has a hook), useWebSocket.ts, ...
+    hooks/               # useApi.ts (every endpoint has a hook with a UI caller), useWebSocket.ts, ...
     format.ts            # fmtTs, fmtDuration, fmtTokens  (one copy)
     status.ts            # status -> color/label         (one copy)
-    ui/                  # StatusDot, Sparkline, Toast, small primitives
-    styles/              # tokens.ts, global.css        (one styling approach)
+    ui/                  # DataList, FilterBar, Confirm, EmptyState, StatusDot, Sparkline, Toast, small primitives
+    styles/              # tokens.ts, recipes.ts, global.css (one styling approach; rem units)
   features/
-    tasks/               # TasksPage.tsx, TaskRow.tsx, TaskCard.tsx, NewTaskPanel.tsx
-    task-detail/         # TaskDetailPage.tsx, Header.tsx, tabs/*.tsx
-    beads/               # BeadsPage.tsx (was BD.tsx), BeadRow.tsx, BeadDrawer.tsx
-    chat/                # ChatPage.tsx + hooks/useChat.ts (React Query, shared toast)
-    analytics/           # AnalyticsPage.tsx, charts/*, chartTheme.ts (was panel.ts), timeBuckets.ts
-    config/
-    command-palette/
+    workers/             # WorkersPage.tsx (Runs + Scheduled sub-tabs, NeedsAttentionStrip), detail/TaskDetailPage.tsx, NewWorkerPanel.tsx
+    triggers/            # shared schedule module parameterised by target (task | workflow): one form, one row, one drawer
+    workflows/           # WorkflowsPage.tsx (Definitions, Runs, Scheduled), WorkflowRunPage.tsx, editor
+    inbox/               # InboxPage.tsx, InboxDetailPage.tsx (pending ask_human questions; count badge in the tab)
+    settings/            # SettingsPage.tsx (every RuntimeConfig field, grouped) + SupervisorSection.tsx
+    command-palette/     # CommandPalette.tsx (entries only for live routes/actions)
 ```
 
 ## Schedules

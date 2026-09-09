@@ -8,7 +8,6 @@ import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/workers/detail/TaskDetailPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
-import { AnalyticsPage } from '../features/analytics/AnalyticsPage';
 import { NewWorkerPanel } from '../features/workers/NewWorkerPanel';
 import { CommandPalette } from '../features/command-palette/CommandPalette';
 import { useCommandPalette } from '../shared/hooks/useCommandPalette';
@@ -65,6 +64,13 @@ export function BdRedirect() {
   return <Navigate to={{ pathname: '/workers', search: mapped ? `?status=${mapped}` : '' }} replace />;
 }
 
+// Legacy /analytics URLs redirect to the workers list (ADR 0009 UI 7/7):
+// the charts are deleted and the needs-attention strip on WorkersPage
+// (reads /api/analytics/summary) is their replacement.
+export function AnalyticsRedirect() {
+  return <Navigate to="/workers" replace />;
+}
+
 // Legacy /config URLs redirect to the renamed settings page (ADR 0009).
 export function ConfigRedirect() {
   return <Navigate to="/settings" replace />;
@@ -87,6 +93,18 @@ function AppInner() {
       <TokenGate />
       <main style={styles.main}>
         <Routes>
+          {/*
+            Final route table (ADR 0009). Four live tabs: /workers,
+            /workflows, /inbox, /settings. Every legacy route below
+            redirects with <Navigate replace> so old links keep working:
+            - UI 2: /tasks, /tasks/:id, /schedules, /schedules/:id → workers
+            - UI 3: /bd → workers (status mapped in BdRedirect)
+            - UI 4: /recurring, /recurring/:id → workflows Scheduled sub-tab
+            - UI 5: /chat → inbox
+            - UI 6: /config → settings
+            - UI 7: /analytics → workers (charts deleted; the
+              needs-attention strip replaces them)
+          */}
           <Route path="/" element={<Navigate to="/workers" replace />} />
           <Route path="/workers" element={<WorkersPage />} />
           <Route path="/workers/:id" element={<TaskDetailPage />} />
@@ -102,7 +120,7 @@ function AppInner() {
           <Route path="/workflows/:id" element={<WorkflowsPage />} />
           <Route path="/workflows/:id/runs" element={<WorkflowsPage />} />
           <Route path="/workflow-runs/:runId" element={<WorkflowRunPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/analytics" element={<AnalyticsRedirect />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/config" element={<ConfigRedirect />} />
           <Route path="/inbox" element={<InboxPage />} />

@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import { useIsMobile } from '../shared/hooks/useIsMobile';
 import { useSocketStatus } from '../shared/hooks/useEventSocket';
-import { useChatQuestions, useSupervisor, useHealthz } from '../shared/hooks/useApi';
+import { useChatQuestions, useRestartSupervisor, useSupervisor, useHealthz } from '../shared/hooks/useApi';
+import { Confirm } from '../shared/ui/Confirm';
 import { Dot } from '../shared/ui/StatusDot';
 import { colors } from '../shared/styles/tokens';
 import { merge } from '../shared/styles/recipes';
@@ -48,9 +49,14 @@ function ConnectionDot() {
   );
 }
 
+// Stale-daemon chip with a Restart action: clicking the chip asks for
+// confirmation (shared Confirm, no window.confirm) and restarts the
+// supervisor through the existing restart hook. Rendered in the nav bar.
 function StalenessChip() {
   const { data: supervisor } = useSupervisor();
   const { data: healthz } = useHealthz();
+  const restartSupervisor = useRestartSupervisor();
+  const [confirming, setConfirming] = useState(false);
   const supervisorStale = supervisor?.stale === true;
   const serveStale = healthz?.stale === true;
   if (!supervisorStale && !serveStale) return null;
@@ -58,10 +64,26 @@ function StalenessChip() {
   if (supervisorStale) parts.push('supervisor (fleet run restart)');
   if (serveStale) parts.push('serve (fleet serve restart)');
   const hint = `Stale daemon${parts.length > 1 ? 's' : ''}: ${parts.join(', ')}`;
+  if (confirming) {
+    return (
+      <Confirm
+        verb="Restart"
+        onConfirm={() => {
+          restartSupervisor.mutate();
+          setConfirming(false);
+        }}
+        onCancel={() => setConfirming(false)}
+      />
+    );
+  }
   return (
-    <span title={hint} style={styles.staleChip}>
-      ⚠ stale
-    </span>
+    <button
+      title={`${hint} — click to restart the supervisor`}
+      style={styles.staleChip}
+      onClick={() => setConfirming(true)}
+    >
+      ⚠ stale · Restart
+    </button>
   );
 }
 
@@ -80,18 +102,18 @@ export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
     return () => obs.disconnect();
   }, []);
 
+  // Four tabs (ADR 0009): Workers · Workflows · Inbox · Settings.
   const navLinks = (
     <>
       <NavLink style={navLinkStyle} to="/workers">Workers</NavLink>
-      <NavLink style={navLinkStyle} to="/workflows">workflows</NavLink>
-      <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>
-      <NavLink style={navLinkStyle} to="/settings">Settings</NavLink>
+      <NavLink style={navLinkStyle} to="/workflows">Workflows</NavLink>
       <NavLink style={navLinkStyle} to="/inbox">
         <span style={styles.inboxLink}>
           Inbox
           <InboxIndicator />
         </span>
       </NavLink>
+      <NavLink style={navLinkStyle} to="/settings">Settings</NavLink>
     </>
   );
 
@@ -238,11 +260,13 @@ const styles = {
     alignItems: 'center',
     padding: '0.1rem 0.5rem',
     borderRadius: '9999px',
+    border: 'none',
     background: colors.warningBg,
     color: colors.warningFg,
     fontSize: '0.75rem',
     fontWeight: 600,
-    cursor: 'default',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
   } as CSSProperties,
 };
