@@ -490,4 +490,3 @@ def test_start_run_without_isolation_has_no_fleet_isolation(tmp_path: Path) -> N
     )
     assert "fleet_isolation" not in _meta_of(queue.creates[0]["extra_args"])
     assert run.inputs == {}
-
