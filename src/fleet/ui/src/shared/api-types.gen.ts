@@ -14,6 +14,10 @@ export interface paths {
         /**
          * List Tasks
          * @description List task summaries, active first then recently-closed (FR-07).
+         *
+         *     Fleet beads without a task dir yet (created via plain `bd create`)
+         *     appear as synthetic rows with `has_task_dir: false`; the GET handler
+         *     itself never writes a task dir.
          */
         get: operations["list_tasks_api_tasks_get"];
         put?: never;
@@ -2249,6 +2253,11 @@ export interface components {
             /** Steps */
             steps: components["schemas"]["RunStep"][];
             lease: components["schemas"]["TaskLease"] | null;
+            /**
+             * Has Task Dir
+             * @default true
+             */
+            has_task_dir: boolean;
             /** Attempts */
             attempts: components["schemas"]["TaskAttempt"][];
         };

@@ -8,7 +8,7 @@
     "/api/tasks": {
       "get": {
         "summary": "List Tasks",
-        "description": "List task summaries, active first then recently-closed (FR-07).",
+        "description": "List task summaries, active first then recently-closed (FR-07).\n\nFleet beads without a task dir yet (created via plain `bd create`)\nappear as synthetic rows with `has_task_dir: false`; the GET handler\nitself never writes a task dir.",
         "operationId": "list_tasks_api_tasks_get",
         "parameters": [
           {
@@ -5686,6 +5686,11 @@
                 "type": "null"
               }
             ]
+          },
+          "has_task_dir": {
+            "type": "boolean",
+            "title": "Has Task Dir",
+            "default": true
           },
           "attempts": {
             "items": {

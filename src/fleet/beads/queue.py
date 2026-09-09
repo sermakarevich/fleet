@@ -394,19 +394,23 @@ class BeadsQueue(Queue):
         worker: str | None = None,
         extra_args: str | None = None,
     ) -> Task:
-        """Open a new task and snapshot it to task.json."""
+        """Open a new task and snapshot it to task.json.
+
+        Dependencies ride on `bd create --deps` itself, so the bead is
+        born with its edges: the supervisor can never claim it in
+        between a create and a later `dep add`.
+        """
         args = ["create", "--title", title, "--json"]
         if description:
             args += ["--description", description]
+        if depends_on:
+            args += ["--deps", ",".join(depends_on)]
         if extra_args:
             args += shlex.split(extra_args)
         body = self._client.run_json(args)
         task_id = body.get("id", "") if isinstance(body, dict) else ""
         if not task_id:
             raise BdError("bd create returned no task id")
-        if depends_on:
-            for dep_id in depends_on:
-                self._client.run(["dep", "add", task_id, dep_id])
         self._store.write(
             task_id,
             self._store.snapshot(

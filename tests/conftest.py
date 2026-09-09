@@ -147,7 +147,6 @@ class FakeQueue(Queue):
         extra_args: str | None = None,
     ) -> Task:
         """Open a new task and snapshot it to task.json."""
-        _ = depends_on
         task_id = f"fake-{len(self._tasks):03d}"
         task = Task(
             id=task_id,
@@ -166,6 +165,8 @@ class FakeQueue(Queue):
                 "id": task_id,
                 "title": title,
                 "description": description,
+                "depends_on": list(depends_on or []),
+                "deps_argv": ",".join(depends_on) if depends_on else None,
                 "labels": list(labels or []),
                 "cwd": cwd,
                 "coder": coder,

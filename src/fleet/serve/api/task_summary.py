@@ -34,6 +34,94 @@ from fleet.state.task_summary import (
 
 logger = logging.getLogger(__name__)
 
+#: Bead id prefix for this repo. `bd` auto-detects it from the directory
+#: name; fleet's database issues `fleet-...` ids (confirmed via `bd list`).
+#: The supervisor's claim loop applies no prefix filter (it claims every
+#: ready bead), so this constant only scopes the unclaimed-bead overlay.
+FLEET_BEAD_PREFIX = "fleet-"
+
+#: `bd` metadata keys written by `fleet bd create --cwd/--coder/...` (see
+#: `beads/create_args.py`). Any one of them marks a bead as fleet-owned.
+FLEET_METADATA_KEYS = frozenset(
+    {
+        "fleet_cwd",
+        "fleet_coder",
+        "fleet_model",
+        "fleet_worker",
+        "fleet_isolation",
+        "fleet_job_gate",
+    }
+)
+
+#: Bead statuses surfaced as synthetic rows; terminal ones stay hidden.
+VISIBLE_BEAD_STATUSES = frozenset({"open", "in_progress", "blocked", "deferred"})
+
+
+def is_fleet_bead(bead: dict) -> bool:
+    """True when *bead* is fleet-owned: a fleet_* metadata key or id prefix."""
+    meta = bead.get("metadata") or {}
+    if any(key in meta for key in FLEET_METADATA_KEYS):
+        return True
+    return str(bead.get("id", "")).startswith(FLEET_BEAD_PREFIX)
+
+
+def _synthetic_depends_on(bead_id: str, bead: dict) -> list[str]:
+    """Dependency ids declared on a `bd list` row (both envelope shapes)."""
+    deps: list[str] = []
+    for dep in bead.get("dependencies") or []:
+        if not isinstance(dep, dict):
+            continue
+        target = dep.get("depends_on_id") or dep.get("id")
+        if target and target != bead_id and target not in deps:
+            deps.append(str(target))
+    return deps
+
+
+def synthetic_raw_task(bead: dict) -> dict | None:
+    """Raw task.json-shaped dict for an unclaimed fleet bead, else None.
+
+    Returns None for non-fleet beads and for terminal statuses. Reads
+    cwd/coder/model from the fleet_* metadata keys that
+    `fleet bd create` stores, so the UI can render the row before the
+    supervisor ever claims it.
+    """
+    bead_id = bead.get("id")
+    if not bead_id or not is_fleet_bead(bead):
+        return None
+    if bead.get("status") not in VISIBLE_BEAD_STATUSES:
+        return None
+    meta = bead.get("metadata") or {}
+    return {
+        "id": bead_id,
+        "title": bead.get("title"),
+        "description": bead.get("description"),
+        "status": bead.get("status"),
+        "priority": bead.get("priority"),
+        "created_at": bead.get("created_at"),
+        "depends_on": _synthetic_depends_on(str(bead_id), bead),
+        "cwd": meta.get("fleet_cwd"),
+        "coder": meta.get("fleet_coder"),
+        "model": meta.get("fleet_model"),
+        "has_task_dir": False,
+    }
+
+
+def list_unclaimed_raw_tasks(beads_map: dict[str, dict], known_ids: set[str]) -> list[dict]:
+    """Synthetic raw dicts for fleet beads that have no task dir yet.
+
+    Pure read of *beads_map* (the cached `bd list` overlay, which carries
+    each bead's metadata): beads already in *known_ids* are skipped, and
+    nothing is written. Returns [] when beads is unavailable.
+    """
+    rows: list[dict] = []
+    for bead_id, info in beads_map.items():
+        if bead_id in known_ids or not isinstance(info, dict):
+            continue
+        raw = synthetic_raw_task({"id": bead_id, **info})
+        if raw is not None:
+            rows.append(raw)
+    return rows
+
 
 def recency_key(data: Mapping[str, Any]) -> str:
     """ISO string sorting by recency descending (latest first)."""

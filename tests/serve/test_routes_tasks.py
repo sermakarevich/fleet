@@ -54,6 +54,9 @@ def test_task_summary_includes_priority_and_depends_on(
     """GET /api/tasks includes priority and depends_on in each summary (FR-10, FR-11)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+    )
     _make_task_dir(
         tasks_root,
         "task-bd1",
@@ -84,6 +87,9 @@ def test_task_summary_includes_priority_and_depends_on(
 def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Second GET /api/tasks poll does not re-scan unchanged events.jsonl."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+    )
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cachecheck")
     event = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
     (task_dir / "events.jsonl").write_text(json.dumps(event) + "\n")
@@ -121,6 +127,9 @@ def test_tasks_list_cache_invalidated_on_events_change(
 ) -> None:
     """Cache is invalidated when events.jsonl changes; events count reflects the update."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+    )
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cacheinv")
     ev1 = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
     attempt_dir = task_dir / "attempts" / "1"

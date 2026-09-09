@@ -44,6 +44,7 @@ def get_beads_status_map(fleet_home: Path) -> dict[str, dict] | None:
                 "title": item.get("title"),
                 "description": item.get("description"),
                 "notes": item.get("notes"),
+                "metadata": item.get("metadata") or {},
             }
             for item in items
             if item.get("id")
