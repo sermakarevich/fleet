@@ -6,7 +6,7 @@
  */
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../api';
-import { usePoll } from '../poll';
+import { usePoll, usePollWithSocketFallback } from '../poll';
 import type { CreateTaskInput, RuntimeConfig, ScheduleInput, WorkflowInput } from '../types';
 import { useTaskMutation } from './useTaskMutation';
 import { useDebounced } from './useDebounced';
@@ -15,19 +15,22 @@ export function useTasks(closedLimit?: number) {
   return useQuery({
     // Default window keeps the plain ['tasks'] key so cache readers (the
     // command palette) keep working; wider windows get their own key.
+    // The socket overlays never patch lease/beads status, so keep a slow
+    // poll while connected instead of pausing entirely.
     queryKey: closedLimit == null ? ['tasks'] : ['tasks', closedLimit],
     queryFn: () => api.getTasks(closedLimit),
-    refetchInterval: usePoll('normal'),
+    refetchInterval: usePollWithSocketFallback('normal', 'slow'),
   });
 }
 
 export function useTask(id: string) {
   // GET /api/tasks/{id} already returns the beads-reconciled status, so no
-  // client-side overlay from the list cache is needed here.
+  // client-side overlay from the list cache is needed here. Same slow
+  // fallback while connected as the list: overlays never patch the lease.
   return useQuery({
     queryKey: ['task', id],
     queryFn: () => api.getTask(id),
-    refetchInterval: usePoll('fast'),
+    refetchInterval: usePollWithSocketFallback('fast', 'slow'),
   });
 }
 

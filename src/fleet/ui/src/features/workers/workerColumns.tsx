@@ -25,13 +25,15 @@ function runsTitle(task: TaskSummary): string {
   return `Last: ${task.last_outcome ?? '—'} → ${task.last_action ?? '—'}: ${task.last_outcome_reason ?? '—'}`;
 }
 
-// A lease whose lease_until already passed while the task still shows as
+// A task whose server-reported lease is dead while it still shows as
 // running: the heartbeat stopped (crashed runner, slept host). The
 // supervisor reclaims it once the pid is provably dead; until then flag it.
-function isStaleLease(task: TaskSummary): boolean {
+// Trusts the server's lease.alive (GET /api/tasks) — never the client
+// clock, which goes stale whenever the list is fed by socket overlays.
+export function isStaleLease(task: TaskSummary): boolean {
   return task.status === 'in_progress'
     && task.lease != null
-    && Number(new Date(task.lease.lease_until)) < Date.now();
+    && task.lease.alive === false;
 }
 
 // Retry re-queues a stuck worker; offered on failed and blocked rows.
