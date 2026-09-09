@@ -392,8 +392,9 @@ export const api = {
     return request(`/api/workflows/${id}/export`);
   },
 
-  runWorkflow(id: string): Promise<{ run: WorkflowRun }> {
-    return request(`/api/workflows/${id}/run`, { method: 'POST' });
+  runWorkflow(id: string, inputs?: Record<string, string>): Promise<{ run: WorkflowRun }> {
+    const body = inputs && Object.keys(inputs).length > 0 ? { inputs } : {};
+    return request(`/api/workflows/${id}/run`, json('POST', body));
   },
 
   async listWorkflowRuns(

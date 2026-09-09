@@ -39,11 +39,14 @@ export interface TriggerPayloadFields {
   model: string;
   priority: number;
   workflowId: string;
+  // Run inputs for the target workflow; omitted for task schedules.
+  inputs?: Record<string, string>;
 }
 
 // The one place that shapes a schedule request: task targets carry the
 // worker fields with target "task"; workflow targets carry only the
-// workflow_id with target "workflow" (backend requires one side each).
+// workflow_id plus the workflow's run inputs with target "workflow"
+// (backend requires one side each).
 export function buildTriggerPayload(target: TriggerTarget, f: TriggerPayloadFields): ScheduleInput {
   const shared = {
     name: f.name.trim(),
@@ -53,7 +56,16 @@ export function buildTriggerPayload(target: TriggerTarget, f: TriggerPayloadFiel
     overlap: f.overlap,
   };
   if (target === 'workflow') {
-    return { ...shared, target: 'workflow', workflow_id: f.workflowId };
+    const inputs: Record<string, string> = {};
+    for (const [key, value] of Object.entries(f.inputs ?? {})) {
+      if (value !== '') inputs[key] = value;
+    }
+    return {
+      ...shared,
+      target: 'workflow',
+      workflow_id: f.workflowId,
+      inputs: Object.keys(inputs).length > 0 ? inputs : undefined,
+    };
   }
   return {
     ...shared,
@@ -65,6 +77,19 @@ export function buildTriggerPayload(target: TriggerTarget, f: TriggerPayloadFiel
     model: f.model || undefined,
     priority: f.priority,
   };
+}
+
+// Declared inputs of one workflow (ADR 0010): the schedule form asks for
+// these when its target workflow declares them.
+export function workflowInputs(workflow: Workflow | undefined): Array<{
+  name: string; description: string; required: boolean; default: string | null;
+}> {
+  return (workflow?.inputs ?? []).map((input) => ({
+    name: input.name,
+    description: input.description ?? '',
+    required: input.required ?? false,
+    default: input.default ?? null,
+  }));
 }
 
 // Label for the workflow picker: name plus its stage count.
@@ -97,6 +122,9 @@ export function useTriggerForm({ target, initial, onSaved, onClose }: Options) {
   const [model, setModel] = useState(initial?.model ?? '');
   const [priority, setPriority] = useState(initial?.priority ?? 2);
   const [workflowId, setWorkflowId] = useState(initial?.workflow_id ?? '');
+  // Values for the target workflow's declared inputs (workflow schedules).
+  // Pre-filled from the schedule, then from each input's default.
+  const [inputs, setInputs] = useState<Record<string, string>>(() => ({ ...(initial?.inputs ?? {}) }));
 
   const { data: codersData } = useCoders();
   const { data: workflowsData } = useWorkflows();
@@ -106,13 +134,26 @@ export function useTriggerForm({ target, initial, onSaved, onClose }: Options) {
 
   const coders: CoderInfo[] = codersData?.coders ?? [];
   const workflows: Workflow[] = workflowsData ?? [];
+  const targetWorkflow = workflows.find((w) => w.id === workflowId);
+  const decls = target === 'workflow' ? workflowInputs(targetWorkflow) : [];
+  // Effective value: typed value wins, else the input's default, else blank.
+  function inputValue(name: string, fallback: string | null): string {
+    const current = inputs[name];
+    if (current !== undefined) return current;
+    return fallback ?? '';
+  }
+  const missingInputs = decls.filter((decl) => decl.required && !inputValue(decl.name, decl.default).trim());
   const cronValid = preview.data?.valid === true;
   const pending = createSchedule.isPending || updateSchedule.isPending;
   const error = createSchedule.error ?? updateSchedule.error ?? null;
   const canSubmit =
     target === 'workflow'
-      ? name.trim().length > 0 && workflowId.length > 0 && cronValid && !pending
+      ? name.trim().length > 0 && workflowId.length > 0 && cronValid && missingInputs.length === 0 && !pending
       : name.trim().length > 0 && title.trim().length > 0 && cronValid && !pending;
+
+  function setInput(name: string, value: string) {
+    setInputs((prev) => ({ ...prev, [name]: value }));
+  }
 
   function handleCoderChange(next: string) {
     setCoder(next);
@@ -135,9 +176,17 @@ export function useTriggerForm({ target, initial, onSaved, onClose }: Options) {
 
   async function submit() {
     if (!canSubmit) return;
+    // Resolve each declared input: typed value, else its default, else skip
+    // (required ones are guaranteed present by canSubmit).
+    const resolved: Record<string, string> = {};
+    for (const decl of decls) {
+      const value = inputValue(decl.name, decl.default);
+      if (value !== '') resolved[decl.name] = value;
+    }
     const payload = buildTriggerPayload(target, {
       name, cron, timezone, enabled, overlap,
       title, description, cwd, coder, model, priority, workflowId,
+      inputs: resolved,
     });
     try {
       const saved = initial
@@ -156,6 +205,7 @@ export function useTriggerForm({ target, initial, onSaved, onClose }: Options) {
     title, setTitle, description, setDescription, cwd, setCwd,
     coder, model, setModel, priority, setPriority,
     workflowId, workflows,
+    decls, inputs, setInput, inputValue, missingInputs,
     coders, preview, cronValid, canSubmit, pending, error,
     isEdit: !!initial,
     submit, handleCoderChange, handleWorkflowChange, applyPreset,

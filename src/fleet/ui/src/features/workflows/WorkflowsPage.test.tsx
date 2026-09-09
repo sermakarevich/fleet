@@ -84,8 +84,7 @@ describe('WorkflowsPage', () => {
     await waitFor(() => expect(importSpy).toHaveBeenCalledWith(YAML_TEXT, undefined));
   });
 
-  it('Scheduled sub-tab lists workflow-target schedules with the Overlap column', async () => {
-    const listSpy = vi.spyOn(api, 'getSchedules').mockResolvedValue([
+  it('Scheduled sub-tab lists workflow-target schedules with the Overlap column', async () => {    const listSpy = vi.spyOn(api, 'getSchedules').mockResolvedValue([
       {
         id: 'sched-w1',
         name: 'nightly-quality',
@@ -114,5 +113,42 @@ describe('WorkflowsPage', () => {
     expect(listSpy).toHaveBeenCalledWith('workflow');
     expect(screen.getByText('Overlap')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('Run opens the input form when the workflow declares inputs', async () => {
+    const withInputs: Workflow = {
+      ...makeWorkflow(),
+      id: 'wf-inputs',
+      name: 'paper-summary',
+      inputs: [
+        { name: 'url', description: 'Link to the source.', required: true, default: null },
+      ],
+    };
+    vi.mocked(api.listWorkflows).mockResolvedValue([withInputs]);
+    render(<WorkflowsPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('paper-summary')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    // The run form opens instead of running immediately.
+    expect(await screen.findByText('Run paper-summary')).toBeInTheDocument();
+    expect(screen.getByLabelText('url (required)')).toBeInTheDocument();
+  });
+
+  it('Run starts immediately when the workflow declares no inputs', async () => {
+    const plain = makeWorkflow();
+    vi.mocked(api.listWorkflows).mockResolvedValue([plain]);
+    const runSpy = vi.spyOn(api, 'runWorkflow').mockResolvedValue({
+      run: {
+        id: 'run-1', workflow_id: plain.id, workflow_name: plain.name, n: 1,
+        trigger: 'manual', schedule_id: null, status: 'running', reason: '',
+        started_at: '2026-09-09T10:00:00Z', finished_at: null, inputs: {}, steps: [],
+      },
+    });
+    render(<WorkflowsPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('nightly-quality')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(runSpy).toHaveBeenCalledWith('wf-9', undefined));
+    expect(screen.queryByLabelText('url (required)')).not.toBeInTheDocument();
   });
 });

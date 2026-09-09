@@ -126,6 +126,7 @@ describe('useWorkflowEditor', () => {
       name: 'nightly',
       description: undefined,
       defaults: undefined,
+      inputs: undefined,
       stages: [
         {
           name: 'stage-1',
@@ -138,6 +139,7 @@ describe('useWorkflowEditor', () => {
               coder: undefined,
               model: undefined,
               priority: undefined,
+              isolation: undefined,
               needs: undefined,
             },
           ],
@@ -146,5 +148,104 @@ describe('useWorkflowEditor', () => {
     });
     expect(out).toEqual(saved);
     expect(onSaved).toHaveBeenCalledWith(saved);
+  });
+
+  it('inputs section adds rows and the payload carries them', async () => {
+    const saved = { ...makeWorkflow(), name: 'paper' };
+    const createSpy = vi.spyOn(api, 'createWorkflow').mockResolvedValue(saved);
+    const { result } = renderHook(
+      () => useWorkflowEditor({ initial: null, onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+    expect(result.current.inputs).toEqual([]);
+    act(() => {
+      result.current.setName('paper');
+      result.current.addInput();
+    });
+    act(() => {
+      result.current.updateInput(0, { name: 'url', description: 'Link', required: true });
+      result.current.addInput();
+    });
+    act(() => {
+      result.current.updateInput(1, { name: 'channel', default: '#ai-papers' });
+    });
+    expect(result.current.payload.inputs).toEqual([
+      { name: 'url', description: 'Link', required: true, default: undefined },
+      { name: 'channel', description: undefined, required: undefined, default: '#ai-papers' },
+    ]);
+    act(() => {
+      result.current.removeInput(0);
+    });
+    expect(result.current.payload.inputs).toEqual([
+      { name: 'channel', description: undefined, required: undefined, default: '#ai-papers' },
+    ]);
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputs: [
+          { name: 'channel', description: undefined, required: undefined, default: '#ai-papers' },
+        ],
+      }),
+    );
+  });
+
+  it('blank input rows are left out of the payload', () => {
+    const { result } = renderHook(
+      () => useWorkflowEditor({ initial: null, onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+    act(() => {
+      result.current.setName('paper');
+      result.current.addInput();
+    });
+    expect(result.current.payload.inputs).toBeUndefined();
+  });
+
+  it('isolation on defaults and steps flows into the payload', () => {
+    const { result } = renderHook(
+      () => useWorkflowEditor({ initial: null, onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+    act(() => {
+      result.current.setName('paper');
+      result.current.setDefIsolation('none');
+      result.current.addStep(0);
+    });
+    act(() => {
+      result.current.updateStep(0, 0, { title: 'Get', isolation: 'worktree' });
+    });
+    expect(result.current.payload.defaults).toEqual(
+      expect.objectContaining({ isolation: 'none' }),
+    );
+    expect(result.current.payload.stages[0]?.steps[0]).toEqual(
+      expect.objectContaining({ isolation: 'worktree' }),
+    );
+  });
+
+  it('edit mode pre-fills inputs and isolation', () => {
+    const initial: Workflow = {
+      ...makeWorkflow(),
+      defaults: { cwd: null, coder: null, model: null, priority: 2, isolation: 'none' },
+      inputs: [
+        { name: 'url', description: 'Link', required: true, default: null },
+      ],
+      stages: [
+        {
+          name: 's1',
+          steps: [{ name: 'get', title: 'Get', description: '', isolation: 'none' }],
+        },
+      ],
+    };
+    const { result } = renderHook(
+      () => useWorkflowEditor({ initial, onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+    expect(result.current.defIsolation).toBe('none');
+    expect(result.current.inputs).toEqual([
+      { name: 'url', description: 'Link', required: true, default: '' },
+    ]);
+    expect(result.current.stages[0]?.steps[0]?.isolation).toBe('none');
   });
 });

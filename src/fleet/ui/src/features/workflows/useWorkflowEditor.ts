@@ -13,7 +13,7 @@ import {
   useValidateWorkflow,
 } from '../../shared/hooks/useApi';
 import { useDebounced } from '../../shared/hooks/useDebounced';
-import type { CoderInfo, Workflow, WorkflowInput } from '../../shared/types';
+import type { CoderInfo, Workflow, WorkflowInput, WorkflowInputDecl } from '../../shared/types';
 
 // One step card in the draft; empty strings mean "use the workflow default".
 export interface StepDraft {
@@ -24,8 +24,24 @@ export interface StepDraft {
   coder: string;
   model: string;
   priority: string;
+  isolation: string;
   needs: string[];
 }
+
+// One run-input row in the draft (ADR 0010); empty default means "no default".
+export interface InputDraft {
+  name: string;
+  description: string;
+  required: boolean;
+  default: string;
+}
+
+// Isolation choices: blank inherits (workflow default, else supervisor default).
+export const ISOLATION_OPTIONS = [
+  { value: '', label: 'inherit (default)' },
+  { value: 'worktree', label: 'worktree' },
+  { value: 'none', label: 'none (run in place)' },
+] as const;
 
 // One stage column in the draft.
 export interface StageDraft {
@@ -50,7 +66,7 @@ function blankStep(taken: Set<string>): StepDraft {
     n += 1;
     name = `step-${n}`;
   }
-  return { name, title: '', description: '', cwd: '', coder: '', model: '', priority: '', needs: [] };
+  return { name, title: '', description: '', cwd: '', coder: '', model: '', priority: '', isolation: '', needs: [] };
 }
 
 // All step names in the draft.
@@ -75,8 +91,19 @@ function stagesFromWorkflow(workflow: Workflow): StageDraft[] {
       coder: step.coder ?? '',
       model: step.model ?? '',
       priority: step.priority == null ? '' : String(step.priority),
+      isolation: step.isolation ?? '',
       needs: step.needs ?? [],
     })),
+  }));
+}
+
+// Draft input rows from a saved workflow (edit mode pre-fill).
+function inputsFromWorkflow(workflow: Workflow): InputDraft[] {
+  return (workflow.inputs ?? []).map((input) => ({
+    name: input.name,
+    description: input.description ?? '',
+    required: input.required ?? false,
+    default: input.default ?? '',
   }));
 }
 
@@ -96,6 +123,10 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
   const [defModel, setDefModel] = useState(initial?.defaults.model ?? '');
   const [defPriority, setDefPriority] = useState(
     initial?.defaults.priority == null ? '' : String(initial.defaults.priority),
+  );
+  const [defIsolation, setDefIsolation] = useState(initial?.defaults.isolation ?? '');
+  const [inputs, setInputs] = useState<InputDraft[]>(
+    () => (initial ? inputsFromWorkflow(initial) : []),
   );
   const [stages, setStages] = useState<StageDraft[]>(
     () => (initial ? stagesFromWorkflow(initial) : [{ name: 'stage-1', steps: [] }]),
@@ -120,10 +151,21 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
     if (defModel) defaults.model = defModel;
     const priority = parsePriority(defPriority);
     if (priority !== undefined) defaults.priority = priority;
+    if (defIsolation) defaults.isolation = defIsolation;
+    // Blank rows (no name yet) are still being typed; leave them out.
+    const decls: WorkflowInputDecl[] = inputs
+      .filter((row) => row.name.trim().length > 0)
+      .map((row) => ({
+        name: row.name.trim(),
+        description: row.description || undefined,
+        required: row.required || undefined,
+        default: row.default || undefined,
+      }));
     return {
       name: name.trim(),
       description: description || undefined,
       defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
+      inputs: decls.length > 0 ? decls : undefined,
       stages: stages.map((stage) => ({
         name: stage.name.trim() || 'stage',
         steps: stage.steps.map((step) => ({
@@ -134,11 +176,12 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
           coder: step.coder || undefined,
           model: step.model || undefined,
           priority: parsePriority(step.priority),
+          isolation: step.isolation || undefined,
           needs: step.needs.length > 0 ? step.needs : undefined,
         })),
       })),
     };
-  }, [name, description, defCwd, defCoder, defModel, defPriority, stages]);
+  }, [name, description, defCwd, defCoder, defModel, defPriority, defIsolation, inputs, stages]);
 
   const debouncedKey = useDebounced(JSON.stringify(payload));
   useEffect(() => {
@@ -266,8 +309,19 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
     });
   }
 
-  function toggleNeed(stageIndex: number, stepIndex: number, dep: string) {
-    setStages((prev) =>
+  function addInput() {
+    setInputs((prev) => [...prev, { name: '', description: '', required: false, default: '' }]);
+  }
+
+  function removeInput(index: number) {
+    setInputs((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateInput(index: number, patch: Partial<InputDraft>) {
+    setInputs((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function toggleNeed(stageIndex: number, stepIndex: number, dep: string) {    setStages((prev) =>
       prev.map((s, i) => {
         if (i !== stageIndex) return s;
         return {
@@ -311,8 +365,13 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
   async function saveAndRun(): Promise<void> {
     const saved = await save();
     if (!saved) return;
+    await runNow(saved.id);
+  }
+
+  // Start a run of an already-saved workflow (failures toast via the mutation).
+  async function runNow(id: string): Promise<void> {
     try {
-      await runWorkflow.mutateAsync(saved.id);
+      await runWorkflow.mutateAsync({ id });
     } catch {
       // the run toast already reports the failure
     }
@@ -321,13 +380,15 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
   return {
     name, setName, description, setDescription,
     defCwd, setDefCwd, defCoder, defModel, setDefModel, defPriority, setDefPriority,
+    defIsolation, setDefIsolation,
+    inputs, addInput, removeInput, updateInput,
     stages, setStageName: (i: number, v: string) => updateStage(i, { name: v }),
     updateStep, addStage, removeStage, moveStage,
     addStep, removeStep, duplicateStep, moveStepUpDown, moveStepAcross,
     toggleNeed, needsOptions,
     coders, problems, validating, canSubmit, pending, error,
     payload, isEdit: !!initial,
-    save, saveAndRun, onClose,
+    save, saveAndRun, runNow, onClose,
     handleCoderChange,
   };
 }

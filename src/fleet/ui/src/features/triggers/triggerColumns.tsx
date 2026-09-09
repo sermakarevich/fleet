@@ -77,6 +77,19 @@ export function TriggerLastRunCell({ schedule }: { schedule: Schedule }) {
   );
 }
 
+// Inputs cell for a workflow schedule: "name=value" pairs, ellipsized
+// with the full map on hover; empty when the schedule carries none.
+export function TriggerInputsCell({ schedule }: { schedule: Schedule }) {
+  const entries = Object.entries(schedule.inputs ?? {});
+  if (entries.length === 0) return <span style={R.dimStyle()}>—</span>;
+  const text = entries.map(([k, v]) => `${k}=${v}`).join(', ');
+  return (
+    <span style={styles.cell} title={text}>
+      {text}
+    </span>
+  );
+}
+
 // Desktop columns for the trigger DataList. Overlap shows for workflow
 // schedules only (task schedules always render skip/queue the same way,
 // so the column would be noise there).
@@ -136,6 +149,10 @@ export function triggerColumns(
       key: 'overlap', header: 'Overlap', width: '4rem',
       render: (schedule) => <span style={styles.cell}>{schedule.overlap}</span>,
     });
+    cols.push({
+      key: 'inputs', header: 'Inputs',
+      render: (schedule) => <TriggerInputsCell schedule={schedule} />,
+    });
   }
   cols.push({
     key: 'runs', header: 'Runs', width: '3rem',
@@ -150,6 +167,7 @@ export function TriggerCard({
 }: {
   schedule: Schedule; target: TriggerTarget; workflowName: string | null;
 }) {
+  const inputEntries = Object.entries(schedule.inputs ?? {});
   return (
     <>
       <div style={R.cardHeadStyle()}>
@@ -163,6 +181,16 @@ export function TriggerCard({
       <div style={R.merge(R.monoStyle(), R.cardMetaTextStyle())} title={`${schedule.cron} (${schedule.timezone})`}>
         {schedule.cron}
       </div>
+      {inputEntries.length > 0 && (
+        <div style={R.cardMetaStyle()}>
+          <span
+            style={R.cardMetaTextStyle()}
+            title={inputEntries.map(([k, v]) => `${k}=${v}`).join(', ')}
+          >
+            inputs: {inputEntries.map(([k, v]) => `${k}=${v}`).join(', ')}
+          </span>
+        </div>
+      )}
       <div style={R.cardMetaStyle()}>
         <span style={R.cardMetaTextStyle()}>
           Next: {schedule.enabled && schedule.next_fire_at ? fmtTs(schedule.next_fire_at) : '—'}

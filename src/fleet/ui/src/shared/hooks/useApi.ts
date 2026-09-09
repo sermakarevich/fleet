@@ -384,11 +384,16 @@ export function useDeleteWorkflow() {
 }
 
 export function useRunWorkflow() {
-  return useTaskMutation('Run workflow', (id: string) => api.runWorkflow(id), {
-    invalidate: (_data, id) => [['workflows'], ['workflow', id], ['workflow-runs']],
-    success: 'Run started',
-    failure: (_vars, err) => `Run failed: ${errorMessage(err)}`,
-  });
+  return useTaskMutation(
+    'Run workflow',
+    ({ id, inputs }: { id: string; inputs?: Record<string, string> }) =>
+      api.runWorkflow(id, inputs),
+    {
+      invalidate: (_data, vars) => [['workflows'], ['workflow', vars.id], ['workflow-runs']],
+      success: 'Run started',
+      failure: (_vars, err) => `Run failed: ${errorMessage(err)}`,
+    },
+  );
 }
 
 export function useImportWorkflow() {

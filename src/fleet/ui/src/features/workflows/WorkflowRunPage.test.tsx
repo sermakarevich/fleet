@@ -142,4 +142,49 @@ describe('WorkflowRunPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith('run-1'));
   });
+
+  it('shows the run inputs at the top', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({ inputs: { url: 'https://example.com/paper' } }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Inputs')).toBeInTheDocument());
+    expect(screen.getByText('url:')).toBeInTheDocument();
+    expect(screen.getByText('https://example.com/paper')).toBeInTheDocument();
+  });
+
+  it('shows step outputs and warnings on the step card', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({
+        steps: [
+          step({
+            outputs: { paper_dir: '/Users/sergii/.ai/knowledge/papers/slug', slug: 'slug' },
+            warning: 'outputs_missing: steps.get.outputs.title',
+          }),
+        ],
+      }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('paper_dir:')).toBeInTheDocument());
+    // Values are ellipsized but carry the full text on hover.
+    const value = screen.getByText('/Users/sergii/.ai/knowledge/papers/slug');
+    expect(value).toHaveAttribute('title', '/Users/sergii/.ai/knowledge/papers/slug');
+    expect(screen.getByText(/outputs_missing/)).toBeInTheDocument();
+  });
+
+  it('marks a deferred step as waiting (deferred)', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({
+        steps: [
+          step({
+            step_name: 'publish', task_id: 't9', task_status: 'deferred',
+            state: 'waiting', task_title: null, updated_at: '2026-09-09T09:00:30Z',
+          }),
+        ],
+      }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getAllByText('publish').length).toBeGreaterThan(0));
+    expect(screen.getByText('waiting (deferred)')).toBeInTheDocument();
+  });
 });

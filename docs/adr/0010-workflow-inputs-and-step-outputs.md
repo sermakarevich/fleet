@@ -1,7 +1,7 @@
 # ADR 0010: Workflow run inputs, step isolation, and step outputs
 
 Date: 2026-09-09
-Status: Proposed
+Status: Accepted
 Builds on: ADR 0008 (workflows), ADR 0007 (schedules), ADR 0006 (clean-code rules).
 
 ## Problem
@@ -78,7 +78,7 @@ placeholders, left as written until WI 2/3 lands). It must keep passing
 
 - [x] WI 1/3 — run inputs + step isolation (`fleet-vuyrf`)
 - [x] WI 2/3 — step outputs.json + late rendering (`fleet-hw1w4`)
-- [ ] WI 3/3 — UI run form, run detail, editor fields, import paper-summary
+- [x] WI 3/3 — UI run form, run detail, editor fields, import paper-summary
       (`fleet-hhbs3`)
 
 ## Consequences

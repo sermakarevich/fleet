@@ -18,9 +18,14 @@ import { Confirm } from '../../shared/ui/Confirm';
 import { LoadingState } from '../../shared/ui/LoadingState';
 import { TriggerChip, RunStatusChip } from './runColumns';
 
-// One read-only step card: name, task title, task chip, state, task link.
+// One read-only step card: name, task title, task chip, state, task link,
+// plus the step's outputs and warning (ADR 0010). A step whose bead is
+// still deferred reads "waiting (deferred)".
 function StepCard({ step }: { step: WorkflowStepRun }) {
   const attention = step.state === 'attention';
+  const deferred = step.state === 'waiting' && step.task_status === 'deferred';
+  const outputs = Object.entries(step.outputs ?? {});
+  const stateText = deferred ? `${statusLabel(step.state)} (deferred)` : statusLabel(step.state);
   return (
     <div style={R.merge(styles.stepCard, attention && styles.attentionCard)}>
       <div style={styles.stepName} title={step.step_name}>{step.step_name}</div>
@@ -29,8 +34,23 @@ function StepCard({ step }: { step: WorkflowStepRun }) {
       </div>
       <div style={styles.stepMeta}>
         <StatusChip status={step.task_status} />
-        <span style={styles.stateLabel}>{statusLabel(step.state)}</span>
+        <span style={styles.stateLabel}>{stateText}</span>
       </div>
+      {outputs.length > 0 && (
+        <div style={styles.outputsBox}>
+          {outputs.map(([key, value]) => (
+            <div key={key} style={styles.outputRow}>
+              <span style={styles.outputKey} title={key}>{key}:</span>
+              <span style={styles.outputValue} title={value}>{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {step.warning && (
+        <div style={styles.warningBox} title={step.warning}>
+          ⚠ {step.warning}
+        </div>
+      )}
       <Link to={`/tasks/${step.task_id}`} style={styles.taskLink}>
         Open task {step.task_id}
       </Link>
@@ -125,6 +145,17 @@ export function WorkflowRunPage() {
         Started {fmtTs(run.started_at)} · Finished {run.finished_at ? fmtTs(run.finished_at) : '—'}
       </p>
       {run.reason && <p style={styles.reasonLine}>{run.reason}</p>}
+      {Object.keys(run.inputs ?? {}).length > 0 && (
+        <div style={styles.inputsBox}>
+          <h3 style={styles.inputsHead}>Inputs</h3>
+          {Object.entries(run.inputs ?? {}).map(([name, value]) => (
+            <div key={name} style={styles.inputRow}>
+              <span style={styles.inputName} title={name}>{name}:</span>
+              <span style={styles.inputValue} title={value}>{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div style={styles.board}>
         {stageIndexes.map((index) => (
           <StageColumnView
@@ -178,6 +209,46 @@ const styles = {
   } as React.CSSProperties,
   stepMeta: { display: 'flex', alignItems: 'center', gap: '0.5rem' } as React.CSSProperties,
   stateLabel: { fontSize: '0.75rem', color: T.colors.textSecondary } as React.CSSProperties,
+  outputsBox: {
+    display: 'flex', flexDirection: 'column' as const, gap: '0.125rem',
+    background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
+    borderRadius: '0.25rem', padding: '0.375rem 0.5rem',
+  } as React.CSSProperties,
+  outputRow: {
+    display: 'flex', gap: '0.375rem', fontSize: '0.75rem',
+    minWidth: 0, alignItems: 'baseline',
+  } as React.CSSProperties,
+  outputKey: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    color: T.colors.textPrimary, flexShrink: 0,
+  } as React.CSSProperties,
+  outputValue: {
+    color: T.colors.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const, minWidth: 0, flex: 1,
+  } as React.CSSProperties,
+  warningBox: {
+    fontSize: '0.75rem', color: T.colors.warningFg, background: T.colors.warningBg,
+    borderRadius: '0.25rem', padding: '0.25rem 0.5rem',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
+  inputsBox: {
+    background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
+    borderRadius: '0.375rem', padding: '0.625rem 0.875rem', margin: '0 0 0.875rem',
+  } as React.CSSProperties,
+  inputsHead: {
+    fontSize: '0.875rem', fontWeight: 600, color: T.colors.textPrimary, margin: '0 0 0.375rem',
+  } as React.CSSProperties,
+  inputRow: {
+    display: 'flex', gap: '0.5rem', fontSize: '0.8125rem', padding: '0.125rem 0',
+  } as React.CSSProperties,
+  inputName: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    color: T.colors.textPrimary, flexShrink: 0,
+  } as React.CSSProperties,
+  inputValue: {
+    color: T.colors.textBody, overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  } as React.CSSProperties,
   taskLink: { fontSize: '0.75rem', color: T.colors.accent } as React.CSSProperties,
   timeline: {
     background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,

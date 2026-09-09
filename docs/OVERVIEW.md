@@ -82,7 +82,12 @@ with `fleet schedule ...` (see `README.md`).
 
 A **workflow** is a saved, named definition of workers arranged in
 **stages**: every step in one stage may run in parallel, and a stage
-starts when the previous stage is complete. Running a workflow (a
+starts when the previous stage is complete. A workflow can declare
+**inputs** (named values the operator supplies when starting a run, used
+through `{{inputs.<name>}}` placeholders), per-step **isolation** (run in
+a worktree or in place), and later steps can consume earlier results
+through `{{steps.<name>.outputs.<key>}}` placeholders backed by each
+step's `outputs.json`. Running a workflow (a
 **run**, manual or from a schedule) opens one ordinary bead per step,
 wired with bead dependencies — from then on every step is a normal task,
 and one metadata query finds the whole run. Each step records a **step

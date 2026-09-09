@@ -65,6 +65,10 @@ function makeWorkflow(): Workflow {
     name: 'nightly-quality',
     description: '',
     defaults: { priority: 2 },
+    inputs: [
+      { name: 'url', description: 'Link to the source.', required: true, default: null },
+      { name: 'channel', description: 'Where to post.', required: false, default: '#ai-papers' },
+    ],
     stages: [],
     step_count: 3,
     stage_count: 2,
@@ -94,6 +98,7 @@ describe('buildTriggerPayload', () => {
       model: 'sonnet',
       priority: 2,
       workflowId: '',
+      inputs: {},
     });
     expect(payload).toEqual({
       name: 'nightly-triage',
@@ -130,6 +135,7 @@ describe('buildTriggerPayload', () => {
       model: '',
       priority: 2,
       workflowId: 'wf-1',
+      inputs: {},
     });
     expect(payload).toEqual({
       name: 'nightly-quality',
@@ -142,10 +148,31 @@ describe('buildTriggerPayload', () => {
     });
     expect(payload).not.toHaveProperty('title');
     expect(payload).not.toHaveProperty('description');
-    const fixtureKeys = new Set(Object.keys(makeScheduleView({ target: 'workflow', workflow_id: 'wf-1' })));
+    const fixtureKeys = new Set(
+      Object.keys(makeScheduleView({ target: 'workflow', workflow_id: 'wf-1', inputs: {} })),
+    );
     for (const key of Object.keys(payload)) {
       expect(fixtureKeys.has(key)).toBe(true);
     }
+  });
+
+  it('passes workflow run inputs through, dropping blank values', () => {
+    const payload = buildTriggerPayload('workflow', {
+      name: 'paper-summary',
+      cron: '0 9 * * 1-5',
+      timezone: 'UTC',
+      enabled: true,
+      overlap: 'skip',
+      title: '',
+      description: '',
+      cwd: '',
+      coder: '',
+      model: '',
+      priority: 2,
+      workflowId: 'wf-1',
+      inputs: { url: 'https://example.com/paper', empty: '' },
+    });
+    expect(payload.inputs).toEqual({ url: 'https://example.com/paper' });
   });
 });
 
@@ -269,6 +296,7 @@ describe('useTriggerForm workflow target', () => {
     act(() => {
       result.current.handleWorkflowChange('wf-1');
       result.current.setCron('0 9 * * 1-5');
+      result.current.setInput('url', 'https://example.com/paper');
     });
     // Picking a workflow defaults the name to the workflow name. The cron
     // preview is debounced, so wait for it to turn valid before submitting.
@@ -282,9 +310,73 @@ describe('useTriggerForm workflow target', () => {
     const payload = createSpy.mock.calls[0][0];
     expect(payload.target).toBe('workflow');
     expect(payload.workflow_id).toBe('wf-1');
+    expect(payload.inputs).toEqual({
+      url: 'https://example.com/paper',
+      channel: '#ai-papers',
+    });
     expect(payload).not.toHaveProperty('title');
     expect(payload).not.toHaveProperty('description');
     expect(onSaved).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('asks for the target workflow inputs and submits them', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([makeWorkflow()]);
+    vi.spyOn(api, 'previewCron').mockResolvedValue({
+      valid: true,
+      error: null,
+      upcoming: ['2026-09-10T09:00:00Z'],
+    });
+    const createSpy = vi.spyOn(api, 'createSchedule').mockResolvedValue(
+      makeSchedule({ target: 'workflow', workflow_id: 'wf-1' }),
+    );
+    const { result } = renderHook(
+      () => useTriggerForm({ target: 'workflow', onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.workflows).toHaveLength(1), { timeout: 5000 });
+    // Picking the workflow exposes its declared inputs; the optional
+    // channel falls back to its default while url stays blank.
+    act(() => {
+      result.current.handleWorkflowChange('wf-1');
+      result.current.setCron('0 9 * * 1-5');
+    });
+    expect(result.current.decls.map((d) => d.name)).toEqual(['url', 'channel']);
+    expect(result.current.inputValue('url', null)).toBe('');
+    expect(result.current.inputValue('channel', '#ai-papers')).toBe('#ai-papers');
+    // The required url is missing, so submit stays disabled even though
+    // the name and cron are valid.
+    await waitFor(() => expect(result.current.preview.data?.valid).toBe(true), { timeout: 5000 });
+    expect(result.current.canSubmit).toBe(false);
+
+    act(() => {
+      result.current.setInput('url', 'https://example.com/paper');
+    });
+    await waitFor(() => expect(result.current.canSubmit).toBe(true), { timeout: 5000 });
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    const payload = createSpy.mock.calls[0][0];
+    expect(payload.inputs).toEqual({
+      url: 'https://example.com/paper',
+      channel: '#ai-papers',
+    });
+  });
+
+  it('edit mode pre-fills the saved inputs', () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([makeWorkflow()]);
+    const schedule = makeSchedule({
+      target: 'workflow',
+      workflow_id: 'wf-1',
+      inputs: { url: 'https://example.com/saved' },
+    });
+    const { result } = renderHook(
+      () => useTriggerForm({ target: 'workflow', initial: schedule, onSaved: () => undefined, onClose: () => undefined }),
+      { wrapper },
+    );
+    expect(result.current.workflowId).toBe('wf-1');
+    expect(result.current.inputValue('url', null)).toBe('https://example.com/saved');
   });
 });

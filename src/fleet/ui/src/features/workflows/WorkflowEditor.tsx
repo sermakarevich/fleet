@@ -11,7 +11,8 @@ import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import type { Workflow } from '../../shared/types';
-import { useWorkflowEditor, type StageDraft, type StepDraft, type WorkflowEditorState } from './useWorkflowEditor';
+import { RunWorkflowModal } from './RunWorkflowModal';
+import { ISOLATION_OPTIONS, useWorkflowEditor, type StageDraft, type StepDraft, type WorkflowEditorState } from './useWorkflowEditor';
 
 interface Props {
   workflowId: string | null;
@@ -106,6 +107,19 @@ function StepCard({
             inputMode="numeric"
             onChange={(e) => set({ priority: e.target.value })}
           />
+          <select
+            style={R.inputStyle()}
+            value={step.isolation}
+            aria-label="Step isolation override"
+            title="Step isolation: inherit the workflow default, run in a worktree, or run in place"
+            onChange={(e) => set({ isolation: e.target.value })}
+          >
+            {ISOLATION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.value ? `isolation: ${opt.label}` : 'isolation (default)'}
+              </option>
+            ))}
+          </select>
         </div>
       </details>
       <details style={styles.details}>
@@ -279,10 +293,21 @@ function ExportPanel({ workflowId }: { workflowId: string }) {
   );
 }
 
-// The editor form: header, defaults, stage board, problems, footer.
+// The editor form: header, defaults, inputs, stage board, problems, footer.
 function WorkflowEditorForm({ initial, onClose, onSaved }: FormProps) {
   const ed = useWorkflowEditor({ initial, onSaved, onClose });
   const isMobile = useIsMobile();
+  // Saved workflow waiting for its run form (declared inputs need values).
+  const [runTarget, setRunTarget] = useState<Workflow | null>(null);
+
+  // Save first; workflows with inputs open the run form, the rest run now.
+  async function handleSaveAndRun() {
+    const saved = await ed.save();
+    if (!saved) return;
+    if ((saved.inputs ?? []).length > 0) setRunTarget(saved);
+    else await ed.runNow(saved.id);
+  }
+
   return (
     <div style={R.panelStyle()}>
       <div style={styles.section}>
@@ -345,6 +370,77 @@ function WorkflowEditorForm({ initial, onClose, onSaved }: FormProps) {
               onChange={(e) => ed.setDefPriority(e.target.value)}
             />
           </label>
+          <label style={R.fieldLabelStyle()}>
+            isolation
+            <select
+              style={R.inputStyle()}
+              value={ed.defIsolation}
+              title="Default isolation for steps that leave it empty: inherit, worktree, or run in place"
+              onChange={(e) => ed.setDefIsolation(e.target.value)}
+            >
+              {ISOLATION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      <div style={styles.section}>
+        <h3 style={styles.sectionTitle}>Inputs (values the operator passes when starting a run)</h3>
+        {ed.inputs.length === 0 ? (
+          <p style={R.merge(R.mutedStyle(), { margin: 0 })}>
+            No inputs — every run does the same thing. Steps can use
+            <span style={R.monoStyle()}> {'{{inputs.<name>}}'} </span>
+            placeholders once an input exists.
+          </p>
+        ) : (
+          ed.inputs.map((row, i) => (
+            <div key={i} style={styles.inputRow}>
+              <input
+                style={R.merge(R.inputStyle(), styles.inputName)}
+                value={row.name}
+                placeholder="name (slug)"
+                aria-label={`Input ${i + 1} name`}
+                onChange={(e) => ed.updateInput(i, { name: e.target.value })}
+              />
+              <input
+                style={R.merge(R.inputStyle(), styles.inputDesc)}
+                value={row.description}
+                placeholder="description (shown in the run form)"
+                aria-label={`Input ${i + 1} description`}
+                onChange={(e) => ed.updateInput(i, { description: e.target.value })}
+              />
+              <input
+                style={R.merge(R.inputStyle(), styles.inputDefault)}
+                value={row.default}
+                placeholder="default"
+                aria-label={`Input ${i + 1} default`}
+                onChange={(e) => ed.updateInput(i, { default: e.target.value })}
+              />
+              <label style={styles.requiredLabel} title="Required inputs have no default and must be filled at run start">
+                <input
+                  type="checkbox"
+                  checked={row.required}
+                  aria-label={`Input ${i + 1} required`}
+                  onChange={(e) => ed.updateInput(i, { required: e.target.checked })}
+                />
+                required
+              </label>
+              <button
+                style={styles.miniBtn}
+                title="Remove this input"
+                aria-label={`Remove input ${i + 1}`}
+                onClick={() => ed.removeInput(i)}
+              >
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+        <div>
+          <button style={R.merge(T.btnGhost, styles.addBtn)} onClick={ed.addInput}>
+            + Add input
+          </button>
         </div>
       </div>
       <div style={styles.section}>
@@ -391,7 +487,7 @@ function WorkflowEditorForm({ initial, onClose, onSaved }: FormProps) {
           style={R.merge(T.btnGhost, ed.canSubmit ? {} : styles.disabledBtn)}
           disabled={!ed.canSubmit}
           title={ed.canSubmit ? 'Save and start a run' : 'Resolve the problems above first'}
-          onClick={() => void ed.saveAndRun()}
+          onClick={() => void handleSaveAndRun()}
         >
           Save and run
         </button>
@@ -406,6 +502,12 @@ function WorkflowEditorForm({ initial, onClose, onSaved }: FormProps) {
           )}
         </span>
       </div>
+      {runTarget && (
+        <RunWorkflowModal
+          workflow={runTarget}
+          onClose={() => setRunTarget(null)}
+        />
+      )}
     </div>
   );
 }
@@ -450,6 +552,20 @@ const styles = {
   needLabel: {
     display: 'flex', alignItems: 'center', gap: '0.375rem',
     fontSize: '0.8125rem', color: T.colors.textPrimary, padding: '0.1rem 0',
+  } as React.CSSProperties,
+  inputRow: {
+    display: 'flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap' as const,
+  } as React.CSSProperties,
+  inputName: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    flex: '0 1 10rem', minWidth: '8rem',
+  } as React.CSSProperties,
+  inputDesc: { flex: '2 1 14rem', minWidth: '10rem' } as React.CSSProperties,
+  inputDefault: { flex: '1 1 8rem', minWidth: '6rem' } as React.CSSProperties,
+  requiredLabel: {
+    display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+    fontSize: '0.8125rem', color: T.colors.textSecondary, cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   cardActions: { display: 'flex', gap: '0.25rem' } as React.CSSProperties,
   miniBtn: {

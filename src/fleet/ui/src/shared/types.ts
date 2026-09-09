@@ -92,6 +92,8 @@ export interface ScheduleInput {
   overlap?: string;
   target?: string;
   workflow_id?: string | null;
+  // Values for the target workflow's declared inputs (target "workflow").
+  inputs?: Record<string, string>;
 }
 
 export interface WorkflowStepInput {
@@ -103,11 +105,20 @@ export interface WorkflowStepInput {
   model?: string;
   priority?: number;
   needs?: string[];
+  isolation?: string;
 }
 
 export interface WorkflowStageInput {
   name: string;
   steps: WorkflowStepInput[];
+}
+
+// One named value the operator passes when starting a run (ADR 0010).
+export interface WorkflowInputDecl {
+  name: string;
+  description?: string;
+  required?: boolean;
+  default?: string;
 }
 
 export interface WorkflowInput {
@@ -118,6 +129,8 @@ export interface WorkflowInput {
     coder?: string;
     model?: string;
     priority?: number;
+    isolation?: string;
   };
+  inputs?: WorkflowInputDecl[];
   stages: WorkflowStageInput[];
 }

@@ -26,6 +26,7 @@ import { LoadingState } from '../../shared/ui/LoadingState';
 import { PageShell } from '../../shared/ui/PageShell';
 import type { Workflow } from '../../shared/types';
 import { TriggerTable } from '../triggers/TriggerTable';
+import { RunWorkflowModal } from './RunWorkflowModal';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowCard, workflowColumns } from './workflowColumns';
 import { RunCard, runColumns } from './runColumns';
@@ -164,6 +165,8 @@ export function WorkflowsPage() {
   const isNew = location.pathname.endsWith('/new');
   const runsOfId = location.pathname.endsWith('/runs') ? (selectedId ?? null) : null;
   const editingId = isNew || runsOfId ? null : (selectedId ?? null);
+  // Workflow waiting for its run form (declared inputs need values first).
+  const [runTarget, setRunTarget] = useState<Workflow | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // Sub-tab from ?tab= (canonical, ADR 0009); ?view= is the legacy alias
   // from before the Scheduled sub-tab existed.
@@ -201,8 +204,15 @@ export function WorkflowsPage() {
     void importYaml(conflict.yaml, existing.id);
   }
 
+  // Run immediately when the workflow declares no inputs; otherwise
+  // open the run form so the operator can supply the input values.
   function onRun(id: string) {
-    runWorkflow.mutate(id);
+    const target = items.find((w) => w.id === id);
+    if (target && (target.inputs ?? []).length > 0) {
+      setRunTarget(target);
+      return;
+    }
+    runWorkflow.mutate({ id });
   }
 
   function onDelete(id: string) {
@@ -233,7 +243,7 @@ export function WorkflowsPage() {
     onEdit: (id: string) => navigate(`/workflows/${id}`),
     onRun,
     onDelete,
-    runningId: runWorkflow.isPending ? (runWorkflow.variables ?? null) : null,
+    runningId: runWorkflow.isPending ? (runWorkflow.variables?.id ?? null) : null,
   };
 
   return (
@@ -282,6 +292,13 @@ export function WorkflowsPage() {
             Keep both
           </button>
         </p>
+      )}
+      {runTarget && (
+        <RunWorkflowModal
+          workflow={runTarget}
+          onClose={() => setRunTarget(null)}
+          onStarted={(runId) => navigate(`/workflow-runs/${runId}`)}
+        />
       )}
       {isNew || editingId ? (
         <WorkflowEditor

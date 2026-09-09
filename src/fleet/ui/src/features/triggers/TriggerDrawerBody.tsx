@@ -52,6 +52,7 @@ function WorkflowDefinition({
 }: {
   schedule: ScheduleDetail; workflowName: string | null;
 }) {
+  const inputs = Object.entries(schedule.inputs ?? {});
   return (
     <>
       <DefRow label="workflow">
@@ -69,6 +70,13 @@ function WorkflowDefinition({
       </DefRow>
       <DefRow label="overlap">{schedule.overlap}</DefRow>
       <DefRow label="enabled">{schedule.enabled ? 'yes' : 'no'}</DefRow>
+      {inputs.length > 0 && (
+        <DefRow label="inputs">
+          <span title={inputs.map(([k, v]) => `${k}=${v}`).join(', ')}>
+            {inputs.map(([k, v]) => `${k}=${v}`).join(', ')}
+          </span>
+        </DefRow>
+      )}
     </>
   );
 }

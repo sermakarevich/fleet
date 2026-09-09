@@ -187,6 +187,26 @@ describe('TriggerTable workflow target', () => {
     render(<TriggerTable target="workflow" />, { wrapper: wrapper(['/workflows?tab=scheduled']) });
     expect(await screen.findByText(/No recurring workflows/)).toBeInTheDocument();
   });
+
+  it('shows a workflow schedule inputs in the row', async () => {
+    vi.spyOn(api, 'getSchedules').mockResolvedValue([
+      makeSchedule({
+        id: 's5',
+        name: 'paper-schedule',
+        target: 'workflow',
+        workflow_id: 'wf-1',
+        coder: null,
+        model: null,
+        inputs: { url: 'https://example.com/paper' },
+      }),
+    ]);
+    render(<TriggerTable target="workflow" />, { wrapper: wrapper(['/workflows?tab=scheduled']) });
+
+    expect(await screen.findByText('paper-schedule')).toBeInTheDocument();
+    expect(screen.getByText('Inputs')).toBeInTheDocument();
+    const cell = screen.getByText('url=https://example.com/paper');
+    expect(cell).toHaveAttribute('title', 'url=https://example.com/paper');
+  });
 });
 
 describe('TriggerTable polling', () => {

@@ -94,18 +94,48 @@ function WorkflowField({ f }: { f: ReturnType<typeof useTriggerForm> }) {
   );
 }
 
+// One field per input the picked workflow declares: typed values win,
+// declared defaults fill the rest at submit time.
+function WorkflowInputsFields({ f }: { f: ReturnType<typeof useTriggerForm> }) {
+  if (f.decls.length === 0) return null;
+  return (
+    <>
+      {f.decls.map((decl) => (
+        <label key={decl.name} style={R.fieldLabelStyle()}>
+          <span>
+            <span style={R.monoStyle()}>{decl.name}</span>
+            {decl.required && <span style={styles.required}> *</span>}
+          </span>
+          <input
+            style={R.inputStyle()}
+            value={f.inputValue(decl.name, decl.default)}
+            placeholder={decl.default ?? ''}
+            aria-label={decl.required ? `${decl.name} (required)` : decl.name}
+            onChange={(e) => f.setInput(decl.name, e.target.value)}
+          />
+          {decl.description && <span style={styles.hint}>{decl.description}</span>}
+        </label>
+      ))}
+    </>
+  );
+}
+
 // Task fields or workflow picker, chosen by the form's target.
 export function TriggerTargetFields({
   f, target, slot,
 }: {
   f: ReturnType<typeof useTriggerForm>; target: 'task' | 'workflow'; slot: 'top' | 'mid';
 }) {
-  if (target === 'workflow') return slot === 'top' ? <WorkflowField f={f} /> : null;
+  if (target === 'workflow') {
+    if (slot === 'top') return <WorkflowField f={f} />;
+    return <WorkflowInputsFields f={f} />;
+  }
   return slot === 'mid' ? <TaskFields f={f} /> : null;
 }
 
 const styles = {
   hint: { fontSize: '0.6875rem', color: T.colors.textDim } as React.CSSProperties,
+  required: { color: T.colors.danger, fontWeight: 700 } as React.CSSProperties,
   textarea: {
     fontFamily: 'ui-monospace, monospace', resize: 'vertical' as const,
   } as React.CSSProperties,
