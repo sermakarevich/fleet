@@ -1,0 +1,56 @@
+# Paper summary pipeline: summarise a source, post it to Slack, file it in the vault.
+# Needs ADR 0010 (inputs / outputs / isolation). Until WI 3/3 lands, import the
+# stripped copy in ~/.fleet/workflows/paper-summary.yaml instead.
+fleet_workflow: 1
+name: paper-summary
+description: Summarise a source with ai summary/get, post it to #ai-papers, move it into the vault.
+inputs:
+  - name: url
+    description: Link to the paper, video, article or repository (anything ai summary/get accepts)
+    required: true
+defaults:
+  cwd: /Users/sergii/.ai
+  coder: claude
+  model: sonnet
+  isolation: none
+  priority: 2
+stages:
+  - name: summarise
+    steps:
+      - name: get
+        title: "Summarise {{inputs.url}} ({{run.date}})"
+        description: |
+          Run the knowledge-base recipe `ai show summary/get` for this source:
+
+              {{inputs.url}}
+
+          Rules for this run:
+          - Follow the recipe exactly; it is the source of truth for the folder layout.
+          - Write only under /Users/sergii/.ai/knowledge (absolute paths). Do not create a
+            git worktree and do not run git commands; the knowledge base syncs itself.
+          - When the recipe would ask the user (ambiguous topic route, existing folder,
+            huge source), ask through the ask_human tool and wait for the answer.
+          - When done, write `outputs.json` in your task directory ($FLEET_TASK_DIR) with:
+              {"paper_dir": "<absolute folder you created>", "slug": "<folder name only>",
+               "title": "<one-line title of the source>"}
+          - Close the bead with a one-line reason naming the folder.
+  - name: publish
+    steps:
+      - name: slack
+        title: "Post {{steps.get.outputs.slug}} to #ai-papers"
+        description: |
+          Run `ai show summary/slack` for the entry `{{steps.get.outputs.slug}}`
+          (folder {{steps.get.outputs.paper_dir}}, created by task {{steps.get.task_id}}).
+          Post to the channel the recipe names; send without asking for confirmation, as the
+          recipe says. Load the Slack MCP tool with ToolSearch first. No git commands.
+          Write `outputs.json` in $FLEET_TASK_DIR with {"slack_permalink": "<message link>"}.
+  - name: file
+    steps:
+      - name: move
+        title: "Move {{steps.get.outputs.slug}} into the vault"
+        description: |
+          Run `ai show summary/move` for `{{steps.get.outputs.slug}}`
+          (folder {{steps.get.outputs.paper_dir}}). The recipe requires confirming the
+          category with a human: propose it through the ask_human tool with the alternative,
+          wait for the answer, then move and update the category index. No git commands.
+          Write `outputs.json` in $FLEET_TASK_DIR with {"vault_dir": "<absolute new folder>"}.
