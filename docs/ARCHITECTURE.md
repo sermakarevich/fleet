@@ -16,7 +16,7 @@ and find the single place where a concept is defined.
    directory lives, how `bd` is called, how an outcome is handled) is
    defined in exactly one module. Everyone else imports it.
 2. **Lower layers never import higher ones.** The order, low to high:
-   `core` → `state` → `beads` → `workers` → `orchestrator` /
+   `core` → `state` → `beads` = `schedules` → `workers` → `orchestrator` /
    `integrations` / `observability` → `serve` → `cli`.
    `coders` sits beside `workers` and is imported by it; `coders` never
    imports `workers`. See `docs/adr/0003-workers-as-step-pipelines.md` for
@@ -30,10 +30,11 @@ and find the single place where a concept is defined.
    |---|---|
    | `core` | (nothing; pure — no file I/O, no higher layers) |
    | `state` | `core` |
-   | `beads` | `core`, `state` |
+    | `beads` | `core`, `state` |
+    | `schedules` | `core`, `state`, `beads` |
    | `coders` | `core`, `state` |
    | `workers` | `core`, `state`, `beads`, `coders` |
-   | `orchestrator` | `core`, `state`, `beads`, `coders`, `workers`, `observability`, `integrations` |
+    | `orchestrator` | `core`, `state`, `beads`, `schedules`, `coders`, `workers`, `observability`, `integrations` |
    | `observability` | `core`, `state` |
    | `integrations` | `core`, `state`, `beads` |
    | `serve` | all but `cli` |
@@ -191,6 +192,16 @@ src/fleet/ui/src/
 | `routes/analytics.py::_compute_*` | `serve/analytics/summary.py`; deprecated endpoints deleted |
 | `cli.py` | `cli/*.py` |
 | `ui/pages/Dashboard.tsx`, `RunningTable.tsx`, `NeedsYouPanel.tsx`, `RecentOutcomes.tsx` | deleted (not routed) |
+
+## Schedules
+
+Recurring workers live in `src/fleet/schedules/` (`cron.py` pure cron math,
+`model.py` the `Schedule`/`ScheduleRun` records, `store.py` the one owner of
+the files). Definitions are stored as `$FLEET_HOME/schedules/<id>.json`,
+written by `serve`/`cli` on create/edit/delete; run history is the
+append-only `$FLEET_HOME/schedules/<id>.runs.jsonl`, with one line per run
+written by whoever fires it (the supervisor's scheduler for cron runs, the
+API/CLI for manual runs). See ADR 0007.
 
 ## Task directory contract
 
