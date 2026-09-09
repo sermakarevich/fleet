@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import structlog
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.plan_input import PlanInput
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import attempts
 from fleet.state import paths as state_paths
@@ -121,6 +122,13 @@ def _ctx(
     )
 
 
+def _plan(ctx: StepContext) -> PlanInput:
+    """Narrow planner input for *ctx* (mirrors workers/__init__.py routing)."""
+    return PlanInput(
+        task=ctx.task, task_dir=ctx.task_dir, config=ctx.config, attempt_n=ctx.attempt_n
+    )
+
+
 def _valid_tasks(*keys: str) -> dict:
     return {
         "tasks": [
@@ -142,7 +150,7 @@ def _write_tasks(ctx: StepContext, doc: dict) -> None:
 
 def test_plan_job_research_first(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.research"
     assert [s.name for s in worker.steps] == ["job_prepare", "llm_session"]
 
@@ -151,7 +159,7 @@ def test_plan_job_design_after_research(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.design"
 
 
@@ -160,7 +168,7 @@ def test_plan_job_gate_when_tasks_no_approval(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.gate"
     assert [s.name for s in worker.steps] == ["ask_approval"]
 
@@ -171,7 +179,7 @@ def test_plan_job_spawn_when_approved(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
     (ctx.task_dir / "artifacts" / "APPROVED").write_text("approved\n")
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.spawn"
 
 
@@ -180,7 +188,7 @@ def test_plan_job_spawn_when_gate_off(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.spawn"
 
 
@@ -190,7 +198,7 @@ def test_plan_job_observe_when_children_exist(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
     queue = FakeQueue([{"id": "kid-1", "status": "open"}])
-    worker = plan_job(ctx, queue)
+    worker = plan_job(_plan(ctx), queue)
     assert worker.name == "job.observe"
     assert [s.name for s in worker.steps] == [
         "wait_children",
@@ -212,7 +220,7 @@ def test_plan_job_blocks_after_two_research_failures(tmp_path: Path) -> None:
             action="release",
             attempt_no=n,
         )
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.blocked"
 
 
@@ -229,7 +237,7 @@ def test_plan_job_partial_research_does_not_block(tmp_path: Path) -> None:
             action="release",
             attempt_no=n,
         )
-    worker = plan_job(ctx, FakeQueue())
+    worker = plan_job(_plan(ctx), FakeQueue())
     assert worker.name == "job.research"
 
 

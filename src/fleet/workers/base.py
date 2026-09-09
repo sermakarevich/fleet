@@ -8,8 +8,9 @@ steps; ``WorkerRun`` is the handle the orchestrator keeps per in-flight task.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -17,12 +18,15 @@ from typing import Any, Protocol
 import structlog
 
 from fleet.coders.base import Coder
+from fleet.core.clock import Clock, SystemClock
 from fleet.core.config import RuntimeConfig
 from fleet.core.iso import now_iso
 from fleet.core.launch_policy import LaunchPlan
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import RUN_JSON
 from fleet.state.run_file import RunRecord
+
+from .session.process import ProcessRunner, SubprocessRunner
 
 
 class StepStatus(StrEnum):
@@ -97,6 +101,18 @@ class StepContext:
     # ask_human question store, injected by orchestrator/spawn.py. Steps use
     # it (never build one: workers must not import integrations).
     question_store: QuestionStoreLike | None = None
+    # Process seam: who spawns coder children. Production runs real
+    # subprocesses; tests inject a scripted fake. Steps never touch
+    # asyncio.create_subprocess_exec themselves.
+    runner: ProcessRunner = field(default_factory=SubprocessRunner)
+    # Time seam: the shared core Clock (FakeClock in tests) plus the sleep
+    # the monitor tick loop waits on. No direct asyncio.sleep/datetime.now
+    # in session code paths.
+    clock: Clock = field(default_factory=SystemClock)
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    # Monitor tick cadence override in seconds; None means the shared
+    # MONITOR_TICK_SEC owned by workers/session/monitors.py.
+    tick_sec: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

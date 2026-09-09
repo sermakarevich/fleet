@@ -11,16 +11,17 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.job_ready import BeadSummary
+from fleet.core.plan_input import PlanInput
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.state import attempts
 from fleet.state import paths as state_paths
 from fleet.state.paths import attempt_dir, task_dir
-from fleet.workers.base import StepContext, StepStatus
+from fleet.workers.base import StepContext, StepStatus, Worker
 from fleet.workers.observe import (
     CHILDREN_MD_MAX_BYTES,
+    OBSERVER_NAME,
     CollectChildren,
-    Observer,
     SpawnFollowups,
     WaitChildren,
     plan_observer,
@@ -320,16 +321,26 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_observer_pipeline_shape() -> None:
-    names = [s.name for s in Observer.steps]
-    assert Observer.name == "observer"
+def test_observer_pipeline_shape(tmp_path: Path) -> None:
+    ctx, queue = _ctx(tmp_path)
+    worker = plan_observer(
+        PlanInput(task=ctx.task, task_dir=ctx.task_dir, config=ctx.config),
+        queue,  # type: ignore[arg-type]
+    )
+    names = [s.name for s in worker.steps]
+    assert worker.name == OBSERVER_NAME == "observer"
     assert names == ["wait_children", "collect_children", "llm_session", "spawn_followups"]
 
 
 def test_plan_observer_builds_fresh_instances(tmp_path: Path) -> None:
-    ctx, _ = _ctx(tmp_path)
-    first = plan_observer(ctx)
-    second = plan_observer(ctx)
-    assert first.name == Observer.name == second.name
+    ctx, queue = _ctx(tmp_path)
+    pin = PlanInput(task=ctx.task, task_dir=ctx.task_dir, config=ctx.config)
+
+    def _planned() -> Worker:
+        return plan_observer(pin, queue)  # type: ignore[arg-type]
+
+    first = _planned()
+    second = _planned()
+    assert first.name == OBSERVER_NAME == second.name
     assert [s.name for s in first.steps] == [s.name for s in second.steps]
     assert first.steps[2] is not second.steps[2]

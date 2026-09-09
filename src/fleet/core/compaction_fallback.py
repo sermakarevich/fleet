@@ -9,6 +9,8 @@ the next worker still knows what landed.
 
 from __future__ import annotations
 
+from fleet.core.compaction import CompactionMaterial
+
 STATE_MAX_BYTES = 6144
 
 _DONE_BYTES_CAP = 600  # Done-section budget when folding git log entries in
@@ -53,10 +55,7 @@ def _render(task_id: str, sections: dict[str, str]) -> str:
 
 
 def fallback_state(
-    state_text: str,
-    summaries: list[str],
-    result_text: str,
-    git_log: list[str],
+    material: CompactionMaterial,
     task_id: str = "task",
     max_bytes: int = STATE_MAX_BYTES,
 ) -> str:
@@ -67,21 +66,21 @@ def fallback_state(
     feed Done entries; the git log lines become Done entries so the next
     worker still knows what landed.
     """
-    sections = _split_sections(state_text)
+    sections = _split_sections(material.state)
 
     done_lines = [line for line in sections["Done"].splitlines() if line.strip()]
-    for commit in git_log[:30]:
+    for commit in material.git_log[:30]:
         entry = f"- {commit}"
         if entry not in done_lines:
             done_lines.append(entry)
-    if summaries:
-        latest = summaries[-1].strip().splitlines()[:10]
+    if material.summaries:
+        latest = material.summaries[-1].strip().splitlines()[:10]
         for raw_line in latest:
             line = raw_line.strip()
             if line and line not in done_lines and len("\n".join(done_lines)) < _DONE_BYTES_CAP:
                 done_lines.append(f"- {line}" if not line.startswith("-") else line)
-    if result_text.strip():
-        first = result_text.strip().splitlines()[0][:200]
+    if material.result_text.strip():
+        first = material.result_text.strip().splitlines()[0][:200]
         entry = f"- last result: {first}"
         if entry not in done_lines:
             done_lines.append(entry)
@@ -103,12 +102,9 @@ def fallback_state(
 
 
 def compact_fallback(
-    state_text: str,
-    summaries: list[str],
-    result_text: str,
-    git_log: list[str],
+    material: CompactionMaterial,
     task_id: str = "task",
     max_bytes: int = STATE_MAX_BYTES,
 ) -> str:
     """Return the fallback STATE.md within its byte cap. Pure."""
-    return fallback_state(state_text, summaries, result_text, git_log, task_id, max_bytes)
+    return fallback_state(material, task_id, max_bytes)

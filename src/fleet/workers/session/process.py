@@ -3,7 +3,10 @@
 :class:`CoderProcess` wraps ``asyncio.create_subprocess_exec`` with
 ``start_new_session`` semantics so every coder CLI runs in its own process
 group. :meth:`CoderProcess.terminate_group` is the single
-SIGTERM-wait-SIGKILL path every caller uses. Callers are
+SIGTERM-wait-SIGKILL path every caller uses. :class:`ProcessRunner` is the
+seam tests script against: production code takes a
+:class:`SubprocessRunner` (the default, which spawns for real) while tests
+inject a fake that returns scripted processes. Callers are
 ``workers/llm_session.py`` (``LlmSession``) and ``workers/compact.py``.
 """
 
@@ -14,7 +17,7 @@ import contextlib
 import os
 import signal
 from pathlib import Path
-from typing import IO
+from typing import IO, Protocol
 
 # Stdout buffer per process: the default 64 KB StreamReader limit dies on
 # large MCP tool results (full papers, transcripts), so reads use a manual
@@ -113,3 +116,33 @@ def _signal_group(proc: CoderProcess, sig: int) -> None:
     except (ProcessLookupError, PermissionError, OSError):
         with contextlib.suppress(ProcessLookupError, OSError):
             proc._proc.send_signal(sig)
+
+
+class ProcessRunner(Protocol):
+    """The spawn seam: start a coder child without touching asyncio directly."""
+
+    async def start(
+        self,
+        argv: list[str],
+        env: dict[str, str],
+        cwd: Path | str | None,
+        *,
+        stderr: int | IO[bytes] | None = asyncio.subprocess.DEVNULL,
+    ) -> CoderProcess:
+        """Spawn the coder CLI and return its process handle."""
+        ...
+
+
+class SubprocessRunner:
+    """The production runner: spawn a real coder subprocess per start."""
+
+    async def start(
+        self,
+        argv: list[str],
+        env: dict[str, str],
+        cwd: Path | str | None,
+        *,
+        stderr: int | IO[bytes] | None = asyncio.subprocess.DEVNULL,
+    ) -> CoderProcess:
+        """Spawn the coder CLI in its own process group with piped stdout."""
+        return await CoderProcess.start(argv, env, cwd, stderr=stderr)

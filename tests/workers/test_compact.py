@@ -13,6 +13,7 @@ import structlog
 import fleet.workers.compact as compact_mod
 from fleet.coders.base import CoderSpec
 from fleet.core.config import RuntimeConfig
+from fleet.core.plan_input import PlanInput
 from fleet.core.retry_policy import trailing_streak
 from fleet.core.task import Event, EventKind, Task
 from fleet.state import attempts as state_attempts
@@ -21,12 +22,14 @@ from fleet.state.paths import attempt_dir
 from fleet.workers.base import FnStep, StepContext, StepStatus
 from fleet.workers.compact import (
     COMPACT_STEP,
+    CompactionJob,
     collect_material,
     parse_compaction_output,
     render_compaction_prompt,
 )
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.task_family import ContinueLargeTask, ContinueTask, plan_task
+from tests.workers.fake_runner import FakeProcess, FakeProcessRunner
 
 _STATE_BODY = (
     "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n"
@@ -191,21 +194,62 @@ def test_oversize_output_falls_back(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_timeout_falls_back(tmp_path: Path, monkeypatch) -> None:
+    """A model call that never answers falls back to deterministic truncation."""
     _patch_coder(monkeypatch, _SUCCESS_LINES)
     task, task_dir = _setup_task_dir(tmp_path)
     outer_n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     ctx = _ctx(task, task_dir, outer_n)
 
-    async def _boom(*args, **kwargs) -> str:
-        raise TimeoutError("compaction timed out")
+    class _HangingRunner(FakeProcessRunner):
+        async def start(self, argv, env, cwd, *, stderr=None):  # type: ignore[no-untyped-def]
+            raise TimeoutError("compaction timed out")
 
-    monkeypatch.setattr(compact_mod, "_run_compaction_model", _boom)
+    ctx.runner = _HangingRunner()
 
     result = asyncio.run(COMPACT_STEP.run(ctx))
 
     assert result.status == StepStatus.OK
     assert result.reason.startswith("compaction_fallback")
     assert (task_dir / "STATE.md").exists()
+
+
+def test_compaction_job_streams_assistant_text(tmp_path: Path) -> None:
+    """CompactionJob runs its argv on the injected runner and concatenates text."""
+    task, task_dir = _setup_task_dir(tmp_path)
+    compact_dir = task_dir / "attempts" / "99"
+    coder = FakeCompactionCoder()
+    argv = [sys.executable, "-c", "pass", "__PROMPT__"]
+    runner = FakeProcessRunner([FakeProcess(lines=_SUCCESS_LINES)])
+    job = CompactionJob(
+        coder=coder, task=task, argv=argv, task_dir=task_dir, compact_dir=compact_dir
+    )
+
+    output = asyncio.run(job.run(runner))
+
+    assert "## Plan" in output
+    assert runner.last_env["FLEET_ATTEMPT_DIR"] == str(compact_dir)
+
+
+def test_compaction_job_times_out(tmp_path: Path) -> None:
+    """A hanging model call past timeout_sec raises TimeoutError."""
+    task, task_dir = _setup_task_dir(tmp_path)
+    coder = FakeCompactionCoder()
+    job = CompactionJob(
+        coder=coder,
+        task=task,
+        argv=[sys.executable, "-c", "pass"],
+        task_dir=task_dir,
+        compact_dir=task_dir / "attempts" / "99",
+        timeout_sec=1,
+    )
+    runner = FakeProcessRunner([FakeProcess(hang=True)])
+
+    try:
+        asyncio.run(job.run(runner))
+    except TimeoutError as exc:
+        assert "timed out" in str(exc)
+    else:
+        raise AssertionError("expected TimeoutError")
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +315,8 @@ def test_plan_task_returns_continue_large_when_needs_compaction(tmp_path: Path) 
     # Oversized STATE.md trips LaunchPlan.needs_compaction.
     (task_dir / "STATE.md").write_text("s" * 20000)
     state_attempts.record_start(task_dir, coder="claude", model="sonnet")
-    ctx = _ctx(task, task_dir, 2)
 
-    worker = plan_task(ctx)
+    worker = plan_task(PlanInput(task=task, task_dir=task_dir, config=RuntimeConfig(), attempt_n=2))
 
     assert worker.name == ContinueLargeTask.name == "task.continue_large"
     assert [type(s) for s in worker.steps] == [FnStep, FnStep, LlmSession]
@@ -284,9 +327,8 @@ def test_plan_task_skips_compaction_when_disabled(tmp_path: Path) -> None:
     (task_dir / "STATE.md").write_text("s" * 20000)
     state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     config = RuntimeConfig(compaction_enabled=False)
-    ctx = _ctx(task, task_dir, 2, config=config)
 
-    worker = plan_task(ctx)
+    worker = plan_task(PlanInput(task=task, task_dir=task_dir, config=config, attempt_n=2))
 
     assert worker.name == ContinueTask.name
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fleet.core.launch_policy import LaunchLimits, LaunchPlan, plan_launch
+from fleet.core.plan_input import PlanInput
 from fleet.core.task import AttemptKind
 from fleet.state.artifacts import StateFile, read_artifacts
 from fleet.state.attempts import load_attempts
@@ -47,18 +48,18 @@ def _record_launch(ctx: StepContext, plan) -> None:
     )
 
 
-def _launch_limits(ctx: StepContext) -> LaunchLimits:
+def _launch_limits(plan: PlanInput) -> LaunchLimits:
     return LaunchLimits(
-        continue_pack_max_bytes=ctx.config.continue_pack_max_bytes,
-        state_max_bytes=ctx.config.state_max_bytes,
+        continue_pack_max_bytes=plan.config.continue_pack_max_bytes,
+        state_max_bytes=plan.config.state_max_bytes,
     )
 
 
-def _plan_launch_for(ctx: StepContext):
+def _plan_launch_for(plan: PlanInput):
     """Read STATE.md + attempt history and decide this attempt's LaunchPlan."""
-    attempts_before = [a for a in load_attempts(ctx.task_dir) if a["n"] < ctx.attempt_n]
-    artifacts = read_artifacts(ctx.task_dir, ctx.task.id, before_n=ctx.attempt_n)
-    return plan_launch(attempts_before, artifacts, _launch_limits(ctx))
+    attempts_before = [a for a in load_attempts(plan.task_dir) if a["n"] < plan.attempt_n]
+    artifacts = read_artifacts(plan.task_dir, plan.task.id, before_n=plan.attempt_n)
+    return plan_launch(attempts_before, artifacts, _launch_limits(plan))
 
 
 async def prepare_artifacts(ctx: StepContext) -> StepResult:
@@ -76,7 +77,10 @@ async def prepare_artifacts(ctx: StepContext) -> StepResult:
 
 async def prepare_continue(ctx: StepContext) -> StepResult:
     """Plan the continue launch pack, store it for LlmSession, record it in run.json."""
-    plan = _plan_launch_for(ctx)
+    pin = PlanInput(
+        task=ctx.task, task_dir=ctx.task_dir, config=ctx.config, attempt_n=ctx.attempt_n
+    )
+    plan = _plan_launch_for(pin)
     ctx.plan = plan
     ctx.launch_plan = plan
     _record_launch(ctx, plan)
@@ -96,7 +100,7 @@ ContinueTask = Worker("task.continue", (PREPARE_CONTINUE, LlmSession()))
 ContinueLargeTask = Worker("task.continue_large", (COMPACT_STEP, PREPARE_CONTINUE, LlmSession()))
 
 
-def plan_task(ctx: StepContext) -> Worker:
+def plan_task(plan: PlanInput) -> Worker:
     """Pick the task-family worker: fresh, continue, or continue-large.
 
     Computes the same `read_artifacts` + `plan_launch` inputs the
@@ -111,11 +115,11 @@ def plan_task(ctx: StepContext) -> Worker:
     holds per-attempt subprocess state on ``self`` and attempts run
     concurrently across tasks.
     """
-    plan = _plan_launch_for(ctx)
-    if plan.mode == "fresh":
+    launch = _plan_launch_for(plan)
+    if launch.mode == "fresh":
         steps: tuple[Step, ...] = (PREPARE_ARTIFACTS, LlmSession())
         return Worker(FreshTask.name, steps)
-    if plan.needs_compaction and ctx.config.compaction_enabled:
+    if launch.needs_compaction and plan.config.compaction_enabled:
         steps = (COMPACT_STEP, PREPARE_CONTINUE, LlmSession())
         return Worker(ContinueLargeTask.name, steps)
     steps = (PREPARE_CONTINUE, LlmSession())

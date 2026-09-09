@@ -178,7 +178,7 @@ def test_spawn_unknown_worker_blocks_and_returns_none(tmp_path: Path, monkeypatc
     queue = StubQueue()
     st = _make_state(tmp_path, queue)
 
-    def _boom(task, ctx):
+    def _boom(task, ctx, queue=None):
         raise ValueError("no worker for this bead")
 
     monkeypatch.setattr(spawn_mod, "select_worker", _boom)
@@ -192,10 +192,10 @@ def test_spawn_unknown_worker_blocks_and_returns_none(tmp_path: Path, monkeypatc
     assert "t-w" not in st.running
 
 
-def test_resolve_coder_prefers_pin(tmp_path: Path) -> None:
+def test_resolve_coder_uses_factory(tmp_path: Path) -> None:
     sup = make_supervisor(tmp_path, services=[], checks=[])
     pin = StubCoder()
-    sup.state.coder_pin = pin
+    sup.state.coder_factory = lambda name, model: pin
     coder, name, model = resolve_coder(sup.state, _task())
     assert coder is pin
     assert name == "stub"

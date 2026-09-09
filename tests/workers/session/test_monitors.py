@@ -8,6 +8,7 @@ from pathlib import Path
 
 import structlog
 
+from fleet.core.clock import FakeClock
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER
@@ -70,6 +71,7 @@ def _ctx(tmp_path: Path, task: Task | None = None, **overrides) -> MonitorContex
         "last_event_at": now,
         "last_stdout_at": now,
         "last_probe_at": now,
+        "clock": FakeClock(start=now),
     }
     base.update(overrides)
     return MonitorContext(**base)

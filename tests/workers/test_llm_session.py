@@ -1,18 +1,27 @@
+"""Tests for LlmSession driven by a scripted FakeProcessRunner (no subprocesses)."""
+
+from __future__ import annotations
+
 import asyncio
 import json
+import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import structlog
 
-import fleet.workers.session.monitors as monitors_mod
 from fleet.coders.claude import ClaudeCoder
+from fleet.core.clock import FakeClock
 from fleet.core.config import RuntimeConfig
+from fleet.core.limits import PROBE_SILENCE_SEC, RATE_LIMIT_PROBE_SILENCE_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import task_dir
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
+from fleet.workers.session.monitors import HealthProbe, MonitorContext
+from fleet.workers.session.process import SubprocessRunner
+from tests.workers.fake_runner import FakeProcess, FakeProcessRunner
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -60,6 +69,7 @@ def _make_ctx(
     tmp_path: Path,
     task: Task,
     coder,
+    runner: FakeProcessRunner,
     *,
     config: RuntimeConfig | None = None,
     gauge: StubRateGauge | None = None,
@@ -73,28 +83,36 @@ def _make_ctx(
         config=config or RuntimeConfig(),
         rate_gauge=gauge or StubRateGauge(),
         log=structlog.get_logger(),
+        runner=runner,
     )
 
 
 def _make_session(
     tmp_path: Path,
     argv: list[str],
+    procs: list[FakeProcess],
     *,
     task_id: str = "t-001",
     task_status: str = "in_progress",
     config: RuntimeConfig | None = None,
     context_limit: int = 200_000,
-) -> tuple[LlmSession, StepContext, StubRateGauge]:
+) -> tuple[LlmSession, StepContext, StubRateGauge, FakeProcessRunner]:
     task = Task(id=task_id, title="Test task", description="Do the thing.", status=task_status)
     gauge = StubRateGauge()
+    runner = FakeProcessRunner(procs)
     ctx = _make_ctx(
         tmp_path,
         task,
         StubCoder(argv=argv, context_limit=context_limit),
+        runner,
         config=config,
         gauge=gauge,
     )
-    return LlmSession(), ctx, gauge
+    return LlmSession(), ctx, gauge, runner
+
+
+def _fixture_lines(name: str) -> list[str]:
+    return [line for line in (FIXTURES / name).read_text().splitlines() if line.strip()]
 
 
 def _run(session: LlmSession, ctx: StepContext) -> TaskOutcomeRecord:
@@ -110,19 +128,11 @@ def _run(session: LlmSession, ctx: StepContext) -> TaskOutcomeRecord:
 
 
 def test_clean_exit_returns_success(tmp_path: Path) -> None:
-    lines = [
-        line
-        for line in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    script = (
-        "import sys\n"
-        f"lines = {lines!r}\n"
-        "for line in lines:\n"
-        "    sys.stdout.write(line + '\\n')\n"
-        "    sys.stdout.flush()\n"
+    session, ctx, _, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(lines=_fixture_lines("stream_clean_exit.jsonl"))],
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     result = _run(session, ctx)
 
@@ -131,19 +141,11 @@ def test_clean_exit_returns_success(tmp_path: Path) -> None:
 
 
 def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
-    lines = [
-        line
-        for line in (FIXTURES / "stream_clean_exit.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
-    script = (
-        "import sys\n"
-        f"lines = {lines!r}\n"
-        "for line in lines:\n"
-        "    sys.stdout.write(line + '\\n')\n"
-        "    sys.stdout.flush()\n"
+    session, ctx, _, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(lines=_fixture_lines("stream_clean_exit.jsonl"))],
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     _run(session, ctx)
 
@@ -154,8 +156,8 @@ def test_clean_exit_writes_events_jsonl(tmp_path: Path) -> None:
 
 
 def test_clean_exit_creates_task_dir_and_log(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(
-        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+    session, ctx, _, _ = _make_session(
+        tmp_path, argv=[sys.executable, "-c", "pass"], procs=[FakeProcess()]
     )
 
     _run(session, ctx)
@@ -165,23 +167,20 @@ def test_clean_exit_creates_task_dir_and_log(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: Rate-limit rejection → RATE_LIMIT + queue.release
+# Test: Rate-limit rejection → RATE_LIMIT
 # ---------------------------------------------------------------------------
 
 
-def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
+def _rate_limit_proc() -> FakeProcess:
     rate_event = json.dumps(
         {"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999}
     )
-    script = (
-        "import sys, time\n"
-        f"sys.stdout.write({rate_event!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(60)\n"
-    )
-    session, ctx, _ = _make_session(
-        tmp_path,
-        argv=[sys.executable, "-c", script],
+    return FakeProcess(lines=[rate_event], hang=True)
+
+
+def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
+    session, ctx, _, _ = _make_session(
+        tmp_path, argv=[sys.executable, "-c", "pass"], procs=[_rate_limit_proc()]
     )
 
     result = _run(session, ctx)
@@ -193,18 +192,8 @@ def test_rate_limit_rejection_returns_rate_limit(tmp_path: Path) -> None:
 def test_rate_limit_reason_mentions_resets_at(tmp_path: Path) -> None:
     """LlmSession makes no queue calls; it returns a RATE_LIMIT record with a
     resets_at-bearing reason for the caller (orchestrator/reap.py) to act on."""
-    rate_event = json.dumps(
-        {"api_error_status": 429, "error": "rate_limit", "resetsAt": 9999999999}
-    )
-    script = (
-        "import sys, time\n"
-        f"sys.stdout.write({rate_event!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(60)\n"
-    )
-    session, ctx, _ = _make_session(
-        tmp_path,
-        argv=[sys.executable, "-c", script],
+    session, ctx, _, _ = _make_session(
+        tmp_path, argv=[sys.executable, "-c", "pass"], procs=[_rate_limit_proc()]
     )
 
     result = _run(session, ctx)
@@ -216,13 +205,11 @@ def test_rate_limit_reason_mentions_resets_at(tmp_path: Path) -> None:
 
 def test_rate_limit_no_resets_at_gives_none(tmp_path: Path) -> None:
     rate_event = json.dumps({"api_error_status": 429, "error": "rate_limit"})
-    script = (
-        "import sys, time\n"
-        f"sys.stdout.write({rate_event!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(60)\n"
+    session, ctx, _, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(lines=[rate_event], hang=True)],
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     result = _run(session, ctx)
 
@@ -234,20 +221,16 @@ def test_rate_limit_no_resets_at_gives_none(tmp_path: Path) -> None:
 # Test: legacy .context_pressure marker file is ignored (removed in spec 5)
 # ---------------------------------------------------------------------------
 
-_LEGACY_CP_SCRIPT = (
-    "import sys, os\n"
-    "from pathlib import Path\n"
-    "p = Path(os.environ['FLEET_TASK_DIR'])\n"
-    "p.mkdir(parents=True, exist_ok=True)\n"
-    "(p / '.context_pressure').touch()\n"
-    "sys.exit(0)\n"
-)
-
 
 def test_legacy_context_pressure_marker_is_ignored(tmp_path: Path) -> None:
     """The old marker file no longer drives outcomes; CONTEXT_PRESSURE now
     comes from usage counters and CLI overflow errors only."""
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", _LEGACY_CP_SCRIPT])
+    session, ctx, _, _ = _make_session(
+        tmp_path, argv=[sys.executable, "-c", "pass"], procs=[FakeProcess()]
+    )
+    marker = tmp_path / "tasks" / "t-001" / ".context_pressure"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
 
     result = _run(session, ctx)
 
@@ -261,10 +244,11 @@ def test_legacy_context_pressure_marker_is_ignored(tmp_path: Path) -> None:
 
 
 def test_nonzero_rc_returns_failure(tmp_path: Path) -> None:
-    script = (
-        "import sys\nsys.stderr.write('something went wrong\\n')\nsys.stderr.flush()\nsys.exit(1)\n"
+    session, ctx, _, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(exit_code=1, stderr_text="something went wrong\n")],
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     result = _run(session, ctx)
 
@@ -273,10 +257,11 @@ def test_nonzero_rc_returns_failure(tmp_path: Path) -> None:
 
 
 def test_nonzero_rc_populates_stderr_tail(tmp_path: Path) -> None:
-    script = (
-        "import sys\nsys.stderr.write('something went wrong\\n')\nsys.stderr.flush()\nsys.exit(1)\n"
+    session, ctx, _, _ = _make_session(
+        tmp_path,
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(exit_code=1, stderr_text="something went wrong\n")],
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     result = _run(session, ctx)
 
@@ -285,20 +270,17 @@ def test_nonzero_rc_populates_stderr_tail(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: cancel() → SIGKILL escalation when child ignores SIGTERM
+# Test: cancel() → killed/cancelled outcomes on a hanging child
 # ---------------------------------------------------------------------------
 
 
 def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
-    script = "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n"
-    session, ctx, _ = _make_session(
-        tmp_path,
-        argv=[sys.executable, "-c", script],
-    )
+    proc = FakeProcess(hang=True)
+    session, ctx, _, _ = _make_session(tmp_path, argv=[sys.executable, "-c", "pass"], procs=[proc])
 
     async def _run_it() -> None:
         run_task = asyncio.create_task(session.run(ctx))
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         await session.cancel("supervisor_shutdown")
         step_result = await run_task
         result = step_result.outcome
@@ -307,18 +289,16 @@ def test_cancel_sigkill_escalation(tmp_path: Path) -> None:
         assert result.reason == "supervisor_shutdown"
 
     asyncio.run(_run_it())
+    assert proc.terminated
 
 
 def test_kill_returns_killed_with_reason(tmp_path: Path) -> None:
-    script = "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\ntime.sleep(60)\n"
-    session, ctx, _ = _make_session(
-        tmp_path,
-        argv=[sys.executable, "-c", script],
-    )
+    proc = FakeProcess(hang=True)
+    session, ctx, _, _ = _make_session(tmp_path, argv=[sys.executable, "-c", "pass"], procs=[proc])
 
     async def _run_it() -> None:
         run_task = asyncio.create_task(session.run(ctx))
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
         await session.cancel("stalled")
         step_result = await run_task
         result = step_result.outcome
@@ -327,10 +307,11 @@ def test_kill_returns_killed_with_reason(tmp_path: Path) -> None:
         assert result.reason == "stalled"
 
     asyncio.run(_run_it())
+    assert proc.terminated
 
 
 # ---------------------------------------------------------------------------
-# Test: BEADS_DIR injection
+# Test: BEADS_DIR injection (asserted on the recorded start env)
 # ---------------------------------------------------------------------------
 
 
@@ -339,16 +320,14 @@ def test_beads_dir_injected_into_subprocess(tmp_path: Path, monkeypatch) -> None
     # Insulate from a real BEADS_DIR the test host session may already export
     # (e.g. when pytest itself runs inside a fleet-managed worktree).
     monkeypatch.delenv("BEADS_DIR", raising=False)
-    beads_dir = str(tmp_path / ".beads")
-    script = (
-        f"import os, sys\nsys.exit(0 if os.environ.get('BEADS_DIR','') == {beads_dir!r} else 3)\n"
+    session, ctx, _, runner = _make_session(
+        tmp_path, argv=[sys.executable, "-c", "pass"], procs=[FakeProcess()]
     )
-    session, ctx, _ = _make_session(tmp_path, argv=[sys.executable, "-c", script])
 
     result = _run(session, ctx)
 
     assert result.outcome == TaskOutcome.SUCCESS
-    assert result.exit_code == 0
+    assert runner.last_env["BEADS_DIR"] == str(tmp_path / ".beads")
 
 
 class _BeadsDirCoder(StubCoder):
@@ -362,17 +341,14 @@ class _BeadsDirCoder(StubCoder):
 
 def test_subprocess_sees_coder_provided_beads_dir(tmp_path: Path) -> None:
     """When coder provides BEADS_DIR, LlmSession must not override it."""
-    script = (
-        "import os, sys\nsys.exit(0 if os.environ.get('BEADS_DIR') == '/custom/.beads' else 3)\n"
-    )
     task = Task(id="t-002", title="Test task", description=None, status="in_progress")
-    coder = _BeadsDirCoder(argv=[sys.executable, "-c", script])
-    ctx = _make_ctx(tmp_path, task, coder)
+    runner = FakeProcessRunner([FakeProcess()])
+    ctx = _make_ctx(tmp_path, task, _BeadsDirCoder(argv=[sys.executable, "-c", "pass"]), runner)
 
     result = _run(LlmSession(), ctx)
 
     assert result.outcome == TaskOutcome.SUCCESS
-    assert result.exit_code == 0
+    assert runner.last_env["BEADS_DIR"] == "/custom/.beads"
 
 
 # -----------------------------------------------------------------------
@@ -382,7 +358,7 @@ def test_subprocess_sees_coder_provided_beads_dir(tmp_path: Path) -> None:
 
 class _ToolUseCoder(StubCoder):
     def __init__(self, tool_name: str) -> None:
-        super().__init__(argv=[sys.executable, "-c", tool_use_script])
+        super().__init__(argv=[sys.executable, "-c", "pass"])
         self._tool_name = tool_name
 
     def normalize_event(self, raw_line: str) -> Event | None:
@@ -397,19 +373,14 @@ class _ToolUseCoder(StubCoder):
 
 
 tool_use_event_json = json.dumps({"_": True, "emit_tool_use": True})
-tool_use_script = (
-    "import sys\n"
-    f"sys.stdout.write({tool_use_event_json!r} + '\\n')\n"
-    "sys.stdout.flush()\n"
-    "sys.exit(0)\n"
-)
 
 
 def test_runner_logs_tool_use_name(tmp_path: Path) -> None:
     """Coder emitting a tool_use event -> events.jsonl contains it with correct tool_name."""
     coder = _ToolUseCoder("bash")
     task = Task(id="t-tu", title="Test task", description=None, status="in_progress")
-    ctx = _make_ctx(tmp_path, task, coder)
+    runner = FakeProcessRunner([FakeProcess(lines=[tool_use_event_json])])
+    ctx = _make_ctx(tmp_path, task, coder, runner)
 
     result = _run(LlmSession(), ctx)
 
@@ -428,7 +399,7 @@ def test_runner_logs_tool_use_name(tmp_path: Path) -> None:
 
 class _SessionStartedCoder(StubCoder):
     def __init__(self) -> None:
-        super().__init__(argv=[sys.executable, "-c", ss_script])
+        super().__init__(argv=[sys.executable, "-c", "pass"])
         self._count = 0
 
     def normalize_event(self, raw_line: str) -> Event | None:
@@ -446,19 +417,14 @@ class _SessionStartedCoder(StubCoder):
 
 ss_event_1 = json.dumps({"_": True, "emit_session": True, "session_id": "s-1"})
 ss_event_2 = json.dumps({"_": True, "emit_session": True, "session_id": "s-2"})
-ss_script = (
-    "import sys\n"
-    f"sys.stdout.write({ss_event_1!r} + '\\n' + {ss_event_2!r} + '\\n')\n"
-    "sys.stdout.flush()\n"
-    "sys.exit(0)\n"
-)
 
 
 def test_session_started_dedup(tmp_path: Path) -> None:
     """Two session_started events -> both in events.jsonl, run completes SUCCESS."""
     coder = _SessionStartedCoder()
     task = Task(id="t-ss", title="Test task", description=None, status="in_progress")
-    ctx = _make_ctx(tmp_path, task, coder)
+    runner = FakeProcessRunner([FakeProcess(lines=[ss_event_1, ss_event_2])])
+    ctx = _make_ctx(tmp_path, task, coder, runner)
 
     _run(LlmSession(), ctx)
 
@@ -473,33 +439,22 @@ def test_session_started_dedup(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _usage_line(input_tokens: int) -> str:
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {"content": [], "usage": {"input_tokens": input_tokens}},
+            "session_id": "s-ctx",
+        }
+    )
+
+
 def test_context_usage_bucket_logging(tmp_path: Path) -> None:
     """Usage events crossing 10% and 20% of context_limit produce two context_usage log lines."""
-    event_10 = json.dumps(
-        {
-            "type": "assistant",
-            "message": {"content": [], "usage": {"input_tokens": 101}},
-            "session_id": "s-ctx",
-        }
-    )
-    event_20 = json.dumps(
-        {
-            "type": "assistant",
-            "message": {"content": [], "usage": {"input_tokens": 201}},
-            "session_id": "s-ctx",
-        }
-    )
-    clean_script = (
-        "import sys, json\n"
-        f"sys.stdout.write({event_10!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        f"sys.stdout.write({event_20!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "sys.exit(0)\n"
-    )
-    session, ctx, _ = _make_session(
+    session, ctx, _, _ = _make_session(
         tmp_path,
-        argv=[sys.executable, "-c", clean_script],
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(lines=[_usage_line(101), _usage_line(201)])],
         context_limit=1_000,
     )
 
@@ -515,31 +470,10 @@ def test_context_usage_bucket_logging(tmp_path: Path) -> None:
 
 def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
     """Usage events within same 10% bucket produce only one context_usage log line."""
-    event_15 = json.dumps(
-        {
-            "type": "assistant",
-            "message": {"content": [], "usage": {"input_tokens": 150}},
-            "session_id": "s-ctx",
-        }
-    )
-    event_12 = json.dumps(
-        {
-            "type": "assistant",
-            "message": {"content": [], "usage": {"input_tokens": 120}},
-            "session_id": "s-ctx",
-        }
-    )
-    clean_script = (
-        "import sys, json\n"
-        f"sys.stdout.write({event_15!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        f"sys.stdout.write({event_12!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "sys.exit(0)\n"
-    )
-    session, ctx, _ = _make_session(
+    session, ctx, _, _ = _make_session(
         tmp_path,
-        argv=[sys.executable, "-c", clean_script],
+        argv=[sys.executable, "-c", "pass"],
+        procs=[FakeProcess(lines=[_usage_line(150), _usage_line(120)])],
         context_limit=1_000,
     )
 
@@ -554,200 +488,197 @@ def test_context_usage_bucket_logging_skips_same_bucket(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: spawn uses start_new_session (own process group)
+# Test: the runner seam spawns real processes (only SubprocessRunner touches asyncio)
 # ---------------------------------------------------------------------------
 
 
-def test_spawn_uses_new_session(tmp_path: Path, monkeypatch) -> None:
-    """LlmSession.run must spawn the coder with start_new_session=True."""
-    captured: dict = {}
+def test_subprocess_runner_starts_real_process(tmp_path: Path) -> None:
+    """SubprocessRunner.start spawns for real: pid, exit 0, recorded argv."""
 
-    class _FakeStdout:
-        _limit = 0
+    async def _run() -> None:
+        proc = await SubprocessRunner().start(
+            [sys.executable, "-c", "pass"], dict(os.environ), tmp_path
+        )
+        assert proc.pid > 0
+        assert proc.returncode is None
+        assert await proc.wait() == 0
 
-        async def readline(self) -> bytes:
-            return b""
+    asyncio.run(_run())
 
-    class _FakeProc:
-        pid = 123456
-        returncode: int | None = None
-        stdout = _FakeStdout()
 
-        def send_signal(self, sig) -> None:
-            pass
+# ---------------------------------------------------------------------------
+# Test: probe_health kills a silent session, patient rate limits survive
+# ---------------------------------------------------------------------------
 
-        async def wait(self) -> int:
-            self.returncode = 0
-            return 0
 
-    async def _fake_create(*args, **kwargs):
-        captured.update(kwargs)
-        captured["args"] = args
-        return _FakeProc()
+class _ProbeCoder(StubCoder):
+    def __init__(self, outcome: TaskOutcomeRecord) -> None:
+        super().__init__(argv=[sys.executable, "-c", "pass"])
+        self._outcome = outcome
+        self.probe_calls = 0
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
+    def probe_health(self, task, task_dir, since, session_id=None):
+        self.probe_calls += 1
+        return self._outcome
 
-    session, ctx, _ = _make_session(
-        tmp_path, argv=[sys.executable, "-c", "import sys; sys.exit(0)"]
+
+def _fast_forward_ctx(
+    tmp_path: Path, task: Task, coder, runner: FakeProcessRunner, *, tick_sec: float = 10.0
+) -> tuple[StepContext, FakeClock]:
+    """Session context where sleeps advance a fake clock (no real waiting)."""
+    clock = FakeClock(start=datetime.now(tz=UTC))
+
+    async def _sleep(sec: float) -> None:
+        clock.advance(sec)
+        await asyncio.sleep(0)
+
+    return (
+        StepContext(
+            task=task,
+            task_dir=task_dir(tmp_path, task.id),
+            workdir=tmp_path,
+            fleet_home=tmp_path,
+            coder=coder,
+            config=RuntimeConfig(),
+            rate_gauge=StubRateGauge(),
+            log=structlog.get_logger(),
+            runner=runner,
+            clock=clock,
+            sleep=_sleep,
+            tick_sec=tick_sec,
+        ),
+        clock,
     )
 
-    result = _run(session, ctx)
 
-    assert captured["start_new_session"] is True
-    assert result.outcome == TaskOutcome.SUCCESS
-
-
-# ---------------------------------------------------------------------------
-# Test: probe_health detects a hung provider and kills the silent worker
-# ---------------------------------------------------------------------------
-
-
-def test_probe_health_kills_silent_worker_and_returns_its_outcome(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A silent subprocess (no stdout) is probed periodically; once probe_health
-    reports a provider error, the runner kills the process group and returns
-    that outcome instead of waiting for the process to exit on its own."""
-
-    monkeypatch.setattr(monitors_mod, "MONITOR_TICK_SEC", 0.01)
-    monkeypatch.setattr(monitors_mod, "PROBE_SILENCE_SEC", -1)
-    monkeypatch.setattr(monitors_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", -1)
-
-    class _FakeStdout:
-        _limit = 0
-
-        def __init__(self, proc: "_FakeProc") -> None:
-            self._proc = proc
-
-        async def readline(self) -> bytes:
-            while self._proc.returncode is None:
-                await asyncio.sleep(0.01)
-            return b""
-
-    class _FakeProc:
-        pid = 987654
-        returncode: int | None = None
-
-        def __init__(self) -> None:
-            self.stdout = _FakeStdout(self)
-
-        def send_signal(self, sig) -> None:
-            self.returncode = -sig
-
-        async def wait(self) -> int:
-            while self.returncode is None:
-                await asyncio.sleep(0.01)
-            return self.returncode
-
-    async def _fake_create(*args, **kwargs):
-        return _FakeProc()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
-
-    class FakeProbeCoder(StubCoder):
-        def __init__(self, argv: list[str]) -> None:
-            super().__init__(argv=argv)
-            self.probe_calls = 0
-
-        def probe_health(self, task, task_dir, started_at, session_id=None):
-            self.probe_calls += 1
-            if self.probe_calls < 2:
-                return None
-            return TaskOutcomeRecord(
-                outcome=TaskOutcome.RATE_LIMIT,
-                reason="opencode provider rate limit",
-                resets_at=1234567890,
-            )
-
+def test_probe_health_kills_silent_worker_and_returns_its_outcome(tmp_path: Path) -> None:
+    """A silent child is probed on fake time; a provider error kills it and
+    the session returns that outcome instead of waiting forever."""
+    coder = _ProbeCoder(TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, reason="provider boom"))
     task = Task(id="t-probe", title="Test task", description="Do the thing.", status="in_progress")
-    coder = FakeProbeCoder(argv=[sys.executable, "-c", "pass"])
-    ctx = _make_ctx(tmp_path, task, coder)
-
-    step_result = asyncio.run(asyncio.wait_for(LlmSession().run(ctx), timeout=10.0))
-    result = step_result.outcome
-    assert result is not None
-
-    assert coder.probe_calls >= 2
-    assert result.outcome == TaskOutcome.RATE_LIMIT
-    assert result.reason == "opencode provider rate limit"
-
-
-# ---------------------------------------------------------------------------
-# Test: a rate limit the CLI is still retrying does not kill the session
-# ---------------------------------------------------------------------------
-
-
-def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """opencode retries provider rate limits itself. When probe_health reports
-    RATE_LIMIT but the session has been silent for less than
-    RATE_LIMIT_PROBE_SILENCE_SEC, the step keeps waiting and the session is
-    allowed to recover and finish on its own."""
-
-    monkeypatch.setattr(monitors_mod, "MONITOR_TICK_SEC", 0.01)
-    monkeypatch.setattr(monitors_mod, "PROBE_SILENCE_SEC", -1)
-    monkeypatch.setattr(monitors_mod, "RATE_LIMIT_PROBE_SILENCE_SEC", 3600)
-
-    class _FakeStdout:
-        _limit = 0
-        calls = 0
-
-        async def readline(self) -> bytes:
-            self.calls += 1
-            if self.calls <= 3:
-                await asyncio.sleep(0.05)  # longer than MONITOR_TICK_SEC -> probes fire
-                return b"not-json\n"
-            return b""
-
-    class _FakeProc:
-        pid = 987655
-        returncode: int | None = None
-        stdout = _FakeStdout()
-        killed = False
-
-        def send_signal(self, sig) -> None:
-            self.killed = True
-            self.returncode = -sig
-
-        async def wait(self) -> int:
-            if self.returncode is None:
-                self.returncode = 0
-            return self.returncode
-
-    fake_proc = _FakeProc()
-
-    async def _fake_create(*args, **kwargs):
-        return fake_proc
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
-
-    class AlwaysRateLimited(StubCoder):
-        def __init__(self, argv: list[str]) -> None:
-            super().__init__(argv=argv)
-            self.probe_calls = 0
-
-        def probe_health(self, task, task_dir, since, session_id=None):
-            self.probe_calls += 1
-            return TaskOutcomeRecord(
-                outcome=TaskOutcome.RATE_LIMIT,
-                reason="opencode provider rate limit",
-                resets_at=1234567890,
-            )
-
-    task = Task(
-        id="t-probe-patient", title="Test task", description="Do the thing.", status="in_progress"
-    )
-    coder = AlwaysRateLimited(argv=[sys.executable, "-c", "pass"])
-    ctx = _make_ctx(tmp_path, task, coder)
+    proc = FakeProcess(hang=True)
+    ctx, _ = _fast_forward_ctx(tmp_path, task, coder, FakeProcessRunner([proc]))
 
     step_result = asyncio.run(asyncio.wait_for(LlmSession().run(ctx), timeout=10.0))
     result = step_result.outcome
     assert result is not None
 
     assert coder.probe_calls >= 1
-    assert fake_proc.killed is False
+    assert proc.terminated
+    assert result.outcome == TaskOutcome.FAILURE
+    assert result.reason == "provider boom"
+
+
+def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
+    tmp_path: Path,
+) -> None:
+    """opencode retries provider rate limits itself: RATE_LIMIT probe reports
+    inside the silence window never kill the session; a cancel still ends it
+    as a shutdown, not a rate limit."""
+    coder = _ProbeCoder(
+        TaskOutcomeRecord(
+            outcome=TaskOutcome.RATE_LIMIT,
+            reason="opencode provider rate limit",
+            resets_at=1234567890,
+        )
+    )
+    task = Task(
+        id="t-probe-patient", title="Test task", description="Do the thing.", status="in_progress"
+    )
+    proc = FakeProcess(hang=True)
+    # One fake second per tick: silence crosses PROBE_SILENCE_SEC fast, but
+    # stays far below RATE_LIMIT_PROBE_SILENCE_SEC when we cancel below.
+    ctx, clock = _fast_forward_ctx(tmp_path, task, coder, FakeProcessRunner([proc]), tick_sec=1.0)
+    session = LlmSession()
+
+    async def _run_it():
+        run_task = asyncio.create_task(session.run(ctx))
+        for _ in range(10_000):
+            if coder.probe_calls >= 1:
+                break
+            await asyncio.sleep(0)
+        assert coder.probe_calls >= 1
+        # Still inside the retry window: the probe reported, nothing died.
+        assert clock.monotonic() < 300
+        assert proc.terminated is False
+        await session.cancel("supervisor_shutdown")
+        step_result = await run_task
+        return step_result.outcome
+
+    result = asyncio.run(asyncio.wait_for(_run_it(), timeout=10.0))
+    assert result is not None
     assert result.outcome != TaskOutcome.RATE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# Test: HealthProbe thresholds as pure unit tests (real limits constants)
+# ---------------------------------------------------------------------------
+
+
+def _monitor_ctx(task_id: str = "t-hp") -> MonitorContext:
+    now = datetime.now(tz=UTC)
+    return MonitorContext(
+        task=Task(id=task_id, title="T", description=None, status="in_progress"),
+        task_dir=Path("/tmp"),
+        attempt_dir=Path("/tmp"),
+        coder=StubCoder(argv=[]),
+        config=RuntimeConfig(),
+        rate_gauge=StubRateGauge(),  # type: ignore[arg-type]
+        task_log=structlog.get_logger(),
+        ctx_log=structlog.get_logger(),
+        context_limit=200_000,
+        checkpoint_pct=75,
+        kill_pct=90,
+        attempt_budget_sec=None,
+        started_at=now,
+        last_event_at=now,
+        last_stdout_at=now,
+        last_probe_at=now,
+        clock=FakeClock(start=now),
+    )
+
+
+def test_probe_provider_error_kills_silent_session() -> None:
+    """A non-rate-limit provider error past PROBE_SILENCE_SEC ends the session."""
+    now = datetime.now(tz=UTC)
+    mctx = _monitor_ctx()
+    mctx.last_stdout_at = now
+    mctx.last_probe_at = now
+    mctx.last_event_at = now
+
+    class _ErrCoder(StubCoder):
+        def probe_health(self, task, task_dir, since, session_id=None):
+            return TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, reason="provider boom")
+
+    mctx.coder = _ErrCoder(argv=[])
+    later = now + timedelta(seconds=PROBE_SILENCE_SEC + 1)
+
+    verdict = asyncio.run(HealthProbe().on_tick(later, mctx))
+
+    assert verdict is not None
+    assert verdict.kill
+    assert verdict.outcome == TaskOutcome.FAILURE
+
+
+def test_probe_rate_limit_patient_inside_window() -> None:
+    """A RATE_LIMIT report inside RATE_LIMIT_PROBE_SILENCE_SEC is ignored."""
+    assert RATE_LIMIT_PROBE_SILENCE_SEC > PROBE_SILENCE_SEC
+    now = datetime.now(tz=UTC)
+    mctx = _monitor_ctx()
+    mctx.last_stdout_at = now
+    mctx.last_probe_at = now
+    mctx.last_event_at = now
+
+    class _LimitedCoder(StubCoder):
+        def probe_health(self, task, task_dir, since, session_id=None):
+            return TaskOutcomeRecord(outcome=TaskOutcome.RATE_LIMIT, reason="limited")
+
+    mctx.coder = _LimitedCoder(argv=[])
+    inside = now + timedelta(seconds=PROBE_SILENCE_SEC + 1)
+
+    verdict = asyncio.run(HealthProbe().on_tick(inside, mctx))
+
+    assert verdict is None
 
 
 # ---------------------------------------------------------------------------
@@ -756,9 +687,10 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
 
 
 def test_prompt_md_records_argv_last_element(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(
+    session, ctx, _, runner = _make_session(
         tmp_path,
-        argv=[sys.executable, "-c", "import sys; sys.exit(0)", "PROMPT-TEXT-HERE"],
+        argv=[sys.executable, "-c", "pass", "PROMPT-TEXT-HERE"],
+        procs=[FakeProcess()],
     )
 
     _run(session, ctx)
@@ -766,12 +698,15 @@ def test_prompt_md_records_argv_last_element(tmp_path: Path) -> None:
     prompt_path = tmp_path / "tasks" / "t-001" / "prompt.md"
     assert prompt_path.exists()
     assert prompt_path.read_text(encoding="utf-8") == "PROMPT-TEXT-HERE"
+    assert runner.last_env["FLEET_LAUNCH_MODE"] == "fresh"
+    assert runner.last_env["FLEET_ATTEMPT_N"] == "0"
 
 
 def test_log_argv_redacts_prompt_text(tmp_path: Path) -> None:
-    session, ctx, _ = _make_session(
+    session, ctx, _, _ = _make_session(
         tmp_path,
-        argv=[sys.executable, "-c", "import sys; sys.exit(0)", "SUPERSECRET-PROMPT"],
+        argv=[sys.executable, "-c", "pass", "SUPERSECRET-PROMPT"],
+        procs=[FakeProcess()],
     )
 
     _run(session, ctx)

@@ -387,6 +387,7 @@ def make_supervisor(
     else:
         config = load(runtime_toml)
     log = structlog.get_logger()
+    pin = coder or FakeClaudeCoder(fleet_home=tmp_path)
     state = SupervisorState(
         config=config,
         fleet_home=tmp_path,
@@ -394,7 +395,7 @@ def make_supervisor(
         queue=queue,
         log=log,
         rate_gauge=RateGauge(log=log),
-        coder_pin=coder or FakeClaudeCoder(fleet_home=tmp_path),
+        coder_factory=lambda name, model: pin,
     )
     services = default_services()
     fast: list[Service] = []

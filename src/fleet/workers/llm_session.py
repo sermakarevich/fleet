@@ -21,9 +21,11 @@ import asyncio
 import inspect
 import os
 import signal
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fleet.core.clock import Clock
 from fleet.core.iso import now_iso
 from fleet.core.launch_policy import LaunchPlan
 from fleet.core.limits import SHUTDOWN_GRACE_SEC
@@ -34,6 +36,7 @@ from fleet.state.journal import TaskLogRecord, open_task_log
 from fleet.state.paths import PROMPT_MD, RUN_JSON
 
 from .base import StepContext, StepResult, StepStatus, write_run_json
+from .child_env import child_env
 from .session import monitors as monitors_mod
 from .session.classify import classify_exit
 from .session.monitors import (
@@ -66,13 +69,26 @@ def _event_verdict(monitors: list[Monitor], event: Event, state: MonitorContext)
     return None
 
 
-async def _tick_loop(proc: CoderProcess, monitors: list[Monitor], state: MonitorContext) -> None:
+def _tick_sec_of(ctx: StepContext) -> float:
+    """Monitor tick cadence: the context override, else the shared constant."""
+    if ctx.tick_sec is not None:
+        return ctx.tick_sec
+    return float(monitors_mod.MONITOR_TICK_SEC)
+
+
+async def _tick_loop(
+    proc: CoderProcess,
+    monitors: list[Monitor],
+    state: MonitorContext,
+    *,
+    clock: Clock,
+    sleep: Callable[[float], Awaitable[None]],
+    tick_sec: float,
+) -> None:
     """Call every monitor's on_tick each tick; a kill verdict ends the session."""
     while True:
-        # Read off the monitors module (not a local binding) so the cadence
-        # stays the single MONITOR_TICK_SEC owned there.
-        await asyncio.sleep(float(monitors_mod.MONITOR_TICK_SEC))
-        now = datetime.now(tz=UTC)
+        await sleep(tick_sec)
+        now = clock.now()
         for monitor in monitors:
             verdict = monitor.on_tick(now, state)
             if inspect.isawaitable(verdict):
@@ -89,9 +105,15 @@ async def run_monitored(
     stream: EventStream,
     monitors: list[Monitor],
     state: MonitorContext,
+    *,
+    clock: Clock,
+    sleep: Callable[[float], Awaitable[None]],
+    tick_sec: float,
 ) -> TaskOutcomeRecord | None:
     """Stream events through monitors with a tick task; return a kill record."""
-    tick = asyncio.create_task(_tick_loop(proc, monitors, state))
+    tick = asyncio.create_task(
+        _tick_loop(proc, monitors, state, clock=clock, sleep=sleep, tick_sec=tick_sec)
+    )
     try:
         async for evt in stream:
             state.last_event_at = stream.last_event_at
@@ -115,19 +137,17 @@ async def run_monitored(
 def _spawn_env(
     ctx: StepContext, task_dir: Path, attempt_dir: Path, launch_mode: str
 ) -> dict[str, str]:
-    """Attempt env layered over the coder env: FLEET_* plus BEADS_DIR."""
-    coder = ctx.coder
-    assert coder is not None
-    proc_env = {
-        **os.environ,
-        **coder.env(ctx.task, task_dir),
-        "FLEET_ATTEMPT_N": str(ctx.attempt_n),
-        "FLEET_ATTEMPT_DIR": str(attempt_dir),
-        "FLEET_LAUNCH_MODE": launch_mode,
-    }
-    if "BEADS_DIR" not in proc_env:
-        proc_env["BEADS_DIR"] = str(ctx.fleet_home / ".beads")
-    return proc_env
+    """Attempt env via the one child_env builder (coder overlay + FLEET_*)."""
+    assert ctx.coder is not None
+    return child_env(
+        ctx.coder,
+        ctx.task,
+        task_dir,
+        attempt_dir,
+        attempt_n=ctx.attempt_n,
+        launch_mode=launch_mode,
+        fleet_home=ctx.fleet_home,
+    )
 
 
 class LlmSession:
@@ -168,7 +188,15 @@ class LlmSession:
                 log=ctx.log,
                 task_id=task.id,
             )
-            verdict = await run_monitored(proc, stream, monitors, state)
+            verdict = await run_monitored(
+                proc,
+                stream,
+                monitors,
+                state,
+                clock=ctx.clock,
+                sleep=ctx.sleep,
+                tick_sec=_tick_sec_of(ctx),
+            )
             exit_code = await proc.wait()
             outcome = classify_exit(
                 exit_code,
@@ -208,7 +236,7 @@ class LlmSession:
             # log line keeps the argv shape but stays small.
             argv=[*argv[:-1], "<see prompt.md>"] if argv else [],
         )
-        proc = await CoderProcess.start(argv, proc_env, ctx.workdir, stderr=task_log.stderr_file)
+        proc = await ctx.runner.start(argv, proc_env, ctx.workdir, stderr=task_log.stderr_file)
         self._proc = proc
         started_at = datetime.now(tz=UTC)
         try:

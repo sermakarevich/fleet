@@ -259,7 +259,7 @@ def make_supervisor(
         queue=queue if queue is not None else BeadsQueue(repo_root=tmp_path),
         log=log,
         rate_gauge=RateGauge(log=log),
-        coder_pin=coder,
+        coder_factory=(lambda name, model: coder) if coder is not None else None,
     )
     built = services if services is not None else default_services()
     if intervals:

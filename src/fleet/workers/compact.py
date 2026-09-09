@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.coders import resolve_coder
 from fleet.coders.base import Coder, Workspace
+from fleet.core.compaction import CompactionMaterial
 from fleet.core.compaction_fallback import compact_fallback
 from fleet.core.errors import Json
 from fleet.core.retry_policy import Action
@@ -33,7 +33,8 @@ from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.paths import RUN_JSON
 
 from .base import FnStep, StepContext, StepResult, StepStatus, write_run_json
-from .session.process import KILL_GRACE_SEC, CoderProcess
+from .child_env import child_env
+from .session.process import KILL_GRACE_SEC, ProcessRunner, SubprocessRunner
 from .session.stream import EventStream
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
@@ -50,15 +51,44 @@ TOTAL_INPUT_CAP_BYTES = 24 * 1024
 _FENCED_STATE = re.compile(r"```STATE\s*\n(.*?)```", re.DOTALL)
 
 
-@dataclass
-class CompactionMaterial:
-    """Bounded inputs for the compaction prompt. Never raw logs."""
+@dataclass(frozen=True)
+class CompactionJob:
+    """One cheap-model call: everything the 6-param spawn took, as data."""
 
-    state: str = ""
-    summaries: list[str] = field(default_factory=list)
-    result_text: str = ""
-    git_log: list[str] = field(default_factory=list)
-    git_status: list[str] = field(default_factory=list)
+    coder: Coder
+    task: Task
+    argv: list[str]
+    task_dir: Path
+    compact_dir: Path
+    timeout_sec: int = COMPACT_TIMEOUT_SEC
+
+    async def run(self, runner: ProcessRunner | None = None) -> str:
+        """Spawn the model, stream assistant text, return it concatenated.
+
+        Raises ``TimeoutError`` on timeout, ``OSError`` when the CLI binary
+        is missing.
+        """
+        env = child_env(self.coder, self.task, self.task_dir, self.compact_dir)
+        proc = await (runner or SubprocessRunner()).start(list(self.argv), env, None)
+        stream = EventStream(
+            proc,
+            self.coder,
+            attempt_dir=self.compact_dir,
+            started_at=datetime.now(tz=UTC),
+        )
+        texts: list[str] = []
+        try:
+            async with asyncio.timeout(self.timeout_sec):
+                async for evt in stream:
+                    if evt.kind == EventKind.ASSISTANT_TEXT:
+                        text = _extract_text(evt.raw)
+                        if text:
+                            texts.append(text)
+        except TimeoutError as exc:
+            raise TimeoutError("compaction timed out") from exc
+        finally:
+            await proc.terminate_group(KILL_GRACE_SEC)
+        return "\n".join(texts)
 
 
 def _read_capped(path: Path, max_bytes: int) -> str:
@@ -209,42 +239,6 @@ def _extract_text(raw: Json) -> str:
     return json.dumps(raw)[:4000]
 
 
-async def _run_compaction_model(
-    coder: Coder,
-    task: Task,
-    argv: list[str],
-    task_dir: Path,
-    compact_dir: Path,
-    timeout_sec: int = COMPACT_TIMEOUT_SEC,
-) -> str:
-    """Spawn the cheap model, stream its events into the compact attempt dir.
-
-    Returns the concatenated assistant_text output. Raises ``TimeoutError``
-    on timeout, ``OSError`` when the CLI binary is missing.
-    """
-    env = {**os.environ, **coder.env(task, task_dir)}
-    proc = await CoderProcess.start(list(argv), env, None)
-    stream = EventStream(
-        proc,
-        coder,
-        attempt_dir=compact_dir,
-        started_at=datetime.now(tz=UTC),
-    )
-    texts: list[str] = []
-    try:
-        async with asyncio.timeout(timeout_sec):
-            async for evt in stream:
-                if evt.kind == EventKind.ASSISTANT_TEXT:
-                    text = _extract_text(evt.raw)
-                    if text:
-                        texts.append(text)
-    except TimeoutError as exc:
-        raise TimeoutError("compaction timed out") from exc
-    finally:
-        await proc.terminate_group(KILL_GRACE_SEC)
-    return "\n".join(texts)
-
-
 async def compact(ctx: StepContext) -> StepResult:
     """Rewrite STATE.md within its byte cap (the compact step's run function).
 
@@ -291,7 +285,10 @@ async def compact(ctx: StepContext) -> StepResult:
     )
     fallback_reason: str | None = None
     try:
-        output = await _run_compaction_model(coder, ctx.task, argv, task_dir, compact_dir)
+        job = CompactionJob(
+            coder=coder, task=ctx.task, argv=argv, task_dir=task_dir, compact_dir=compact_dir
+        )
+        output = await job.run(ctx.runner)
     except (TimeoutError, OSError) as exc:
         fallback_reason = f"model call failed: {exc}"
         output = ""
@@ -303,14 +300,7 @@ async def compact(ctx: StepContext) -> StepResult:
         if fallback_reason is None:
             fallback_reason = "unparseable model output"
         ctx.log.warning("compaction_fallback", reason=fallback_reason)
-        state = compact_fallback(
-            material.state,
-            material.summaries,
-            material.result_text,
-            material.git_log,
-            task_id=ctx.task.id,
-            max_bytes=state_cap,
-        )
+        state = compact_fallback(material, task_id=ctx.task.id, max_bytes=state_cap)
         outcome_reason = f"compaction_fallback: {fallback_reason}"
     else:
         state = parsed
@@ -327,14 +317,7 @@ async def compact(ctx: StepContext) -> StepResult:
 def _compact_fallback(ctx: StepContext, reason: str) -> StepResult:
     """Truncate STATE.md deterministically when the model path is unavailable."""
     material = collect_material(ctx.task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
-    state = compact_fallback(
-        material.state,
-        material.summaries,
-        material.result_text,
-        material.git_log,
-        task_id=ctx.task.id,
-        max_bytes=ctx.config.state_max_bytes,
-    )
+    state = compact_fallback(material, task_id=ctx.task.id, max_bytes=ctx.config.state_max_bytes)
     try:
         StateFile.write(ctx.task_dir, state)
     except OSError as exc:

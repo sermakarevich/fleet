@@ -5,6 +5,7 @@ from pathlib import Path
 import structlog
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.plan_input import PlanInput
 from fleet.core.task import Task
 from fleet.state.paths import task_dir
 from fleet.workers.base import FnStep, StepContext, StepStatus
@@ -91,10 +92,17 @@ def test_prepare_artifacts_calls_write_runtime_config(tmp_path: Path) -> None:
     assert called_task is ctx.task
 
 
+def _plan(ctx: StepContext) -> PlanInput:
+    """Narrow planner input for *ctx* (mirrors workers/__init__.py routing)."""
+    return PlanInput(
+        task=ctx.task, task_dir=ctx.task_dir, config=ctx.config, attempt_n=ctx.attempt_n
+    )
+
+
 def test_plan_task_returns_fresh_task_shaped_worker(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
 
-    worker = plan_task(ctx)
+    worker = plan_task(_plan(ctx))
 
     assert worker.name == FreshTask.name == "task.fresh"
     assert [type(s) for s in worker.steps] == [FnStep, LlmSession]
@@ -104,7 +112,7 @@ def test_plan_task_builds_fresh_step_instances(tmp_path: Path) -> None:
     """Each call must build fresh step instances: LlmSession keeps per-attempt
     subprocess state on self, and worker runs execute concurrently across tasks."""
     ctx = tmp_path
-    worker_a = plan_task(_ctx(ctx, "t-a"))
-    worker_b = plan_task(_ctx(ctx, "t-b"))
+    worker_a = plan_task(_plan(_ctx(ctx, "t-a")))
+    worker_b = plan_task(_plan(_ctx(ctx, "t-b")))
 
     assert worker_a.steps[1] is not worker_b.steps[1]

@@ -22,6 +22,7 @@ from pathlib import Path
 from structlog import BoundLogger
 
 from fleet.coders.base import FALLBACK_CONTEXT_LIMIT, Coder, context_limit_for
+from fleet.core.clock import Clock, SystemClock
 from fleet.core.config import RuntimeConfig
 from fleet.core.context_window import parse_context_windows
 from fleet.core.limits import (
@@ -71,6 +72,7 @@ class MonitorContext:
     last_event_at: datetime
     last_stdout_at: datetime
     last_probe_at: datetime
+    clock: Clock
     session_id: str | None = None
     verdict: Verdict | None = None
     peak_context_tokens: int = 0
@@ -132,7 +134,7 @@ class AttemptBudget(Monitor):
     order = 15
 
     def on_event(self, event: Event, ctx: MonitorContext) -> Verdict | None:
-        return self._check(datetime.now(tz=UTC), ctx)
+        return self._check(ctx.clock.now(), ctx)
 
     def on_tick(self, now: datetime, ctx: MonitorContext) -> Verdict | None:
         return self._check(now, ctx)
@@ -361,7 +363,8 @@ def build_monitors(
 ) -> tuple[list[Monitor], MonitorContext]:
     """Create the ordered monitors and their shared context for one run."""
     assert step.coder is not None
-    started_at = datetime.now(tz=UTC)
+    clock: Clock = step.clock or SystemClock()
+    started_at = clock.now()
     ctx = MonitorContext(
         task=step.task,
         task_dir=step.task_dir,
@@ -379,6 +382,7 @@ def build_monitors(
         last_event_at=started_at,
         last_stdout_at=started_at,
         last_probe_at=started_at,
+        clock=clock,
         checkpoint_written=(attempt_dir / CHECKPOINT_REQUESTED_MARKER).exists(),
     )
     monitors: list[Monitor] = [

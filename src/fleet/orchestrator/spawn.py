@@ -46,18 +46,18 @@ def _repo_excluded(repo_root: Path, exclude: str) -> bool:
 def resolve_coder(st: SupervisorState, task: Task) -> tuple[Coder, str, str | None]:
     """Pick (coder, coder_name, model) for a task.
 
-    If the state carries a pinned `coder_pin` instance (used in unit
-    tests), reuse it as-is. Otherwise build a fresh coder using
-    task.coder / task.model, falling back to config defaults.
+    Uses the state's ``coder_factory`` when tests injected one, else builds
+    a fresh coder using task.coder / task.model, falling back to config
+    defaults.
     """
-    if st.coder_pin is not None:
-        pin = st.coder_pin
-        spec = getattr(pin, "spec", None)
-        name = spec.name if spec is not None else getattr(pin, "name", "")
-        return pin, name, getattr(pin, "model", None)
     coder_name, model = effective_coder_model(
         task.coder, task.model, st.config.coder, st.config.model
     )
+    if st.coder_factory is not None:
+        pin = st.coder_factory(coder_name, model)
+        spec = getattr(pin, "spec", None)
+        name = spec.name if spec is not None else getattr(pin, "name", "")
+        return pin, name, getattr(pin, "model", None)
     kwargs = coder_kwargs(
         coder_name,
         model=model,
@@ -200,7 +200,7 @@ def _start_worker_run(st: SupervisorState, task: Task, ctx: StepContext) -> Runn
     """Build the worker, start its asyncio task, and return the record."""
 
     try:
-        worker = select_worker(task, ctx)
+        worker = select_worker(task, ctx, st.queue)
     except ValueError as exc:
         block_terminal(st, task, f"terminal: invalid worker: {exc}")
         return None
@@ -234,7 +234,7 @@ def spawn_worker(st: SupervisorState, task: Task) -> RunningWorker | None:
     if coder_triple is None:
         return None
     coder, coder_name, model = coder_triple
-    if st.coder_pin is None:
+    if st.coder_factory is None:
         st.queue.freeze_coder_model(task.id, coder_name, model)
     st.log.info("task_coder_selected", task_id=task.id, coder=coder_name, model=model)
     task_root = _ensure_isolation(st, task, base_cwd, repo_root)

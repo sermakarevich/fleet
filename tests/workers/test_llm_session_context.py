@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 import structlog
@@ -16,14 +15,14 @@ from fleet.state import paths as state_paths
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.session.classify import error_text_of, is_context_error_text
+from tests.workers.fake_runner import FakeProcess, FakeProcessRunner
 
 
 class StubCoder:
     name = "stub"
     context_limit: int = 1_000
 
-    def __init__(self, argv: list[str]) -> None:
-        self._argv = argv
+    def __init__(self) -> None:
         self._cli = ClaudeCoder(fleet_home=Path.cwd())
         self.model = "stub-model"
 
@@ -32,7 +31,7 @@ class StubCoder:
         return cls.context_limit
 
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
-        return self._argv
+        return ["fake-coder"]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         return {
@@ -49,7 +48,29 @@ class _Gauge:
         return None
 
 
-def _ctx(tmp_path: Path, task_id: str = "t-ctx") -> StepContext:
+def _ctx(
+    tmp_path: Path, lines: list[str], task_id: str = "t-ctx", exit_code: int | None = 0
+) -> StepContext:
+    task = Task(id=task_id, title="T", description=None, status="in_progress")
+    task_dir = state_paths.task_dir(tmp_path, task_id)
+    attempt_dir = task_dir / "attempts" / "1"
+    hang = exit_code is None
+    return StepContext(
+        task=task,
+        task_dir=task_dir,
+        workdir=tmp_path,
+        fleet_home=tmp_path,
+        coder=StubCoder(),
+        config=RuntimeConfig(),
+        rate_gauge=_Gauge(),  # type: ignore[arg-type]
+        log=structlog.get_logger(),
+        attempt_dir=attempt_dir,
+        attempt_n=1,
+        runner=FakeProcessRunner([FakeProcess(lines=lines, exit_code=exit_code, hang=hang)]),
+    )
+
+
+def _stderr_ctx(tmp_path: Path, stderr_text: str, task_id: str = "t-stderr") -> StepContext:
     task = Task(id=task_id, title="T", description=None, status="in_progress")
     task_dir = state_paths.task_dir(tmp_path, task_id)
     attempt_dir = task_dir / "attempts" / "1"
@@ -58,12 +79,15 @@ def _ctx(tmp_path: Path, task_id: str = "t-ctx") -> StepContext:
         task_dir=task_dir,
         workdir=tmp_path,
         fleet_home=tmp_path,
-        coder=None,  # replaced per-test below
+        coder=StubCoder(),
         config=RuntimeConfig(),
         rate_gauge=_Gauge(),  # type: ignore[arg-type]
         log=structlog.get_logger(),
         attempt_dir=attempt_dir,
         attempt_n=1,
+        runner=FakeProcessRunner(
+            [FakeProcess(exit_code=1, stderr_text=stderr_text)],
+        ),
     )
 
 
@@ -74,26 +98,19 @@ def _run(session: LlmSession, ctx: StepContext):
     return step_result.outcome
 
 
-def _usage_script(input_tokens: int, sleep_sec: float = 30.0) -> str:
-    line = json.dumps(
+def _usage_line(input_tokens: int) -> str:
+    return json.dumps(
         {
             "type": "assistant",
             "message": {"content": [], "usage": {"input_tokens": input_tokens}},
             "session_id": "s-ctx",
         }
     )
-    return (
-        "import sys, time\n"
-        f"sys.stdout.write({line!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        f"time.sleep({sleep_sec})\n"
-    )
 
 
 def test_checkpoint_marker_written_at_75_pct(tmp_path: Path) -> None:
     """80% of limit: .checkpoint_requested appears, session still succeeds."""
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", _usage_script(800, 0.1)])
+    ctx = _ctx(tmp_path, [_usage_line(800)])
 
     result = _run(LlmSession(), ctx)
 
@@ -102,8 +119,7 @@ def test_checkpoint_marker_written_at_75_pct(tmp_path: Path) -> None:
 
 
 def test_no_checkpoint_below_threshold(tmp_path: Path) -> None:
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", _usage_script(100, 0.1)])
+    ctx = _ctx(tmp_path, [_usage_line(100)])
 
     result = _run(LlmSession(), ctx)
 
@@ -113,8 +129,8 @@ def test_no_checkpoint_below_threshold(tmp_path: Path) -> None:
 
 def test_kill_at_90_pct_reports_context_pressure(tmp_path: Path) -> None:
     """95% of limit: process group killed, outcome is CONTEXT_PRESSURE."""
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", _usage_script(950)])
+    proc_lines = [_usage_line(950)]
+    ctx = _ctx(tmp_path, proc_lines, exit_code=None)
 
     result = _run(LlmSession(), ctx)
 
@@ -124,14 +140,7 @@ def test_kill_at_90_pct_reports_context_pressure(tmp_path: Path) -> None:
 
 
 def test_stderr_context_error_reports_context_pressure(tmp_path: Path) -> None:
-    script = (
-        "import sys\n"
-        "sys.stderr.write('Error: prompt is too long\\n')\n"
-        "sys.stderr.flush()\n"
-        "sys.exit(1)\n"
-    )
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+    ctx = _stderr_ctx(tmp_path, "Error: prompt is too long\n")
 
     result = _run(LlmSession(), ctx)
 
@@ -141,29 +150,15 @@ def test_stderr_context_error_reports_context_pressure(tmp_path: Path) -> None:
 
 def test_event_context_error_reports_context_pressure(tmp_path: Path) -> None:
     line = json.dumps({"type": "system", "subtype": "error", "message": "Prompt is too long"})
-    script = (
-        "import sys, time\n"
-        f"sys.stdout.write({line!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(30)\n"
-    )
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+    ctx = _ctx(tmp_path, [line], exit_code=None)
 
     result = _run(LlmSession(), ctx)
 
     assert result.outcome == TaskOutcome.CONTEXT_PRESSURE
 
 
-def _emit_then_exit_ok(line: str) -> str:
-    """Script that prints *line*, then a clean result event, then exits 0."""
-    done = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok"})
-    return (
-        "import sys\n"
-        f"sys.stdout.write({line!r} + '\\n')\n"
-        f"sys.stdout.write({done!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-    )
+def _done_line(payload: dict) -> str:
+    return json.dumps(payload)
 
 
 def test_assistant_prose_about_context_window_is_not_an_overflow(tmp_path: Path) -> None:
@@ -182,8 +177,8 @@ def test_assistant_prose_about_context_window_is_not_an_overflow(tmp_path: Path)
             },
         }
     )
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", _emit_then_exit_ok(line)])
+    done = _done_line({"type": "result", "subtype": "success", "is_error": False, "result": "ok"})
+    ctx = _ctx(tmp_path, [line, done])
 
     result = _run(LlmSession(), ctx)
 
@@ -191,7 +186,7 @@ def test_assistant_prose_about_context_window_is_not_an_overflow(tmp_path: Path)
 
 
 def test_successful_result_mentioning_context_window_is_not_an_overflow(tmp_path: Path) -> None:
-    done = json.dumps(
+    done = _done_line(
         {
             "type": "result",
             "subtype": "success",
@@ -199,9 +194,7 @@ def test_successful_result_mentioning_context_window_is_not_an_overflow(tmp_path
             "result": "Added a context window map per model.",
         }
     )
-    script = f"import sys\nsys.stdout.write({done!r} + '\\n')\nsys.stdout.flush()\n"
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+    ctx = _ctx(tmp_path, [done])
 
     result = _run(LlmSession(), ctx)
 
@@ -209,7 +202,7 @@ def test_successful_result_mentioning_context_window_is_not_an_overflow(tmp_path
 
 
 def test_failed_result_with_context_error_reports_context_pressure(tmp_path: Path) -> None:
-    done = json.dumps(
+    done = _done_line(
         {
             "type": "result",
             "subtype": "error",
@@ -217,14 +210,7 @@ def test_failed_result_with_context_error_reports_context_pressure(tmp_path: Pat
             "result": "Prompt is too long: 1050000 tokens > 1048576 maximum",
         }
     )
-    script = (
-        "import sys, time\n"
-        f"sys.stdout.write({done!r} + '\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(30)\n"
-    )
-    ctx = _ctx(tmp_path)
-    ctx.coder = StubCoder(argv=[sys.executable, "-c", script])
+    ctx = _ctx(tmp_path, [done], exit_code=None)
 
     result = _run(LlmSession(), ctx)
 

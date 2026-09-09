@@ -22,12 +22,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fleet.beads.queue import BeadsQueue, Queue
+from fleet.beads.queue import Queue
 from fleet.core.errors import Json, PlanError
 from fleet.core.job_phase import phase_failures, phase_of
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.launch_policy import LaunchPlan
+from fleet.core.plan_input import PlanInput
 from fleet.core.result import ResultStatus
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
@@ -58,11 +59,6 @@ GATE_OPTION_APPROVE = "approve"
 GATE_OPTION_REVISE = "revise (write note)"
 GATE_OPTION_CANCEL = "cancel job"
 GATE_OPTIONS = [GATE_OPTION_APPROVE, GATE_OPTION_REVISE, GATE_OPTION_CANCEL]
-
-
-def _default_queue(fleet_home: Path) -> Queue:
-    """Build the production queue for *fleet_home* (plan functions call this per attempt)."""
-    return BeadsQueue(fleet_home)
 
 
 def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
@@ -477,15 +473,15 @@ class BlockJob:
         return StepResult(status=StepStatus.OK)
 
 
-def _snapshot_for(ctx: StepContext, queue: Queue | None = None) -> JobSnapshot:
+def _snapshot_for(plan: PlanInput, queue: Queue) -> JobSnapshot:
     """Read the task directory + children into a pure phase snapshot (I/O here)."""
-    artifacts_dir = ctx.task_dir / "artifacts"
+    artifacts_dir = plan.task_dir / "artifacts"
     has_research = (artifacts_dir / "RESEARCH.md").exists()
     has_tasks = (artifacts_dir / "tasks.json").exists()
     approved = (artifacts_dir / "APPROVED").exists()
-    gate_enabled = bool(ctx.config.job_gate) and ((ctx.task.job_gate or "") != "off")
+    gate_enabled = bool(plan.config.job_gate) and ((plan.task.job_gate or "") != "off")
     try:
-        children = (queue or _default_queue(ctx.fleet_home)).list_children(ctx.task.id)
+        children = queue.list_children(plan.task.id)
         has_children = len(list(children)) > 0
     except Exception:  # noqa: BLE001 - fall back to the spawn journal
         try:
@@ -502,25 +498,30 @@ def _snapshot_for(ctx: StepContext, queue: Queue | None = None) -> JobSnapshot:
     )
 
 
-def plan_job(ctx: StepContext, queue: Queue | None = None) -> Worker:
+def plan_job(
+    plan: PlanInput,
+    queue: Queue,
+    store: QuestionStoreLike | None = None,
+) -> Worker:
     """Pick the job worker for this attempt: research/design/gate/spawn/observe.
 
     Reads files and the child list (I/O), then applies the pure
     ``core/job_phase.phase_of`` table. Research/design attempts that already
     failed ``job_max_phase_attempts`` times become a ``job.blocked`` worker
     instead. Fresh step instances are built on every call (LlmSession holds
-    per-attempt subprocess state).
+    per-attempt subprocess state). The queue and the gate store come from
+    the worker factory (``workers/__init__.py``); this module never builds
+    either.
     """
-    queue = queue or _default_queue(ctx.fleet_home)
-    snapshot = _snapshot_for(ctx, queue)
+    snapshot = _snapshot_for(plan, queue)
     current_phase = phase_of(snapshot)
     if current_phase in ("research", "design"):
         history = [
             a
-            for a in state_attempts.load_attempts(ctx.task_dir)
-            if isinstance(a, dict) and a.get("n", 0) < ctx.attempt_n
+            for a in state_attempts.load_attempts(plan.task_dir)
+            if isinstance(a, dict) and a.get("n", 0) < plan.attempt_n
         ]
-        max_attempts = ctx.config.job_max_phase_attempts
+        max_attempts = plan.config.job_max_phase_attempts
         if phase_failures(history, current_phase) >= max_attempts:
             return Worker("job.blocked", (BlockJob(),))
     if current_phase == "research":
@@ -528,7 +529,7 @@ def plan_job(ctx: StepContext, queue: Queue | None = None) -> Worker:
     if current_phase == "design":
         return Worker("job.design", (JobPrepare("design"), LlmSession()))
     if current_phase == "gate":
-        return Worker("job.gate", (AskApproval(),))
+        return Worker("job.gate", (AskApproval(store),))
     if current_phase == "spawn":
         return Worker("job.spawn", (SpawnChildren(queue),))
     return Worker(

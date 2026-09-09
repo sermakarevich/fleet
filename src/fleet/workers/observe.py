@@ -17,16 +17,17 @@ import json
 from contextlib import suppress
 from pathlib import Path
 
-from fleet.beads.queue import BeadsQueue, Queue
+from fleet.beads.queue import Queue
 from fleet.core.job_plan import validate_followups
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.launch_policy import LaunchPlan
+from fleet.core.plan_input import PlanInput
 from fleet.core.result import ResultStatus, parse_result
 from fleet.core.task import AttemptKind, TaskOutcome, TaskOutcomeRecord, TaskStatus
 from fleet.state import attempts as state_attempts
 from fleet.state.attempt_summary import summarize
 from fleet.state.legacy_task_dir import legacy_result
-from fleet.state.paths import RESULT_JSON, fleet_home
+from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as task_dir_path
 
 from .base import StepContext, StepResult, StepStatus, Worker, merge_run_json
@@ -37,10 +38,8 @@ from .llm_session import LlmSession
 CHILDREN_MD_MAX_BYTES = 8 * 1024
 CHILD_SECTION_MAX_CHARS = 600
 
-
-def _default_queue(fleet_home: Path) -> Queue:
-    """Build the production queue for *fleet_home* (plan functions call this per attempt)."""
-    return BeadsQueue(fleet_home)
+OBSERVER_NAME = "observer"
+"""Family name of the canonical observer pipeline (see ADR 0003)."""
 
 
 def _as_summaries(children: list) -> list[BeadSummary]:
@@ -273,18 +272,16 @@ def _observer_steps(
     return (WaitChildren(queue), CollectChildren(queue), LlmSession(), SpawnFollowups(queue))
 
 
-# Canonical observer pipeline (see ADR 0003). `plan_observer` below builds
-# fresh step instances per attempt instead of reusing these: LlmSession
-# holds per-attempt subprocess state on `self`, and attempts run
-# concurrently across tasks.
-Observer = Worker("observer", _observer_steps(_default_queue(fleet_home())))
-
-
-def plan_observer(ctx: StepContext) -> Worker:
+def plan_observer(plan: PlanInput, queue: Queue) -> Worker:
     """Pick the observer worker: always the full validate pipeline.
 
     Branching lives in the steps, not here: WaitChildren re-releases while
     children run, and SpawnFollowups is a no-op unless RESULT.json declares
-    follow-ups — so one static list covers every epic attempt.
+    follow-ups — so one static list covers every epic attempt. The queue
+    comes from the worker factory (``workers/__init__.py``); this module
+    never builds one. Fresh step instances are built per attempt instead of
+    reusing a singleton: LlmSession holds per-attempt subprocess state on
+    ``self``, and attempts run concurrently across tasks.
     """
-    return Worker(Observer.name, _observer_steps(_default_queue(ctx.fleet_home)))
+    _ = plan  # the pipeline is static; the plan only keeps the shape uniform
+    return Worker(OBSERVER_NAME, _observer_steps(queue))

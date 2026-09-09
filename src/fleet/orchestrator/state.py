@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +46,9 @@ class SupervisorState:
     queue: Queue
     log: structlog.BoundLogger
     rate_gauge: RateGauge
-    coder_pin: Coder | None = None  # tests only
+    # How to build a coder from (coder_name, model). Tests inject a fake
+    # here; None means the production coders.resolve_coder in spawn.py.
+    coder_factory: Callable[[str, str | None], Coder] | None = None
     running: dict[str, RunningWorker] = field(
         default_factory=dict
     )  # writer: Claim adds, Reap removes (beads 3-4)
