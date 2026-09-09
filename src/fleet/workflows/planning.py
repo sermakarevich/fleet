@@ -25,6 +25,10 @@ META_CWD = "fleet_cwd"
 META_CODER = "fleet_coder"
 META_MODEL = "fleet_model"
 
+#: Step isolation opt-out, read by the supervisor spawn path: "none" runs the
+#: step's task in place instead of a git worktree.
+META_ISOLATION = "fleet_isolation"
+
 
 @dataclass(frozen=True, slots=True)
 class PlannedStep:
@@ -56,7 +60,11 @@ def labels_for(workflow_id: str, run_id: str, step_name: str) -> list[str]:
 
 
 def metadata_for(workflow_id: str, run_id: str, step: Step) -> dict[str, str]:
-    """Bead metadata for one step task; routing keys only when set."""
+    """Bead metadata for one step task; routing keys only when set.
+
+    The step is expected effective (defaults filled in by `plan`), so the
+    emitted `fleet_isolation` is the effective isolation of step + defaults.
+    """
     meta = {
         META_WORKFLOW_ID: workflow_id,
         META_RUN_ID: run_id,
@@ -68,6 +76,8 @@ def metadata_for(workflow_id: str, run_id: str, step: Step) -> dict[str, str]:
         meta[META_CODER] = step.coder
     if step.model is not None:
         meta[META_MODEL] = step.model
+    if step.isolation is not None:
+        meta[META_ISOLATION] = step.isolation
     return meta
 
 

@@ -537,6 +537,10 @@ def print_schedule_show(
     if schedule.model:
         typer.echo(f"model:    {schedule.model}")
     typer.echo(f"priority: {schedule.priority}")
+    if schedule.inputs:
+        typer.echo("inputs:")
+        for name in sorted(schedule.inputs):
+            typer.echo(f"  {name}={schedule.inputs[name]}")
     typer.echo(f"overlap:  {schedule.overlap.value}")
     typer.echo(f"created:  {schedule.created_at}")
     typer.echo(f"updated:  {schedule.updated_at}")
@@ -656,6 +660,17 @@ def print_workflow_show(workflow: Workflow, updated_note: str = "") -> None:
         typer.echo(f"description: {workflow.description}")
     if updated_note:
         typer.echo(updated_note)
+    if workflow.inputs:
+        typer.echo("inputs:")
+        for item in workflow.inputs:
+            line = f"  - {item.name}"
+            if item.required:
+                line += " (required)"
+            elif item.default is not None:
+                line += f" (default: {item.default})"
+            if item.description:
+                line += f" — {item.description}"
+            typer.echo(line)
     for line in _stage_outline(_step_lines(workflow)):
         typer.echo(line)
 
@@ -699,5 +714,11 @@ def print_workflow_runs(rows: list[WorkflowRunRow]) -> None:
 def print_workflow_run_show(run: WorkflowRun, lines: list[WorkflowStepLine]) -> None:
     """Print one run as a stage outline with task id and status per step."""
     typer.echo(f"run: {run.id} workflow {run.workflow_id} #{run.n} {run.status.value}")
+    if run.inputs:
+        typer.echo("inputs:")
+        for name in sorted(run.inputs):
+            typer.echo(f"  {name}={run.inputs[name]}")
+    else:
+        typer.echo("inputs: (none)")
     for line in _stage_outline(lines):
         typer.echo(line)

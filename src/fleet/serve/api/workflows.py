@@ -12,9 +12,9 @@ import asyncio
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import ValidationError
 
@@ -25,6 +25,7 @@ from fleet.core.errors import WorkflowInvalid, WorkflowNameTaken, WorkflowNotFou
 from fleet.observability.process import service_status
 from fleet.serve.api.models import (
     OkResponse,
+    StartRunRequest,
     StartRunResponse,
     WorkflowExportResponse,
     WorkflowListResponse,
@@ -51,6 +52,7 @@ from fleet.workflows.model import (
     Step,
     Trigger,
     Workflow,
+    WorkflowInput,
     WorkflowRun,
     ensure_valid,
     new_id,
@@ -80,6 +82,17 @@ def _step_from_request(raw: Any) -> Step:
         model=raw.model,
         priority=raw.priority,
         needs=tuple(str(item) for item in needs),
+        isolation=raw.isolation,
+    )
+
+
+def _input_from_request(raw: Any) -> WorkflowInput:
+    """One WorkflowInput dataclass from a validated request input."""
+    return WorkflowInput(
+        name=raw.name,
+        description=raw.description or "",
+        required=raw.required,
+        default=raw.default,
     )
 
 
@@ -96,7 +109,9 @@ def _workflow_from_request(
             coder=req.defaults.coder,
             model=req.defaults.model,
             priority=req.defaults.priority,
+            isolation=req.defaults.isolation,
         ),
+        inputs=tuple(_input_from_request(item) for item in req.inputs),
         stages=tuple(
             Stage(name=stage.name, steps=tuple(_step_from_request(item) for item in stage.steps))
             for stage in req.stages
@@ -175,6 +190,7 @@ def _run_view(
         "reason": run.reason,
         "started_at": run.started_at,
         "finished_at": run.finished_at,
+        "inputs": dict(run.inputs),
         "steps": steps,
     }
 
@@ -321,6 +337,7 @@ def _import_workflow(
             name=parsed.name,
             description=parsed.description,
             defaults=parsed.defaults,
+            inputs=parsed.inputs,
             stages=parsed.stages,
             created_at=existing.created_at,
             updated_at=moment,
@@ -333,6 +350,7 @@ def _import_workflow(
             name=parsed.name,
             description=parsed.description,
             defaults=parsed.defaults,
+            inputs=parsed.inputs,
             stages=parsed.stages,
             created_at=moment,
             updated_at=moment,
@@ -359,14 +377,21 @@ def _safe_filename(name: str) -> str:
 
 
 def _start_run(
-    store: WorkflowStore, queue: Queue, workflow_id: str, now: datetime
+    store: WorkflowStore,
+    queue: Queue,
+    workflow_id: str,
+    now: datetime,
+    body: StartRunRequest | None,
 ) -> dict[str, Any] | None:
     """Open every step's bead for one manual run; None when unknown."""
     workflow = store.get(workflow_id)
     if workflow is None:
         return None
+    given = body.inputs if body is not None else {}
     try:
-        run = start_run(workflow, store=store, queue=queue, now=now, trigger=Trigger.manual)
+        run = start_run(
+            workflow, store=store, queue=queue, now=now, trigger=Trigger.manual, inputs=given
+        )
     except WorkflowInvalid as exc:
         raise unprocessable("; ".join(exc.problems)) from exc
     except BdError as exc:
@@ -561,11 +586,15 @@ async def export_workflow(
 
 
 @router.post("/workflows/{workflow_id}/run", response_model=StartRunResponse)
-async def run_workflow(workflow_id: str, state: StateDep) -> JSONResponse:
+async def run_workflow(
+    workflow_id: str,
+    state: StateDep,
+    body: Annotated[StartRunRequest | None, Body()] = None,
+) -> JSONResponse:
     """Start one manual run now and return it with its step runs."""
     try:
         payload = await asyncio.to_thread(
-            _start_run, state.workflow_store, state.queue, workflow_id, datetime.now(UTC)
+            _start_run, state.workflow_store, state.queue, workflow_id, datetime.now(UTC), body
         )
     except WorkflowNotFound as exc:
         _reraise_missing(exc)

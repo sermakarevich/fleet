@@ -2016,6 +2016,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StartRunRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4436,6 +4453,13 @@
             ],
             "title": "Workflow Id"
           },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Inputs"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -4728,6 +4752,13 @@
             ],
             "title": "Workflow Id"
           },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Inputs"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -4850,6 +4881,20 @@
         "title": "StageRequest",
         "description": "One stage (parallel group) in a workflow create/update body."
       },
+      "StartRunRequest": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Inputs"
+          }
+        },
+        "type": "object",
+        "title": "StartRunRequest",
+        "description": "Body for POST /api/workflows/{id}/run (all fields optional)."
+      },
       "StartRunResponse": {
         "properties": {
           "run": {
@@ -4930,6 +4975,17 @@
             },
             "type": "array",
             "title": "Needs"
+          },
+          "isolation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isolation"
           }
         },
         "type": "object",
@@ -6115,6 +6171,17 @@
             "type": "integer",
             "title": "Priority",
             "default": 2
+          },
+          "isolation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isolation"
           }
         },
         "type": "object",
@@ -6134,6 +6201,39 @@
         ],
         "title": "WorkflowExportResponse",
         "description": "Envelope for GET /api/workflows/{id}/export (YAML text)."
+      },
+      "WorkflowInputModel": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": false
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          }
+        },
+        "type": "object",
+        "title": "WorkflowInputModel",
+        "description": "One named value the operator passes when starting a run."
       },
       "WorkflowListResponse": {
         "properties": {
@@ -6230,6 +6330,13 @@
             ],
             "title": "Finished At"
           },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Inputs"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepRunView"
@@ -6293,6 +6400,13 @@
           },
           "defaults": {
             "$ref": "#/components/schemas/WorkflowDefaultsModel"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowInputModel"
+            },
+            "type": "array",
+            "title": "Inputs"
           },
           "stages": {
             "items": {

@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
+from fleet.core.errors import WorkflowInvalid
 from fleet.core.task import Task, TaskStatus
 from fleet.state import task_actions
 from fleet.workflows.model import (
@@ -39,6 +41,32 @@ from fleet.workflows.planning import (
 )
 from fleet.workflows.store import WorkflowStore
 from fleet.workflows.templates import TemplateContext, render
+
+
+def resolve_inputs(workflow: Workflow, given: Mapping[str, str] | None) -> dict[str, str]:
+    """Merge operator values with input defaults; unknown/missing is invalid."""
+    supplied = dict(given) if given is not None else {}
+    declared = {item.name: item for item in workflow.inputs}
+    unknown = sorted(set(supplied) - set(declared))
+    if unknown:
+        raise WorkflowInvalid(
+            [
+                f"input {name!r}: unknown input (declared: {', '.join(declared) or 'none'})"
+                for name in unknown
+            ]
+        )
+    resolved: dict[str, str] = {}
+    missing: list[str] = []
+    for item in workflow.inputs:
+        if item.name in supplied:
+            resolved[item.name] = supplied[item.name]
+        elif item.default is not None:
+            resolved[item.name] = item.default
+        elif item.required:
+            missing.append(f"input {item.name!r}: required but no value given")
+    if missing:
+        raise WorkflowInvalid(missing)
+    return resolved
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -77,6 +105,7 @@ def _open_step(
         run_date=run_date,
         step_name=step.name,
         task_ids=dict(task_ids),
+        inputs=dict(run.inputs),
     )
     dep_ids = [task_ids[name] for name in planned.depends_on_names]
     meta = metadata_for(workflow.id, run.id, step)
@@ -112,9 +141,11 @@ def start_run(
     now: datetime,
     trigger: Trigger,
     schedule_id: str | None = None,
+    inputs: Mapping[str, str] | None = None,
 ) -> WorkflowRun:
     """Open every step's bead stage by stage and record the run as running."""
     ensure_valid(workflow)
+    resolved = resolve_inputs(workflow, inputs)
     n = store.run_count(workflow.id) + 1
     stamp = now.isoformat()
     run = WorkflowRun(
@@ -126,6 +157,7 @@ def start_run(
         spec=workflow,
         status=RunStatus.running,
         started_at=stamp,
+        inputs=resolved,
     )
     store.save_run(run)
     run_date = _as_utc(now).date().isoformat()

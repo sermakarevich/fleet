@@ -67,13 +67,21 @@ CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run
 """
 
 # Ordered schema steps after the base tables above, applied under
-# PRAGMA user_version. No post-base steps exist yet: future changes append
-# one idempotent statement each, and _apply_migrations replays the base
-# plus every step, so a half-applied schema is repaired instead of obeyed.
-MIGRATIONS: list[str] = []
+# PRAGMA user_version. Each statement adds exactly one column; the column
+# name is parsed back out (see _migration_column) so a half-applied schema
+# (version stamp ahead of its columns) is detected and repaired.
+MIGRATIONS: list[str] = [
+    "ALTER TABLE workflow_runs ADD COLUMN inputs_json TEXT NOT NULL DEFAULT '{}'",
+]
 
 #: Schema level of a fully migrated database: the number of MIGRATIONS.
 SCHEMA_VERSION = len(MIGRATIONS)
+
+
+def _migration_column(statement: str) -> str:
+    """Column name added by an ``ALTER TABLE ... ADD COLUMN <name> ...`` step."""
+    parts = statement.split()
+    return parts[parts.index("COLUMN") + 1]
 
 
 def _user_version(conn: sqlite3.Connection) -> int:
@@ -82,11 +90,35 @@ def _user_version(conn: sqlite3.Connection) -> int:
     return int(row[0])
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> None:
-    """Bring the on-disk schema to SCHEMA_VERSION, repairing partial writes."""
-    conn.executescript(_SCHEMA_BASE)
-    for statement in MIGRATIONS:
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    """Live column names of one table."""
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _add_column(conn: sqlite3.Connection, statement: str, table: str, column: str) -> None:
+    """Run one ALTER TABLE step, tolerating a concurrent migrator winning the race."""
+    try:
         conn.execute(statement)
+    except sqlite3.OperationalError:
+        if column not in _column_names(conn, table):
+            raise
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Bring the on-disk schema to SCHEMA_VERSION, in MIGRATIONS order.
+
+    Fresh databases get the base tables plus every step; old ones get the
+    missing steps; a database stamped ahead of its columns gets the steps
+    it is actually missing. The version stamp is written last.
+    """
+    conn.executescript(_SCHEMA_BASE)
+    columns = _column_names(conn, "workflow_runs")
+    for statement in MIGRATIONS:
+        column = _migration_column(statement)
+        if column in columns:
+            continue
+        _add_column(conn, statement, "workflow_runs", column)
+        columns.add(column)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
@@ -99,7 +131,21 @@ def _row_to_run(row: sqlite3.Row) -> WorkflowRun:
     """Decode one workflow_runs row (spec_json holds the frozen definition)."""
     data: dict[str, Any] = dict(row)
     data["spec"] = json.loads(str(data["spec_json"]))
+    data["inputs"] = _decode_inputs(data.get("inputs_json"))
     return WorkflowRun.from_dict(data)
+
+
+def _decode_inputs(raw: Any) -> dict[str, str]:
+    """Decoded inputs map; corrupt or missing JSON means no inputs."""
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+    return {str(key): str(value) for key, value in decoded.items()}
 
 
 def _row_to_step_run(row: sqlite3.Row) -> StepRun:
@@ -233,8 +279,9 @@ class WorkflowStore:
         with self._conn() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO workflow_runs (id, workflow_id, n, trigger, "
-                "schedule_id, spec_json, status, reason, started_at, finished_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "schedule_id, spec_json, status, reason, started_at, finished_at, "
+                "inputs_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run.id,
                     run.workflow_id,
@@ -246,6 +293,7 @@ class WorkflowStore:
                     run.reason,
                     run.started_at,
                     run.finished_at,
+                    json.dumps(run.inputs),
                 ),
             )
 

@@ -18,6 +18,7 @@ from typing import Any
 
 from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
+from fleet.core.errors import WorkflowInvalid
 from fleet.schedules.cron import next_fire
 from fleet.schedules.model import (
     OverlapPolicy,
@@ -277,9 +278,14 @@ def _fire_workflow(  # noqa: PLR0913, PLR0917  # one row, one call site shape
             now=now,
             trigger=WorkflowTrigger(trigger.value),
             schedule_id=schedule.id,
+            inputs=dict(schedule.inputs),
         )
     except BdError as exc:
         _record(store, schedule, run_n, moment, now, trigger, None, True, f"bd error: {exc}")
+        raise
+    except WorkflowInvalid as exc:
+        reason = f"inputs invalid: {'; '.join(exc.problems)}"
+        _record(store, schedule, run_n, moment, now, trigger, None, True, reason)
         raise
     return _record(
         store,

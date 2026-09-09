@@ -710,6 +710,7 @@ class ScheduleRequest(BaseModel):
     overlap: str = "skip"
     target: str = "task"
     workflow_id: str | None = None
+    inputs: dict[str, str] = Field(default_factory=dict)
 
 
 class ScheduleRunView(BaseModel):
@@ -746,6 +747,7 @@ class ScheduleView(BaseModel):
     overlap: str
     target: str = "task"
     workflow_id: str | None = None
+    inputs: dict[str, str] = Field(default_factory=dict)
     created_at: str
     updated_at: str
     next_fire_at: str | None
@@ -799,6 +801,7 @@ class StepRequest(BaseModel):
     model: str | None = None
     priority: int | None = None
     needs: list[str] = Field(default_factory=list)
+    isolation: str | None = None
 
 
 class StageRequest(BaseModel):
@@ -815,6 +818,16 @@ class WorkflowDefaultsModel(BaseModel):
     coder: str | None = None
     model: str | None = None
     priority: int = 2
+    isolation: str | None = None
+
+
+class WorkflowInputModel(BaseModel):
+    """One named value the operator passes when starting a run."""
+
+    name: str = ""
+    description: str = ""
+    required: bool = False
+    default: str | None = None
 
 
 class WorkflowRequest(BaseModel):
@@ -823,6 +836,7 @@ class WorkflowRequest(BaseModel):
     name: str = ""
     description: str = ""
     defaults: WorkflowDefaultsModel = Field(default_factory=WorkflowDefaultsModel)
+    inputs: list[WorkflowInputModel] = Field(default_factory=list)
     stages: list[StageRequest] = Field(default_factory=list)
 
 
@@ -851,6 +865,7 @@ class WorkflowRunView(BaseModel):
     reason: str
     started_at: str
     finished_at: str | None
+    inputs: dict[str, str] = Field(default_factory=dict)
     steps: list[StepRunView]
 
 
@@ -861,6 +876,7 @@ class WorkflowView(BaseModel):
     name: str
     description: str
     defaults: WorkflowDefaultsModel
+    inputs: list[WorkflowInputModel] = Field(default_factory=list)
     stages: list[StageRequest]
     step_count: int
     stage_count: int
@@ -907,3 +923,9 @@ class StartRunResponse(BaseModel):
     """Envelope for POST /api/workflows/{id}/run."""
 
     run: WorkflowRunView
+
+
+class StartRunRequest(BaseModel):
+    """Body for POST /api/workflows/{id}/run (all fields optional)."""
+
+    inputs: dict[str, str] = Field(default_factory=dict)

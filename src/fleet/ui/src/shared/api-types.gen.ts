@@ -1899,6 +1899,10 @@ export interface components {
             target: string;
             /** Workflow Id */
             workflow_id?: string | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: string;
+            };
             /** Created At */
             created_at: string;
             /** Updated At */
@@ -1994,6 +1998,10 @@ export interface components {
             target: string;
             /** Workflow Id */
             workflow_id?: string | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: string;
+            };
             /** Created At */
             created_at: string;
             /** Updated At */
@@ -2040,6 +2048,16 @@ export interface components {
             steps?: components["schemas"]["StepRequest"][];
         };
         /**
+         * StartRunRequest
+         * @description Body for POST /api/workflows/{id}/run (all fields optional).
+         */
+        StartRunRequest: {
+            /** Inputs */
+            inputs?: {
+                [key: string]: string;
+            };
+        };
+        /**
          * StartRunResponse
          * @description Envelope for POST /api/workflows/{id}/run.
          */
@@ -2076,6 +2094,8 @@ export interface components {
             priority?: number | null;
             /** Needs */
             needs?: string[];
+            /** Isolation */
+            isolation?: string | null;
         };
         /**
          * StepRunView
@@ -2431,6 +2451,8 @@ export interface components {
              * @default 2
              */
             priority: number;
+            /** Isolation */
+            isolation?: string | null;
         };
         /**
          * WorkflowExportResponse
@@ -2439,6 +2461,29 @@ export interface components {
         WorkflowExportResponse: {
             /** Yaml */
             yaml: string;
+        };
+        /**
+         * WorkflowInputModel
+         * @description One named value the operator passes when starting a run.
+         */
+        WorkflowInputModel: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /** Default */
+            default?: string | null;
         };
         /**
          * WorkflowListResponse
@@ -2483,6 +2528,10 @@ export interface components {
             started_at: string;
             /** Finished At */
             finished_at: string | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: string;
+            };
             /** Steps */
             steps: components["schemas"]["StepRunView"][];
         };
@@ -2508,6 +2557,8 @@ export interface components {
             /** Description */
             description: string;
             defaults: components["schemas"]["WorkflowDefaultsModel"];
+            /** Inputs */
+            inputs?: components["schemas"]["WorkflowInputModel"][];
             /** Stages */
             stages: components["schemas"]["StageRequest"][];
             /** Step Count */
@@ -4120,7 +4171,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartRunRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

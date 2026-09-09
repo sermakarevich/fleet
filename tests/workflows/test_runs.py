@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from fleet.beads.client import BdError
+from fleet.core.errors import WorkflowInvalid
 from fleet.core.task import Task
 from fleet.workflows.model import (
     Defaults,
@@ -24,8 +25,9 @@ from fleet.workflows.model import (
     StepState,
     Trigger,
     Workflow,
+    WorkflowInput,
 )
-from fleet.workflows.runs import cancel_run, refresh_run, start_run, step_states
+from fleet.workflows.runs import cancel_run, refresh_run, resolve_inputs, start_run, step_states
 from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue
 
@@ -365,3 +367,98 @@ def test_cancel_run_custom_reason(tmp_path: Path) -> None:
         reason="superseded",
     )
     assert (cancelled.status, cancelled.reason) == (RunStatus.cancelled, "superseded")
+
+
+def _inputs_workflow() -> Workflow:
+    """One-stage workflow with a required, a defaulted, and a free input."""
+    return Workflow(
+        id="wf-inputs001",
+        name="paper",
+        description="d",
+        defaults=Defaults(priority=2),
+        inputs=(
+            WorkflowInput(name="paper_url", description="URL.", required=True),
+            WorkflowInput(name="focus", default="methods"),
+            WorkflowInput(name="note", description="Free."),
+        ),
+        stages=(
+            Stage(
+                name="read",
+                steps=(
+                    Step(
+                        name="fetch",
+                        title="Fetch {{inputs.paper_url}}",
+                        description="Focus on {{inputs.focus}} ({{inputs.note}}).",
+                        isolation="none",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def test_resolve_inputs_fills_defaults() -> None:
+    resolved = resolve_inputs(_inputs_workflow(), {"paper_url": "https://x.test"})
+    assert resolved == {"paper_url": "https://x.test", "focus": "methods"}
+
+
+def test_resolve_inputs_operator_value_wins() -> None:
+    resolved = resolve_inputs(
+        _inputs_workflow(), {"paper_url": "https://x.test", "focus": "results"}
+    )
+    assert resolved["focus"] == "results"
+
+
+def test_resolve_inputs_unknown_name_raises() -> None:
+    with pytest.raises(WorkflowInvalid, match="ghost"):
+        resolve_inputs(_inputs_workflow(), {"paper_url": "https://x.test", "ghost": "1"})
+
+
+def test_resolve_inputs_missing_required_raises() -> None:
+    with pytest.raises(WorkflowInvalid, match="paper_url"):
+        resolve_inputs(_inputs_workflow(), {"focus": "results"})
+
+
+def test_start_run_stores_inputs_and_renders(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.save(_inputs_workflow())
+    queue = RecordingQueue()
+    run = start_run(
+        _inputs_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+        inputs={"paper_url": "https://x.test"},
+    )
+    assert run.inputs == {"paper_url": "https://x.test", "focus": "methods"}
+    assert queue.creates[0]["title"] == "Fetch https://x.test"
+    assert queue.creates[0]["description"] == "Focus on methods ({{inputs.note}})."
+    assert _meta_of(queue.creates[0]["extra_args"])["fleet_isolation"] == "none"
+    assert store.get_run(run.id) is not None
+    assert store.get_run(run.id).inputs == run.inputs  # type: ignore[union-attr]
+
+
+def test_start_run_missing_required_input_raises(tmp_path: Path) -> None:
+    with pytest.raises(WorkflowInvalid, match="paper_url"):
+        start_run(
+            _inputs_workflow(),
+            store=_store(tmp_path),
+            queue=RecordingQueue(),
+            now=_at("2026-09-09T02:00:00+00:00"),
+            trigger=Trigger.manual,
+            inputs={},
+        )
+
+
+def test_start_run_without_isolation_has_no_fleet_isolation(tmp_path: Path) -> None:
+    queue = RecordingQueue()
+    run = start_run(
+        _workflow(),
+        store=_store(tmp_path),
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    assert "fleet_isolation" not in _meta_of(queue.creates[0]["extra_args"])
+    assert run.inputs == {}

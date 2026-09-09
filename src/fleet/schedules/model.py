@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import secrets
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -57,6 +57,7 @@ class Schedule:
     overlap: OverlapPolicy = OverlapPolicy.skip
     target: TargetKind = TargetKind.task
     workflow_id: str | None = None
+    inputs: dict[str, str] = field(default_factory=dict)
     created_at: str = ""
     updated_at: str = ""
 
@@ -77,6 +78,7 @@ class Schedule:
             "overlap": self.overlap.value,
             "target": self.target.value,
             "workflow_id": self.workflow_id,
+            "inputs": dict(self.inputs),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -110,6 +112,7 @@ class Schedule:
             raise ValueError("workflow_id: required when target is workflow")
         if target is TargetKind.task and not data.get("title"):
             raise ValueError("title: required and must not be empty")
+        inputs = _inputs_from_data(data.get("inputs"))
         return cls(
             id=str(data["id"]),
             name=str(data["name"]),
@@ -125,9 +128,22 @@ class Schedule:
             overlap=overlap,
             target=target,
             workflow_id=str(workflow_id) if workflow_id is not None else None,
+            inputs=inputs,
             created_at=str(data["created_at"]),
             updated_at=str(data["updated_at"]),
         )
+
+
+def _inputs_from_data(raw: Any) -> dict[str, str]:
+    """Schedule inputs map; absent means none, anything else is an error."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("inputs: must be a mapping of names to values")
+    for key, value in raw.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("inputs: must be a mapping of names to values")
+    return dict(raw)
 
 
 @dataclass(frozen=True, slots=True)

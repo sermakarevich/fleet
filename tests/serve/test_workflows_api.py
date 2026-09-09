@@ -325,3 +325,105 @@ def test_put_keeps_id_and_created_at(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert resp.json()["created_at"] == created["created_at"]
     assert resp.json()["updated_at"] >= created["updated_at"]
     assert resp.json()["description"] == "new description"
+
+
+def _with_inputs(tmp_path: Path) -> dict[str, Any]:
+    """A workflow body declaring a required and a defaulted input."""
+    payload = _valid(tmp_path)
+    payload["inputs"] = [
+        {"name": "paper_url", "description": "URL.", "required": True},
+        {"name": "focus", "default": "methods"},
+    ]
+    payload["stages"][0]["steps"][0]["title"] = "Fetch {{inputs.paper_url}}"
+    payload["stages"][0]["steps"][0]["isolation"] = "none"
+    payload["defaults"]["isolation"] = "worktree"
+    return payload
+
+
+def test_create_with_inputs_returns_them_in_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Inputs and isolation survive create and show in the workflow view."""
+    app = _app(tmp_path, monkeypatch)
+    created = _request(app, "POST", "/api/workflows", json=_with_inputs(tmp_path)).json()
+    assert [item["name"] for item in created["inputs"]] == ["paper_url", "focus"]
+    assert created["defaults"]["isolation"] == "worktree"
+    assert created["stages"][0]["steps"][0]["isolation"] == "none"
+
+    fetched = _request(app, "GET", f"/api/workflows/{created['id']}")
+    assert fetched.status_code == 200
+    assert [item["name"] for item in fetched.json()["inputs"]] == ["paper_url", "focus"]
+
+
+def test_create_with_bad_input_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A required input with a default is 422 naming the problem."""
+    app = _app(tmp_path, monkeypatch)
+    payload = _with_inputs(tmp_path)
+    payload["inputs"][0]["default"] = "https://x.test"
+    resp = _request(app, "POST", "/api/workflows", json=payload)
+    assert resp.status_code == 422
+    assert "paper_url" in resp.json()["error"]
+
+
+def test_run_with_inputs_renders_and_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /run with inputs renders text, stores the map, detail shows it."""
+    queue = RecordingQueue()
+    app = _app(tmp_path, monkeypatch, queue)
+    workflow_id = _request(app, "POST", "/api/workflows", json=_with_inputs(tmp_path)).json()["id"]
+
+    resp = _request(
+        app,
+        "POST",
+        f"/api/workflows/{workflow_id}/run",
+        json={"inputs": {"paper_url": "https://x.test"}},
+    )
+    assert resp.status_code == 201
+    run = resp.json()["run"]
+    assert run["inputs"] == {"paper_url": "https://x.test", "focus": "methods"}
+    assert queue.creates[0]["title"] == "Fetch https://x.test"
+
+    detail = _request(app, "GET", f"/api/workflow-runs/{run['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["inputs"] == run["inputs"]
+
+
+def test_run_missing_required_input_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /run without the required value is 422 naming the input."""
+    app = _app(tmp_path, monkeypatch)
+    workflow_id = _request(app, "POST", "/api/workflows", json=_with_inputs(tmp_path)).json()["id"]
+
+    resp = _request(app, "POST", f"/api/workflows/{workflow_id}/run", json={"inputs": {}})
+    assert resp.status_code == 422
+    assert "paper_url" in resp.json()["error"]
+
+    empty = _request(app, "POST", f"/api/workflows/{workflow_id}/run")
+    assert empty.status_code == 422
+    assert "paper_url" in empty.json()["error"]
+
+
+def test_run_unknown_input_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /run with an undeclared name is 422 naming the input."""
+    app = _app(tmp_path, monkeypatch)
+    workflow_id = _request(app, "POST", "/api/workflows", json=_with_inputs(tmp_path)).json()["id"]
+
+    resp = _request(
+        app,
+        "POST",
+        f"/api/workflows/{workflow_id}/run",
+        json={"inputs": {"paper_url": "https://x.test", "ghost": "1"}},
+    )
+    assert resp.status_code == 422
+    assert "ghost" in resp.json()["error"]
+
+
+def test_run_malformed_inputs_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /run with a non-mapping inputs value is 422."""
+    app = _app(tmp_path, monkeypatch)
+    workflow_id = _request(app, "POST", "/api/workflows", json=_with_inputs(tmp_path)).json()["id"]
+
+    resp = _request(
+        app, "POST", f"/api/workflows/{workflow_id}/run", json={"inputs": ["paper_url"]}
+    )
+    assert resp.status_code == 422

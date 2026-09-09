@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -75,6 +75,21 @@ def _parse_doc(text: str) -> Workflow:
         for problem in exc.problems:
             typer.echo(f"invalid: {problem}", err=True)
         raise typer.Exit(int(ExitCode.ERROR)) from None
+
+
+def _parse_input_pair(raw: str) -> tuple[str, str]:
+    """Split one --input name=value pair, exiting USAGE when malformed."""
+    name, sep, value = raw.partition("=")
+    if not sep or not name:
+        fail(f"invalid argument {raw!r} — expected name=value format.", ExitCode.USAGE)
+    return name, value
+
+
+def _report_invalid(exc: WorkflowInvalid) -> NoReturn:
+    """Print every validation problem and exit ERROR."""
+    for problem in exc.problems:
+        typer.echo(f"invalid: {problem}", err=True)
+    raise typer.Exit(int(ExitCode.ERROR))
 
 
 def _last_status(store: WorkflowStore, workflow_id: str) -> str | None:
@@ -191,6 +206,7 @@ def run_import(fleet_home: Path, now: datetime, path: Path, replace: str | None)
             name=parsed.name,
             description=parsed.description,
             defaults=parsed.defaults,
+            inputs=parsed.inputs,
             stages=parsed.stages,
             created_at=existing.created_at,
             updated_at=stamp,
@@ -201,6 +217,7 @@ def run_import(fleet_home: Path, now: datetime, path: Path, replace: str | None)
             name=parsed.name,
             description=parsed.description,
             defaults=parsed.defaults,
+            inputs=parsed.inputs,
             stages=parsed.stages,
             created_at=stamp,
             updated_at=stamp,
@@ -231,13 +248,18 @@ def run_validate(path: Path) -> None:
     typer.echo("valid")
 
 
-def run_start(fleet_home: Path, now: datetime, ref: str) -> None:
+def run_start(fleet_home: Path, now: datetime, ref: str, raw_inputs: list[str]) -> None:
     """Start a manual run and print the run id plus one line per step."""
     store = _store(fleet_home)
     workflow = _resolve(store, ref)
+    given = dict(_parse_input_pair(raw) for raw in raw_inputs)
     queue = bootstrap.queue(fleet_home)
     try:
-        run = start_run(workflow, store=store, queue=queue, now=now, trigger=Trigger.manual)
+        run = start_run(
+            workflow, store=store, queue=queue, now=now, trigger=Trigger.manual, inputs=given
+        )
+    except WorkflowInvalid as exc:
+        _report_invalid(exc)
     except BdError as exc:
         fail(str(exc) or "queue failed", ExitCode.BACKEND)
     typer.echo(run.id)
@@ -392,9 +414,13 @@ def register(app: typer.Typer) -> None:
     @workflow_app.command("run")
     def run_cmd(
         ref: Annotated[str, typer.Argument(help="Workflow id or name.")],
+        raw_inputs: Annotated[
+            list[str] | None,
+            typer.Option("--input", help="Run input as name=value (repeatable)."),
+        ] = None,
     ) -> None:
         """Start a manual run and print the run id plus one line per step."""
-        run_start(bootstrap.fleet_home(), datetime.now(UTC), ref)
+        run_start(bootstrap.fleet_home(), datetime.now(UTC), ref, raw_inputs or [])
 
     @workflow_app.command("runs")
     def runs_cmd(

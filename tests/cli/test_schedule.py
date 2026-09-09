@@ -237,3 +237,123 @@ def test_show_prints_workflow_target(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(app, ["schedule", "show", created.output.strip()])
     assert result.exit_code == 0, result.output
     assert "workflow nightly" in result.output
+
+
+def _import_inputs_workflow(tmp_path: Path) -> None:
+    """Import a workflow with a required and a defaulted input."""
+    doc = tmp_path / "paper.yaml"
+    doc.write_text(
+        "fleet_workflow: 1\n"
+        "name: paper\n"
+        "inputs:\n"
+        "  - name: paper_url\n"
+        "    required: true\n"
+        "  - name: focus\n"
+        "    default: methods\n"
+        "stages:\n"
+        "  - name: s1\n"
+        "    steps:\n"
+        "      - name: a\n"
+        '        title: "Fetch {{inputs.paper_url}}"\n',
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["workflow", "import", str(doc)])
+    assert result.exit_code == 0, result.output
+
+
+def _create_workflow_schedule(tmp_path: Path, extra: list[str]) -> str:
+    """Create a paper-workflow schedule with extra flags; return its id."""
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "paper-nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "paper",
+            *extra,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    return result.output.strip()
+
+
+def test_create_workflow_with_inputs_stores_them(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_inputs_workflow(tmp_path)
+    schedule_id = _create_workflow_schedule(tmp_path, ["--input", "paper_url=https://x.test"])
+    schedule = ScheduleStore(tmp_path).get(schedule_id)
+    assert schedule is not None
+    assert schedule.inputs == {"paper_url": "https://x.test"}
+    shown = runner.invoke(app, ["schedule", "show", schedule_id, "--json"])
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.output)["inputs"] == {"paper_url": "https://x.test"}
+
+
+def test_create_workflow_missing_required_input_refuses(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_inputs_workflow(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "paper-nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "paper",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "paper_url" in result.output
+
+
+def test_create_workflow_unknown_input_refuses(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_inputs_workflow(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "schedule",
+            "create",
+            "--name",
+            "paper-nightly",
+            "--cron",
+            "0 9 * * *",
+            "--workflow",
+            "paper",
+            "--input",
+            "paper_url=https://x.test",
+            "--input",
+            "ghost=1",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "ghost" in result.output
+
+
+def test_edit_workflow_merges_inputs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_inputs_workflow(tmp_path)
+    schedule_id = _create_workflow_schedule(tmp_path, ["--input", "paper_url=https://x.test"])
+    edited = runner.invoke(app, ["schedule", "edit", schedule_id, "--input", "focus=results"])
+    assert edited.exit_code == 0, edited.output
+    schedule = ScheduleStore(tmp_path).get(schedule_id)
+    assert schedule is not None
+    assert schedule.inputs == {"paper_url": "https://x.test", "focus": "results"}
+
+
+def test_schedule_run_passes_inputs_to_workflow_run(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _import_inputs_workflow(tmp_path)
+    schedule_id = _create_workflow_schedule(tmp_path, ["--input", "paper_url=https://x.test"])
+    queue = FakeQueue()
+    with patch("fleet.cli.bootstrap.BeadsQueue", return_value=queue):
+        fired = runner.invoke(app, ["schedule", "run", schedule_id])
+    assert fired.exit_code == 0, fired.output
+    assert queue.created[0]["title"] == "Fetch https://x.test"

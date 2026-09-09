@@ -13,7 +13,14 @@ from typing import Any
 import yaml
 
 from fleet.core.errors import WorkflowInvalid
-from fleet.workflows.model import Defaults, Stage, Step, Workflow, ensure_valid
+from fleet.workflows.model import (
+    Defaults,
+    Stage,
+    Step,
+    Workflow,
+    WorkflowInput,
+    ensure_valid,
+)
 
 _YAML_VERSION = 1
 
@@ -24,6 +31,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "name",
         "description",
         "defaults",
+        "inputs",
         "stages",
         "created_at",
         "updated_at",
@@ -44,6 +52,10 @@ def to_yaml(workflow: Workflow, *, with_ids: bool = False) -> str:
         "model": workflow.defaults.model,
         "priority": workflow.defaults.priority,
     }
+    if workflow.defaults.isolation is not None:
+        doc["defaults"]["isolation"] = workflow.defaults.isolation
+    if workflow.inputs:
+        doc["inputs"] = [_input_to_yaml(item) for item in workflow.inputs]
     doc["stages"] = [_stage_to_yaml(stage) for stage in workflow.stages]
     if with_ids:
         doc["created_at"] = workflow.created_at
@@ -68,8 +80,22 @@ def _step_to_yaml(step: Step) -> dict[str, Any]:
         doc["model"] = step.model
     if step.priority is not None:
         doc["priority"] = step.priority
+    if step.isolation is not None:
+        doc["isolation"] = step.isolation
     if step.needs:
         doc["needs"] = list(step.needs)
+    return doc
+
+
+def _input_to_yaml(item: WorkflowInput) -> dict[str, Any]:
+    """Render one workflow input, omitting fields left at their defaults."""
+    doc: dict[str, Any] = {"name": item.name}
+    if item.description:
+        doc["description"] = item.description
+    if item.required:
+        doc["required"] = True
+    if item.default is not None:
+        doc["default"] = item.default
     return doc
 
 
@@ -107,6 +133,7 @@ def _workflow_from_data(data: Any) -> Workflow:
         name=name,
         description=description,
         defaults=_defaults_from_data(data.get("defaults")),
+        inputs=_inputs_from_data(data.get("inputs")),
         stages=tuple(_stage_from_data(item) for item in stages_raw),
         created_at=_optional_str(data, "created_at"),
         updated_at=_optional_str(data, "updated_at"),
@@ -141,6 +168,48 @@ def _defaults_from_data(data: Any) -> Defaults:
         coder=data.get("coder"),
         model=data.get("model"),
         priority=priority,
+        isolation=_isolation_from_data(data.get("isolation"), "defaults"),
+    )
+
+
+def _isolation_from_data(raw: Any, where: str) -> str | None:
+    """Parse one isolation value (absent means no override)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise WorkflowInvalid([f"{where}: isolation must be a string"])
+    return raw
+
+
+def _inputs_from_data(raw: Any) -> tuple[WorkflowInput, ...]:
+    """Parse the top-level inputs list (absent means the workflow takes none)."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise WorkflowInvalid(["inputs: must be a list"])
+    return tuple(_input_from_data(item) for item in raw)
+
+
+def _input_from_data(data: Any) -> WorkflowInput:
+    """Parse one input mapping with its optional description and default."""
+    if not isinstance(data, dict):
+        raise WorkflowInvalid(["inputs: every input must be a mapping"])
+    if not isinstance(data.get("name"), str):
+        raise WorkflowInvalid(["input: name is required and must be a string"])
+    description = data.get("description", "")
+    if not isinstance(description, str):
+        raise WorkflowInvalid([f"input {data.get('name')!r}: description must be a string"])
+    required = data.get("required", False)
+    if not isinstance(required, bool):
+        raise WorkflowInvalid([f"input {data.get('name')!r}: required must be a boolean"])
+    default = data.get("default")
+    if default is not None and not isinstance(default, str):
+        raise WorkflowInvalid([f"input {data.get('name')!r}: default must be a string"])
+    return WorkflowInput(
+        name=str(data["name"]),
+        description=description,
+        required=required,
+        default=default,
     )
 
 
@@ -182,6 +251,7 @@ def _step_from_data(data: Any) -> Step:
         model=_field_or_none(data, "model", str),
         priority=priority,
         needs=needs,
+        isolation=_isolation_from_data(data.get("isolation"), f"step {data.get('name')!r}"),
     )
 
 

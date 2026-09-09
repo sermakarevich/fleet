@@ -17,6 +17,11 @@ from typing import Any
 from fleet.core.errors import WorkflowInvalid
 
 _STEP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+_INPUT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+#: Allowed step isolation modes: a git worktree per task, or none (run in
+#: place, for steps that write into auto-synced trees such as ~/.ai).
+ISOLATION_MODES = ("worktree", "none")
 
 _PRIORITY_MIN = 0
 _PRIORITY_MAX = 4
@@ -65,6 +70,16 @@ def step_state_of(task_status: str) -> StepState:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowInput:
+    """One named value the operator passes when starting a run."""
+
+    name: str
+    description: str = ""
+    required: bool = False
+    default: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Step:
     """One worker's task template inside a stage."""
 
@@ -76,6 +91,7 @@ class Step:
     model: str | None = None
     priority: int | None = None
     needs: tuple[str, ...] = ()
+    isolation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +110,7 @@ class Defaults:
     coder: str | None = None
     model: str | None = None
     priority: int = 2
+    isolation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +121,7 @@ class Workflow:
     name: str
     description: str = ""
     defaults: Defaults = field(default_factory=Defaults)
+    inputs: tuple[WorkflowInput, ...] = ()
     stages: tuple[Stage, ...] = ()
     created_at: str = ""
     updated_at: str = ""
@@ -119,7 +137,9 @@ class Workflow:
                 "coder": self.defaults.coder,
                 "model": self.defaults.model,
                 "priority": self.defaults.priority,
+                "isolation": self.defaults.isolation,
             },
+            "inputs": [_input_to_dict(item) for item in self.inputs],
             "stages": [
                 {
                     "name": stage.name,
@@ -147,7 +167,9 @@ class Workflow:
                 coder=raw_defaults.get("coder"),
                 model=raw_defaults.get("model"),
                 priority=int(raw_defaults.get("priority", 2)),
+                isolation=raw_defaults.get("isolation"),
             ),
+            inputs=tuple(_input_from_dict(item) for item in data.get("inputs") or []),
             stages=stages,
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
@@ -168,6 +190,7 @@ class WorkflowRun:
     reason: str = ""
     started_at: str = ""
     finished_at: str | None = None
+    inputs: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return this run as plain JSON-safe data."""
@@ -182,6 +205,7 @@ class WorkflowRun:
             "reason": self.reason,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "inputs": dict(self.inputs),
         }
 
     @classmethod
@@ -198,6 +222,7 @@ class WorkflowRun:
             reason=str(data.get("reason", "")),
             started_at=str(data.get("started_at", "")),
             finished_at=data.get("finished_at"),
+            inputs={str(key): str(value) for key, value in (data.get("inputs") or {}).items()},
         )
 
 
@@ -236,6 +261,26 @@ class StepRun:
         )
 
 
+def _input_to_dict(item: WorkflowInput) -> dict[str, Any]:
+    """Return one workflow input as plain JSON-safe data."""
+    return {
+        "name": item.name,
+        "description": item.description,
+        "required": item.required,
+        "default": item.default,
+    }
+
+
+def _input_from_dict(data: dict[str, Any]) -> WorkflowInput:
+    """Build one workflow input from stored data."""
+    return WorkflowInput(
+        name=str(data.get("name", "")),
+        description=str(data.get("description", "")),
+        required=bool(data.get("required", False)),
+        default=data.get("default"),
+    )
+
+
 def _step_to_dict(step: Step) -> dict[str, Any]:
     """Return one step as plain JSON-safe data."""
     return {
@@ -247,6 +292,7 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
         "model": step.model,
         "priority": step.priority,
         "needs": list(step.needs),
+        "isolation": step.isolation,
     }
 
 
@@ -262,6 +308,7 @@ def _step_from_dict(data: dict[str, Any]) -> Step:
         model=data.get("model"),
         priority=data.get("priority"),
         needs=tuple(str(item) for item in needs),
+        isolation=data.get("isolation"),
     )
 
 
@@ -288,12 +335,14 @@ def _status_from(raw: Any) -> RunStatus:
 
 
 def validate(workflow: Workflow) -> list[str]:
-    """Check every stage/needs rule; return human-readable problems."""
+    """Check every stage/needs/input/isolation rule; return human problems."""
     problems: list[str] = []
     if not workflow.stages:
         problems.append("stages: workflow has no stages")
     if not _priority_ok(workflow.defaults.priority):
         problems.append(_priority_problem("defaults", workflow.defaults.priority))
+    problems.extend(_validate_isolation("defaults", workflow.defaults.isolation))
+    problems.extend(_validate_inputs(workflow.inputs))
     stage_of: dict[str, int] = {}
     seen: set[str] = set()
     for stage_index, stage in enumerate(workflow.stages):
@@ -328,7 +377,7 @@ def _priority_problem(where: str, priority: int | None) -> str:
 
 
 def _validate_step(step: Step, defaults: Defaults) -> list[str]:
-    """Check one step's own fields (name shape, title, priority)."""
+    """Check one step's own fields (name shape, title, priority, isolation)."""
     found: list[str] = []
     if not _STEP_NAME_RE.match(step.name):
         found.append(f"step {step.name!r}: name must match ^[a-z0-9][a-z0-9_-]{{0,39}}$")
@@ -337,6 +386,32 @@ def _validate_step(step: Step, defaults: Defaults) -> list[str]:
     priority = step.priority if step.priority is not None else defaults.priority
     if not _priority_ok(priority):
         found.append(_priority_problem(f"step {step.name!r}", priority))
+    found.extend(_validate_isolation(f"step {step.name!r}", step.isolation))
+    return found
+
+
+def _validate_isolation(where: str, isolation: str | None) -> list[str]:
+    """Check one isolation value is a known mode (or unset)."""
+    if isolation is None:
+        return []
+    if isolation not in ISOLATION_MODES:
+        return [f"{where}: isolation {isolation!r} must be one of {', '.join(ISOLATION_MODES)}"]
+    return []
+
+
+def _validate_inputs(inputs: tuple[WorkflowInput, ...]) -> list[str]:
+    """Check input names are slugs, unique, and required has no default."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for item in inputs:
+        if not _INPUT_NAME_RE.match(item.name):
+            found.append(f"input {item.name!r}: name must match ^[a-z][a-z0-9_]*$")
+        if item.name in seen:
+            found.append(f"input {item.name!r}: duplicate input name")
+        else:
+            seen.add(item.name)
+        if item.required and item.default is not None:
+            found.append(f"input {item.name!r}: required inputs must not set a default")
     return found
 
 
@@ -377,6 +452,7 @@ def effective(step: Step, defaults: Defaults) -> Step:
         coder=step.coder if step.coder is not None else defaults.coder,
         model=step.model if step.model is not None else defaults.model,
         priority=step.priority if step.priority is not None else defaults.priority,
+        isolation=step.isolation if step.isolation is not None else defaults.isolation,
     )
 
 

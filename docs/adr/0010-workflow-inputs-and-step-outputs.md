@@ -1,123 +1,94 @@
-# ADR 0010: Workflow run inputs and step outputs
+# ADR 0010: Workflow run inputs, step isolation, and step outputs
 
 Date: 2026-09-09
 Status: Proposed
-Builds on: ADR 0008 (workflows), ADR 0004 (task directory artifacts),
-ADR 0007 (schedules).
+Builds on: ADR 0008 (workflows), ADR 0007 (schedules), ADR 0006 (clean-code rules).
 
 ## Problem
 
-ADR 0008 workflows are fixed text. The only placeholders are run metadata
-(`{{run.date}}`, `{{steps.<name>.task_id}}`, ...). Two things an operator
-needs are impossible:
+Workflows (ADR 0008) are fixed text. An operator cannot pass a value when
+starting a run — for example the URL of a paper to summarise — so every run
+of a workflow does exactly the same thing. Two gaps follow:
 
-1. **Inputs at start.** "Summarise *this* paper" needs a URL typed when the
-   run is started. Today the only way is export → edit YAML → import.
-2. **Values found by an earlier step.** The step that summarises a paper
-   decides the folder name; the Slack and vault steps need that name. Text is
-   rendered once when the run starts, before any worker has run, so a later
-   step can only quote the earlier *task id*, never what that task found.
-
-Also, steps that write to a non-code repository (the `~/.ai` knowledge base,
-which auto-syncs) must run without a git worktree, and `Step` has no way to
-say so; the per-bead `fleet_isolation` metadata exists but workflows do not
-set it.
+1. **No run inputs.** Step titles and descriptions are templates, but there
+   is no `{{inputs.<name>}}` placeholder and no way to supply values at run
+   start, from the CLI, the API, or a schedule.
+2. **No isolation opt-out per step.** Every worker runs in a git worktree
+   (a separate copy of the repository, so parallel workers do not clash).
+   A step that writes into an auto-synced tree such as `~/.ai` must run in
+   place instead; today only a hardcoded repair bead can opt out (the
+   `fleet_isolation: "none"` bead metadata the supervisor spawn path
+   already honours).
+3. **No step outputs.** A later step cannot use a value an earlier worker
+   discovered (for example the folder a summary was written to), because
+   all step text renders once at run start.
 
 ## Decision
 
-### Inputs
+Three small, serial work items (WI 1/3–3/3). WI 1/3 ships inputs and
+isolation; WI 2/3 ships file-based step outputs with late rendering;
+WI 3/3 ships the UI and an example workflow import.
 
-A workflow declares `inputs`, a list of named values asked for when a run is
-started:
+### WI 1/3 — run inputs + step isolation (this bead)
 
-```yaml
-inputs:
-  - name: url
-    description: Link to the paper, video, article or repository
-    required: true
-  - name: channel
-    default: "#ai-papers"
-```
+- A workflow declares `inputs:` — a list of `name`, `description`,
+  `required`, `default`. Names are slugs (`[a-z][a-z0-9_]*`), unique; a
+  required input must not set a default.
+- `start_run(..., inputs)` resolves the run map: operator values win,
+  defaults fill the rest; unknown names and missing required values are a
+  validation error. The resolved map is stored on the run.
+- Step text gains `{{inputs.<name>}}`, rendered at run start like the
+  other placeholders; unknown names stay as written.
+- Steps and workflow defaults gain `isolation: "worktree" | "none" | None`
+  (step wins, else defaults, else the supervisor default). The run engine
+  stamps the effective value as the `fleet_isolation` bead metadata, which
+  the supervisor spawn path already honours (`none` runs in place).
+- Storage: `workflow_runs.inputs_json`. API: `POST
+  /api/workflows/{id}/run` accepts an optional `{"inputs": {...}}` body
+  (invalid inputs are 422). CLI: `fleet workflow run <ref> --input
+  name=value` (repeatable); `run-show` prints inputs. Schedules targeting
+  a workflow store an `inputs` map, pass it to `start_run` when firing,
+  and refuse to save while a required input has no value.
 
-- Names are slugs (`[a-z][a-z0-9_]*`), unique inside the workflow.
-- Starting a run takes a `{name: value}` map (API body, CLI `--input name=value`,
-  UI form). Missing required inputs or unknown names fail validation before
-  any bead is opened. Defaults fill the rest.
-- Templates gain `{{inputs.<name>}}`. Values are stored on the run
-  (`workflow_runs.inputs_json`) so history shows what a run was started with.
-- Schedules that target a workflow may carry a fixed `inputs` map; a workflow
-  with a required input and no schedule value cannot be scheduled.
+### WI 2/3 — step outputs.json + late rendering of dependent stages
 
-### Step outputs
+- Contract: a worker may write `outputs.json` in its task directory, a
+  flat JSON (JavaScript Object Notation) object of string values.
+- Templates gain `{{steps.<name>.outputs.<key>}}`. Steps of stage 1 render
+  at run start as today; every later stage is created deferred with
+  unrendered text and released (rendered, then un-deferred) once its
+  dependencies close. A referenced key that is missing renders `""` and is
+  recorded as an `outputs_missing` warning on the step run.
+- Storage: `workflow_run_steps.outputs_json`, `released`, `warning`.
 
-A worker publishes values for later steps by writing `outputs.json` in its
-task directory: a flat object of string values (`{"paper_dir": "/…/papers/X"}`).
-The worker instruction template tells coders how (an `outputs.json` note in
-`coder_header.md.tmpl` and `docs/WORKER_CONTRACT.md`). Fleet reads the file
-when the task closes; missing file means no outputs.
+### WI 3/3 — UI run form, inputs/outputs in run detail, editor fields
 
-Templates gain `{{steps.<name>.outputs.<key>}}`.
+- The workflows UI gets a run form (one field per declared input), shows
+  inputs and step outputs/warnings in run detail, edits inputs/isolation
+  in the workflow editor, and imports `docs/workflows/paper-summary.yaml`.
 
-### Late rendering
+### Example workflow
 
-Because outputs exist only after a step closes, text that references them
-cannot be rendered at start. The engine therefore:
+`docs/workflows/paper-summary.yaml` exercises WI 1/3 (`inputs`,
+`isolation: none`) and previews WI 2/3 (`{{steps.*.outputs.*}}`
+placeholders, left as written until WI 2/3 lands). It must keep passing
+`fleet workflow validate`.
 
-1. Renders and opens stage-1 beads exactly as today.
-2. Opens every later bead **deferred** (`bd create --defer`) with its final
-   title/description still containing `{{steps…outputs…}}` placeholders, and
-   dependencies wired at creation as today. Deferred beads are never claimed.
-3. The existing periodic `workflow_refresh` service, on each pass, finds
-   step runs whose dependencies are all `closed`, reads their `outputs.json`
-   (cached on `workflow_run_steps.outputs_json`), renders the text, updates the
-   bead (`bd update --title/--description`) and un-defers it.
+## Implementation (3 beads, serial, coder opencode)
 
-Steps whose text references no outputs may still be opened deferred: one code
-path, no special case. `{{inputs.*}}` is rendered at start for stage 1 and at
-release time for later stages, from the same run inputs.
-
-A referenced output that is missing when the step is released renders to the
-empty string and the step run records a warning (`outputs_missing`), visible
-in the run detail; the run does not stop.
-
-### Step isolation
-
-`Step` and `defaults` gain `isolation: worktree | none`. The engine passes it
-as `fleet_isolation` metadata, the same key the `fleet bd create` wrapper uses.
-
-### Surface
-
-- API: `POST /api/workflows/{id}/run` accepts `{"inputs": {…}}`; run views
-  include `inputs` and per-step `outputs`; workflow view includes `inputs`.
-- CLI: `fleet workflow run <ref> --input url=… [--input k=v…]`;
-  `fleet workflow run-show` prints inputs and outputs.
-- UI: the Run button opens a form when the workflow declares inputs
-  (required marker, default prefilled, description as help text). Run detail
-  shows inputs at the top and each step's outputs on its card. The workflow
-  editor gets an Inputs section and an isolation selector.
-
-## Implementation plan (3 beads, serial, fleet's own code: restart the
-supervisor and server between beads)
-
-- [ ] WI 1/3 — model + inputs: `inputs` and `isolation` in model, validation,
-      YAML (round-trip), templates `{{inputs.*}}`, `start_run(inputs=…)`,
-      `inputs_json` migration, API body, CLI `--input`, regenerated UI types.
-- [ ] WI 2/3 — outputs + late rendering: `outputs.json` contract in the worker
-      template and docs, deferred creation of later stages, release in
-      `workflow_refresh`, `outputs_json` on step runs, `{{steps.*.outputs.*}}`.
-- [ ] WI 3/3 — UI: run form, inputs/outputs in run detail, editor sections;
-      import `docs/workflows/paper-summary.yaml` with `--replace`; ADR
-      Accepted.
+- [x] WI 1/3 — run inputs + step isolation (`fleet-vuyrf`)
+- [ ] WI 2/3 — step outputs.json + late rendering (`fleet-hw1w4`)
+- [ ] WI 3/3 — UI run form, run detail, editor fields, import paper-summary
+      (`fleet-hhbs3`)
 
 ## Consequences
 
-- Positive: workflows become reusable recipes with parameters; data flows
-  between steps without prompt conventions; the queue still does all
-  sequencing.
-- Negative: later-stage beads sit `deferred` instead of `open`, so
-  `bd ready` and the Beads page show them differently from today; the run
-  detail is the place to read a run. Release depends on the refresh service
-  cadence (seconds, not minutes).
-- Risk: `bd update --description` on a released bead races with a claim only
-  if the bead is not deferred; the design keeps it deferred until after the
-  update, so no window exists.
+- Positive: one workflow covers a family of runs (pass the paper URL at
+  start); knowledge-base filing steps can run in place; later steps can
+  consume earlier results without hand-pasted ids.
+- Negative: inputs are strings only (no numbers/dates); late rendering
+  means stage 2+ beads show raw placeholders until their dependencies
+  close.
+- Risk: a schedule saved with inputs keeps working if the workflow later
+  declares that input required with no default — firing records a skip
+  with the reason instead of opening a broken run.

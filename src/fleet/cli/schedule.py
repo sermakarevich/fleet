@@ -21,10 +21,12 @@ from fleet.beads.client import BdError
 from fleet.cli import bootstrap, render
 from fleet.cli.errors import ExitCode, fail
 from fleet.coders import get_coder
+from fleet.core.errors import WorkflowInvalid
 from fleet.schedules import cron, firing
 from fleet.schedules.model import OverlapPolicy, Schedule, TargetKind, Trigger, new_id
 from fleet.schedules.store import ScheduleStore
 from fleet.state.paths import workflows_db_path
+from fleet.workflows.runs import resolve_inputs
 from fleet.workflows.store import WorkflowStore
 
 _MIN_PRIORITY = 0
@@ -135,6 +137,27 @@ def _check_priority(priority: int) -> None:
         fail(f"priority: must be 0-4, got {priority}", ExitCode.USAGE)
 
 
+def _parse_input_pair(raw: str) -> tuple[str, str]:
+    """Split one --input name=value pair, exiting USAGE when malformed."""
+    name, sep, value = raw.partition("=")
+    if not sep or not name:
+        fail(f"invalid argument {raw!r} — expected name=value format.", ExitCode.USAGE)
+    return name, value
+
+
+def _check_workflow_inputs(fleet_home: Path, workflow_id: str, given: dict[str, str]) -> None:
+    """Exit ERROR naming unknown or missing inputs for a workflow schedule."""
+    workflow = WorkflowStore(workflows_db_path(fleet_home)).get(workflow_id)
+    if workflow is None:
+        fail(f"Workflow {workflow_id} not found.", ExitCode.NOT_FOUND)
+    try:
+        resolve_inputs(workflow, given)
+    except WorkflowInvalid as exc:
+        for problem in exc.problems:
+            typer.echo(f"invalid: {problem}", err=True)
+        raise typer.Exit(int(ExitCode.ERROR)) from None
+
+
 def _build_schedule(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     *,
     schedule_id: str,
@@ -153,6 +176,7 @@ def _build_schedule(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     now: datetime,
     target: TargetKind = TargetKind.task,
     workflow_id: str | None = None,
+    inputs: dict[str, str] | None = None,
 ) -> Schedule:
     """Validate fields like the serve API and return the schedule."""
     if not name.strip():
@@ -181,6 +205,7 @@ def _build_schedule(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         overlap=overlap,
         target=target,
         workflow_id=workflow_id,
+        inputs=inputs or {},
         created_at=created_at,
         updated_at=now.isoformat(),
     )
@@ -288,10 +313,14 @@ def run_create(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     overlap: OverlapPolicy,
     disabled: bool,
     workflow: str | None = None,
+    raw_inputs: list[str] | None = None,
 ) -> None:
     """Validate, save with a fresh id, and print the id."""
     store = _store(fleet_home)
     workflow_id = _resolve_workflow_id(fleet_home, workflow) if workflow else None
+    given = dict(_parse_input_pair(raw) for raw in raw_inputs or [])
+    if workflow_id is not None:
+        _check_workflow_inputs(fleet_home, workflow_id, given)
     schedule = _build_schedule(
         schedule_id=new_id(),
         name=name,
@@ -309,6 +338,7 @@ def run_create(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         now=now,
         target=TargetKind.workflow if workflow_id else TargetKind.task,
         workflow_id=workflow_id,
+        inputs=given,
     )
     store.save(schedule)
     typer.echo(schedule.id)
@@ -359,6 +389,7 @@ def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     overlap: OverlapPolicy | None,
     enabled: bool | None,
     workflow: str | None = None,
+    raw_inputs: list[str] | None = None,
 ) -> None:
     """Rewrite only the given fields, bumping updated_at."""
     store = _store(fleet_home)
@@ -368,6 +399,12 @@ def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
     if workflow is not None:
         workflow_id = _resolve_workflow_id(fleet_home, workflow)
         target = TargetKind.workflow
+    merged_inputs = dict(existing.inputs)
+    for raw in raw_inputs or []:
+        name, value = _parse_input_pair(raw)
+        merged_inputs[name] = value
+    if target is TargetKind.workflow and workflow_id is not None:
+        _check_workflow_inputs(fleet_home, workflow_id, merged_inputs)
     merged = _build_schedule(
         schedule_id=existing.id,
         name=existing.name if name is None else name,
@@ -385,6 +422,7 @@ def run_edit(  # noqa: PLR0913, PLR0917  # one schedule, one call shape
         now=now,
         target=target,
         workflow_id=workflow_id,
+        inputs=merged_inputs,
     )
     store.save(dc_replace(merged, updated_at=now.isoformat()))
     typer.echo(schedule_id)
@@ -420,6 +458,10 @@ def run_fire(fleet_home: Path, now: datetime, schedule_id: str) -> None:
         )
     except BdError as exc:
         fail(str(exc) or "queue failed", ExitCode.BACKEND)
+    except WorkflowInvalid as exc:
+        for problem in exc.problems:
+            typer.echo(f"invalid: {problem}", err=True)
+        raise typer.Exit(int(ExitCode.ERROR)) from None
     typer.echo(run.workflow_run_id or run.task_id)
 
 
@@ -483,6 +525,10 @@ def register(app: typer.Typer) -> None:
             str | None,
             typer.Option("--workflow", help="Workflow id or name: run it, not one bead."),
         ] = None,
+        raw_inputs: Annotated[
+            list[str] | None,
+            typer.Option("--input", help="Workflow input as name=value (repeatable)."),
+        ] = None,
     ) -> None:
         """Create a schedule and print its id."""
         run_create(
@@ -500,6 +546,7 @@ def register(app: typer.Typer) -> None:
             overlap=overlap,
             disabled=disabled,
             workflow=workflow,
+            raw_inputs=raw_inputs or [],
         )
 
     @schedule_app.command("show")
@@ -532,6 +579,10 @@ def register(app: typer.Typer) -> None:
             str | None,
             typer.Option("--workflow", help="Point the schedule at a workflow id or name."),
         ] = None,
+        raw_inputs: Annotated[
+            list[str] | None,
+            typer.Option("--input", help="Workflow input as name=value (repeatable)."),
+        ] = None,
     ) -> None:
         """Change only the given fields of a schedule."""
         run_edit(
@@ -550,6 +601,7 @@ def register(app: typer.Typer) -> None:
             overlap=overlap,
             enabled=enabled,
             workflow=workflow,
+            raw_inputs=raw_inputs or [],
         )
 
     @schedule_app.command("enable")

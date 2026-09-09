@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
 from fleet.coders import get_coder
+from fleet.core.errors import WorkflowInvalid
 from fleet.schedules import cron, firing
 from fleet.schedules.model import OverlapPolicy, Schedule, TargetKind, Trigger, new_id
 from fleet.schedules.store import ScheduleStore
@@ -37,6 +38,7 @@ from fleet.serve.auth import HTTP_AUTH
 from fleet.serve.errors import bad_gateway, not_found, parse_json_body, unprocessable
 from fleet.serve.state import StateDep
 from fleet.state.paths import workflows_db_path
+from fleet.workflows.runs import resolve_inputs
 from fleet.workflows.store import WorkflowStore
 
 router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
@@ -101,6 +103,20 @@ def _schedule_view(schedule: Schedule, store: ScheduleStore, now: datetime) -> d
     return view
 
 
+def _check_workflow_target(fleet_home: Path, workflow_id: str | None, given: dict[str, str]) -> str:
+    """Workflow id plus input coverage; 422 naming the unknown or missing."""
+    if not workflow_id:
+        raise unprocessable("workflow_id: required when target is workflow")
+    workflow = WorkflowStore(workflows_db_path(fleet_home)).get(workflow_id)
+    if workflow is None:
+        raise unprocessable(f"workflow_id: unknown workflow {workflow_id!r}")
+    try:
+        resolve_inputs(workflow, given)
+    except WorkflowInvalid as exc:
+        raise unprocessable("; ".join(exc.problems)) from exc
+    return workflow_id
+
+
 def _validated(
     fleet_home: Path, body: Any, *, schedule_id: str, created_at: str, now: datetime
 ) -> Schedule:
@@ -119,10 +135,7 @@ def _validated(
         raise unprocessable(f"target: unknown target {req.target!r}") from None
     workflow_id = req.workflow_id or None
     if target is TargetKind.workflow:
-        if not workflow_id:
-            raise unprocessable("workflow_id: required when target is workflow")
-        if WorkflowStore(workflows_db_path(fleet_home)).get(workflow_id) is None:
-            raise unprocessable(f"workflow_id: unknown workflow {workflow_id!r}")
+        workflow_id = _check_workflow_target(fleet_home, workflow_id, req.inputs)
     elif not req.title.strip():
         raise unprocessable("title: required and must not be empty")
     try:
@@ -162,6 +175,7 @@ def _validated(
         overlap=overlap,
         target=target,
         workflow_id=workflow_id,
+        inputs=dict(req.inputs),
         created_at=created_at,
         updated_at=now.isoformat(),
     )
@@ -291,6 +305,8 @@ def _run_now(fleet_home: Path, queue: Any, schedule_id: str, now: datetime) -> A
         )
     except BdError as exc:
         raise bad_gateway(str(exc) or "queue failed") from exc
+    except WorkflowInvalid as exc:
+        raise unprocessable("; ".join(exc.problems)) from exc
     status: str | None = None
     title: str | None = None
     if run.task_id is not None:

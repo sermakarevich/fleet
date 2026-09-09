@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,10 +22,12 @@ class TemplateContext:
     run_date: str
     step_name: str
     task_ids: Mapping[str, str]
+    inputs: Mapping[str, str] = field(default_factory=dict)
 
 
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}")
 _STEP_TASK_RE = re.compile(r"steps\.([a-z0-9][a-z0-9_-]*)\.task_id")
+_INPUT_RE = re.compile(r"inputs\.([a-z][a-z0-9_]*)")
 
 
 def render(text: str, ctx: TemplateContext) -> str:
@@ -48,6 +50,11 @@ def render(text: str, ctx: TemplateContext) -> str:
             wanted = step_match.group(1)
             if wanted in ctx.task_ids:
                 return ctx.task_ids[wanted]
+        input_match = _INPUT_RE.fullmatch(key)
+        if input_match is not None:
+            wanted = input_match.group(1)
+            if wanted in ctx.inputs:
+                return ctx.inputs[wanted]
         return match.group(0)
 
     return _PLACEHOLDER_RE.sub(_fill, text)

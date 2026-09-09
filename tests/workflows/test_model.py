@@ -17,6 +17,7 @@ from fleet.workflows.model import (
     StepState,
     Trigger,
     Workflow,
+    WorkflowInput,
     WorkflowRun,
     dependencies_of,
     effective,
@@ -224,3 +225,90 @@ def test_new_ids_shape() -> None:
     assert re.fullmatch(r"wf-[0-9a-z]{8}", new_id())
     assert re.fullmatch(r"wfr-[0-9a-z]{8}", new_run_id())
     assert new_id() != new_id()
+
+
+def test_validate_bad_input_name() -> None:
+    wf = _workflow(inputs=(WorkflowInput(name="Bad Name!"),))
+    assert any("Bad Name!" in p for p in validate(wf))
+
+
+def test_validate_duplicate_input_names() -> None:
+    wf = _workflow(
+        inputs=(WorkflowInput(name="url"), WorkflowInput(name="url", default="x")),
+    )
+    assert any("duplicate" in p for p in validate(wf))
+
+
+def test_validate_required_input_with_default() -> None:
+    wf = _workflow(inputs=(WorkflowInput(name="url", required=True, default="x"),))
+    assert any("url" in p and "default" in p for p in validate(wf))
+
+
+def test_validate_optional_input_with_default_ok() -> None:
+    wf = _workflow(
+        inputs=(
+            WorkflowInput(name="url", required=True),
+            WorkflowInput(name="focus", default="methods"),
+        )
+    )
+    assert validate(wf) == []
+
+
+def test_validate_bad_step_isolation() -> None:
+    wf = _workflow(
+        stages=(Stage(name="a", steps=(Step(name="one", title="T", isolation="vault"),)),)
+    )
+    assert any("isolation" in p for p in validate(wf))
+
+
+def test_validate_bad_defaults_isolation() -> None:
+    wf = _workflow(defaults=Defaults(isolation="vault"))
+    assert any("isolation" in p for p in validate(wf))
+
+
+def test_validate_isolation_none_ok() -> None:
+    wf = _workflow(
+        defaults=Defaults(isolation="worktree"),
+        stages=(Stage(name="a", steps=(Step(name="one", title="T", isolation="none"),)),),
+    )
+    assert validate(wf) == []
+
+
+def test_effective_fills_isolation_from_defaults() -> None:
+    filled = effective(Step(name="s", title="T"), Defaults(isolation="none"))
+    assert filled.isolation == "none"
+
+
+def test_effective_keeps_step_isolation() -> None:
+    filled = effective(Step(name="s", title="T", isolation="none"), Defaults(isolation="worktree"))
+    assert filled.isolation == "none"
+
+
+def test_dict_round_trip_with_inputs_and_isolation() -> None:
+    wf = _workflow(
+        defaults=Defaults(isolation="worktree"),
+        inputs=(WorkflowInput(name="url", description="U", required=True),),
+        stages=(
+            Stage(
+                name="a",
+                steps=(Step(name="one", title="T", isolation="none"),),
+            ),
+        ),
+    )
+    assert Workflow.from_dict(wf.to_dict()) == wf
+
+
+def test_run_dict_round_trip_with_inputs() -> None:
+    wf = _workflow()
+    run = WorkflowRun(
+        id="wfr-test0002",
+        workflow_id=wf.id,
+        n=1,
+        trigger=Trigger.manual,
+        schedule_id=None,
+        spec=wf,
+        status=RunStatus.running,
+        started_at="2026-09-09T00:00:00Z",
+        inputs={"url": "https://example.test/paper"},
+    )
+    assert WorkflowRun.from_dict(run.to_dict()) == run

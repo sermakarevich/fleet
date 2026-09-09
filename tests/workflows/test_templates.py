@@ -44,3 +44,17 @@ def test_render_malformed_step_reference_kept() -> None:
 
 def test_render_plain_text_untouched() -> None:
     assert render("no placeholders here", _ctx()) == "no placeholders here"
+
+
+def test_render_input_resolves() -> None:
+    ctx = _ctx(inputs={"paper_url": "https://example.test/paper"})
+    assert render("Fetch {{inputs.paper_url}}!", ctx) == "Fetch https://example.test/paper!"
+
+
+def test_render_unknown_input_kept() -> None:
+    assert render("{{inputs.missing}}", _ctx()) == "{{inputs.missing}}"
+
+
+def test_render_step_outputs_placeholder_kept() -> None:
+    text = "{{steps.fetch.outputs.pdf_path}}"
+    assert render(text, _ctx(inputs={"paper_url": "x"})) == text

@@ -105,3 +105,79 @@ def test_needs_unknown_step_rejected() -> None:
 def test_garbage_yaml_rejected() -> None:
     with pytest.raises(WorkflowInvalid):
         from_yaml("{{{not yaml")
+
+
+INPUTS_EXAMPLE = """\
+fleet_workflow: 1
+name: paper-summary
+description: Summarise a paper.
+inputs:
+  - name: paper_url
+    description: URL of the paper.
+    required: true
+  - name: focus
+    default: methods
+defaults: {coder: opencode, priority: 2}
+stages:
+  - name: read
+    steps:
+      - name: fetch
+        title: "Fetch {{inputs.paper_url}}"
+        description: "Focus on {{inputs.focus}}."
+  - name: file
+    steps:
+      - name: file-note
+        title: File the note
+        description: Runs in place.
+        isolation: none
+"""
+
+
+def test_inputs_and_isolation_parse() -> None:
+    workflow = from_yaml(INPUTS_EXAMPLE)
+    assert [(item.name, item.required, item.default) for item in workflow.inputs] == [
+        ("paper_url", True, None),
+        ("focus", False, "methods"),
+    ]
+    assert workflow.inputs[0].description == "URL of the paper."
+    assert workflow.stages[1].steps[0].isolation == "none"
+    assert workflow.stages[0].steps[0].isolation is None
+
+
+def test_inputs_and_isolation_round_trip() -> None:
+    workflow = from_yaml(INPUTS_EXAMPLE)
+    assert from_yaml(to_yaml(workflow)) == workflow
+
+
+def test_export_omits_unset_inputs_and_isolation() -> None:
+    exported = yaml.safe_load(to_yaml(from_yaml(ADR_EXAMPLE)))
+    assert "inputs" not in exported
+    assert "isolation" not in exported["defaults"]
+    steps = [step for stage in exported["stages"] for step in stage["steps"]]
+    assert all("isolation" not in step for step in steps)
+
+
+def test_export_key_order_with_inputs() -> None:
+    keys = list(yaml.safe_load(to_yaml(from_yaml(INPUTS_EXAMPLE))).keys())
+    assert keys == ["fleet_workflow", "name", "description", "defaults", "inputs", "stages"]
+
+
+def test_bad_isolation_rejected() -> None:
+    text = INPUTS_EXAMPLE.replace("isolation: none", "isolation: vault")
+    with pytest.raises(WorkflowInvalid, match="isolation"):
+        from_yaml(text)
+
+
+def test_inputs_must_be_a_list() -> None:
+    text = (
+        "fleet_workflow: 1\nname: x\ninputs: {paper_url: x}\n"
+        "stages:\n  - name: s\n    steps:\n      - name: a\n        title: A\n"
+    )
+    with pytest.raises(WorkflowInvalid, match="inputs"):
+        from_yaml(text)
+
+
+def test_required_input_with_default_rejected() -> None:
+    text = INPUTS_EXAMPLE.replace("required: true", "required: true\n    default: x")
+    with pytest.raises(WorkflowInvalid, match="default"):
+        from_yaml(text)

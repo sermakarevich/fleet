@@ -171,3 +171,53 @@ def test_migration_from_empty_file(tmp_path: Path) -> None:
     }
     assert {"workflows", "workflow_runs", "workflow_run_steps"} <= tables
     store.close()
+
+
+def test_run_inputs_round_trip(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    run = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    with_inputs = WorkflowRun(
+        id=run.id,
+        workflow_id=run.workflow_id,
+        n=run.n,
+        trigger=run.trigger,
+        schedule_id=run.schedule_id,
+        spec=run.spec,
+        status=run.status,
+        started_at=run.started_at,
+        inputs={"paper_url": "https://x.test", "focus": "methods"},
+    )
+    store.save_run(with_inputs)
+    loaded = store.get_run(run.id)
+    assert loaded is not None and loaded.inputs == with_inputs.inputs
+    store.close()
+
+
+def test_v0_db_migrates_inputs_with_rows_intact(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE workflows (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, "
+        "description TEXT NOT NULL DEFAULT '', spec_json TEXT NOT NULL, "
+        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+        "CREATE TABLE workflow_runs (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, "
+        "n INTEGER NOT NULL, trigger TEXT NOT NULL, schedule_id TEXT, spec_json TEXT NOT NULL, "
+        "status TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, "
+        "finished_at TEXT);"
+        "CREATE TABLE workflow_run_steps (run_id TEXT NOT NULL, step_name TEXT NOT NULL, "
+        "stage_index INTEGER NOT NULL, task_id TEXT NOT NULL, task_status TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL, PRIMARY KEY (run_id, step_name));"
+    )
+    conn.commit()
+    conn.close()
+
+    store = WorkflowStore(db)  # opening migrates
+    assert store.schema_version() == SCHEMA_VERSION
+    columns = {row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(workflow_runs)")}
+    assert "inputs_json" in columns
+    store.save(_workflow())
+    store.save_run(_run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z"))
+    loaded = store.get_run("wfr-00000001")
+    assert loaded is not None and loaded.inputs == {}
+    store.close()
