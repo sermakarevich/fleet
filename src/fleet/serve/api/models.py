@@ -352,7 +352,6 @@ class ConfigView(BaseModel):
     opencode_bedrock_profile: str
     stall_warning_minutes: int
     stall_action: str
-    stall_block_after: int
     max_attempt_minutes: int
     continue_pack_max_bytes: int
     state_max_bytes: int

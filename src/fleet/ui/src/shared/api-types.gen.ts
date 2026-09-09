@@ -1168,8 +1168,6 @@ export interface components {
             stall_warning_minutes: number;
             /** Stall Action */
             stall_action: string;
-            /** Stall Block After */
-            stall_block_after: number;
             /** Max Attempt Minutes */
             max_attempt_minutes: number;
             /** Continue Pack Max Bytes */

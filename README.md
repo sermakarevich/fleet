@@ -489,6 +489,15 @@ fleet serve foreground --port 8080  # run in the current terminal (blocks)
 
 Set `FLEET_API_TOKEN` in the environment of `fleet serve` to require `Authorization: Bearer <token>` on the API and `?token=` on WebSockets; unset means open (local use only).
 
+### Network exposure
+
+`fleet serve` binds `serve_host:serve_port` (`0.0.0.0:7890` by default, so the
+UI is reachable on your LAN/Tailscale). That default exposes the API to the
+local network with no token, so pair it with `FLEET_API_TOKEN` on any network
+you do not fully trust — or bind local-only with
+`fleet serve start --host 127.0.0.1` (persist via
+`fleet config set serve_host=127.0.0.1`). Full key list: [docs/CONFIG.md](docs/CONFIG.md).
+
 Starts a local web server backed by FastAPI and serves a React SPA at
 `http://127.0.0.1:7890` (or `http://<tailscale-ip>:7890` from another device on your tailnet). The UI provides:
 - **Dashboard** — live task table with status, elapsed time, and context usage
@@ -606,27 +615,9 @@ with `claude mcp list`.
 ## Configuration reference
 
 Configurable keys live in `$FLEET_HOME/runtime.toml`. Edit via `fleet config set …` or
-directly in the file.
-
-| Key | Default | Description |
-|---|---|---|
-| `max_concurrent` | `3` | Maximum number of agent subprocesses running at once. |
-| `max_concurrent_overrides` | `""` | Per-coder concurrency limits as comma-separated `coder:limit` pairs, e.g. `claude:2,opencode:4`. A coder not listed here uses `max_concurrent` as its limit. Total parallelism is the sum of all per-coder limits. |
-| `coder` | `claude` | Default coder used when a task does not specify one. Registered values: `claude`, `agy`, `codex`, `opencode`, `pi`. |
-| `model` | `sonnet` | Default model used when the task does not specify one. Interpreted by the active coder (e.g. `claude` understands `sonnet` / `opus` / `haiku`; the `agy` coder ignores it because the agy CLI reads its model from its own settings file; `codex` passes it as `--model`, defaulting to `o4-mini`; `opencode` maps it to an Ollama model, defaulting to `gpt-oss:20b`). |
-| `telegram_chat_id` | `""` | Telegram channel or group chat ID to forward blocked-agent questions to. Set together with `TELEGRAM_BOT_TOKEN` (env var). Empty string disables notifications. |
-| `telegram_allowed_ids` | `""` | Comma-separated list of numeric Telegram user IDs and/or chat IDs that are allowed to use bot commands (`/new_task`, `/tasks`, `/task <id>`, `/help`). **Empty string disables all inbound commands entirely** (default-deny). |
-| `telegram_default_cwd` | `""` | Working directory passed to tasks created via the Telegram `/new_task` command. When empty, tasks are created without an explicit `cwd` and inherit fleet's default. |
-| `compaction_enabled` | `true` | Run the `Compact` step before continue launches whose pack needs compaction (`ContinueLargeTask`). Set `false` to fall back to truncation only. |
-| `compaction_coder` | `claude` | Coder CLI used for the cheap compaction model call. |
-| `compaction_model` | `haiku` | Model used for the cheap compaction model call. |
-| `context_checkpoint_pct` | `75` | Peak-context percent at which the runner writes `.checkpoint_requested` so the model wraps up early. |
-| `context_kill_pct` | `90` | Peak-context percent at which the runner kills the session and reports `CONTEXT_PRESSURE`. |
-| `context_windows` | `""` | Per-model context windows as comma-separated `model:tokens` pairs, e.g. `muse-spark-1.3-contributor:1048576`. The one denominator for the context-usage display and the checkpoint/kill thresholds, shared by supervisor and UI. Empty string uses the built-in table in `core/context_window.py`. |
-| `isolation` | `"worktree"` | Git worktree isolation mode: `"worktree"` runs tasks whose cwd is inside a git repo in `$FLEET_HOME/worktrees/<repo>-<task_id>` on branch `fleet/<task_id>`; `"none"` runs everything in place. Per-task opt-out: `fleet bd create --isolation none`. |
-| `post_merge_command` | `""` | Shell command run in the repo root after a clean merge (10-minute timeout). Empty skips the step. Fleet's own repo sets `make ui-build` via config. On failure the bead blocks with the last 40 lines of output. |
-| `gc_retention_days` | `30` | Closed tasks older than this many days are archived to `archive/tasks/` (and their worktrees removed) by the daily retention pass. `0` disables. See [Retention](#retention). |
-| `gc_archive_days` | `90` | Archived task dirs older than this many days are deleted permanently by the retention pass and `fleet gc --purge`. `0` disables. |
+directly in the file. The full table — every key, default, and example — is
+[docs/CONFIG.md](docs/CONFIG.md) (generated from `core/config.py`, with
+environment variables and tunables documented alongside).
 
 ---
 
@@ -943,7 +934,7 @@ The supervisor brings the tunnel up automatically on start (`fleet run start` / 
 fleet tunnel          # ensure the tunnel is up; exit 1 if it cannot be started
 ```
 
-Set `FLEET_OLLAMA_SSH_HOST` to use a different SSH host alias than `rtx`. The local port is taken from `opencode_ollama_url`; a non-loopback URL disables the tunnel step.
+Set `ollama_ssh_host` to use a different SSH host alias than `rtx` (`fleet config set ollama_ssh_host=gpubox`). The local port is taken from `opencode_ollama_url`; a non-loopback URL disables the tunnel step.
 
 Alternatively, establish it once per session with `just` (or use VS Code's port-forward panel for port 11435):
 
@@ -1025,11 +1016,9 @@ Region: `fleet config set opencode_bedrock_region=us-east-1` or inherit `AWS_REG
 
 ### Settings
 
-| Key | Default | Description |
-|---|---|---|
-| `opencode_bedrock_region` | `""` (inherit from environment) | AWS region for Bedrock. |
-| `opencode_bedrock_profile` | `""` (inherit from environment) | AWS profile name for credentials. |
-| `context_windows` | `""` | Per-model context windows as `model:tokens,…` (built-in table covers Bedrock Claude at 200000). |
+Bedrock routing uses the `opencode_bedrock_region`, `opencode_bedrock_profile`,
+and `context_windows` keys — see [docs/CONFIG.md](docs/CONFIG.md) for defaults
+and examples.
 
 > **Bedrock usage costs real money per token** (unlike local Ollama).
 > Missing or invalid AWS credentials surface as error events on the task —

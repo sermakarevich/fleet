@@ -181,7 +181,7 @@ def test_stall_killed_releases_first_then_blocks(tmp_path: Path) -> None:
     s = _make_supervisor(
         tmp_path,
         queue,
-        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill", stall_block_after=2),
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
     )
     task = _task("t-stall")
 
