@@ -1,3 +1,5 @@
+"""Tests for the rate-limit usage gauge (unit under test: orchestrator/rate_gauge.py)."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

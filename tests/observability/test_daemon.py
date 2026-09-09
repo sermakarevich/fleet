@@ -42,7 +42,7 @@ def make_spec(
         name=name,
         pidfile=tmp_path / f".{name}.pid",
         logfile=tmp_path / "logs" / f"{name}.log",
-        argv=argv or [sys.executable, "-c", "import time; time.sleep(30)"],
+        argv=argv or [sys.executable, "-c", "import threading; threading.Event().wait()"],
         cwd=tmp_path,
         stop_timeout=stop_timeout,
         extra=extra or {},
@@ -122,7 +122,8 @@ def test_start_detects_immediate_exit(tmp_path: Path, monkeypatch) -> None:
 def test_start_real_process_is_alive(tmp_path: Path, monkeypatch) -> None:
     """End-to-end: real detached spawn, PID file written, process actually live."""
     monkeypatch.setattr("fleet.observability.daemon.STARTUP_WINDOW_SEC", 0.2)
-    spec = make_spec(tmp_path, argv=[sys.executable, "-c", "import time; time.sleep(30)"])
+    keepalive = [sys.executable, "-c", "import threading; threading.Event().wait()"]
+    spec = make_spec(tmp_path, argv=keepalive)
     result = start(spec)
     try:
         assert result.alive is True

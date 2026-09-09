@@ -1,3 +1,5 @@
+"""Tests for secret redaction (unit under test: core/redact.py)."""
+
 from fleet.core.redact import redact
 
 

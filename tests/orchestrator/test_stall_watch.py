@@ -12,6 +12,7 @@ from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.stall import StallWatch
 from tests.conftest import make_running_worker, make_supervisor
 from tests.helpers.task_dir import make_attempt
+from tests.helpers.wait import await_until
 
 
 def _stale_events_file(base: Path, task_id: str, age_sec: float = 120) -> Path:
@@ -109,7 +110,7 @@ def test_kill_action_kills_once(tmp_path: Path) -> None:
 
     async def _run() -> None:
         await svc.tick(sup.state)
-        await asyncio.sleep(0.2)  # let the scheduled kill() run
+        assert await await_until(lambda: fake.kill_calls >= 1), "scheduled stall kill never ran"
 
     asyncio.run(_run())
 

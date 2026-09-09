@@ -1422,6 +1422,297 @@
         }
       }
     },
+    "/api/schedules": {
+      "get": {
+        "summary": "List Schedules",
+        "description": "Every schedule with next firing, run count and latest run.",
+        "operationId": "list_schedules_api_schedules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Schedule",
+        "description": "Validate and save a schedule; 201 with the view.",
+        "operationId": "create_schedule_api_schedules_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/preview": {
+      "post": {
+        "summary": "Preview Cron",
+        "description": "Live cron check for the form; a bad expression is valid=false.",
+        "operationId": "preview_cron_api_schedules_preview_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CronPreviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/{schedule_id}": {
+      "get": {
+        "summary": "Get Schedule",
+        "description": "One schedule with upcoming firings and enriched run history.",
+        "operationId": "get_schedule_api_schedules__schedule_id__get",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Schedule",
+        "description": "Validate and rewrite a schedule, keeping id and created_at.",
+        "operationId": "update_schedule_api_schedules__schedule_id__put",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Schedule",
+        "description": "Remove a schedule and its run history.",
+        "operationId": "delete_schedule_api_schedules__schedule_id__delete",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/{schedule_id}/run": {
+      "post": {
+        "summary": "Run Schedule",
+        "description": "Fire one manual run now and return it with the new task id.",
+        "operationId": "run_schedule_api_schedules__schedule_id__run_post",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/{schedule_id}/enable": {
+      "post": {
+        "summary": "Enable Schedule",
+        "description": "Enable a schedule without resending the full body.",
+        "operationId": "enable_schedule_api_schedules__schedule_id__enable_post",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedules/{schedule_id}/disable": {
+      "post": {
+        "summary": "Disable Schedule",
+        "description": "Disable a schedule without resending the full body.",
+        "operationId": "disable_schedule_api_schedules__schedule_id__disable_post",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chat/questions": {
       "get": {
         "summary": "List Questions",
@@ -2661,10 +2952,6 @@
             "type": "string",
             "title": "Stall Action"
           },
-          "stall_block_after": {
-            "type": "integer",
-            "title": "Stall Block After"
-          },
           "max_attempt_minutes": {
             "type": "integer",
             "title": "Max Attempt Minutes"
@@ -2783,7 +3070,6 @@
           "opencode_bedrock_profile",
           "stall_warning_minutes",
           "stall_action",
-          "stall_block_after",
           "max_attempt_minutes",
           "continue_pack_max_bytes",
           "state_max_bytes",
@@ -2839,6 +3125,40 @@
         ],
         "title": "CreateTaskResponse",
         "description": "New task id for POST /api/tasks."
+      },
+      "CronPreviewResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "upcoming": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Upcoming"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "error",
+          "upcoming"
+        ],
+        "title": "CronPreviewResponse",
+        "description": "Cron validity plus upcoming UTC firings (never 4xx for a bad expression)."
       },
       "DiffResponse": {
         "properties": {
@@ -3430,6 +3750,388 @@
         ],
         "title": "RunStep",
         "description": "One entry of the current attempt's run.json steps."
+      },
+      "ScheduleDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "cron": {
+            "type": "string",
+            "title": "Cron"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "overlap": {
+            "type": "string",
+            "title": "Overlap"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "next_fire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Fire At"
+          },
+          "run_count": {
+            "type": "integer",
+            "title": "Run Count"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleRunView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "upcoming": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Upcoming"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleRunView"
+            },
+            "type": "array",
+            "title": "Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cron",
+          "timezone",
+          "enabled",
+          "title",
+          "description",
+          "cwd",
+          "coder",
+          "model",
+          "priority",
+          "overlap",
+          "created_at",
+          "updated_at",
+          "next_fire_at",
+          "run_count",
+          "last_run",
+          "upcoming",
+          "runs"
+        ],
+        "title": "ScheduleDetail",
+        "description": "One schedule with upcoming firings and enriched run history."
+      },
+      "ScheduleListResponse": {
+        "properties": {
+          "schedules": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleView"
+            },
+            "type": "array",
+            "title": "Schedules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schedules"
+        ],
+        "title": "ScheduleListResponse",
+        "description": "Envelope for GET /api/schedules."
+      },
+      "ScheduleRunResponse": {
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/ScheduleRunView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run"
+        ],
+        "title": "ScheduleRunResponse",
+        "description": "Envelope for POST /api/schedules/{id}/run."
+      },
+      "ScheduleRunView": {
+        "properties": {
+          "schedule_id": {
+            "type": "string",
+            "title": "Schedule Id"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "scheduled_for": {
+            "type": "string",
+            "title": "Scheduled For"
+          },
+          "fired_at": {
+            "type": "string",
+            "title": "Fired At"
+          },
+          "trigger": {
+            "type": "string",
+            "title": "Trigger"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "task_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Status"
+          },
+          "task_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schedule_id",
+          "n",
+          "scheduled_for",
+          "fired_at",
+          "trigger",
+          "task_id",
+          "skipped",
+          "reason",
+          "task_status",
+          "task_title"
+        ],
+        "title": "ScheduleRunView",
+        "description": "One schedule run plus the task it opened (status/title null when gone)."
+      },
+      "ScheduleView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "cron": {
+            "type": "string",
+            "title": "Cron"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "overlap": {
+            "type": "string",
+            "title": "Overlap"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "next_fire_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Fire At"
+          },
+          "run_count": {
+            "type": "integer",
+            "title": "Run Count"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleRunView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "cron",
+          "timezone",
+          "enabled",
+          "title",
+          "description",
+          "cwd",
+          "coder",
+          "model",
+          "priority",
+          "overlap",
+          "created_at",
+          "updated_at",
+          "next_fire_at",
+          "run_count",
+          "last_run"
+        ],
+        "title": "ScheduleView",
+        "description": "One schedule with its next firing, run count and latest run."
       },
       "SearchHit": {
         "properties": {

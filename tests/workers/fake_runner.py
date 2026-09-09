@@ -32,6 +32,7 @@ class FakeProcess:
         self.returncode: int | None = None
         self.terminated = False
         self.signals: list[int] = []
+        self.started = asyncio.Event()
         self._lines = list(lines or [])
         self._exit_code = exit_code
         self._hang = hang
@@ -49,6 +50,7 @@ class FakeProcess:
         if not self._hang:
             reader.feed_eof()
         self._stdout = reader
+        self.started.set()
 
     @property
     def stdout(self) -> asyncio.StreamReader:

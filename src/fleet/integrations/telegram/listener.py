@@ -8,6 +8,7 @@ Runs until cancelled; network errors back off exponentially.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
@@ -28,9 +29,20 @@ def _fetch_updates(api: TelegramApi, offset: int | None) -> list[dict]:
 
 
 async def inbound_listener(
-    api: TelegramApi, store: Any, commands: CommandEnv, offset_store: OffsetStore
+    api: TelegramApi,
+    store: Any,
+    commands: CommandEnv,
+    offset_store: OffsetStore,
+    *,
+    sleep_fn: Callable[[float], Awaitable[None]] | None = None,
 ) -> None:
-    """Long-poll getUpdates; create tasks and answer questions until cancelled."""
+    """Long-poll getUpdates; create tasks and answer questions until cancelled.
+
+    ``sleep_fn`` is an injection seam so tests pass a recording script
+    instead of patching ``asyncio.sleep`` for the idle/backoff pauses.
+    """
+    if sleep_fn is None:
+        sleep_fn = asyncio.sleep
     if not api.token:
         _log.debug("telegram.inbound_listener: no token, listener inactive")
         return
@@ -40,7 +52,7 @@ async def inbound_listener(
         try:
             allowed = commands.allowed_ids()
             if not allowed:
-                await asyncio.sleep(_IDLE_POLL_SEC)
+                await sleep_fn(_IDLE_POLL_SEC)
                 continue
             updates = await asyncio.to_thread(_fetch_updates, api, offset)
             backoff = 1.0
@@ -55,7 +67,7 @@ async def inbound_listener(
             raise
         except Exception:
             _log.exception("telegram.inbound: error, backing off", backoff=backoff)
-            await asyncio.sleep(backoff)
+            await sleep_fn(backoff)
             backoff = min(backoff * 2, _BACKOFF_MAX)
 
 

@@ -7,8 +7,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../api';
 import { usePoll } from '../poll';
-import type { CreateTaskInput, RuntimeConfig } from '../types';
+import type { CreateTaskInput, RuntimeConfig, ScheduleInput } from '../types';
 import { useTaskMutation } from './useTaskMutation';
+import { useDebounced } from './useDebounced';
 
 export function useTasks() {
   return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: usePoll('normal') });
@@ -270,5 +271,80 @@ export function useSearch(query: string) {
     queryKey: ['search', query],
     queryFn: () => api.search(query),
     enabled: query.length >= 3,
+  });
+}
+
+// --- Schedules (recurring workers, ADR 0007) -------------------------------
+
+export function useSchedules() {
+  return useQuery({ queryKey: ['schedules'], queryFn: api.getSchedules, refetchInterval: 10000 });
+}
+
+export function useSchedule(id: string | null) {
+  return useQuery({
+    queryKey: ['schedule', id],
+    queryFn: () => api.getSchedule(id as string),
+    enabled: !!id,
+    refetchInterval: 5000,
+  });
+}
+
+export function useCreateSchedule() {
+  return useTaskMutation('Create schedule', (payload: ScheduleInput) => api.createSchedule(payload), {
+    invalidate: (data) => [['schedules'], ['schedule', data.id]],
+    success: (data) => `Schedule created: ${data.name}`,
+    failure: (_vars, err) => `Create failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useUpdateSchedule() {
+  return useTaskMutation(
+    'Update schedule',
+    ({ id, payload }: { id: string; payload: ScheduleInput }) => api.updateSchedule(id, payload),
+    {
+      invalidate: (_data, vars) => [['schedules'], ['schedule', vars.id]],
+      success: 'Schedule updated',
+      failure: (_vars, err) => `Update failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+export function useDeleteSchedule() {
+  return useTaskMutation('Delete schedule', (id: string) => api.deleteSchedule(id), {
+    invalidate: (_data, id) => [['schedules'], ['schedule', id]],
+    success: 'Schedule deleted',
+    failure: (_vars, err) => `Delete failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useRunSchedule() {
+  return useTaskMutation('Run schedule', (id: string) => api.runSchedule(id), {
+    invalidate: (_data, id) => [['schedules'], ['schedule', id]],
+    success: (data) => (data.run.task_id ? `Run started: ${data.run.task_id}` : 'Run recorded (skipped)'),
+    failure: (_vars, err) => `Run failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useSetScheduleEnabled() {
+  return useTaskMutation(
+    'Set schedule enabled',
+    ({ id, enabled }: { id: string; enabled: boolean }) => api.setScheduleEnabled(id, enabled),
+    {
+      invalidate: (_data, vars) => [['schedules'], ['schedule', vars.id]],
+      success: (_data, vars) => (vars.enabled ? 'Schedule enabled' : 'Schedule disabled'),
+      failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+// Cron validity plus next firings; debounced so typing fetches at most
+// once per pause. Disabled (no fetch) while the expression is blank.
+export function useCronPreview(cron: string, timezone: string) {
+  const debouncedCron = useDebounced(cron);
+  const debouncedZone = useDebounced(timezone);
+  return useQuery({
+    queryKey: ['cron-preview', debouncedCron, debouncedZone],
+    queryFn: () => api.previewCron(debouncedCron, debouncedZone || 'UTC'),
+    enabled: debouncedCron.trim().length > 0,
   });
 }

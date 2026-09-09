@@ -13,6 +13,7 @@ import logging
 from _pytest.logging import LogCaptureFixture
 
 from fleet.serve.app import supervise
+from tests.helpers.wait import wait_until
 
 
 def test_crashing_background_task_is_logged(caplog: LogCaptureFixture) -> None:
@@ -25,11 +26,11 @@ def test_crashing_background_task_is_logged(caplog: LogCaptureFixture) -> None:
         task = supervise(_boom(), "test_task")
         with contextlib.suppress(RuntimeError):
             await task
-        await asyncio.sleep(0)
 
     with caplog.at_level(logging.ERROR, logger="fleet.serve.app"):
         asyncio.run(_main())
-    assert "background task failed" in caplog.text
+    # The failure is logged from a done-callback: wait for the record itself.
+    assert wait_until(lambda: "background task failed" in caplog.text), caplog.text
 
 
 def test_cancelled_background_task_stays_quiet(caplog: LogCaptureFixture) -> None:
@@ -37,12 +38,13 @@ def test_cancelled_background_task_stays_quiet(caplog: LogCaptureFixture) -> Non
 
     async def _main() -> None:
         async def _wait() -> None:
-            await asyncio.sleep(60)
+            await asyncio.Event().wait()  # block until cancelled; no fixed sleep
 
         task = supervise(_wait(), "test_task")
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        # One loop tick so the (quiet) done-callback runs before we assert.
         await asyncio.sleep(0)
 
     with caplog.at_level(logging.ERROR, logger="fleet.serve.app"):

@@ -12,6 +12,7 @@ import pytest
 
 from fleet.core.retry_policy import rounds_for_history
 from fleet.state.attempts import load_attempts
+from tests.helpers.wait import await_until
 from tests.integration.conftest import (
     FakeClaudeCoder,
     beads_functional,
@@ -23,6 +24,18 @@ from tests.integration.conftest import (
 pytestmark = pytest.mark.skipif(
     not beads_functional(), reason="bd not functional in fresh git repo"
 )
+
+
+def _status_is(queue, task_id: str, status: str):
+    """Poll predicate: the task currently has *status* (False when unreadable)."""
+
+    async def _check() -> bool:
+        try:
+            return queue.get(task_id).status == status
+        except Exception:
+            return False
+
+    return _check
 
 
 def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 0006 bead 29
@@ -51,16 +64,8 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 00
         sup_task = asyncio.create_task(sup.run())
         try:
             # Wait until beads shows the task as blocked
-            deadline = asyncio.get_event_loop().time() + 15.0
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(0.5)
-                try:
-                    current = queue.get(task_id)
-                    if current.status == "blocked":
-                        blocked_event.set()
-                        break
-                except Exception:
-                    pass
+            if await await_until(_status_is(queue, task_id, "blocked"), timeout=15.0):
+                blocked_event.set()
         finally:
             await sup._shutdown()
             try:
@@ -98,16 +103,8 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 00
     async def _phase3() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            deadline = asyncio.get_event_loop().time() + 15.0
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(0.5)
-                try:
-                    current = queue.get(task_id)
-                    if current.status == "closed":
-                        closed_event.set()
-                        break
-                except Exception:
-                    pass
+            if await await_until(_status_is(queue, task_id, "closed"), timeout=15.0):
+                closed_event.set()
         finally:
             await sup._shutdown()
             try:
@@ -123,16 +120,8 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 00
     async def _phase3_with_sup2() -> None:
         sup_task = asyncio.create_task(sup2.run())
         try:
-            deadline = asyncio.get_event_loop().time() + 15.0
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(0.5)
-                try:
-                    current = queue.get(task_id)
-                    if current.status == "closed":
-                        closed_event.set()
-                        break
-                except Exception:
-                    pass
+            if await await_until(_status_is(queue, task_id, "closed"), timeout=15.0):
+                closed_event.set()
         finally:
             await sup2._shutdown()
             try:
@@ -172,16 +161,8 @@ def test_qa_blocked_no_failure_count(tmp_path: Path) -> None:
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            deadline = asyncio.get_event_loop().time() + 15.0
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(0.5)
-                try:
-                    current = queue.get(task_id)
-                    if current.status == "blocked":
-                        done.set()
-                        break
-                except Exception:
-                    pass
+            if await await_until(_status_is(queue, task_id, "blocked"), timeout=15.0):
+                done.set()
         finally:
             await sup._shutdown()
             try:

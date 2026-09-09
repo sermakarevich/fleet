@@ -31,7 +31,7 @@ typecheck:
     uv run mypy src
 
 # one command that says "green": lint + format check + types + unit tests
-check: lint fmt-check typecheck ui-types-check ui-check-if-present
+check: lint fmt-check typecheck config-docs-check ui-types-check ui-check-if-present
     uv run pytest -q -p no:cacheprovider tests --ignore=tests/integration
 
 # check plus the integration suite
@@ -102,6 +102,14 @@ ui-check-if-present:
 ui-types:
     uv run python -m fleet.serve.openapi_dump > src/fleet/ui/openapi.json
     cd src/fleet/ui && npx openapi-typescript openapi.json -o src/shared/api-types.gen.ts
+
+# regenerate docs/CONFIG.md regions + runtime.toml.header from field metadata
+config-docs:
+    uv run fleet config docs --write
+
+# fail when the generated config docs drift from the code
+config-docs-check:
+    uv run fleet config docs --check
 
 # fail when the generated UI types drift from the backend models
 ui-types-check:

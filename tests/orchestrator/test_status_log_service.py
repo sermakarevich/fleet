@@ -15,6 +15,12 @@ from fleet.core.task import Event
 from fleet.orchestrator.status_log import fleet_log_context, make_status_log, status_log_tick
 from fleet.state.journal import setup_supervisor_logger
 from tests.conftest import make_running_worker, make_supervisor
+from tests.helpers.wait import await_until
+
+
+def _heartbeat_count(log_root: Path) -> int:
+    """Supervisor-status heartbeats visible in the flushed log file."""
+    return len([r for r in _read_fleet_log(log_root) if r.get("event") == "supervisor_status"])
 
 
 def _read_fleet_log(log_root: Path) -> list[dict]:
@@ -109,7 +115,8 @@ def test_serve_ticks_until_shutdown(tmp_path: Path) -> None:
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(sup.state))
-        await asyncio.sleep(0.2)
+        # Heartbeats flush per record: wait for two in the log file itself.
+        assert await await_until(lambda: _heartbeat_count(log_root) >= 2), "fewer than 2 heartbeats"
         sup.state.shutting_down = True
         await asyncio.wait_for(task, timeout=2.0)
 

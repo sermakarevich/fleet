@@ -1,3 +1,14 @@
+"""Behavioural constants: cadences, timeouts, retry bounds, API caps.
+
+One home for every number nobody should tune blind (ADR 0006 rule 1).
+``TUNABLE_DOCS`` gives each constant its one-line doc; ``render_tunables_table``
+turns the table into the Tunables section of ``docs/CONFIG.md``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 LOG_ROOT = "logging"
 
 # Daemon log rotation (see observability/daemon.py, state/journal.py): a
@@ -73,3 +84,68 @@ QUESTION_BACKOFF_MAX_SEC: float = 60.0
 # Serve event-stream watcher: replay window for in-progress tasks on serve
 # restart (see serve/event_stream.py::FileWatcher).
 WS_REPLAY_LINES: int = 50
+
+
+@dataclass(frozen=True, slots=True)
+class TunableRow:
+    """One behavioural constant: name, value, one-line doc."""
+
+    name: str
+    value: str
+    doc: str
+
+
+# One-line doc per constant above; docs/CONFIG.md renders this table.
+# A test asserts every public UPPER_SNAKE constant in this module appears here.
+TUNABLE_DOCS: dict[str, str] = {
+    "LOG_ROOT": "Subdirectory of FLEET_HOME holding daemon logs.",
+    "LOG_ROTATE_BYTES": "Rotate a daemon log once it reaches this size.",
+    "LOG_ROTATE_KEEP": "Numbered backups kept per rotated daemon log.",
+    "CONFIG_POLL_INTERVAL_SEC": "How often the supervisor re-reads runtime.toml.",
+    "CLAIM_POLL_INTERVAL_SEC": "How often the claim service polls the queue.",
+    "SCHEDULER_TICK_SEC": "Scheduler tick; cron resolution is one minute.",
+    "SHUTDOWN_GRACE_SEC": "SIGTERM grace before shutdown escalates to SIGKILL.",
+    "RATE_LIMIT_DEFAULT_SLEEP_SEC": "Wait before retrying a rate-limited attempt.",
+    "STATUS_LOG_INTERVAL_SEC": "Heartbeat lines between supervisor status logs.",
+    "HEARTBEAT_SEC": "Attempt lease heartbeat rewrite cadence.",
+    "LEASE_RECONCILE_INTERVAL_SEC": "How often stale attempt leases are reclaimed.",
+    "GC_INTERVAL_SEC": "Retention pass cadence after the startup pass.",
+    "PROBE_INTERVAL_SEC": "Health-probe tick for running coder sessions.",
+    "PROBE_SILENCE_SEC": "Silence that marks a session as possibly stuck.",
+    "FAILURE_MAX_ROUNDS": "Consecutive failures before a task blocks.",
+    "STALL_MAX_ROUNDS": "Consecutive stall kills before a task blocks.",
+    "CONTEXT_MAX_ROUNDS": "Consecutive context-pressure ends before a task blocks.",
+    "PARTIAL_MAX_ROUNDS": "Consecutive partial outcomes before a task blocks.",
+    "NOCLOSE_MAX_ROUNDS": "Consecutive no-close exits before a task blocks.",
+    "RATE_LIMIT_PROBE_SILENCE_SEC": "Silence giving up on a rate-limited session.",
+    "BD_TIMEOUT_SEC": "Subprocess ceiling for every bd CLI call.",
+    "GIT_TIMEOUT_SEC": "Subprocess ceiling for every git call.",
+    "SUBPROCESS_TIMEOUT_SEC": "Default ceiling for other subprocess.run calls.",
+    "MAX_EVENT_PAGE": "Row cap per whole-task event page request.",
+    "CLOSED_TASKS_DEFAULT": "Default rows for the closed-tasks window.",
+    "CLOSED_TASKS_MAX": "Max rows for the closed-tasks window.",
+    "SEARCH_LIMIT_DEFAULT": "Default hits per search request.",
+    "SEARCH_LIMIT_MAX": "Max hits per search request.",
+    "ANALYTICS_DAYS_DEFAULT": "Default trailing window in days for analytics.",
+    "ANALYTICS_DAYS_MAX": "Max trailing window in days for analytics.",
+    "SERVE_WATCH_INTERVAL_SEC": "Task-dir rescan cadence of the event watcher.",
+    "QUESTION_POLL_SEC": "Idle tick between Telegram notify rounds.",
+    "QUESTION_BACKOFF_MAX_SEC": "Backoff ceiling after Telegram failures.",
+    "WS_REPLAY_LINES": "Replay window for in-progress tasks on serve restart.",
+}
+
+
+def tunable_rows() -> list[TunableRow]:
+    """Every TUNABLE_DOCS entry as a doc row with its live value."""
+    here = globals()
+    return [
+        TunableRow(name=name, value=repr(here[name]), doc=doc) for name, doc in TUNABLE_DOCS.items()
+    ]
+
+
+def render_tunables_table() -> str:
+    """Tunable rows as a Markdown table (docs/CONFIG.md region)."""
+    lines = ["| Name | Value | Description |", "|---|---|---|"]
+    for row in tunable_rows():
+        lines.append(f"| `{row.name}` | `{row.value}` | {row.doc} |")
+    return "\n".join(lines) + "\n"

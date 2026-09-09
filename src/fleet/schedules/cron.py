@@ -224,6 +224,11 @@ def _zone(tz: str) -> ZoneInfo:
         raise CronError(f"timezone: unknown zone {tz!r}") from None
 
 
+def zone(tz: str) -> ZoneInfo:
+    """Return the `ZoneInfo` for `tz`, raising `CronError` when unknown."""
+    return _zone(tz)
+
+
 def _step(cur: datetime, schedule: CronSchedule) -> datetime:
     """Advance one wall-clock step toward the next firing minute."""
     if cur.month not in schedule.months:

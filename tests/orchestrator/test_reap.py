@@ -12,6 +12,7 @@ from fleet.orchestrator.reap import Reap, outcome_of, pop_finished
 from fleet.orchestrator.service import ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_running_worker, make_supervisor
+from tests.helpers.wait import await_until
 
 
 class StubQueue:
@@ -106,10 +107,7 @@ def test_reap_emits_on_worker_finished(tmp_path: Path) -> None:
         sup.state.running["t-001"] = worker
 
         serve_task = asyncio.create_task(Reap().serve(sup.state))
-        for _ in range(200):
-            if recorder.finished:
-                break
-            await asyncio.sleep(0.01)
+        assert await await_until(lambda: recorder.finished), "reap never finished"
         sup.state.shutting_down = True
         await asyncio.wait_for(serve_task, timeout=2.0)
 

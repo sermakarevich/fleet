@@ -1,3 +1,5 @@
+"""Shared fixtures and doubles for the whole unit-test suite."""
+
 import json
 import shlex
 from collections.abc import Callable
@@ -25,6 +27,7 @@ from fleet.state.config_file import load
 
 @pytest.fixture
 def queue(tmp_path: Path) -> BeadsQueue:
+    """A real BeadsQueue rooted at a throwaway repo (needs no `bd` binary to construct)."""
     return BeadsQueue(repo_root=tmp_path)
 
 

@@ -1,3 +1,5 @@
+"""Tests for the bd CLI client (unit under test: beads/client.py)."""
+
 from __future__ import annotations
 
 import subprocess

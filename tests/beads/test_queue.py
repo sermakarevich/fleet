@@ -1,3 +1,5 @@
+"""Tests for the beads queue (unit under test: beads/queue.py, task_store.py)."""
+
 import json
 import subprocess
 import threading

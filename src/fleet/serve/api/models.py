@@ -352,7 +352,6 @@ class ConfigView(BaseModel):
     opencode_bedrock_profile: str
     stall_warning_minutes: int
     stall_action: str
-    stall_block_after: int
     max_attempt_minutes: int
     continue_pack_max_bytes: int
     state_max_bytes: int
@@ -672,3 +671,91 @@ class ConfigUpdateRequest(BaseModel):
     model: str | None = None
     coder: str | None = None
     max_concurrent_overrides: str | None = None
+
+
+class ScheduleRequest(BaseModel):
+    """Body for POST /api/schedules and PUT /api/schedules/{id} (validated manually)."""
+
+    name: str = ""
+    cron: str = ""
+    timezone: str = "UTC"
+    enabled: bool = True
+    title: str = ""
+    description: str = ""
+    cwd: str | None = None
+    coder: str | None = None
+    model: str | None = None
+    priority: int = 2
+    overlap: str = "skip"
+
+
+class ScheduleRunView(BaseModel):
+    """One schedule run plus the task it opened (status/title null when gone)."""
+
+    schedule_id: str
+    n: int
+    scheduled_for: str
+    fired_at: str
+    trigger: str
+    task_id: str | None
+    skipped: bool
+    reason: str
+    task_status: str | None
+    task_title: str | None
+
+
+class ScheduleView(BaseModel):
+    """One schedule with its next firing, run count and latest run."""
+
+    id: str
+    name: str
+    cron: str
+    timezone: str
+    enabled: bool
+    title: str
+    description: str
+    cwd: str | None
+    coder: str | None
+    model: str | None
+    priority: int
+    overlap: str
+    created_at: str
+    updated_at: str
+    next_fire_at: str | None
+    run_count: int
+    last_run: ScheduleRunView | None
+
+
+class ScheduleDetail(ScheduleView):
+    """One schedule with upcoming firings and enriched run history."""
+
+    upcoming: list[str]
+    runs: list[ScheduleRunView]
+
+
+class ScheduleListResponse(BaseModel):
+    """Envelope for GET /api/schedules."""
+
+    schedules: list[ScheduleView]
+
+
+class CronPreviewRequest(BaseModel):
+    """Body for POST /api/schedules/preview (parsed manually today)."""
+
+    cron: str = ""
+    timezone: str = "UTC"
+    count: int = 5
+
+
+class CronPreviewResponse(BaseModel):
+    """Cron validity plus upcoming UTC firings (never 4xx for a bad expression)."""
+
+    valid: bool
+    error: str | None
+    upcoming: list[str]
+
+
+class ScheduleRunResponse(BaseModel):
+    """Envelope for POST /api/schedules/{id}/run."""
+
+    run: ScheduleRunView

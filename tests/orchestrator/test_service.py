@@ -7,6 +7,7 @@ import asyncio
 from fleet.orchestrator.service import PeriodicService, ServiceOrder, emit
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
+from tests.helpers.wait import await_until
 
 
 class _StubLog:
@@ -92,8 +93,7 @@ def test_periodic_service_ticks_and_stops_on_shutdown(tmp_path) -> None:  # type
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(st))
-        while len(ticks) < 3:
-            await asyncio.sleep(0.005)
+        assert await await_until(lambda: len(ticks) >= 3), "service never ticked 3 times"
         st.shutting_down = True
         await asyncio.wait_for(task, timeout=2.0)
 
@@ -110,8 +110,7 @@ def test_periodic_tick_exception_is_logged_not_raised(tmp_path) -> None:  # type
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(st))
-        while len(ticks) < 2:
-            await asyncio.sleep(0.005)
+        assert await await_until(lambda: len(ticks) >= 2), "service never ticked twice"
         st.shutting_down = True
         await asyncio.wait_for(task, timeout=2.0)
 

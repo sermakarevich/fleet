@@ -77,11 +77,21 @@ def _save_watermark(path: Path, watermark: float) -> None:
         logger.warning("question_poller watermark save failed", extra={"error": str(exc)})
 
 
-async def _question_poller(app: FastAPI) -> None:
-    """Forward new ask_human questions to Telegram until cancelled."""
+async def _question_poller(
+    app: FastAPI, *, api: TelegramApi | None = None, sleep_fn: Any = None
+) -> None:
+    """Forward new ask_human questions to Telegram until cancelled.
+
+    ``api`` and ``sleep_fn`` are injection seams so tests pass
+    ``FakeTelegramApi`` and a scripted sleep instead of patching
+    ``TelegramApi`` methods or ``asyncio.sleep``.
+    """
     state = app.state.fleet_state
     token = state.telegram_token
-    api = TelegramApi(token)
+    if api is None:
+        api = TelegramApi(token)
+    if sleep_fn is None:
+        sleep_fn = asyncio.sleep
     watermark_path = state.fleet_home / _QUESTION_WATERMARK
     db_watermark: float = await asyncio.to_thread(state.question_store.max_created_at)
     watermark = await asyncio.to_thread(_load_watermark, watermark_path, db_watermark)
@@ -89,7 +99,7 @@ async def _question_poller(app: FastAPI) -> None:
     delay = QUESTION_POLL_SEC
     while True:
         try:
-            await asyncio.sleep(delay)
+            await sleep_fn(delay)
             chat_id = state.config.telegram_chat_id if state.config else ""
             if not token or not chat_id:
                 delay = QUESTION_POLL_SEC
