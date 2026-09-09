@@ -3,7 +3,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import { ChatPage } from '../features/chat/ChatPage';
 import { WorkersPage } from '../features/workers/WorkersPage';
-import { RecurringPage } from '../features/recurring/RecurringPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/workers/detail/TaskDetailPage';
@@ -39,6 +38,13 @@ export function TaskIdRedirect() {
 export function ScheduleIdRedirect() {
   const { id } = useParams();
   return <Navigate to={`/workers?tab=scheduled&schedule=${id}`} replace />;
+}
+
+// Legacy /recurring URLs redirect into the workflows Scheduled sub-tab
+// (ADR 0009 shared triggers); an id opens the schedule drawer.
+export function RecurringIdRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/workflows?tab=scheduled&schedule=${id}`} replace />;
 }
 
 // Legacy /bd URLs redirect to the workers list. The bd tab filtered by
@@ -79,8 +85,8 @@ function AppInner() {
           <Route path="/schedules" element={<Navigate to={{ pathname: '/workers', search: '?tab=scheduled' }} replace />} />
           <Route path="/schedules/:id" element={<ScheduleIdRedirect />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
-          <Route path="/recurring" element={<RecurringPage />} />
-          <Route path="/recurring/:id" element={<RecurringPage />} />
+          <Route path="/recurring" element={<Navigate to={{ pathname: '/workflows', search: '?tab=scheduled' }} replace />} />
+          <Route path="/recurring/:id" element={<RecurringIdRedirect />} />
           <Route path="/workflows/new" element={<WorkflowsPage />} />
           <Route path="/workflows/:id" element={<WorkflowsPage />} />
           <Route path="/workflows/:id/runs" element={<WorkflowsPage />} />

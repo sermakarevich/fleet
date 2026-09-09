@@ -1,7 +1,7 @@
 /**
- * Cron preset table for the schedule form's preset picker.
+ * Cron preset table for the trigger form's preset picker.
  * A table (not an if-chain) of label + 5-field expression.
- * Called by ScheduleForm; covered by cronPresets.test.ts.
+ * Called by TriggerForm; covered by cronPresets.test.ts.
  */
 
 // One preset row: human label plus its cron expression.

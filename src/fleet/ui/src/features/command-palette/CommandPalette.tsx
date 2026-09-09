@@ -21,11 +21,14 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
   const resumeSupervisor = useResumeSupervisor();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  // "New schedule" asks for the target first (ADR 0009 shared triggers).
+  const [pickTarget, setPickTarget] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setInputValue('');
       setDebouncedQuery('');
+      setPickTarget(false);
     }
   }, [open]);
 
@@ -61,16 +64,22 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
     setOpen(false);
   };
 
+  // New-schedule target picker: worker vs workflow, then straight into
+  // the matching Scheduled sub-tab with the create form open.
+  const targetActions = [
+    { id: 'new-schedule-worker', label: 'Schedule a worker', run: () => go('/workers?tab=scheduled&new=1') },
+    { id: 'new-schedule-workflow', label: 'Schedule a workflow', run: () => go('/workflows?tab=scheduled&new=1') },
+  ];
+
   const actions = [
     { id: 'create', label: 'New worker', run: () => { onCreateWorker(); setOpen(false); } },
     { id: 'workers', label: 'Go to workers', run: () => go('/workers') },
     { id: 'scheduled-workers', label: 'Scheduled workers', run: () => go('/workers?tab=scheduled') },
-    { id: 'create-schedule', label: 'Create new schedule', run: () => go('/workers?tab=scheduled&new=1') },
+    { id: 'scheduled-workflows', label: 'Scheduled workflows', run: () => go('/workflows?tab=scheduled') },
+    { id: 'new-schedule', label: 'New schedule…', run: () => setPickTarget(true) },
     { id: 'workflows', label: 'Go to Workflows', run: () => go('/workflows') },
-    { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?view=runs') },
+    { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?tab=runs') },
     { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
-    { id: 'recurring', label: 'Go to Recurring workflows', run: () => go('/recurring') },
-    { id: 'schedule-workflow', label: 'Schedule a workflow', run: () => go('/recurring?new=1') },
     { id: 'analytics', label: 'Go to Analytics', run: () => go('/analytics') },
     { id: 'config', label: 'Go to Config', run: () => go('/config') },
     {
@@ -131,6 +140,22 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
                 >
                   <span style={s.itemLabel}>Go to worker {trimmedInput}</span>
                 </Command.Item>
+              </Command.Group>
+            )}
+            {pickTarget && (
+              <Command.Group>
+                <div style={s.groupHeading}>New schedule for…</div>
+                {targetActions.map(a => (
+                  <Command.Item
+                    key={a.id}
+                    value={a.id}
+                    style={s.item}
+                    onSelect={a.run}
+                    className="cmd-item"
+                  >
+                    <span style={s.itemLabel}>{a.label}</span>
+                  </Command.Item>
+                ))}
               </Command.Group>
             )}
             <Command.Group>

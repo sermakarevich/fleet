@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { ToastProvider } from '../../shared/contexts/ToastContext';
-import type { Workflow } from '../../shared/types';
+import type { Schedule, Workflow } from '../../shared/types';
 import { WorkflowsPage } from './WorkflowsPage';
 
 afterEach(cleanup);
@@ -22,6 +22,19 @@ function wrapper({ children }: { children: ReactNode }) {
     <QueryClientProvider client={client}>
       <ToastProvider>
         <MemoryRouter initialEntries={['/workflows']}>{children}</MemoryRouter>
+      </ToastProvider>
+    </QueryClientProvider>
+  );
+}
+
+function scheduledWrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return (
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <MemoryRouter initialEntries={['/workflows?tab=scheduled']}>{children}</MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>
   );
@@ -69,5 +82,37 @@ describe('WorkflowsPage', () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(importSpy).toHaveBeenCalledWith(YAML_TEXT, undefined));
+  });
+
+  it('Scheduled sub-tab lists workflow-target schedules with the Overlap column', async () => {
+    const listSpy = vi.spyOn(api, 'getSchedules').mockResolvedValue([
+      {
+        id: 'sched-w1',
+        name: 'nightly-quality',
+        cron: '0 9 * * 1-5',
+        timezone: 'UTC',
+        enabled: true,
+        title: '',
+        description: '',
+        cwd: null,
+        coder: null,
+        model: null,
+        priority: 2,
+        overlap: 'queue',
+        target: 'workflow',
+        workflow_id: 'wf-9',
+        created_at: '2026-09-09T10:00:00Z',
+        updated_at: '2026-09-09T10:00:00Z',
+        next_fire_at: null,
+        run_count: 0,
+        last_run: null,
+      } as Schedule,
+    ]);
+    render(<WorkflowsPage />, { wrapper: scheduledWrapper });
+
+    expect(await screen.findByText('nightly-quality')).toBeInTheDocument();
+    expect(listSpy).toHaveBeenCalledWith('workflow');
+    expect(screen.getByText('Overlap')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'true');
   });
 });
