@@ -69,8 +69,8 @@ def json_body_ref(ok_response: dict) -> str | None:
 
 
 def test_config_view_matches_runtime_config() -> None:
-    """ConfigView field names track core.config.RuntimeConfig (no drift)."""
-    expected = {f.name for f in fields(RuntimeConfig)}
+    """ConfigView tracks RuntimeConfig plus the restart_required meta key (no drift)."""
+    expected = {f.name for f in fields(RuntimeConfig)} | {"restart_required"}
     assert set(models.ConfigView.model_fields) == expected
 
 

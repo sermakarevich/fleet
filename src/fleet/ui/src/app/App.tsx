@@ -7,7 +7,7 @@ import { WorkersPage } from '../features/workers/WorkersPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/workers/detail/TaskDetailPage';
-import { ConfigPage } from '../features/config/ConfigPage';
+import { SettingsPage } from '../features/settings/SettingsPage';
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage';
 import { NewWorkerPanel } from '../features/workers/NewWorkerPanel';
 import { CommandPalette } from '../features/command-palette/CommandPalette';
@@ -65,6 +65,11 @@ export function BdRedirect() {
   return <Navigate to={{ pathname: '/workers', search: mapped ? `?status=${mapped}` : '' }} replace />;
 }
 
+// Legacy /config URLs redirect to the renamed settings page (ADR 0009).
+export function ConfigRedirect() {
+  return <Navigate to="/settings" replace />;
+}
+
 // Legacy /chat URLs redirect to the renamed inbox (ADR 0009).
 export function ChatRedirect() {
   return <Navigate to="/inbox" replace />;
@@ -98,7 +103,8 @@ function AppInner() {
           <Route path="/workflows/:id/runs" element={<WorkflowsPage />} />
           <Route path="/workflow-runs/:runId" element={<WorkflowRunPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
-          <Route path="/config" element={<ConfigPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/config" element={<ConfigRedirect />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/inbox/:id" element={<InboxDetailPage />} />
           <Route path="/chat" element={<ChatRedirect />} />

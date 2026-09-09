@@ -377,6 +377,26 @@ class ConfigView(BaseModel):
     serve_cors_origins: list[str]
     serve_host: str
     serve_port: int
+    # Names of RuntimeConfig fields that need a serve restart to take
+    # effect (core.config.RESTART_REQUIRED_FIELDS). Optional so older
+    # payloads still validate; handlers always emit it on GET /api/config.
+    restart_required: list[str] = Field(default_factory=list)
+
+
+class ConfigConstant(BaseModel):
+    """One read-only code-level tunable for GET /api/config/constants."""
+
+    name: str
+    value: str
+    unit: str
+    doc: str
+    module: str
+
+
+class ConfigConstantsResponse(BaseModel):
+    """Envelope for GET /api/config/constants."""
+
+    constants: list[ConfigConstant]
 
 
 class CoderInfo(BaseModel):

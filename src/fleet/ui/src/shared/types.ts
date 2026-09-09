@@ -26,6 +26,7 @@ export type StreamEvent = Schemas['StreamEvent'];
 export type SupervisorStatus = Schemas['SupervisorResponse'];
 export type HealthzStatus = Schemas['HealthResponse'];
 export type RuntimeConfig = Schemas['ConfigView'];
+export type ConfigConstant = Schemas['ConfigConstant'];
 export type CoderInfo = Schemas['CoderInfo'];
 export type Template = Schemas['Template'];
 export type AnalyticsSummary = Schemas['AnalyticsSummary'];

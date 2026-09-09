@@ -1327,6 +1327,25 @@
         }
       }
     },
+    "/api/config/constants": {
+      "get": {
+        "summary": "Get Config Constants",
+        "description": "Read-only code-level tunables with docs (ADR 0009 Settings).",
+        "operationId": "get_config_constants_api_config_constants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigConstantsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/analytics/summary": {
       "get": {
         "summary": "Get Summary",
@@ -3407,6 +3426,57 @@
         "title": "CoderListResponse",
         "description": "Envelope for GET /api/coders."
       },
+      "ConfigConstant": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "doc": {
+            "type": "string",
+            "title": "Doc"
+          },
+          "module": {
+            "type": "string",
+            "title": "Module"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "unit",
+          "doc",
+          "module"
+        ],
+        "title": "ConfigConstant",
+        "description": "One read-only code-level tunable for GET /api/config/constants."
+      },
+      "ConfigConstantsResponse": {
+        "properties": {
+          "constants": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigConstant"
+            },
+            "type": "array",
+            "title": "Constants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "constants"
+        ],
+        "title": "ConfigConstantsResponse",
+        "description": "Envelope for GET /api/config/constants."
+      },
       "ConfigView": {
         "properties": {
           "max_concurrent": {
@@ -3571,6 +3641,13 @@
           "serve_port": {
             "type": "integer",
             "title": "Serve Port"
+          },
+          "restart_required": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Restart Required"
           }
         },
         "type": "object",

@@ -292,6 +292,16 @@ class RuntimeConfig:
     )
 
 
+#: RuntimeConfig fields that need a `fleet serve` restart to take effect.
+#: Everything else hot-reloads within CONFIG_POLL_INTERVAL_SEC. Served by
+#: GET /api/config as `restart_required` so the settings UI can badge them.
+RESTART_REQUIRED_FIELDS: tuple[str, ...] = (
+    "serve_host",
+    "serve_port",
+    "serve_cors_origins",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class SettingRow:
     """One documented setting: name, type, default, doc, example."""

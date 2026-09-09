@@ -103,6 +103,10 @@ export function useConfig() {
   return useQuery({ queryKey: ['config'], queryFn: api.getConfig });
 }
 
+export function useConfigConstants() {
+  return useQuery({ queryKey: ['config-constants'], queryFn: api.getConfigConstants });
+}
+
 const KILL_MESSAGES: Record<string, string> = {
   killing: 'Kill signal sent — task will stop shortly.',
   'supervisor-not-running': 'Kill signal written, but the supervisor is not running.',
