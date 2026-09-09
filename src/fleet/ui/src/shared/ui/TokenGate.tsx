@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { onAuthRequired, setFleetToken } from '../api';
 import { Modal } from './Modal';
+import * as T from '../styles/tokens';
 
 export function TokenGate() {
   const qc = useQueryClient();
@@ -55,7 +56,7 @@ export function TokenGate() {
 const styles = {
   panel: {
     width: 380,
-    background: '#18181b',
+    background: T.colors.bgSurface,
     border: '1px solid #3f3f46',
     borderRadius: 8,
     padding: '1.25rem',
@@ -65,20 +66,20 @@ const styles = {
     margin: '0 0 0.5rem',
     fontSize: '0.9375rem',
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   },
   hint: {
     margin: '0 0 0.75rem',
     fontSize: '0.8125rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   },
   input: {
     width: '100%',
     boxSizing: 'border-box' as const,
-    background: '#09090b',
+    background: T.colors.bgDeep,
     border: '1px solid #3f3f46',
     borderRadius: 4,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     padding: '0.5rem 0.625rem',
     fontSize: '0.875rem',
     outline: 'none',
@@ -94,16 +95,16 @@ const styles = {
     background: 'transparent',
     border: '1px solid #3f3f46',
     borderRadius: 4,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.8125rem',
   },
   saveBtn: {
     padding: '0.35rem 0.875rem',
-    background: '#1d4ed8',
+    background: T.colors.infoDark,
     border: '1px solid #1d4ed8',
     borderRadius: 4,
-    color: '#fff',
+    color: T.colors.white,
     cursor: 'pointer',
     fontSize: '0.8125rem',
   },

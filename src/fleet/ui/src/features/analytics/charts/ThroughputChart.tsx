@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as P from '../chartTheme';
 import { bucketTickLabel, bucketTooltipLabel } from '../timeBuckets';
+import * as T from '../../../shared/styles/tokens';
 
 // Stack order keeps amber between green and red so adjacent segments stay
 // separable under CVD (validated); failed ends up on top where it pops.
@@ -59,7 +60,7 @@ export function ThroughputChart({ bucketSize, buckets }: Props) {
                 stackId="a"
                 fill={s.color}
                 name={s.name}
-                stroke="#1c1c20"
+                stroke={T.colors.bgElevated}
                 strokeWidth={1}
                 maxBarSize={40}
                 isAnimationActive={false}

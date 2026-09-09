@@ -2,6 +2,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import * as P from '../chartTheme';
 import { bucketTickLabel, bucketTooltipLabel } from '../timeBuckets';
 import { formatTokens } from '../../../shared/format';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   bucketSize: 'hour' | 'day';
@@ -63,7 +64,7 @@ export function TokenUsageChart({ bucketSize, buckets }: Props) {
                 stackId="fresh"
                 fill={P.seriesColors.input}
                 name="Input"
-                stroke="#1c1c20"
+                stroke={T.colors.bgElevated}
                 strokeWidth={1}
                 maxBarSize={40}
                 isAnimationActive={false}
@@ -73,7 +74,7 @@ export function TokenUsageChart({ bucketSize, buckets }: Props) {
                 stackId="fresh"
                 fill={P.seriesColors.output}
                 name="Output"
-                stroke="#1c1c20"
+                stroke={T.colors.bgElevated}
                 strokeWidth={1}
                 maxBarSize={40}
                 isAnimationActive={false}
@@ -111,6 +112,6 @@ export function TokenUsageChart({ bucketSize, buckets }: Props) {
 
 const subLabel: React.CSSProperties = {
   fontSize: '0.6875rem',
-  color: '#71717a',
+  color: T.colors.textDim,
   margin: '0.25rem 0 0.125rem 0.25rem',
 };

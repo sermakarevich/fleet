@@ -3,6 +3,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { api } from '../../../shared/api';
 import { usePoll } from '../../../shared/poll';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -45,7 +46,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     margin: 0,
   },
 };

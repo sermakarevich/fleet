@@ -29,7 +29,7 @@ export function chipLabel(status: string, stopping = false): string {
 
 // Status chip style; width varies by table (tasks 5rem, beads 6rem).
 export function chipStyle(status: string, stopping = false, width = '5rem'): CSSProperties {
-  if (stopping) return { ...T.badge, width, flexShrink: 0, background: '#92400e', color: '#fff' };
+  if (stopping) return { ...T.badge, width, flexShrink: 0, background: T.colors.amberDeep, color: T.colors.white };
   const { bg, fg } = statusColor(status);
   return { ...T.badge, width, flexShrink: 0, background: bg, color: fg };
 }
@@ -88,7 +88,7 @@ export function filterRowStyle(): CSSProperties {
 export function filterBtnStyle(active: boolean): CSSProperties {
   return {
     ...T.btnGhost, padding: '0.2rem 0.625rem', fontSize: '0.8125rem',
-    color: active ? '#fff' : T.colors.textDim, lineHeight: 1.4,
+    color: active ? T.colors.white : T.colors.textDim, lineHeight: 1.4,
     ...(active ? { background: T.colors.accent, borderColor: T.colors.accent } : {}),
   };
 }
@@ -112,7 +112,7 @@ export function rowStyle(selected: boolean): CSSProperties {
   return {
     display: 'flex', alignItems: 'center', padding: '0.5rem 1rem', gap: '0.75rem',
     borderBottom: `1px solid ${T.colors.borderSubtle}`, cursor: 'pointer',
-    fontSize: '0.875rem', color: '#d4d4d8',
+    fontSize: '0.875rem', color: T.colors.textBody,
     ...(selected ? { background: T.colors.borderSubtle } : {}),
   };
 }
@@ -120,7 +120,7 @@ export function rowStyle(selected: boolean): CSSProperties {
 // Monospace identifier cell (task id, bead id).
 export function idCellStyle(width = '6rem'): CSSProperties {
   return {
-    width, flexShrink: 0, fontFamily: 'monospace', color: '#60a5fa', fontSize: '0.8125rem',
+    width, flexShrink: 0, fontFamily: 'monospace', color: T.colors.link, fontSize: '0.8125rem',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   };
 }
@@ -200,7 +200,7 @@ export function altRowStyle(index: number): CSSProperties {
 
 // Diff line background/text per change kind.
 export const DIFF_LINE_STYLE: Record<'equal' | 'remove' | 'add', CSSProperties> = {
-  equal: { background: 'transparent', color: '#71717a' },
-  remove: { background: '#3f1010', color: '#f87171' },
-  add: { background: '#0f2e18', color: '#4ade80' },
+  equal: { background: 'transparent', color: T.colors.textDim },
+  remove: { background: T.colors.diffRemoveBg, color: T.colors.diffRemoveFg },
+  add: { background: T.colors.diffAddBg, color: T.colors.diffAddFg },
 };

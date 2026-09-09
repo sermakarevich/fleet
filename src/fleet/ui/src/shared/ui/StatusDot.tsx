@@ -1,5 +1,6 @@
 import type { TaskSummary } from '../types';
 import { merge } from '../styles/recipes';
+import * as T from '../styles/tokens';
 
 export function getStatusDotColor(
   task: TaskSummary,
@@ -18,10 +19,10 @@ export function getStatusDotColor(
 }
 
 const DOT_COLORS: Record<string, string> = {
-  green: '#22c55e',
-  amber: '#f59e0b',
-  red: '#ef4444',
-  gray: '#52525b',
+  green: T.colors.success,
+  amber: T.colors.amber,
+  red: T.colors.danger,
+  gray: T.colors.textMuted,
 };
 
 export type DotColor = keyof typeof DOT_COLORS;

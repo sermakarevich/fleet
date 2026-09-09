@@ -70,7 +70,7 @@ export function LeaderboardTable({ rows }: Props) {
     return (
       <span style={styles.successCell}>
         <span style={styles.track}>
-          <span style={merge(styles.fill, { width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : '#71717a' })} />
+          <span style={merge(styles.fill, { width: `${pct}%`, background: pct > 50 ? P.seriesColors.success : T.colors.textDim })} />
         </span>
         <span style={styles.pctText}>{formatPercent(rate)}</span>
       </span>

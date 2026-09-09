@@ -4,6 +4,7 @@ import { api } from '../../../shared/api';
 import { usePoll } from '../../../shared/poll';
 import type { LogLine } from '../../../shared/types';
 import { merge, when } from '../../../shared/styles/recipes';
+import * as Tok from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -14,11 +15,11 @@ const LEVELS = ['all', 'debug', 'info', 'warning', 'error'];
 
 function levelColor(level: string): string {
   switch (level) {
-    case 'error': return '#ef4444';
-    case 'warning': return '#f59e0b';
-    case 'info': return '#3b82f6';
-    case 'debug': return '#71717a';
-    default: return '#a1a1aa';
+    case 'error': return Tok.colors.danger;
+    case 'warning': return Tok.colors.amber;
+    case 'info': return Tok.colors.accent;
+    case 'debug': return Tok.colors.textDim;
+    default: return Tok.colors.textSecondary;
   }
 }
 
@@ -89,7 +90,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     padding: '0.4rem 0.75rem',
     borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    background: Tok.colors.bgSurface,
     gap: '0.5rem',
   },
   filters: {
@@ -101,21 +102,21 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 9999,
     border: '1px solid #3f3f46',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: Tok.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.7rem',
   },
   chipActive: {
-    background: '#27272a',
-    color: '#e4e4e7',
-    borderColor: '#60a5fa',
+    background: Tok.colors.borderSubtle,
+    color: Tok.colors.textPrimary,
+    borderColor: Tok.colors.link,
   },
   downloadBtn: {
     padding: '0.2rem 0.6rem',
     borderRadius: 4,
     border: '1px solid #3f3f46',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: Tok.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.7rem',
   },
@@ -137,12 +138,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
   },
   ts: {
-    color: '#52525b',
+    color: Tok.colors.textMuted,
     flexShrink: 0,
     width: 132,
   },
   msg2: {
-    color: '#e4e4e7',
+    color: Tok.colors.textPrimary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -150,7 +151,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   msg: {
     padding: '0.5rem',
-    color: '#71717a',
+    color: Tok.colors.textDim,
     margin: 0,
   },
 };

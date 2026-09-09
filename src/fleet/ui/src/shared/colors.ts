@@ -1,3 +1,4 @@
+import * as T from './styles/tokens';
 /**
  * Event-kind colors: one map for every timeline, gutter and live view.
  * Task-status colors live in shared/status.ts; this module owns the
@@ -9,19 +10,19 @@
 // and EventsTab (session-level events) maps. Where both defined a color for
 // the same kind they already agreed.
 const KIND_COLORS: Record<string, string> = {
-  tool_use: '#3b82f6',
-  tool_result: '#22c55e',
-  api_request: '#8b5cf6',
-  api_response: '#a855f7',
-  message: '#f59e0b',
-  error: '#ef4444',
-  assistant_text: '#22c55e',
-  thinking: '#6366f1',
-  session_started: '#a78bfa',
-  session_ended: '#94a3b8',
+  tool_use: T.colors.accent,
+  tool_result: T.colors.success,
+  api_request: T.colors.violet,
+  api_response: T.colors.purple,
+  message: T.colors.amber,
+  error: T.colors.danger,
+  assistant_text: T.colors.success,
+  thinking: T.colors.indigo,
+  session_started: T.colors.lavender,
+  session_ended: T.colors.slateLight,
 };
 
 /** Color for one event kind, grey when the kind is unknown. */
 export function eventKindColor(kind: string): string {
-  return KIND_COLORS[kind] ?? '#71717a';
+  return KIND_COLORS[kind] ?? T.colors.textDim;
 }

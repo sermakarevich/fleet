@@ -114,7 +114,7 @@ const styles = {
     padding: '0.625rem 1rem', borderBottom: `1px solid ${T.colors.borderSubtle}`, flexShrink: 0,
   } as React.CSSProperties,
   id: {
-    fontFamily: 'monospace', color: '#60a5fa', fontSize: '0.875rem', fontWeight: 600,
+    fontFamily: 'monospace', color: T.colors.link, fontSize: '0.875rem', fontWeight: 600,
   } as React.CSSProperties,
   closeBtn: {
     background: 'transparent', border: 'none', color: T.colors.textSecondary,
@@ -124,7 +124,7 @@ const styles = {
     padding: '1rem', overflowY: 'auto' as const, flex: 1,
   } as React.CSSProperties,
   title: {
-    margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600, color: '#f4f4f5', lineHeight: 1.4,
+    margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600, color: T.colors.textBright, lineHeight: 1.4,
   } as React.CSSProperties,
   metaRow: {
     display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -143,8 +143,8 @@ const styles = {
     textTransform: 'uppercase' as const, letterSpacing: '0.05em',
   } as React.CSSProperties,
   notes: {
-    margin: '0 0 0.5rem', padding: '0.625rem 0.75rem', background: '#2a1d05',
-    border: '1px solid #78491a', borderRadius: 6, color: '#fcd9a0',
+    margin: '0 0 0.5rem', padding: '0.625rem 0.75rem', background: T.colors.noteBg,
+    border: '1px solid #78491a', borderRadius: 6, color: T.colors.noteFg,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
   } as React.CSSProperties,
@@ -153,7 +153,7 @@ const styles = {
   } as React.CSSProperties,
   desc: {
     margin: 0, padding: '0.625rem 0.75rem', background: T.colors.bgElevated,
-    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: '#d4d4d8',
+    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: T.colors.textBody,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, lineHeight: 1.5,
   } as React.CSSProperties,
@@ -162,10 +162,10 @@ const styles = {
     borderBottom: `1px solid ${T.colors.borderSubtle}`, fontSize: '0.8125rem',
   } as React.CSSProperties,
   depId: {
-    fontFamily: 'monospace', color: '#60a5fa', flexShrink: 0,
+    fontFamily: 'monospace', color: T.colors.link, flexShrink: 0,
   } as React.CSSProperties,
   depTitle: {
-    flex: 1, minWidth: 0, color: '#d4d4d8', overflow: 'hidden',
+    flex: 1, minWidth: 0, color: T.colors.textBody, overflow: 'hidden',
     textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   depType: {
@@ -181,7 +181,7 @@ const styles = {
     color: T.colors.textSecondary, fontWeight: 600,
   } as React.CSSProperties,
   commentText: {
-    color: '#d4d4d8', fontSize: '0.8125rem',
+    color: T.colors.textBody, fontSize: '0.8125rem',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, lineHeight: 1.5,
   } as React.CSSProperties,
 };

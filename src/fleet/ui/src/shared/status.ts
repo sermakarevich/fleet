@@ -1,3 +1,4 @@
+import * as T from './styles/tokens';
 // Single home for status -> color/label.
 // Event-kind colors live in shared/colors.ts (a different concept).
 // Previously forked 3 ways (Tasks.tsx, BD.tsx, TaskDetail/Header.tsx) with
@@ -9,16 +10,16 @@ export interface StatusStyle {
 }
 
 const STATUS_STYLES: Record<string, StatusStyle> = {
-  in_progress: { bg: '#16a34a', fg: '#fff' },
-  blocked: { bg: '#d97706', fg: '#fff' },
-  open: { bg: '#2563eb', fg: '#fff' },
-  ready: { bg: '#2563eb', fg: '#fff' },
-  deferred: { bg: '#6b7280', fg: '#fff' },
-  closed: { bg: '#27272a', fg: '#71717a' },
-  failed: { bg: '#dc2626', fg: '#fff' },
+  in_progress: { bg: T.colors.green, fg: T.colors.white },
+  blocked: { bg: T.colors.amberDark, fg: T.colors.white },
+  open: { bg: T.colors.info, fg: T.colors.white },
+  ready: { bg: T.colors.info, fg: T.colors.white },
+  deferred: { bg: T.colors.gray, fg: T.colors.white },
+  closed: { bg: T.colors.borderSubtle, fg: T.colors.textDim },
+  failed: { bg: T.colors.redDark, fg: T.colors.white },
 };
 
-const DEFAULT_STYLE: StatusStyle = { bg: '#3f3f46', fg: '#a1a1aa' };
+const DEFAULT_STYLE: StatusStyle = { bg: T.colors.border, fg: T.colors.textSecondary };
 
 export function statusColor(status: string): StatusStyle {
   return STATUS_STYLES[status] ?? DEFAULT_STYLE;
@@ -44,10 +45,10 @@ export function statusLabel(status: string): string {
 
 // Workflow run statuses (ADR 0008): derived, never hand-edited.
 const RUN_STATUS_STYLES: Record<string, StatusStyle> = {
-  running: { bg: '#2563eb', fg: '#fff' },
-  succeeded: { bg: '#16a34a', fg: '#fff' },
-  attention: { bg: '#d97706', fg: '#fff' },
-  cancelled: { bg: '#6b7280', fg: '#fff' },
+  running: { bg: T.colors.info, fg: T.colors.white },
+  succeeded: { bg: T.colors.green, fg: T.colors.white },
+  attention: { bg: T.colors.amberDark, fg: T.colors.white },
+  cancelled: { bg: T.colors.gray, fg: T.colors.white },
 };
 
 /** Chip colors for a workflow run status; unknown statuses get the default. */

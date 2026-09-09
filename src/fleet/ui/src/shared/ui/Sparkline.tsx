@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bar, BarChart } from 'recharts';
+import * as T from '../styles/tokens';
 
 interface Props {
   value: number | null;
@@ -28,7 +29,7 @@ export function Sparkline({ value }: Props) {
       data={data}
       margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
     >
-      <Bar dataKey="v" fill="#60a5fa" isAnimationActive={false} />
+      <Bar dataKey="v" fill={T.colors.link} isAnimationActive={false} />
     </BarChart>
   );
 }

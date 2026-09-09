@@ -202,7 +202,7 @@ const styles = {
   card: {
     padding: '0.625rem 0.875rem', borderBottom: `1px solid ${T.colors.borderSubtle}`,
     cursor: 'pointer', display: 'flex', flexDirection: 'column' as const,
-    gap: '0.3rem', fontSize: '0.875rem', color: '#d4d4d8',
+    gap: '0.3rem', fontSize: '0.875rem', color: T.colors.textBody,
   } as React.CSSProperties,
   cardHead: {
     display: 'flex', alignItems: 'center', gap: '0.5rem',

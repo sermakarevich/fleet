@@ -1,5 +1,6 @@
 import { useTaskChildren } from '../../../shared/hooks/useApi';
 import { merge } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -66,16 +67,16 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.6rem',
     padding: '0.4rem 0.75rem',
     borderBottom: '1px solid #1c1c20',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   },
   id: {
     fontFamily: 'monospace',
-    color: '#60a5fa',
+    color: T.colors.link,
     whiteSpace: 'nowrap',
   },
   cell: {
     whiteSpace: 'nowrap',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   },
   summary: {
     flex: 1,
@@ -90,24 +91,24 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.2rem',
   },
   digestLabel: {
-    color: '#71717a',
+    color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.75rem',
   },
   pre: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
-    background: '#0f0f12',
+    background: T.colors.bgDeeper,
     border: '1px solid #27272a',
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,
-    color: '#d4d4d8',
+    color: T.colors.textBody,
     fontFamily: 'monospace',
     fontSize: '0.78rem',
   },
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   },
 };

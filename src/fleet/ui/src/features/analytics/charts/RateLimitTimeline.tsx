@@ -58,7 +58,7 @@ const styles = {
   } as React.CSSProperties,
   monospace: {
     fontFamily: 'ui-monospace, monospace',
-    color: '#60a5fa',
+    color: T.colors.link,
   } as React.CSSProperties,
   more: {
     fontSize: '0.75rem',

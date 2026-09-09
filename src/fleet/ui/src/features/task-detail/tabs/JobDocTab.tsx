@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { errorMessage, isNotFound } from '../../../shared/api';
 import { useArtifactDoc } from '../../../shared/hooks/useApi';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -55,30 +56,30 @@ const styles: Record<string, React.CSSProperties> = {
   toolbar: {
     padding: '0.4rem 0.75rem',
     borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     display: 'flex',
     justifyContent: 'flex-end',
   },
   editorLink: {
     fontSize: '0.75rem',
-    color: '#60a5fa',
+    color: T.colors.link,
     textDecoration: 'none',
   },
   markdown: {
     flex: 1,
     overflowY: 'auto',
     padding: '1rem 1.25rem',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontFamily: 'system-ui, sans-serif',
     fontSize: '0.875rem',
     lineHeight: 1.6,
   },
   loading: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   },
   empty: {
     padding: '1rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
   },
 };

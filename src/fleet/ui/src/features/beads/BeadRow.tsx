@@ -80,7 +80,7 @@ const styles = {
   card: {
     padding: '0.625rem 0.875rem', borderBottom: `1px solid ${T.colors.borderSubtle}`,
     cursor: 'pointer', display: 'flex', flexDirection: 'column' as const,
-    gap: '0.3rem', fontSize: '0.875rem', color: '#d4d4d8',
+    gap: '0.3rem', fontSize: '0.875rem', color: T.colors.textBody,
   } as React.CSSProperties,
   cardSelected: {
     background: T.colors.borderSubtle,
@@ -89,7 +89,7 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '0.5rem',
   } as React.CSSProperties,
   cardId: {
-    fontFamily: 'monospace', color: '#60a5fa', fontSize: '0.8125rem', flex: 1, minWidth: 0,
+    fontFamily: 'monospace', color: T.colors.link, fontSize: '0.8125rem', flex: 1, minWidth: 0,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   cardAssignee: {

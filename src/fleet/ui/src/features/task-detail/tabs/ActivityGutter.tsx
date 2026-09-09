@@ -6,6 +6,7 @@ import { useNow } from '../../../shared/hooks/useNow';
 import { useKillTask } from '../../../shared/hooks/useApi';
 import { eventKindColor } from '../../../shared/colors';
 import { merge } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   task: TaskDetail;
@@ -111,7 +112,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: 200,
     flexShrink: 0,
     borderLeft: '1px solid #27272a',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     padding: '0.75rem 0.75rem',
     display: 'flex',
     flexDirection: 'column',
@@ -128,19 +129,19 @@ const styles: Record<string, React.CSSProperties> = {
   label: {
     fontSize: '0.65rem',
     fontWeight: 600,
-    color: '#52525b',
+    color: T.colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
   value: {
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     fontFamily: 'monospace',
   },
   kindChip: {
     display: 'inline-block',
     padding: '0.1rem 0.4rem',
     borderRadius: 3,
-    color: '#fff',
+    color: T.colors.white,
     fontSize: '0.65rem',
     fontWeight: 700,
     alignSelf: 'flex-start',
@@ -151,10 +152,10 @@ const styles: Record<string, React.CSSProperties> = {
   killBtn: {
     width: '100%',
     padding: '0.4rem',
-    background: '#7f1d1d',
+    background: T.colors.maroon,
     border: '1px solid #991b1b',
     borderRadius: 4,
-    color: '#fca5a5',
+    color: T.colors.roseLight,
     fontSize: '0.8rem',
     fontWeight: 600,
     cursor: 'pointer',
@@ -166,7 +167,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   confirmLabel: {
     fontSize: '0.72rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     whiteSpace: 'nowrap' as const,
   },
   confirmBtns: {
@@ -176,10 +177,10 @@ const styles: Record<string, React.CSSProperties> = {
   yesBtn: {
     flex: 1,
     padding: '0.3rem 0.4rem',
-    background: '#991b1b',
+    background: T.colors.redDeep,
     border: '1px solid #991b1b',
     borderRadius: 4,
-    color: '#fff',
+    color: T.colors.white,
     cursor: 'pointer',
     fontSize: '0.75rem',
     fontWeight: 600,
@@ -190,7 +191,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: '1px solid #3f3f46',
     borderRadius: 4,
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.75rem',
   },

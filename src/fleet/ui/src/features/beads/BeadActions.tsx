@@ -73,12 +73,12 @@ const styles = {
   } as React.CSSProperties,
   unblockBtn: {
     padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid #2563eb',
-    borderRadius: 4, color: '#60a5fa', cursor: 'pointer', fontSize: '0.8125rem',
+    borderRadius: 4, color: T.colors.link, cursor: 'pointer', fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   unassignBtn: {
     padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid #78716c',
-    borderRadius: 4, color: '#a8a29e', cursor: 'pointer', fontSize: '0.8125rem',
+    borderRadius: 4, color: T.colors.stone, cursor: 'pointer', fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
 };

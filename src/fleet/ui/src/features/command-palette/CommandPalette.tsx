@@ -6,6 +6,7 @@ import { errorMessage } from '../../shared/api';
 import { Modal } from '../../shared/ui/Modal';
 import { usePauseSupervisor, useResumeSupervisor, useSearch } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
+import * as T from '../../shared/styles/tokens';
 
 interface Props {
   open: boolean;
@@ -174,7 +175,7 @@ const s = {
   panel: {
     width: 560,
     maxHeight: '60vh',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     border: '1px solid #3f3f46',
     borderRadius: 8,
     boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
@@ -197,7 +198,7 @@ const s = {
     background: 'transparent',
     border: 'none',
     outline: 'none',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontSize: '0.9375rem',
     fontFamily: 'system-ui, sans-serif',
   },
@@ -210,7 +211,7 @@ const s = {
     padding: '0.25rem 1rem',
     fontSize: '0.6875rem',
     fontWeight: 600,
-    color: '#52525b',
+    color: T.colors.textMuted,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.06em',
     marginTop: '0.25rem',
@@ -223,7 +224,7 @@ const s = {
     cursor: 'pointer',
     borderRadius: 0,
     fontSize: '0.875rem',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     gap: '0.75rem',
   },
   itemLabel: {
@@ -234,7 +235,7 @@ const s = {
   },
   itemMeta: {
     fontSize: '0.75rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     flexShrink: 0,
     maxWidth: '200px',
     overflow: 'hidden',
@@ -244,12 +245,12 @@ const s = {
   empty: {
     padding: '0.75rem 1rem',
     fontSize: '0.875rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
     textAlign: 'center' as const,
   },
   error: {
     padding: '0.5rem 1rem',
     fontSize: '0.8125rem',
-    color: '#f87171',
+    color: T.colors.diffRemoveFg,
   },
 };

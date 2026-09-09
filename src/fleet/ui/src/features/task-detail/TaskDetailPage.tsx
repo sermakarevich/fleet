@@ -18,6 +18,7 @@ import { EventsTab } from './tabs/EventsTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import type { FleetEvent } from '../../shared/types';
 import { merge, when } from '../../shared/styles/recipes';
+import * as T from '../../shared/styles/tokens';
 
 type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
 
@@ -67,7 +68,7 @@ export function TaskDetailPage() {
   }
 
   if (error || !task) {
-    return <p style={merge(styles.msg, { color: '#ef4444' })}>Task not found.</p>;
+    return <p style={merge(styles.msg, { color: T.colors.danger })}>Task not found.</p>;
   }
 
   function renderTab() {
@@ -115,8 +116,8 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     height: 'calc(100vh - var(--nav-h, 40px))',
     fontFamily: 'system-ui, sans-serif',
-    background: '#09090b',
-    color: '#e4e4e7',
+    background: T.colors.bgDeep,
+    color: T.colors.textPrimary,
   },
   body: {
     display: 'flex',
@@ -133,7 +134,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: 0,
     borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     overflowX: 'auto',
     flexShrink: 0,
   },
@@ -142,15 +143,15 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: 'none',
     borderBottom: '2px solid transparent',
-    color: '#71717a',
+    color: T.colors.textDim,
     cursor: 'pointer',
     fontSize: '0.8rem',
     fontWeight: 500,
     whiteSpace: 'nowrap',
   },
   tabBtnActive: {
-    color: '#e4e4e7',
-    borderBottomColor: '#3b82f6',
+    color: T.colors.textPrimary,
+    borderBottomColor: T.colors.accent,
     fontWeight: 600,
   },
   tabContent: {
@@ -161,6 +162,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   },
 };

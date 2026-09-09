@@ -51,7 +51,7 @@ const styles = {
     borderRadius: 10, cursor: 'pointer',
   } as React.CSSProperties,
   itemSel: {
-    background: colors.bgElevated, borderColor: '#818cf8',
+    background: colors.bgElevated, borderColor: colors.periwinkle,
   } as React.CSSProperties,
   itemTop: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8,
@@ -77,7 +77,7 @@ const styles = {
     background: colors.bgElevated, color: colors.textSecondary,
   } as React.CSSProperties,
   tagPrio: {
-    background: '#2a2310', color: '#fbbf24',
+    background: colors.noteBgAlt, color: colors.amberLight,
   } as React.CSSProperties,
   tagId: {
     marginLeft: 'auto', color: colors.textSecondary, fontSize: 11,

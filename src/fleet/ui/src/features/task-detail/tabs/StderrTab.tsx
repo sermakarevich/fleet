@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import { usePoll } from '../../../shared/poll';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -46,8 +47,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.75rem',
     fontFamily: 'monospace',
     fontSize: '0.78rem',
-    color: '#e4e4e7',
-    background: '#09090b',
+    color: T.colors.textPrimary,
+    background: T.colors.bgDeep,
     flex: 1,
     overflow: 'auto',
     whiteSpace: 'pre-wrap',
@@ -57,7 +58,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     margin: 0,
   },
 };

@@ -173,7 +173,7 @@ const styles = {
   filterBtnActive: {
     background: T.colors.accent,
     borderColor: T.colors.accent,
-    color: '#fff',
+    color: T.colors.white,
   } as React.CSSProperties,
   row: {
     display: 'flex',

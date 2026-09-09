@@ -146,7 +146,7 @@ const styles: Record<string, React.CSSProperties> = {
   id: {
     fontFamily: 'monospace',
     fontSize: '0.8rem',
-    color: '#60a5fa',
+    color: T.colors.link,
     flexShrink: 0,
   },
   pill: {
@@ -155,7 +155,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 9999,
     fontSize: '0.7rem',
     fontWeight: 600,
-    color: '#fff',
+    color: T.colors.white,
     flexShrink: 0,
   },
   jobPill: {
@@ -164,7 +164,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 9999,
     fontSize: '0.7rem',
     fontWeight: 600,
-    color: '#a78bfa',
+    color: T.colors.lavender,
     border: '1px solid #a78bfa',
     flexShrink: 0,
   },
@@ -206,7 +206,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.textDim,
   },
   link: {
-    color: '#60a5fa',
+    color: T.colors.link,
     textDecoration: 'none',
     fontFamily: 'monospace',
     maxWidth: 300,
@@ -225,7 +225,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   descToggle: {
     fontSize: '0.75rem',
-    color: '#60a5fa',
+    color: T.colors.link,
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -246,7 +246,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   blockedLabel: {
     fontWeight: 700,
-    color: '#f59e0b',
+    color: T.colors.amber,
     flexShrink: 0,
   },
   blockedText: {
@@ -262,7 +262,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: '1px solid #f59e0b',
     borderRadius: 4,
-    color: '#f59e0b',
+    color: T.colors.amber,
     cursor: 'pointer',
     fontSize: '0.75rem',
     fontFamily: 'system-ui, sans-serif',

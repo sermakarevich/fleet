@@ -129,7 +129,7 @@ export function NavBar({ onNewTask }: { onNewTask: () => void }) {
 const navLinkStyle = ({ isActive }: { isActive: boolean }): CSSProperties => ({
   padding: '0.25rem 0.75rem',
   textDecoration: 'none',
-  color: isActive ? '#fff' : colors.textSecondary,
+  color: isActive ? colors.white : colors.textSecondary,
   fontWeight: isActive ? 600 : 400,
   borderBottom: isActive ? `2px solid ${colors.accent}` : '2px solid transparent',
 });
@@ -171,7 +171,7 @@ const styles = {
     alignItems: 'center',
     gap: '0.375rem',
     fontWeight: 700,
-    color: '#fff',
+    color: colors.white,
     marginRight: '0.75rem',
     letterSpacing: '-0.02em',
     textDecoration: 'none',
@@ -204,7 +204,7 @@ const styles = {
     background: colors.accent,
     border: `1px solid ${colors.accent}`,
     borderRadius: 4,
-    color: '#fff',
+    color: colors.white,
     cursor: 'pointer',
     fontSize: '0.8125rem',
     fontWeight: 500,

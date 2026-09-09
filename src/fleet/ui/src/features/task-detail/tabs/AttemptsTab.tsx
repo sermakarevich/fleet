@@ -11,6 +11,7 @@ function formatAttemptContextPercent(percent: number | null): string {
 }
 import { useAttemptSummary, useAttemptPrompt } from '../../../shared/hooks/useApi';
 import { merge, when } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -136,30 +137,30 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.4rem 0.25rem',
     background: 'transparent',
     border: 'none',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     cursor: 'pointer',
     textAlign: 'left',
     fontFamily: 'inherit',
     fontSize: 'inherit',
   },
   chevron: {
-    color: '#71717a',
+    color: T.colors.textDim,
     width: '0.8rem',
   },
   compactRow: {
-    background: '#1c1917',
+    background: T.colors.bgWarm,
   },
   waitingRow: {
-    background: '#18181b',
-    color: '#71717a',
+    background: T.colors.bgSurface,
+    color: T.colors.textDim,
   },
   contextBadge: {
     whiteSpace: 'nowrap',
     fontSize: '0.68rem',
     fontWeight: 600,
-    color: '#ec835a',
+    color: T.colors.clay,
     border: '1px solid #ec835a66',
-    background: '#ec835a22',
+    background: T.colors.clayWash,
     borderRadius: '4px',
     padding: '0 0.3rem',
   },
@@ -171,7 +172,7 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   },
   details: {
     padding: '0.5rem 1.5rem 1rem 1.5rem',
@@ -185,24 +186,24 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.2rem',
   },
   detailLabel: {
-    color: '#71717a',
+    color: T.colors.textDim,
     fontWeight: 600,
   },
   pre: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
-    background: '#0f0f12',
+    background: T.colors.bgDeeper,
     border: '1px solid #27272a',
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,
-    color: '#d4d4d8',
+    color: T.colors.textBody,
     maxHeight: '20rem',
     overflowY: 'auto',
   },
   msg: {
     padding: '0.5rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     margin: 0,
   },
 };

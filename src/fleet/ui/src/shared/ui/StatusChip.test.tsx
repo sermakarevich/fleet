@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { StatusChip } from './StatusChip';
+import * as T from '../styles/tokens';
 
 describe('StatusChip', () => {
   it('renders the human label for a known status', () => {
@@ -18,6 +19,6 @@ describe('StatusChip', () => {
 
   it('applies the status background color', () => {
     const { getByText } = render(<StatusChip status="blocked" />);
-    expect(getByText('Blocked')).toHaveStyle({ background: '#d97706' });
+    expect(getByText('Blocked')).toHaveStyle({ background: T.colors.amberDark });
   });
 });

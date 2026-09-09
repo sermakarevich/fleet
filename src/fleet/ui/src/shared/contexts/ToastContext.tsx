@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import * as T from '../styles/tokens';
 
 interface ToastContextType {
   addToast: (message: string) => void;
@@ -32,8 +33,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.75rem',
-    background: '#1d4ed8',
-    color: '#fff',
+    background: T.colors.infoDark,
+    color: T.colors.white,
     padding: '0.75rem 1rem',
     borderRadius: 6,
     boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
@@ -47,7 +48,7 @@ const styles: Record<string, React.CSSProperties> = {
   close: {
     background: 'none',
     border: 'none',
-    color: '#93c5fd',
+    color: T.colors.linkLight,
     cursor: 'pointer',
     fontSize: '1.125rem',
     lineHeight: 1,

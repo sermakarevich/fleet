@@ -4,6 +4,7 @@ import { errorMessage, isNotFound } from '../../../shared/api';
 import { useArtifactOutputs, useArtifactResult, useArtifactState } from '../../../shared/hooks/useApi';
 import type { TaskResult } from '../../../shared/types';
 import { merge } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -11,9 +12,9 @@ interface Props {
 }
 
 const RESULT_BADGE_COLOR: Record<TaskResult['status'], string> = {
-  done: '#22c55e',
-  partial: '#eab308',
-  blocked: '#ef4444',
+  done: T.colors.success,
+  partial: T.colors.yellow,
+  blocked: T.colors.danger,
 };
 
 function ResultBadge({ result }: { result: TaskResult }) {
@@ -89,7 +90,7 @@ const styles: Record<string, React.CSSProperties> = {
   toolbar: {
     padding: '0.4rem 0.75rem',
     borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -97,7 +98,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   editorLink: {
     fontSize: '0.75rem',
-    color: '#60a5fa',
+    color: T.colors.link,
     textDecoration: 'none',
   },
   resultBadge: {
@@ -113,16 +114,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   resultStatus: {
     fontWeight: 600,
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
   },
   resultSummary: {
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
   },
   markdown: {
     flex: 1,
     overflowY: 'auto',
     padding: '1rem 1.25rem',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontFamily: 'system-ui, sans-serif',
     fontSize: '0.875rem',
     lineHeight: 1.6,
@@ -132,7 +133,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.5rem 1.25rem',
   },
   sectionLabel: {
-    color: '#71717a',
+    color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.75rem',
     marginBottom: '0.25rem',
@@ -140,22 +141,22 @@ const styles: Record<string, React.CSSProperties> = {
   pre: {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
-    background: '#0f0f12',
+    background: T.colors.bgDeeper,
     border: '1px solid #27272a',
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,
-    color: '#d4d4d8',
+    color: T.colors.textBody,
     fontSize: '0.75rem',
     maxHeight: '12rem',
     overflowY: 'auto',
   },
   loading: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
   },
   empty: {
     padding: '1rem',
-    color: '#52525b',
+    color: T.colors.textMuted,
   },
 };

@@ -135,7 +135,7 @@ export function WorkflowRunPage() {
 }
 
 const styles = {
-  runN: { color: '#d4d4d8' } as React.CSSProperties,
+  runN: { color: T.colors.textBody } as React.CSSProperties,
   topActions: {
     marginLeft: 'auto', display: 'inline-flex', gap: '0.5rem', alignItems: 'center',
   } as React.CSSProperties,

@@ -163,7 +163,7 @@ const styles = {
     padding: '0.625rem 1rem', borderBottom: `1px solid ${T.colors.borderSubtle}`, flexShrink: 0,
   } as React.CSSProperties,
   id: {
-    fontFamily: 'monospace', color: '#60a5fa', fontSize: '0.875rem', fontWeight: 600,
+    fontFamily: 'monospace', color: T.colors.link, fontSize: '0.875rem', fontWeight: 600,
   } as React.CSSProperties,
   closeBtn: {
     background: 'transparent', border: 'none', color: T.colors.textSecondary,
@@ -173,14 +173,14 @@ const styles = {
     padding: '1rem', overflowY: 'auto' as const, flex: 1,
   } as React.CSSProperties,
   title: {
-    margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600, color: '#f4f4f5', lineHeight: 1.4,
+    margin: '0 0 0.75rem', fontSize: '1rem', fontWeight: 600, color: T.colors.textBright, lineHeight: 1.4,
   } as React.CSSProperties,
   metaRow: {
     display: 'flex', alignItems: 'center', gap: '0.5rem',
     flexWrap: 'wrap' as const, marginBottom: '0.875rem',
   } as React.CSSProperties,
   enabledOn: {
-    ...T.badge, background: '#14532d', color: '#bbf7d0',
+    ...T.badge, background: T.colors.greenDark, color: T.colors.mintPale,
   } as React.CSSProperties,
   enabledOff: {
     ...T.badge, background: T.colors.borderSubtle, color: T.colors.textSecondary,
@@ -201,7 +201,7 @@ const styles = {
   deleteConfirmBtn: {
     padding: '0.3rem 0.75rem', fontSize: '0.8125rem', fontWeight: 600,
     background: T.colors.danger, border: `1px solid ${T.colors.danger}`,
-    borderRadius: 4, color: '#fff', cursor: 'pointer', fontFamily: 'system-ui, sans-serif',
+    borderRadius: 4, color: T.colors.white, cursor: 'pointer', fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   section: {
     marginBottom: '1.25rem',
@@ -212,7 +212,7 @@ const styles = {
   } as React.CSSProperties,
   defRow: {
     display: 'flex', gap: '0.5rem', padding: '0.25rem 0',
-    fontSize: '0.8125rem', color: '#d4d4d8',
+    fontSize: '0.8125rem', color: T.colors.textBody,
   } as React.CSSProperties,
   defLabel: {
     width: '6.5rem', flexShrink: 0, color: T.colors.textDim,
@@ -223,7 +223,7 @@ const styles = {
   } as React.CSSProperties,
   pre: {
     margin: '0 0 0.5rem', padding: '0.625rem 0.75rem', background: T.colors.bgElevated,
-    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: '#d4d4d8',
+    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: T.colors.textBody,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, lineHeight: 1.5,
   } as React.CSSProperties,
@@ -241,10 +241,10 @@ const styles = {
     width: '2.5rem', flexShrink: 0,
   } as React.CSSProperties,
   runTs: {
-    color: '#d4d4d8', flexShrink: 0,
+    color: T.colors.textBody, flexShrink: 0,
   } as React.CSSProperties,
   taskLink: {
     display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-    color: '#60a5fa', textDecoration: 'none', fontSize: '0.8125rem',
+    color: T.colors.link, textDecoration: 'none', fontSize: '0.8125rem',
   } as React.CSSProperties,
 };

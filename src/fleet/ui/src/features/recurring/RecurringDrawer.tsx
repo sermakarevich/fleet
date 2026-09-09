@@ -218,7 +218,7 @@ const styles = {
   } as React.CSSProperties,
   id: {
     fontFamily: 'monospace',
-    color: '#60a5fa',
+    color: T.colors.link,
     fontSize: '0.875rem',
     fontWeight: 600,
   } as React.CSSProperties,
@@ -240,7 +240,7 @@ const styles = {
     margin: '0 0 0.75rem',
     fontSize: '1rem',
     fontWeight: 600,
-    color: '#f4f4f5',
+    color: T.colors.textBright,
     lineHeight: 1.4,
   } as React.CSSProperties,
   metaRow: {
@@ -252,8 +252,8 @@ const styles = {
   } as React.CSSProperties,
   enabledOn: {
     ...T.badge,
-    background: '#14532d',
-    color: '#bbf7d0',
+    background: T.colors.greenDark,
+    color: T.colors.mintPale,
   } as React.CSSProperties,
   enabledOff: {
     ...T.badge,
@@ -289,7 +289,7 @@ const styles = {
     background: T.colors.danger,
     border: `1px solid ${T.colors.danger}`,
     borderRadius: 4,
-    color: '#fff',
+    color: T.colors.white,
     cursor: 'pointer',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
@@ -309,7 +309,7 @@ const styles = {
     gap: '0.5rem',
     padding: '0.25rem 0',
     fontSize: '0.8125rem',
-    color: '#d4d4d8',
+    color: T.colors.textBody,
   } as React.CSSProperties,
   defLabel: {
     width: '6.5rem',
@@ -324,7 +324,7 @@ const styles = {
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   workflowLink: {
-    color: '#60a5fa',
+    color: T.colors.link,
     textDecoration: 'none',
   } as React.CSSProperties,
   upcomingRow: {
@@ -349,7 +349,7 @@ const styles = {
     flexShrink: 0,
   } as React.CSSProperties,
   runTs: {
-    color: '#d4d4d8',
+    color: T.colors.textBody,
     flexShrink: 0,
   } as React.CSSProperties,
   runDetail: {

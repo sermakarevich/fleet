@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import { usePoll } from '../../../shared/poll';
 import type { FileOp } from '../../../shared/types';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -61,7 +62,7 @@ const styles: Record<string, React.CSSProperties> = {
   thPath: {
     textAlign: 'left',
     padding: '0.4rem 0.5rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.7rem',
     borderBottom: '1px solid #27272a',
@@ -71,7 +72,7 @@ const styles: Record<string, React.CSSProperties> = {
   thCount: {
     textAlign: 'right',
     padding: '0.4rem 0.75rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.7rem',
     borderBottom: '1px solid #27272a',
@@ -83,7 +84,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tdPath: {
     padding: '0.35rem 0.5rem',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -92,15 +93,15 @@ const styles: Record<string, React.CSSProperties> = {
   tdCount: {
     padding: '0.35rem 0.75rem',
     textAlign: 'right',
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     fontWeight: 600,
   },
   zero: {
-    color: '#3f3f46',
+    color: T.colors.border,
   },
   msg: {
     padding: '1rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     margin: 0,
   },
 };

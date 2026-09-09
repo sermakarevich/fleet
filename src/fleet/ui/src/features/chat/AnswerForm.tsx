@@ -125,7 +125,7 @@ const styles = {
     color: colors.textSecondary,
   } as React.CSSProperties,
   prioText: {
-    color: '#fbbf24', fontWeight: 600,
+    color: colors.amberLight, fontWeight: 600,
   } as React.CSSProperties,
   detailPrompt: {
     fontSize: 18, fontWeight: 500, lineHeight: 1.5,
@@ -143,7 +143,7 @@ const styles = {
     borderRadius: 11, background: colors.bgSurface,
   } as React.CSSProperties,
   optInput: {
-    width: 17, height: 17, margin: 0, accentColor: '#818cf8', flexShrink: 0,
+    width: 17, height: 17, margin: 0, accentColor: colors.periwinkle, flexShrink: 0,
   } as React.CSSProperties,
   optText: {
     fontSize: 14.5, color: colors.textPrimary,
@@ -158,8 +158,8 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: 14, marginTop: 18,
   } as React.CSSProperties,
   submitBtn: {
-    padding: '11px 20px', border: 0, borderRadius: 10, background: '#818cf8',
-    color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    padding: '11px 20px', border: 0, borderRadius: 10, background: colors.periwinkle,
+    color: colors.white, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   } as React.CSSProperties,
   hint: {
     color: colors.textSecondary, fontSize: 12.5,

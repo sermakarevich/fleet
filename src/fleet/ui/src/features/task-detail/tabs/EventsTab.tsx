@@ -7,6 +7,7 @@ import { formatClockTime } from '../../../shared/format';
 import { eventKindColor } from '../../../shared/colors';
 import { useClickableProps } from '../../../shared/ui/Clickable';
 import { merge, when } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;
@@ -159,7 +160,7 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     justifyContent: 'space-between',
     padding: '0.4rem 0.75rem',
     borderBottom: '1px solid #27272a',
-    background: '#18181b',
+    background: T.colors.bgSurface,
     gap: '0.5rem',
   },
   filters: {
@@ -171,17 +172,17 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     borderRadius: 9999,
     border: '1px solid #3f3f46',
     background: 'transparent',
-    color: '#a1a1aa',
+    color: T.colors.textSecondary,
     cursor: 'pointer',
     fontSize: '0.7rem',
   },
   chipActive: {
-    background: '#27272a',
-    color: '#e4e4e7',
-    borderColor: '#60a5fa',
+    background: T.colors.borderSubtle,
+    color: T.colors.textPrimary,
+    borderColor: T.colors.link,
   },
   count: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     fontSize: '0.7rem',
     whiteSpace: 'nowrap',
   },
@@ -191,7 +192,7 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     background: 'transparent',
     border: '1px solid #3f3f46',
     borderRadius: 4,
-    color: '#71717a',
+    color: T.colors.textDim,
     cursor: 'pointer',
     fontSize: '0.72rem',
   },
@@ -211,10 +212,10 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     lineHeight: 1.4,
   },
   rowError: {
-    background: '#ef444410',
+    background: T.colors.dangerWash,
   },
   ts: {
-    color: '#52525b',
+    color: T.colors.textMuted,
     flexShrink: 0,
     width: 66,
   },
@@ -230,7 +231,7 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     textAlign: 'center',
   },
   toolName: {
-    color: '#94a3b8',
+    color: T.colors.slateLight,
     flexShrink: 0,
     width: 90,
     overflow: 'hidden',
@@ -238,14 +239,14 @@ const styles: Record<string, React.CSSProperties> = {  container: {
     whiteSpace: 'nowrap',
   },
   summary: {
-    color: '#e4e4e7',
+    color: T.colors.textPrimary,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     flex: 1,
   },
   usage: {
-    color: '#71717a',
+    color: T.colors.textDim,
     flexShrink: 0,
     fontSize: '0.65rem',
     textAlign: 'right',
@@ -253,15 +254,15 @@ const styles: Record<string, React.CSSProperties> = {  container: {
   },
   separator: {
     height: 1,
-    background: '#3f3f46',
+    background: T.colors.border,
     margin: '0.3rem 0.5rem',
     opacity: 0.5,
   },
   rawPre: {
     margin: 0,
     padding: '0.3rem 0.5rem',
-    background: '#18181b',
-    color: '#a1a1aa',
+    background: T.colors.bgSurface,
+    color: T.colors.textSecondary,
     fontSize: '0.7rem',
     overflow: 'auto',
     maxHeight: MAX_RAW_HEIGHT,
@@ -269,7 +270,7 @@ const styles: Record<string, React.CSSProperties> = {  container: {
   },
   msg: {
     padding: '0.5rem',
-    color: '#71717a',
+    color: T.colors.textDim,
     margin: 0,
   },
 };

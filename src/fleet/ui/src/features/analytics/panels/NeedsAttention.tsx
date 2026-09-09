@@ -22,9 +22,9 @@ interface Props {
 const outColors: Record<string, string> = {
   failed: P.seriesColors.failed,
   blocked: P.seriesColors.blocked,
-  noclose: '#ec835a',
-  context_pressure: '#ec835a',
-  rate_limited: '#3b82f6',
+  noclose: T.colors.clay,
+  context_pressure: T.colors.clay,
+  rate_limited: T.colors.accent,
 };
 
 function formatEndedAt(value: string | null): string {
@@ -70,7 +70,7 @@ function AttentionRow({ row: r }: { row: Props['rows'][number] }) {
   const navigate = useNavigate();
   const rowClick = useClickableProps(() => navigate('/tasks/' + r.id));
   const key = (r.outcome || '').toLowerCase();
-  const chipColor = outColors[key] || '#60a5fa';
+  const chipColor = outColors[key] || T.colors.link;
   return (
     <tr
       className="row-interactive"
@@ -82,7 +82,7 @@ function AttentionRow({ row: r }: { row: Props['rows'][number] }) {
           {(r.outcome || '—').replace(/_/g, ' ')}
         </span>
       </td>
-      <td style={merge(styles.td, styles.monospace, { color: '#60a5fa' })}>
+      <td style={merge(styles.td, styles.monospace, { color: T.colors.link })}>
         {r.id.slice(0, 8)}
       </td>
       <td style={merge(styles.td, styles.ellipsis)}>

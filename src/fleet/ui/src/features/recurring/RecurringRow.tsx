@@ -171,7 +171,7 @@ const styles = {
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   workflowLink: {
-    color: '#60a5fa',
+    color: T.colors.link,
     textDecoration: 'none',
   } as React.CSSProperties,
   runLink: {
@@ -221,7 +221,7 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '0.3rem',
     fontSize: '0.875rem',
-    color: '#d4d4d8',
+    color: T.colors.textBody,
   } as React.CSSProperties,
   cardSelected: {
     background: T.colors.borderSubtle,

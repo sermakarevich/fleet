@@ -194,7 +194,7 @@ const styles: Record<string, React.CSSProperties> = {
   chipActive: {
     background: T.colors.borderSubtle,
     color: T.colors.textPrimary,
-    borderColor: '#60a5fa',
+    borderColor: T.colors.link,
   },
   list: {
     flex: 1,
@@ -249,7 +249,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   resultDot: {
-    color: '#22c55e',
+    color: T.colors.success,
     fontSize: '0.7rem',
     flexShrink: 0,
   },
@@ -280,7 +280,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 3,
     fontSize: '0.65rem',
     fontWeight: 700,
-    color: '#fff',
+    color: T.colors.white,
     flexShrink: 0,
   },
 };

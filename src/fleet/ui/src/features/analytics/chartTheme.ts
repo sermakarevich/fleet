@@ -40,13 +40,13 @@ export const panelEmpty: CSSProperties = {
 /** Chart series colors, CVD-validated against the dark panel surface. */
 export const seriesColors = {
   // status trio for task outcomes
-  success: '#0ca30c',
-  failed: '#d03b3b',
-  blocked: '#fab219',
+  success: T.colors.tickGreen,
+  failed: T.colors.redBrick,
+  blocked: T.colors.amberGold,
   // categorical pair + third slot for token series
-  output: '#3987e5',
-  input: '#d95926',
-  cache: '#199e70',
+  output: T.colors.chartBlue,
+  input: T.colors.ember,
+  cache: T.colors.teal,
 } as const;
 
 export const chartAxisTick = { fill: T.colors.textDim, fontSize: 11 };

@@ -13,10 +13,10 @@ import { useClickableProps } from '../../shared/ui/Clickable';
 
 // Segment color per step-run state (ADR 0008 vocabulary, never "job").
 const STEP_SEGMENT: Record<string, string> = {
-  done: '#16a34a',
-  running: '#2563eb',
-  attention: '#d97706',
-  waiting: '#3f3f46',
+  done: T.colors.green,
+  running: T.colors.info,
+  attention: T.colors.amberDark,
+  waiting: T.colors.border,
 };
 
 // Small neutral chip for the run trigger (manual / cron).
@@ -151,7 +151,7 @@ const styles = {
   card: {
     padding: '0.625rem 0.875rem', borderBottom: `1px solid ${T.colors.borderSubtle}`,
     cursor: 'pointer', display: 'flex', flexDirection: 'column' as const,
-    gap: '0.3rem', fontSize: '0.875rem', color: '#d4d4d8',
+    gap: '0.3rem', fontSize: '0.875rem', color: T.colors.textBody,
   } as React.CSSProperties,
   cardHead: {
     display: 'flex', alignItems: 'center', gap: '0.5rem',
