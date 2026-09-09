@@ -868,6 +868,218 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflows
+         * @description Every workflow with counts and its refreshed latest run.
+         */
+        get: operations["list_workflows_api_workflows_get"];
+        put?: never;
+        /**
+         * Create Workflow
+         * @description Validate and save a workflow; 201 with the view.
+         */
+        post: operations["create_workflow_api_workflows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Workflow
+         * @description Check a workflow body; invalid content is valid=false, never 4xx.
+         */
+        post: operations["validate_workflow_api_workflows_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Workflow
+         * @description Import YAML as a workflow (or replace one); 201 with the view.
+         */
+        post: operations["import_workflow_api_workflows_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow
+         * @description One workflow with counts and its refreshed latest run.
+         */
+        get: operations["get_workflow_api_workflows__workflow_id__get"];
+        /**
+         * Update Workflow
+         * @description Validate and rewrite a workflow, keeping id and created_at.
+         */
+        put: operations["update_workflow_api_workflows__workflow_id__put"];
+        post?: never;
+        /**
+         * Delete Workflow
+         * @description Remove a workflow; 409 while one of its runs still runs.
+         */
+        delete: operations["delete_workflow_api_workflows__workflow_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Workflow
+         * @description Export one workflow as YAML (or ?format=text for a direct download).
+         */
+        get: operations["export_workflow_api_workflows__workflow_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Workflow
+         * @description Start one manual run now and return it with its step runs.
+         */
+        post: operations["run_workflow_api_workflows__workflow_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflows/{workflow_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Workflow Runs
+         * @description Past runs of one workflow, newest first, running ones refreshed.
+         */
+        get: operations["list_workflow_runs_api_workflows__workflow_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List All Workflow Runs
+         * @description Every run across workflows, newest first, running ones refreshed.
+         */
+        get: operations["list_all_workflow_runs_api_workflow_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Workflow Run
+         * @description One run with its step runs and task titles.
+         */
+        get: operations["get_workflow_run_api_workflow_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workflow-runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Workflow Run
+         * @description Cancel one run (close waiting beads, kill running ones) and return it.
+         */
+        post: operations["cancel_workflow_run_api_workflow_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/questions": {
         parameters: {
             query?: never;
@@ -1747,6 +1959,75 @@ export interface components {
             results: components["schemas"]["SearchHit"][];
         };
         /**
+         * StageRequest
+         * @description One stage (parallel group) in a workflow create/update body.
+         */
+        StageRequest: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Steps */
+            steps?: components["schemas"]["StepRequest"][];
+        };
+        /**
+         * StartRunResponse
+         * @description Envelope for POST /api/workflows/{id}/run.
+         */
+        StartRunResponse: {
+            run: components["schemas"]["WorkflowRunView"];
+        };
+        /**
+         * StepRequest
+         * @description One step template in a workflow create/update body.
+         */
+        StepRequest: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Cwd */
+            cwd?: string | null;
+            /** Coder */
+            coder?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Priority */
+            priority?: number | null;
+            /** Needs */
+            needs?: string[];
+        };
+        /**
+         * StepRunView
+         * @description One step inside one run, with its display state and task title.
+         */
+        StepRunView: {
+            /** Step Name */
+            step_name: string;
+            /** Stage Index */
+            stage_index: number;
+            /** Task Id */
+            task_id: string;
+            /** Task Status */
+            task_status: string;
+            /** State */
+            state: string;
+            /** Task Title */
+            task_title: string | null;
+        };
+        /**
          * StreamEvent
          * @description One shaped event row for GET /api/tasks/{id}/events.
          */
@@ -2058,6 +2339,113 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * WorkflowDefaultsModel
+         * @description Fallback worker settings for steps that leave a field empty.
+         */
+        WorkflowDefaultsModel: {
+            /** Cwd */
+            cwd?: string | null;
+            /** Coder */
+            coder?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Priority
+             * @default 2
+             */
+            priority: number;
+        };
+        /**
+         * WorkflowExportResponse
+         * @description Envelope for GET /api/workflows/{id}/export (YAML text).
+         */
+        WorkflowExportResponse: {
+            /** Yaml */
+            yaml: string;
+        };
+        /**
+         * WorkflowListResponse
+         * @description Envelope for GET /api/workflows.
+         */
+        WorkflowListResponse: {
+            /** Workflows */
+            workflows: components["schemas"]["WorkflowView"][];
+        };
+        /**
+         * WorkflowRunListResponse
+         * @description Paged envelope for the workflow run list routes.
+         */
+        WorkflowRunListResponse: {
+            /** Runs */
+            runs: components["schemas"]["WorkflowRunView"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * WorkflowRunView
+         * @description One workflow run with its step runs (titles null when tasks are gone).
+         */
+        WorkflowRunView: {
+            /** Id */
+            id: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /** Workflow Name */
+            workflow_name: string;
+            /** N */
+            n: number;
+            /** Trigger */
+            trigger: string;
+            /** Schedule Id */
+            schedule_id: string | null;
+            /** Status */
+            status: string;
+            /** Reason */
+            reason: string;
+            /** Started At */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Steps */
+            steps: components["schemas"]["StepRunView"][];
+        };
+        /**
+         * WorkflowValidateResponse
+         * @description Validation outcome; invalid content is 200 with problems, never 4xx.
+         */
+        WorkflowValidateResponse: {
+            /** Valid */
+            valid: boolean;
+            /** Problems */
+            problems: string[];
+        };
+        /**
+         * WorkflowView
+         * @description One saved workflow with counts and its latest run.
+         */
+        WorkflowView: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            defaults: components["schemas"]["WorkflowDefaultsModel"];
+            /** Stages */
+            stages: components["schemas"]["StageRequest"][];
+            /** Step Count */
+            step_count: number;
+            /** Stage Count */
+            stage_count: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Run Count */
+            run_count: number;
+            last_run: components["schemas"]["WorkflowRunView"] | null;
         };
     };
     responses: never;
@@ -3398,6 +3786,372 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflows_api_workflows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowListResponse"];
+                };
+            };
+        };
+    };
+    create_workflow_api_workflows_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+        };
+    };
+    validate_workflow_api_workflows_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowValidateResponse"];
+                };
+            };
+        };
+    };
+    import_workflow_api_workflows_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+        };
+    };
+    get_workflow_api_workflows__workflow_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_workflow_api_workflows__workflow_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workflow_api_workflows__workflow_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_workflow_api_workflows__workflow_id__export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowExportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_workflow_api_workflows__workflow_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_workflow_runs_api_workflows__workflow_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                workflow_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_all_workflow_runs_api_workflow_runs_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_workflow_run_api_workflow_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_workflow_run_api_workflow_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunView"];
                 };
             };
             /** @description Validation Error */

@@ -147,14 +147,18 @@ def _live_statuses(queue: Queue, run_id: str) -> dict[str, str]:
     return {task.id: task.status for task in queue.list_by_metadata(META_RUN_ID, run_id)}
 
 
-def refresh_run(
+def refresh_run_with_tasks(
     run: WorkflowRun, *, store: WorkflowStore, queue: Queue, now: datetime
-) -> WorkflowRun:
-    """Fold the beads' statuses into the run; finished runs are untouched."""
+) -> tuple[WorkflowRun, list[Task]]:
+    """Refresh a run and return the fetched tasks (one bd call, shared)."""
     if run.status in (RunStatus.cancelled, RunStatus.succeeded):
-        return run
+        return run, []
     stamp = now.isoformat()
-    live = _live_statuses(queue, run.id)
+    try:
+        tasks = queue.list_by_metadata(META_RUN_ID, run.id)
+    except BdError:
+        tasks = []
+    live = {task.id: task.status for task in tasks}
     steps = store.step_runs(run.id)
     for step in steps:
         status = live.get(step.task_id)
@@ -165,8 +169,22 @@ def refresh_run(
     if run.status == RunStatus.running and status is not RunStatus.running:
         store.finish_run(run.id, status, run.reason, stamp)
         finished = store.get_run(run.id)
-        return finished if finished is not None else run
-    return run
+        return (finished if finished is not None else run), tasks
+    return run, tasks
+
+
+def enrich(run: WorkflowRun, tasks: list[Task]) -> dict[str, Task]:
+    """Tasks of one run keyed by task id (titles for the run detail view)."""
+    _ = run
+    return {task.id: task for task in tasks}
+
+
+def refresh_run(
+    run: WorkflowRun, *, store: WorkflowStore, queue: Queue, now: datetime
+) -> WorkflowRun:
+    """Fold the beads' statuses into the run; finished runs are untouched."""
+    refreshed, _ = refresh_run_with_tasks(run, store=store, queue=queue, now=now)
+    return refreshed
 
 
 def cancel_run(

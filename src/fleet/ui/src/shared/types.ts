@@ -45,6 +45,10 @@ export type Schedule = Schemas['ScheduleView'];
 export type ScheduleRun = Schemas['ScheduleRunView'];
 export type ScheduleDetail = Schemas['ScheduleDetail'];
 export type CronPreview = Schemas['CronPreviewResponse'];
+export type Workflow = Schemas['WorkflowView'];
+export type WorkflowRun = Schemas['WorkflowRunView'];
+export type WorkflowStepRun = Schemas['StepRunView'];
+export type WorkflowValidate = Schemas['WorkflowValidateResponse'];
 
 // --- UI-only types (never cross the API boundary) ---
 
@@ -84,4 +88,32 @@ export interface ScheduleInput {
   model?: string;
   priority?: number;
   overlap?: string;
+}
+
+export interface WorkflowStepInput {
+  name: string;
+  title: string;
+  description?: string;
+  cwd?: string;
+  coder?: string;
+  model?: string;
+  priority?: number;
+  needs?: string[];
+}
+
+export interface WorkflowStageInput {
+  name: string;
+  steps: WorkflowStepInput[];
+}
+
+export interface WorkflowInput {
+  name: string;
+  description?: string;
+  defaults?: {
+    cwd?: string;
+    coder?: string;
+    model?: string;
+    priority?: number;
+  };
+  stages: WorkflowStageInput[];
 }

@@ -23,6 +23,7 @@ from fleet.integrations.mcp_servers import ask_human_db_path
 from fleet.serve.event_stream import FileWatcher, WebSocketBroadcaster
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
+from fleet.workflows.store import WorkflowStore
 
 
 @dataclass
@@ -32,6 +33,7 @@ class AppState:
     fleet_home: Path
     queue: Queue
     question_store: QuestionStore
+    workflow_store: WorkflowStore
     config_path: Path
     watcher: FileWatcher
     connection_manager: WebSocketBroadcaster = field(repr=False)
@@ -49,6 +51,7 @@ def build_state(queue: Queue | None = None) -> AppState:
         fleet_home=fleet_home,
         queue=queue if queue is not None else BeadsQueue(fleet_home),
         question_store=QuestionStore(ask_human_db_path(fleet_home)),
+        workflow_store=WorkflowStore(fleet_home / "workflows.db"),
         config_path=fleet_home / "runtime.toml",
         watcher=FileWatcher(mgr=mgr),
         connection_manager=mgr,

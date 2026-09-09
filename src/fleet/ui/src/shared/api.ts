@@ -21,6 +21,10 @@ import type {
   TaskDetail,
   TaskSummary,
   Template,
+  Workflow,
+  WorkflowInput,
+  WorkflowRun,
+  WorkflowValidate,
 } from './types';
 
 export const FLEET_TOKEN_KEY = 'fleet_token';
@@ -354,5 +358,69 @@ export const api = {
 
   previewCron(cron: string, timezone = 'UTC', count = 5): Promise<CronPreview> {
     return request('/api/schedules/preview', json('POST', { cron, timezone, count }));
+  },
+
+  // --- Workflows (ordered stages of workers) -------------------------------
+
+  async listWorkflows(): Promise<Workflow[]> {
+    const result = await request<{ workflows: Workflow[] }>('/api/workflows');
+    return result.workflows;
+  },
+
+  getWorkflow(id: string): Promise<Workflow> {
+    return request(`/api/workflows/${id}`);
+  },
+
+  createWorkflow(payload: WorkflowInput): Promise<Workflow> {
+    return request('/api/workflows', json('POST', payload));
+  },
+
+  updateWorkflow(id: string, payload: WorkflowInput): Promise<Workflow> {
+    return request(`/api/workflows/${id}`, json('PUT', payload));
+  },
+
+  deleteWorkflow(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/workflows/${id}`, { method: 'DELETE' });
+  },
+
+  validateWorkflow(payload: WorkflowInput): Promise<WorkflowValidate> {
+    return request('/api/workflows/validate', json('POST', payload));
+  },
+
+  importWorkflow(yaml: string, replace_id?: string): Promise<Workflow> {
+    return request('/api/workflows/import', json('POST', { yaml, replace_id: replace_id ?? null }));
+  },
+
+  exportWorkflow(id: string): Promise<{ yaml: string }> {
+    return request(`/api/workflows/${id}/export`);
+  },
+
+  runWorkflow(id: string): Promise<{ run: WorkflowRun }> {
+    return request(`/api/workflows/${id}/run`, { method: 'POST' });
+  },
+
+  async listWorkflowRuns(
+    id: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<{ runs: WorkflowRun[]; total: number }> {
+    return request(`/api/workflows/${id}/runs${qs({ limit: opts?.limit, offset: opts?.offset })}`);
+  },
+
+  async listAllWorkflowRuns(opts?: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ runs: WorkflowRun[]; total: number }> {
+    return request(
+      `/api/workflow-runs${qs({ status: opts?.status, limit: opts?.limit, offset: opts?.offset })}`,
+    );
+  },
+
+  getWorkflowRun(runId: string): Promise<WorkflowRun> {
+    return request(`/api/workflow-runs/${runId}`);
+  },
+
+  cancelWorkflowRun(runId: string): Promise<WorkflowRun> {
+    return request(`/api/workflow-runs/${runId}/cancel`, { method: 'POST' });
   },
 };
