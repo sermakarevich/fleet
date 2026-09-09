@@ -66,7 +66,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '0.6rem',
     padding: '0.4rem 0.75rem',
-    borderBottom: '1px solid #1c1c20',
+    borderBottom: `1px solid ${T.colors.bgElevated}`,
     color: T.colors.textPrimary,
   },
   id: {
@@ -99,7 +99,7 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
     background: T.colors.bgDeeper,
-    border: '1px solid #27272a',
+    border: `1px solid ${T.colors.borderSubtle}`,
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,

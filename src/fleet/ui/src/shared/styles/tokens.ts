@@ -36,10 +36,12 @@ export const colors = {
   amberDeep:     '#92400e',
   noteBg:        '#2a1d05',
   noteBgAlt:     '#2a2310',
+  noteBorder:    '#78491a',
   noteFg:        '#fcd9a0',
   orange:        '#fb923c',
   clay:          '#ec835a',
   clayWash:      '#ec835a22',
+  clayEdge:      '#ec835a66',
   ember:         '#d95926',
   // Greens (success, charts, diff additions).
   green:         '#16a34a',
@@ -77,7 +79,7 @@ export const colors = {
 export const panel: CSSProperties = {
   background: colors.bgElevated,
   border: `1px solid ${colors.border}`,
-  borderRadius: 8,
+  borderRadius: '0.5rem',
 };
 
 export const badge: CSSProperties = {
@@ -85,7 +87,7 @@ export const badge: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   padding: '0.15rem 0.5rem',
-  borderRadius: 4,
+  borderRadius: '0.25rem',
   fontSize: '0.75rem',
   fontWeight: 600,
   boxSizing: 'border-box',
@@ -95,7 +97,7 @@ export const btnPrimary: CSSProperties = {
   padding: '0.4rem 0.875rem',
   background: colors.accent,
   border: `1px solid ${colors.accent}`,
-  borderRadius: 4,
+  borderRadius: '0.25rem',
   color: '#fff',
   cursor: 'pointer',
   fontSize: '0.875rem',
@@ -106,7 +108,7 @@ export const btnPrimary: CSSProperties = {
 export const btnGhost: CSSProperties = {
   background: 'transparent',
   border: `1px solid ${colors.border}`,
-  borderRadius: 4,
+  borderRadius: '0.25rem',
   color: colors.textSecondary,
   cursor: 'pointer',
   fontFamily: 'system-ui, sans-serif',
@@ -115,7 +117,7 @@ export const btnGhost: CSSProperties = {
 export const btnDanger: CSSProperties = {
   background: 'transparent',
   border: `1px solid ${colors.danger}`,
-  borderRadius: 4,
+  borderRadius: '0.25rem',
   color: colors.danger,
   cursor: 'pointer',
   fontFamily: 'system-ui, sans-serif',

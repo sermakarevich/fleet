@@ -127,7 +127,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.25rem 0.5rem',
   },
   row: {
-    borderBottom: '1px solid #1c1c20',
+    borderBottom: `1px solid ${T.colors.bgElevated}`,
   },
   header: {
     display: 'flex',
@@ -159,7 +159,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.68rem',
     fontWeight: 600,
     color: T.colors.clay,
-    border: '1px solid #ec835a66',
+    border: `1px solid ${T.colors.clayEdge}`,
     background: T.colors.clayWash,
     borderRadius: '4px',
     padding: '0 0.3rem',
@@ -193,7 +193,7 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
     background: T.colors.bgDeeper,
-    border: '1px solid #27272a',
+    border: `1px solid ${T.colors.borderSubtle}`,
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,

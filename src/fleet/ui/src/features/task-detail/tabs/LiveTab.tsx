@@ -184,7 +184,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chip: {
     padding: '0.15rem 0.5rem',
-    borderRadius: 9999,
+    borderRadius: '10rem',
     border: `1px solid ${T.colors.border}`,
     background: 'transparent',
     color: T.colors.textSecondary,
@@ -259,7 +259,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.textSecondary,
     padding: '0.5rem',
     margin: '0.25rem 0 0',
-    borderRadius: 4,
+    borderRadius: '0.25rem',
     overflow: 'auto',
     maxHeight: 200,
     fontSize: '0.7rem',

@@ -33,7 +33,7 @@ export const styles = {
   grow: { flex: 1 } as React.CSSProperties,
   prio: { width: '6rem' } as React.CSSProperties,
   input: {
-    background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`, borderRadius: 4,
+    background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`, borderRadius: '0.25rem',
     color: T.colors.textPrimary, padding: '0.4rem 0.6rem', fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif', outline: 'none',
   } as React.CSSProperties,

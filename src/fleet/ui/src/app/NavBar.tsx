@@ -203,7 +203,7 @@ const styles = {
     padding: '0.2rem 0.625rem',
     background: colors.accent,
     border: `1px solid ${colors.accent}`,
-    borderRadius: 4,
+    borderRadius: '0.25rem',
     color: colors.white,
     cursor: 'pointer',
     fontSize: '0.8125rem',

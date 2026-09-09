@@ -59,19 +59,19 @@ export function ChatPage() {
 
 const styles = {
   root: {
-    display: 'flex', height: 'calc(100vh - 40px)', background: colors.bgDeep,
+    display: 'flex', height: 'calc(100vh - 2.5rem)', background: colors.bgDeep,
     color: colors.textPrimary, fontFamily: 'system-ui, sans-serif',
-    fontSize: 14, lineHeight: 1.55, overflow: 'hidden',
+    fontSize: '0.875rem', lineHeight: 1.55, overflow: 'hidden',
   } as React.CSSProperties,
   mainPane: {
-    flex: 1, height: '100%', overflowY: 'auto', padding: '40px 48px',
+    flex: 1, height: '100%', overflowY: 'auto', padding: '2.5rem 3rem',
   } as React.CSSProperties,
   emptyMain: {
     height: '100%', display: 'flex', flexDirection: 'column' as const,
-    alignItems: 'center', justifyContent: 'center', gap: 12, color: colors.textSecondary,
+    alignItems: 'center', justifyContent: 'center', gap: '0.75rem', color: colors.textSecondary,
   } as React.CSSProperties,
   emptyIcon: {
-    width: 46, height: 46, borderRadius: '50%', background: colors.bgElevated,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+    width: '2.875rem', height: '2.875rem', borderRadius: '50%', background: colors.bgElevated,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem',
   } as React.CSSProperties,
 };

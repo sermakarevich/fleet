@@ -111,14 +111,14 @@ export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notif
 
 const styles = {
   detailHead: {
-    marginBottom: 6,
+    marginBottom: '0.375rem',
   } as React.CSSProperties,
   detailAgent: {
-    fontSize: 22, fontWeight: 700, color: colors.textPrimary,
+    fontSize: '1.375rem', fontWeight: 700, color: colors.textPrimary,
   } as React.CSSProperties,
   detailMeta: {
-    display: 'flex', flexWrap: 'wrap' as const, gap: '6px 14px',
-    marginTop: 8, color: colors.textSecondary, fontSize: 12.5,
+    display: 'flex', flexWrap: 'wrap' as const, gap: '0.375rem 0.875rem',
+    marginTop: '0.5rem', color: colors.textSecondary, fontSize: '0.78125rem',
   } as React.CSSProperties,
   mono: {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -128,40 +128,40 @@ const styles = {
     color: colors.amberLight, fontWeight: 600,
   } as React.CSSProperties,
   detailPrompt: {
-    fontSize: 18, fontWeight: 500, lineHeight: 1.5,
-    margin: '18px 0 26px', whiteSpace: 'pre-wrap' as const, color: colors.textPrimary,
+    fontSize: '1.125rem', fontWeight: 500, lineHeight: 1.5,
+    margin: '1.125rem 0 1.625rem', whiteSpace: 'pre-wrap' as const, color: colors.textPrimary,
   } as React.CSSProperties,
   answerForm: {
-    maxWidth: 620,
+    maxWidth: '38.75rem',
   } as React.CSSProperties,
   options: {
-    display: 'flex', flexDirection: 'column' as const, gap: 8,
+    display: 'flex', flexDirection: 'column' as const, gap: '0.5rem',
   } as React.CSSProperties,
   opt: {
-    display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px',
+    display: 'flex', alignItems: 'center', gap: '0.6875rem', padding: '0.8125rem 0.9375rem',
     cursor: 'pointer', border: `1px solid ${colors.borderSubtle}`,
-    borderRadius: 11, background: colors.bgSurface,
+    borderRadius: '0.6875rem', background: colors.bgSurface,
   } as React.CSSProperties,
   optInput: {
-    width: 17, height: 17, margin: 0, accentColor: colors.periwinkle, flexShrink: 0,
+    width: '1.0625rem', height: '1.0625rem', margin: 0, accentColor: colors.periwinkle, flexShrink: 0,
   } as React.CSSProperties,
   optText: {
-    fontSize: 14.5, color: colors.textPrimary,
+    fontSize: '0.90625rem', color: colors.textPrimary,
   } as React.CSSProperties,
   textarea: {
-    width: '100%', minHeight: 84, padding: '13px 15px', font: 'inherit',
+    width: '100%', minHeight: '5.25rem', padding: '0.8125rem 0.9375rem', font: 'inherit',
     resize: 'vertical' as const, color: colors.textPrimary,
     background: colors.bgSurface, border: `1px solid ${colors.borderSubtle}`,
-    borderRadius: 11, boxSizing: 'border-box' as const,
+    borderRadius: '0.6875rem', boxSizing: 'border-box' as const,
   } as React.CSSProperties,
   actions: {
-    display: 'flex', alignItems: 'center', gap: 14, marginTop: 18,
+    display: 'flex', alignItems: 'center', gap: '0.875rem', marginTop: '1.125rem',
   } as React.CSSProperties,
   submitBtn: {
-    padding: '11px 20px', border: 0, borderRadius: 10, background: colors.periwinkle,
-    color: colors.white, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+    padding: '0.6875rem 1.25rem', border: 0, borderRadius: '0.625rem', background: colors.periwinkle,
+    color: colors.white, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   } as React.CSSProperties,
   hint: {
-    color: colors.textSecondary, fontSize: 12.5,
+    color: colors.textSecondary, fontSize: '0.78125rem',
   } as React.CSSProperties,
 };

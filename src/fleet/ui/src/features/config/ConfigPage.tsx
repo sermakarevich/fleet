@@ -5,6 +5,9 @@ import { useNativeNotifications } from '../../shared/hooks/useNativeNotification
 import type { RuntimeConfig } from '../../shared/types';
 import { formatKiloTokens } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { PageShell } from '../../shared/ui/PageShell';
 
 export function ConfigPage() {
   const { data: supervisor, isLoading: supervisorLoading } = useSupervisor();
@@ -18,15 +21,12 @@ export function ConfigPage() {
 
   const loading = supervisorLoading || configLoading || codersLoading;
 
-  if (loading) return <p style={styles.msg}>Loading…</p>;
+  if (loading) return <LoadingState />;
 
   const coders = codersData?.coders ?? [];
 
   return (
-    <div style={styles.page}>
-      <div style={styles.pageHeader}>
-        <h1 style={styles.heading}>config</h1>
-      </div>
+    <PageShell title="config">
       <div style={styles.grid}>
         <div>
           {supervisor && (
@@ -67,7 +67,7 @@ export function ConfigPage() {
           <div style={styles.panel}>
             <h3 style={styles.panelTitle}>Installed Coders</h3>
             {coders.length === 0 ? (
-              <p style={styles.empty}>No coders registered.</p>
+              <EmptyState message="No coders registered." />
             ) : (
               <ul style={styles.coderList}>
                 {coders.map(c => (
@@ -91,32 +91,11 @@ export function ConfigPage() {
           )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
 const styles = {
-  page: {
-    padding: '1rem 1.5rem',
-    fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
-  pageHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    marginBottom: '1.25rem',
-    flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  heading: {
-    margin: 0,
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: T.colors.textPrimary,
-  } as React.CSSProperties,
-  msg: {
-    padding: '1rem',
-    color: T.colors.textDim,
-  } as React.CSSProperties,
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(18rem, 1fr))',
@@ -134,11 +113,6 @@ const styles = {
     fontWeight: 600,
     color: T.colors.textPrimary,
   } as React.CSSProperties,
-  empty: {
-    color: T.colors.textMuted,
-    fontSize: '0.875rem',
-    margin: 0,
-  } as React.CSSProperties,
   coderList: {
     margin: 0,
     padding: 0,
@@ -151,7 +125,7 @@ const styles = {
     padding: '0.3rem 0.6rem',
     background: T.colors.bgDeep,
     border: `1px solid ${T.colors.borderSubtle}`,
-    borderRadius: 4,
+    borderRadius: '0.25rem',
     color: T.colors.textSecondary,
     fontSize: '0.8125rem',
     fontFamily: 'monospace',

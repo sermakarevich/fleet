@@ -76,14 +76,14 @@ const track: React.CSSProperties = {
   flex: 1,
   height: TRACK_HEIGHT,
   background: 'rgba(59,130,246,0.08)',
-  borderRadius: 4,
+  borderRadius: '0.25rem',
   overflow: 'hidden',
 };
 
 const fill: React.CSSProperties = {
   height: '100%',
   background: T.colors.accent,
-  borderRadius: 4,
+  borderRadius: '0.25rem',
 };
 
 const more: React.CSSProperties = {

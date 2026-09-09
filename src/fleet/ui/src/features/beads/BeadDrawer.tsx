@@ -7,6 +7,7 @@ import { useBead } from '../../shared/hooks/useApi';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import { Modal } from '../../shared/ui/Modal';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { StatusChip } from '../../shared/ui/StatusChip';
 import { BeadActions } from './BeadActions';
 
@@ -27,7 +28,7 @@ export function BeadDrawer({ beadId, onClose }: { beadId: string; onClose: () =>
           <button style={styles.closeBtn} onClick={onClose} title="Close" aria-label="Close">✕</button>
         </div>
 
-        {isLoading && <p style={R.msgStyle()}>Loading…</p>}
+        {isLoading && <LoadingState />}
         {error && <p style={R.errorMsgStyle()}>Error: {String(error)}</p>}
 
         {bead && (
@@ -132,7 +133,7 @@ const styles = {
   } as React.CSSProperties,
   metaPill: {
     padding: '0.15rem 0.5rem', background: T.colors.borderSubtle,
-    border: `1px solid ${T.colors.border}`, borderRadius: 4,
+    border: `1px solid ${T.colors.border}`, borderRadius: '0.25rem',
     color: T.colors.textSecondary, fontSize: '0.75rem',
   } as React.CSSProperties,
   section: {
@@ -144,7 +145,7 @@ const styles = {
   } as React.CSSProperties,
   notes: {
     margin: '0 0 0.5rem', padding: '0.625rem 0.75rem', background: T.colors.noteBg,
-    border: '1px solid #78491a', borderRadius: 6, color: T.colors.noteFg,
+    border: `1px solid ${T.colors.noteBorder}`, borderRadius: '0.375rem', color: T.colors.noteFg,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
   } as React.CSSProperties,
@@ -153,7 +154,7 @@ const styles = {
   } as React.CSSProperties,
   desc: {
     margin: 0, padding: '0.625rem 0.75rem', background: T.colors.bgElevated,
-    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: T.colors.textBody,
+    border: `1px solid ${T.colors.border}`, borderRadius: '0.375rem', color: T.colors.textBody,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, lineHeight: 1.5,
   } as React.CSSProperties,

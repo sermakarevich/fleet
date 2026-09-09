@@ -37,7 +37,7 @@ export function chipStyle(status: string, stopping = false, width = '5rem'): CSS
 // Small inline status chip for dependency rows and table cells.
 export function miniChipStyle(status: string): CSSProperties {
   const { bg, fg } = statusColor(status ?? '');
-  return { flexShrink: 0, padding: '0.05rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600, background: bg, color: fg };
+  return { flexShrink: 0, padding: '0.05rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.7rem', fontWeight: 600, background: bg, color: fg };
 }
 
 // Page container; padding shrinks on mobile.
@@ -74,7 +74,7 @@ export function countStyle(): CSSProperties {
 export function searchInputStyle(width = '13rem'): CSSProperties {
   return {
     padding: '0.2rem 0.625rem', background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`,
-    borderRadius: 4, color: T.colors.textPrimary, fontSize: '0.8125rem',
+    borderRadius: '0.25rem', color: T.colors.textPrimary, fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif', outline: 'none', width,
   };
 }
@@ -175,7 +175,7 @@ export function drawerStyle(): CSSProperties {
   return {
     width: 'min(34rem, 100%)', height: '100%', background: T.colors.bgSurface,
     borderLeft: `1px solid ${T.colors.border}`, display: 'flex', flexDirection: 'column',
-    boxShadow: '-8px 0 24px rgba(0,0,0,0.4)',
+    boxShadow: '-0.5rem 0 1.5rem rgba(0,0,0,0.4)',
   };
 }
 
@@ -187,7 +187,7 @@ export function fieldLabelStyle(): CSSProperties {
 // Text input, select and textarea share one look.
 export function inputStyle(): CSSProperties {
   return {
-    background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`, borderRadius: 4,
+    background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`, borderRadius: '0.25rem',
     color: T.colors.textPrimary, padding: '0.4rem 0.6rem', fontSize: '0.875rem',
     fontFamily: 'system-ui, sans-serif', outline: 'none',
   };
@@ -284,7 +284,7 @@ export function confirmLabelStyle(): CSSProperties {
 export function confirmBtnStyle(): CSSProperties {
   return {
     padding: '0.2rem 0.5rem', background: T.colors.danger,
-    border: `1px solid ${T.colors.danger}`, borderRadius: 4, color: T.colors.white,
+    border: `1px solid ${T.colors.danger}`, borderRadius: '0.25rem', color: T.colors.white,
     cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'system-ui, sans-serif',
     fontWeight: 600,
   };

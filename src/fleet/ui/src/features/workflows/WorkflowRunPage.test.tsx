@@ -135,10 +135,11 @@ describe('WorkflowRunPage', () => {
     await waitFor(() => expect(screen.getAllByText('Running').length).toBeGreaterThan(0));
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }));
-    expect(screen.getByRole('button', { name: 'Confirm cancel' })).toBeInTheDocument();
+    expect(screen.getByText('Cancel run?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument();
     expect(cancelSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith('run-1'));
   });
 });

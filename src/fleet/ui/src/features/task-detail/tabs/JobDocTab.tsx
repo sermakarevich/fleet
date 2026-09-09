@@ -55,7 +55,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toolbar: {
     padding: '0.4rem 0.75rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     background: T.colors.bgSurface,
     display: 'flex',
     justifyContent: 'flex-end',

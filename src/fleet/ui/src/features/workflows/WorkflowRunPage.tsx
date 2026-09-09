@@ -14,6 +14,8 @@ import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import type { WorkflowStepRun } from '../../shared/types';
 import { StatusChip } from '../../shared/ui/StatusChip';
+import { Confirm } from '../../shared/ui/Confirm';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { TriggerChip, RunStatusChip } from './runColumns';
 
 // One read-only step card: name, task title, task chip, state, task link.
@@ -75,7 +77,7 @@ export function WorkflowRunPage() {
   const cancelRun = useCancelWorkflowRun();
   const [confirming, setConfirming] = useState(false);
 
-  if (isLoading) return <p style={R.msgStyle()}>Loading…</p>;
+  if (isLoading) return <LoadingState />;
   if (error || !run) return <p style={R.errorMsgStyle()}>Run not found.</p>;
 
   const cancellable = run.status === 'running' || run.status === 'attention';
@@ -84,10 +86,6 @@ export function WorkflowRunPage() {
   const stageIndexes = [...new Set(run.steps.map((s) => s.stage_index))].sort((a, b) => a - b);
 
   function onCancel() {
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
     cancelRun.mutate(runIdValue, { onSuccess: () => setConfirming(false) });
   }
 
@@ -101,15 +99,22 @@ export function WorkflowRunPage() {
         <TriggerChip trigger={run.trigger} />
         <RunStatusChip status={run.status} />
         <span style={styles.topActions}>
-          {cancellable && (
+          {cancellable && !confirming && (
             <button
-              style={confirming ? T.btnDanger : T.btnGhost}
+              style={T.btnGhost}
               disabled={cancelRun.isPending}
-              title={confirming ? 'Click again to confirm' : 'Cancel this run'}
-              onClick={onCancel}
+              title="Cancel this run"
+              onClick={() => setConfirming(true)}
             >
-              {cancelRun.isPending ? 'Cancelling…' : confirming ? 'Confirm cancel' : 'Cancel run'}
+              {cancelRun.isPending ? 'Cancelling…' : 'Cancel run'}
             </button>
+          )}
+          {cancellable && confirming && (
+            <Confirm
+              verb="Cancel run"
+              onConfirm={onCancel}
+              onCancel={() => setConfirming(false)}
+            />
           )}
           <button style={T.btnGhost} onClick={() => navigate(`/workflows/${run.workflow_id}`)}>
             Open workflow
@@ -144,7 +149,7 @@ const styles = {
   } as React.CSSProperties,
   reasonLine: {
     fontSize: '0.875rem', color: T.colors.warningFg, background: T.colors.warningBg,
-    borderRadius: 6, padding: '0.5rem 1rem', margin: '0 0 0.875rem',
+    borderRadius: '0.375rem', padding: '0.5rem 1rem', margin: '0 0 0.875rem',
   } as React.CSSProperties,
   board: {
     display: 'flex', gap: '0.75rem', overflowX: 'auto' as const,
@@ -153,16 +158,16 @@ const styles = {
   stageCol: {
     minWidth: '17rem', maxWidth: '17rem', flexShrink: 0,
     background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
-    borderRadius: 6, padding: '0.625rem', display: 'flex',
+    borderRadius: '0.375rem', padding: '0.625rem', display: 'flex',
     flexDirection: 'column' as const, gap: '0.5rem',
   } as React.CSSProperties,
   stageHead: { fontWeight: 600, fontSize: '0.875rem', color: T.colors.textPrimary } as React.CSSProperties,
   stepCard: {
     background: T.colors.bgElevated, border: `1px solid ${T.colors.border}`,
-    borderRadius: 6, padding: '0.5rem', display: 'flex',
+    borderRadius: '0.375rem', padding: '0.5rem', display: 'flex',
     flexDirection: 'column' as const, gap: '0.375rem',
   } as React.CSSProperties,
-  attentionCard: { border: '1px solid #d97706' } as React.CSSProperties,
+  attentionCard: { border: `1px solid ${T.colors.amberDark}` } as React.CSSProperties,
   stepName: {
     fontSize: '0.8125rem', fontWeight: 600, color: T.colors.textPrimary,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
@@ -176,7 +181,7 @@ const styles = {
   taskLink: { fontSize: '0.75rem', color: T.colors.accent } as React.CSSProperties,
   timeline: {
     background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
-    borderRadius: 6, padding: '0.625rem 0.875rem',
+    borderRadius: '0.375rem', padding: '0.625rem 0.875rem',
   } as React.CSSProperties,
   timelineHead: {
     fontSize: '0.875rem', fontWeight: 600, color: T.colors.textPrimary, margin: '0 0 0.5rem',

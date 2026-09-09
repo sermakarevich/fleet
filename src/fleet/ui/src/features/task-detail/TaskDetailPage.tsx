@@ -4,6 +4,7 @@ import { useTask, useConfig } from '../../shared/hooks/useApi';
 import { useEventSocket } from '../../shared/hooks/useEventSocket';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { TaskDetailHeader } from './TaskDetailHeader';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { Tabs } from '../../shared/ui/Tabs';
 import { LiveTab } from './tabs/LiveTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
@@ -64,7 +65,7 @@ export function TaskDetailPage() {
   if (!id) return <Navigate to="/" replace />;
 
   if (isLoading) {
-    return <p style={styles.msg}>Loading…</p>;
+    return <LoadingState />;
   }
 
   if (error || !task) {
@@ -114,7 +115,7 @@ const styles: Record<string, React.CSSProperties> = {
   page: {
     display: 'flex',
     flexDirection: 'column',
-    height: 'calc(100vh - var(--nav-h, 40px))',
+    height: 'calc(100vh - var(--nav-h, 2.5rem))',
     fontFamily: 'system-ui, sans-serif',
     background: T.colors.bgDeep,
     color: T.colors.textPrimary,
@@ -133,7 +134,7 @@ const styles: Record<string, React.CSSProperties> = {
   tabBar: {
     display: 'flex',
     gap: 0,
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     background: T.colors.bgSurface,
     overflowX: 'auto',
     flexShrink: 0,

@@ -36,7 +36,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: T.colors.infoDark,
     color: T.colors.white,
     padding: '0.75rem 1rem',
-    borderRadius: 6,
+    borderRadius: '0.375rem',
     boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
     maxWidth: '20rem',
     fontSize: '0.875rem',

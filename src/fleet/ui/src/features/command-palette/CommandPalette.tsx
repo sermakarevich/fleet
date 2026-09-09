@@ -176,8 +176,8 @@ const s = {
     width: 560,
     maxHeight: '60vh',
     background: T.colors.bgSurface,
-    border: '1px solid #3f3f46',
-    borderRadius: 8,
+    border: `1px solid ${T.colors.border}`,
+    borderRadius: '0.5rem',
     boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
     overflow: 'hidden',
     display: 'flex',
@@ -190,7 +190,7 @@ const s = {
     fontFamily: 'system-ui, sans-serif',
   },
   inputWrap: {
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     padding: '0.625rem 1rem',
   },
   input: {

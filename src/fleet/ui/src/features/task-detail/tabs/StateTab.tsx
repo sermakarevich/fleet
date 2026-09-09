@@ -89,7 +89,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toolbar: {
     padding: '0.4rem 0.75rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     background: T.colors.bgSurface,
     display: 'flex',
     alignItems: 'center',
@@ -129,7 +129,7 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.6,
   },
   section: {
-    borderTop: '1px solid #27272a',
+    borderTop: `1px solid ${T.colors.borderSubtle}`,
     padding: '0.5rem 1.25rem',
   },
   sectionLabel: {
@@ -142,7 +142,7 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
     background: T.colors.bgDeeper,
-    border: '1px solid #27272a',
+    border: `1px solid ${T.colors.borderSubtle}`,
     borderRadius: '4px',
     padding: '0.5rem',
     margin: 0,

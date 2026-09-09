@@ -5,6 +5,7 @@
 import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
 import { merge } from '../../shared/styles/recipes';
+import { EmptyState } from '../../shared/ui/EmptyState';
 import { QuestionCard } from './QuestionCard';
 import { formatRelativeAge } from '../../shared/format';
 
@@ -32,7 +33,7 @@ export function QuestionList({ questions, selectedId, onSelect, serverOffset, no
       </div>
       <div style={styles.list}>
         {questions.length === 0 ? (
-          <div style={styles.emptyList}>No pending questions.</div>
+          <EmptyState message="No pending questions." />
         ) : questions.map((q) => (
           <QuestionCard
             key={q.id}
@@ -49,21 +50,21 @@ export function QuestionList({ questions, selectedId, onSelect, serverOffset, no
 
 const styles = {
   sidebar: {
-    width: 340, minWidth: 300, height: '100%', background: colors.bgSurface,
+    width: '21.25rem', minWidth: '18.75rem', height: '100%', background: colors.bgSurface,
     borderRight: `1px solid ${colors.borderSubtle}`,
     display: 'flex', flexDirection: 'column' as const, flexShrink: 0,
   } as React.CSSProperties,
   sideHead: {
-    padding: '16px 18px', borderBottom: `1px solid ${colors.borderSubtle}`,
+    padding: '1rem 1.125rem', borderBottom: `1px solid ${colors.borderSubtle}`,
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   } as React.CSSProperties,
   brand: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    fontWeight: 700, fontSize: 15, color: colors.textPrimary,
+    display: 'flex', alignItems: 'center', gap: '0.5rem',
+    fontWeight: 700, fontSize: '0.9375rem', color: colors.textPrimary,
   } as React.CSSProperties,
   dot: {
-    width: 8, height: 8, borderRadius: '50%', background: colors.success,
-    boxShadow: '0 0 0 3px rgba(34,197,94,.18)',
+    width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: colors.success,
+    boxShadow: '0 0 0 0.1875rem rgba(34,197,94,.18)',
     display: 'inline-block', flexShrink: 0,
     transition: 'background-color .2s, box-shadow .2s',
   } as React.CSSProperties,
@@ -71,14 +72,10 @@ const styles = {
     background: colors.border, boxShadow: 'none',
   } as React.CSSProperties,
   count: {
-    color: colors.textSecondary, fontSize: 12.5,
+    color: colors.textSecondary, fontSize: '0.78125rem',
     fontWeight: 500, fontVariantNumeric: 'tabular-nums',
   } as React.CSSProperties,
   list: {
-    flex: 1, overflowY: 'auto', padding: 8,
-  } as React.CSSProperties,
-  emptyList: {
-    padding: '40px 12px', textAlign: 'center' as const,
-    color: colors.textSecondary, fontSize: 13,
+    flex: 1, overflowY: 'auto', padding: '0.5rem',
   } as React.CSSProperties,
 };

@@ -57,7 +57,7 @@ export const chartTooltipProps = {
   contentStyle: {
     background: T.colors.bgSurface,
     border: `1px solid ${T.colors.border}`,
-    borderRadius: 6,
+    borderRadius: '0.375rem',
     fontSize: 12,
   },
   labelStyle: { color: T.colors.textPrimary },

@@ -1,0 +1,75 @@
+// Render tests for the shared DataList: desktop table, mobile cards
+// (explicit and default), row click, empty and loading states.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { DataList, type DataColumn } from './DataList';
+
+afterEach(cleanup);
+
+interface Item {
+  id: string;
+  title: string;
+}
+
+const ROWS: Item[] = [
+  { id: 'a', title: 'Alpha' },
+  { id: 'b', title: 'Beta' },
+];
+
+const COLUMNS: Array<DataColumn<Item>> = [
+  { key: 'id', header: 'ID', width: '6rem', render: (row) => row.id },
+  { key: 'title', header: 'Title', render: (row) => row.title },
+];
+
+function renderList(override: Partial<Parameters<typeof DataList<Item>>[0]> = {}) {
+  return render(
+    <DataList
+      columns={COLUMNS}
+      rows={ROWS}
+      rowKey={(row) => row.id}
+      empty="Nothing here."
+      isMobile={false}
+      {...override}
+    />,
+  );
+}
+
+describe('DataList', () => {
+  it('renders a desktop table with headers and rows', () => {
+    renderList();
+    expect(screen.getByText('ID')).toBeInTheDocument();
+    expect(screen.getByText('Title')).toBeInTheDocument();
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.getByText('Beta')).toBeInTheDocument();
+  });
+
+  it('notifies row clicks', () => {
+    const onRowClick = vi.fn();
+    renderList({ onRowClick });
+    fireEvent.click(screen.getByText('Alpha'));
+    expect(onRowClick).toHaveBeenCalledWith(ROWS[0]);
+  });
+
+  it('renders mobile cards with a custom renderCard', () => {
+    renderList({ isMobile: true, renderCard: (row) => <span>card:{row.title}</span> });
+    expect(screen.getByText('card:Alpha')).toBeInTheDocument();
+    expect(screen.getByText('card:Beta')).toBeInTheDocument();
+  });
+
+  it('falls back to a default card built from the columns', () => {
+    renderList({ isMobile: true });
+    expect(screen.getAllByText('Alpha')).toHaveLength(1);
+    expect(screen.getAllByText('Title')).toHaveLength(2);
+  });
+
+  it('renders the empty state when there are no rows', () => {
+    renderList({ rows: [] });
+    expect(screen.getByText('Nothing here.')).toBeInTheDocument();
+  });
+
+  it('renders the loading state instead of rows', () => {
+    renderList({ rows: [], loading: true });
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByText('Nothing here.')).not.toBeInTheDocument();
+  });
+});

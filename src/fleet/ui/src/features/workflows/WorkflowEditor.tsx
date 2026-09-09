@@ -429,7 +429,7 @@ const styles = {
   stageCol: {
     minWidth: '17rem', maxWidth: '17rem', flexShrink: 0,
     background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
-    borderRadius: 6, padding: '0.625rem', display: 'flex',
+    borderRadius: '0.375rem', padding: '0.625rem', display: 'flex',
     flexDirection: 'column' as const, gap: '0.5rem',
   } as React.CSSProperties,
   stageHead: { display: 'flex', gap: '0.375rem', alignItems: 'center' } as React.CSSProperties,
@@ -437,7 +437,7 @@ const styles = {
   stageHeadBtns: { display: 'inline-flex', gap: '0.25rem' } as React.CSSProperties,
   stepCard: {
     background: T.colors.bgElevated, border: `1px solid ${T.colors.border}`,
-    borderRadius: 6, padding: '0.5rem', display: 'flex',
+    borderRadius: '0.375rem', padding: '0.5rem', display: 'flex',
     flexDirection: 'column' as const, gap: '0.375rem',
   } as React.CSSProperties,
   stepName: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } as React.CSSProperties,

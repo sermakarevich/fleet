@@ -65,7 +65,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.7rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
@@ -75,12 +75,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.textDim,
     fontWeight: 600,
     fontSize: '0.7rem',
-    borderBottom: '1px solid #27272a',
+    borderBottom: `1px solid ${T.colors.borderSubtle}`,
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
   row: {
-    borderBottom: '1px solid #1c1c20',
+    borderBottom: `1px solid ${T.colors.bgElevated}`,
   },
   tdPath: {
     padding: '0.35rem 0.5rem',

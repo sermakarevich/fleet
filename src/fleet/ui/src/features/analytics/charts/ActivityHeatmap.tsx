@@ -72,12 +72,12 @@ export function ActivityHeatmap({ heatmap }: ActivityHeatmapProps) {
 const outer: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column' as const,
-  gap: 2,
+  gap: '0.125rem',
 };
 
 const tickRow: React.CSSProperties = {
   display: 'flex',
-  gap: 2,
+  gap: '0.125rem',
   marginBottom: 2,
 };
 
@@ -97,7 +97,7 @@ const cellFlex: React.CSSProperties = {
 const cell: React.CSSProperties = {
   ...cellFlex,
   height: 12,
-  borderRadius: 2,
+  borderRadius: '0.125rem',
 };
 
 const tickCell: React.CSSProperties = {
@@ -112,7 +112,7 @@ const tickCell: React.CSSProperties = {
 
 const dayRow: React.CSSProperties = {
   display: 'flex',
-  gap: 2,
+  gap: '0.125rem',
 };
 
 const dayLabel: React.CSSProperties = {

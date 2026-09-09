@@ -73,7 +73,7 @@ const styles = {
   } as React.CSSProperties,
   tag: {
     fontSize: 10.5, fontWeight: 600, letterSpacing: '0.4px', textTransform: 'uppercase' as const,
-    padding: '1px 7px', borderRadius: 9999,
+    padding: '1px 7px', borderRadius: '10rem',
     background: colors.bgElevated, color: colors.textSecondary,
   } as React.CSSProperties,
   tagPrio: {

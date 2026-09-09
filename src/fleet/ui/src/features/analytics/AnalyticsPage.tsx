@@ -15,6 +15,8 @@ import { storageGet, storageSet } from '../../shared/storage';
 import type { AnalyticsKpis } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 import { merge, when } from '../../shared/styles/recipes';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { PageShell } from '../../shared/ui/PageShell';
 
 const RANGE_OPTIONS = [
   { label: '24h', days: 1 },
@@ -86,15 +88,15 @@ export function AnalyticsPage() {
     return data.rate_limits.map(r => ({ ts: r.ts, task_id: r.task_id }));
   }, [data]);
 
-  if (isLoading) return <p style={styles.msg}>Loading analytics…</p>;
+  if (isLoading) return <LoadingState message="Loading analytics…" />;
   if (error) return <p style={styles.err}>Error: {String(error)}</p>;
 
   const kpis = data?.kpis ?? DEFAULT_KPIS;
 
   return (
-    <div style={styles.page}>
-      <div style={styles.headerRow}>
-        <h1 style={styles.heading}>Analytics</h1>
+    <PageShell
+      title="Analytics"
+      actions={
         <div style={styles.filterRow}>
           {RANGE_OPTIONS.map(opt => (
             <button
@@ -106,7 +108,9 @@ export function AnalyticsPage() {
             </button>
           ))}
         </div>
-      </div>
+      }
+    >
+      <div style={styles.col}>
       <KpiCards kpis={kpis} />
       <ThroughputChart bucketSize={bucketSize} buckets={throughputBuckets} />
       <TokenUsageChart bucketSize={bucketSize} buckets={tokenBuckets} />
@@ -123,35 +127,16 @@ export function AnalyticsPage() {
         <NeedsAttention rows={data?.errors_recent ?? []} />
         <RateLimitTimeline events={rateLimitEvents} />
       </div>
-    </div>
+      </div>
+    </PageShell>
   );
 }
 
 const styles = {
-  page: {
-    padding: '1rem 1.5rem',
-    fontFamily: 'system-ui, sans-serif',
+  col: {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '0.875rem',
-  } as React.CSSProperties,
-  headerRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '1rem',
-    flexWrap: 'wrap',
-  } as React.CSSProperties,
-  heading: {
-    margin: 0,
-    fontSize: '0.9375rem',
-    fontWeight: 600,
-    color: T.colors.textPrimary,
-  } as React.CSSProperties,
-  msg: {
-    padding: '1rem',
-    color: T.colors.textDim,
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   err: {
     padding: '1rem',

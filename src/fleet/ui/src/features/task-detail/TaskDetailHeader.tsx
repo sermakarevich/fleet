@@ -86,7 +86,7 @@ export function TaskDetailHeader({ task, config }: Props) {
       {desc && (
         <div style={styles.descContainer}>
           <span
-            style={merge(styles.desc, { maxHeight: descVisible ? 'none' : `${12 * 16}px`, overflow: 'hidden',  })}
+            style={merge(styles.desc, { maxHeight: descVisible ? 'none' : '12rem', overflow: 'hidden',  })}
           >
             {desc}
           </span>
@@ -152,7 +152,7 @@ const styles: Record<string, React.CSSProperties> = {
   pill: {
     display: 'inline-block',
     padding: '0.1rem 0.45rem',
-    borderRadius: 9999,
+    borderRadius: '10rem',
     fontSize: '0.7rem',
     fontWeight: 600,
     color: T.colors.white,
@@ -161,11 +161,11 @@ const styles: Record<string, React.CSSProperties> = {
   jobPill: {
     display: 'inline-block',
     padding: '0.1rem 0.45rem',
-    borderRadius: 9999,
+    borderRadius: '10rem',
     fontSize: '0.7rem',
     fontWeight: 600,
     color: T.colors.lavender,
-    border: '1px solid #a78bfa',
+    border: `1px solid ${T.colors.lavender}`,
     flexShrink: 0,
   },
   title: {
@@ -209,7 +209,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.link,
     textDecoration: 'none',
     fontFamily: 'monospace',
-    maxWidth: 300,
+    maxWidth: '18.75rem',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -240,8 +240,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.35rem 0.5rem',
     marginBottom: '0.35rem',
     background: 'rgba(245, 158, 11, 0.1)',
-    border: '1px solid #f59e0b',
-    borderRadius: 4,
+    border: `1px solid ${T.colors.amber}`,
+    borderRadius: '0.25rem',
     fontSize: '0.8rem',
   },
   blockedLabel: {
@@ -260,8 +260,8 @@ const styles: Record<string, React.CSSProperties> = {
   unblockBtn: {
     padding: '0.15rem 0.5rem',
     background: 'transparent',
-    border: '1px solid #f59e0b',
-    borderRadius: 4,
+    border: `1px solid ${T.colors.amber}`,
+    borderRadius: '0.25rem',
     color: T.colors.amber,
     cursor: 'pointer',
     fontSize: '0.75rem',

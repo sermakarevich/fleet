@@ -7,28 +7,6 @@
 import * as T from '../../shared/styles/tokens';
 
 export const rowStyles = {
-  filterBtnInner: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.3rem',
-  } as React.CSSProperties,
-  alertDot: {
-    display: 'inline-block',
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: T.colors.danger,
-    flexShrink: 0,
-  } as React.CSSProperties,
-  colStatus:  { width: '5rem', flexShrink: 0 } as React.CSSProperties,
-  colId:      { width: '6rem', flexShrink: 0 } as React.CSSProperties,
-  colTitle:   { flex: 1, minWidth: 0 } as React.CSSProperties,
-  colCoder:   { width: '9rem', flexShrink: 0 } as React.CSSProperties,
-  colContext: { width: '5rem', flexShrink: 0 } as React.CSSProperties,
-  colRuns:    { width: '4rem', flexShrink: 0 } as React.CSSProperties,
-  colTs:      { width: '8.5rem', flexShrink: 0 } as React.CSSProperties,
-  colCwd:     { width: '7rem', flexShrink: 0 } as React.CSSProperties,
-  colAction:  { width: '10rem', flexShrink: 0 } as React.CSSProperties,
   titleCol: {
     flex: 1,
     minWidth: 0,
@@ -59,8 +37,8 @@ export const rowStyles = {
   staleLeaseBadge: {
     display: 'inline-block',
     padding: '0.05rem 0.4rem',
-    borderRadius: 4,
-    border: '1px solid #f59e0b',
+    borderRadius: '0.25rem',
+    border: `1px solid ${T.colors.amber}`,
     color: T.colors.amber,
     fontSize: '0.7rem',
     fontWeight: 600,
@@ -69,8 +47,8 @@ export const rowStyles = {
   ignoredBadge: {
     display: 'inline-block',
     padding: '0.05rem 0.4rem',
-    borderRadius: 4,
-    border: '1px solid #94a3b8',
+    borderRadius: '0.25rem',
+    border: `1px solid ${T.colors.slateLight}`,
     color: T.colors.slateLight,
     fontSize: '0.7rem',
     fontWeight: 600,
@@ -101,7 +79,7 @@ export const rowStyles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '0.1rem 0.4rem',
-    borderRadius: 4,
+    borderRadius: '0.25rem',
     background: T.colors.border,
     color: T.colors.textPrimary,
     fontSize: '0.75rem',
@@ -138,8 +116,8 @@ export const rowStyles = {
   unblockBtn: {
     padding: '0.2rem 0.625rem',
     background: 'transparent',
-    border: '1px solid #f59e0b',
-    borderRadius: 4,
+    border: `1px solid ${T.colors.amber}`,
+    borderRadius: '0.25rem',
     color: T.colors.amber,
     cursor: 'pointer',
     fontSize: '0.8125rem',
@@ -151,32 +129,6 @@ export const rowStyles = {
     color: T.colors.orange,
     fontStyle: 'italic',
     whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  confirm: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.375rem',
-  } as React.CSSProperties,
-  confirmLabel: {
-    fontSize: '0.8125rem',
-    color: T.colors.textSecondary,
-    whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  yesBtn: {
-    padding: '0.2rem 0.5rem',
-    background: T.colors.danger,
-    border: `1px solid ${T.colors.danger}`,
-    borderRadius: 4,
-    color: T.colors.white,
-    cursor: 'pointer',
-    fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif',
-    fontWeight: 600,
-  } as React.CSSProperties,
-  cancelBtn: {
-    ...T.btnGhost,
-    padding: '0.2rem 0.5rem',
-    fontSize: '0.8125rem',
   } as React.CSSProperties,
 };
 
