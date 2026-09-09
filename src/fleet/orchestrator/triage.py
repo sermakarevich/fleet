@@ -14,12 +14,14 @@ and is skipped naturally — no consumed-markers needed.
 from __future__ import annotations
 
 import json
+import shlex
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fleet.beads.queue import Queue
 from fleet.core import triage_policy
+from fleet.core.effective import effective_coder_model
 from fleet.core.errors import FleetError
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.retry_policy import rounds_for_history
@@ -33,12 +35,14 @@ from fleet.core.triage_policy import (
     MAX_PER_TASK_QUESTIONS,
     RETRY_OPUS,
     RETRY_SAME,
+    is_repair_answer,
 )
 from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import attempts as attempts_mod
 from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.task_meta import TaskMeta
 from fleet.state.task_summary import read_declared_result
 
 if TYPE_CHECKING:
@@ -56,6 +60,7 @@ class TriageApplyOutcome(StrEnum):
     RELEASED_OPUS = "released-opus"
     RELEASED = "released"
     IGNORED_ALL = "ignored-all"
+    REPAIR_SPAWNED = "repair-spawned"
 
 
 # How many of the newest attempts count for "rate-limit history".
@@ -134,6 +139,7 @@ def collect_candidates(
                     "stderr_tail": _stderr_tail(task_dir),
                 },
                 "result": read_declared_result(task_dir),
+                "meta": _live_meta(queue, meta),
             }
         )
     return candidates
@@ -144,6 +150,72 @@ def _append_note_to_description(queue: Queue, fleet_home: Path, task_id: str, no
     current = _read_meta(fleet_home, task_id).get("description") or ""
     updated = f"{current}\n\nOperator note: {note}" if current else f"Operator note: {note}"
     queue.set_bd_fields(task_id, {"description": updated})
+
+
+_MERGE_REPAIR_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "MERGE_REPAIR.md"
+
+
+def _render_repair_description(info: triage_policy.MergeConflictInfo, task_id: str) -> str:
+    """Render MERGE_REPAIR.md for one stranded branch (str.format, like prompts)."""
+    files = ", ".join(info.files) if info.files else "unknown"
+    return _MERGE_REPAIR_TEMPLATE.read_text(encoding="utf-8").format(
+        branch=info.branch,
+        repo_root=info.repo_root,
+        base_ref=info.base_ref,
+        files=files,
+        task_id=task_id,
+    )
+
+
+def _repair_extra_args(task_id: str) -> str:
+    """bd create args stamping the repair bead (labels + isolation opt-out)."""
+    metadata = shlex.quote(json.dumps({"fleet_isolation": "none"}))
+    return f"-l merge-fix,repairs:{task_id} --metadata {metadata}"
+
+
+def _repair_live(queue: Queue, repair_task_id: str) -> bool:
+    """True when the repair bead is not provably closed (lookup errors count as live)."""
+    try:
+        return queue.get(repair_task_id).status != TaskStatus.CLOSED.value
+    except Exception:
+        return True
+
+
+def _apply_repair(
+    queue: Queue, fleet_home: Path, task_id: str, meta: dict, note: str | None
+) -> TriageApplyOutcome:
+    """Spawn one repair worker for a merge-conflict block; no-op when one runs."""
+    info = triage_policy.merge_conflict_info(meta)
+    if info is None or not info.repo_root:
+        return TriageApplyOutcome.SKIPPED
+    repair_id = meta.get("repair_task_id")
+    if isinstance(repair_id, str) and repair_id and _repair_live(queue, repair_id):
+        return TriageApplyOutcome.SKIPPED
+    coder, model = effective_coder_model(meta.get("coder"), meta.get("model"))
+    description = _render_repair_description(info, task_id).strip()
+    if note:
+        description += f"\n\nOperator note: {note}"
+    repair = queue.create_task(
+        f"Resolve merge conflict: {meta.get('title') or task_id}",
+        description=description,
+        labels=["merge-fix", f"repairs:{task_id}"],
+        cwd=info.repo_root,
+        coder=coder,
+        model=model,
+        extra_args=_repair_extra_args(task_id),
+    )
+    TaskMeta.update(state_paths.task_dir(fleet_home, task_id), repair_task_id=repair.id)
+    return TriageApplyOutcome.REPAIR_SPAWNED
+
+
+def _live_meta(queue: Queue, meta: dict) -> dict:
+    """Candidate meta with a provably-closed repair id dropped for a fresh label."""
+    repair_id = meta.get("repair_task_id")
+    if not isinstance(repair_id, str) or not repair_id:
+        return meta
+    if _repair_live(queue, repair_id):
+        return meta
+    return {key: value for key, value in meta.items() if key != "repair_task_id"}
 
 
 def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
@@ -172,6 +244,8 @@ def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
     ):
         return TriageApplyOutcome.SKIPPED
 
+    if is_repair_answer(answer):
+        return _apply_repair(queue, fleet_home, task_id, meta, note)
     if answer == CLOSE:
         reason = f"won't do: {note}" if note else "won't do (triage)"
         queue.close(task_id, reason)
@@ -242,7 +316,7 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
         per_task = candidates
     for cand in per_task:
         proposal = triage_policy.propose(
-            {"id": cand["id"], "title": cand["title"]},
+            cand["meta"],
             cand["attempts"],
             cand["result"],
             cand["blocked_reason"],

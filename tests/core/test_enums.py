@@ -81,6 +81,7 @@ def test_triage_apply_outcome_values() -> None:
         "released-opus",
         "released",
         "ignored-all",
+        "repair-spawned",
     }
 
 

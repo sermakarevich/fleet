@@ -43,6 +43,7 @@ class FakeQueue(Queue):
         self.released: list[tuple[str, str]] = []
         self.closed: list[tuple[str, str]] = []
         self.comments: list[tuple[str, str]] = []
+        self.created: list[dict] = []
         self._ignores: dict[str, str] = {}
         self._children: dict[str, list[BeadSummary]] = {}
         self._isolation: dict[str, dict] = {}
@@ -146,7 +147,7 @@ class FakeQueue(Queue):
         extra_args: str | None = None,
     ) -> Task:
         """Open a new task and snapshot it to task.json."""
-        _ = (depends_on, labels)
+        _ = depends_on
         task_id = f"fake-{len(self._tasks):03d}"
         task = Task(
             id=task_id,
@@ -160,6 +161,19 @@ class FakeQueue(Queue):
         )
         self._tasks[task_id] = task
         self._meta[task_id] = _metadata_of(extra_args)
+        self.created.append(
+            {
+                "id": task_id,
+                "title": title,
+                "description": description,
+                "labels": list(labels or []),
+                "cwd": cwd,
+                "coder": coder,
+                "model": model,
+                "worker": worker,
+                "extra_args": extra_args,
+            }
+        )
         return task
 
     def create_child(self, epic_id: str, spec: dict) -> Task:

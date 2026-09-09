@@ -121,6 +121,18 @@ the attempt history through `state/attempt_journal.py`.
 | Retries are exhausted | The `RETRY_TABLE` in `core/retry_policy.py` counts consecutive same-outcome attempts (failure, partial, context-pressure, stall, noclose) from `attempts.jsonl` | Once a streak reaches its limit the bead is set to `blocked` with a reason explaining which limit was hit | failure limit is the code constant `FAILURE_MAX_ROUNDS` (3); partial limit `PARTIAL_MAX_ROUNDS` (5); context limit `CONTEXT_MAX_ROUNDS` (3) |
 | A blocked bead is left alone | The `Triage` service (`orchestrator/triage.py`) — its own periodic service, not part of any other loop — runs on a schedule and asks one non-blocking question per blocked bead with a proposed fix | An operator answers via the UI or the `ask_human` integration; fleet applies the answer (retry, retry with a bigger model, close, or ignore for a while) on the next tick | `triage_interval_minutes` (15; 0 disables) |
 
+## Merge conflicts
+
+A finished isolated worker merges its `fleet/<id>` branch back into the base ref
+(`orchestrator/merge_validation.py`). When that merge conflicts, the bead is blocked with
+`merge conflict into <base>; resolve on branch fleet/<id> then close`, the branch is kept,
+and the repo/branch/file list is recorded in `task.json` (`merge_conflict`). Triage
+recognises the reason and offers `resolve merge conflict with a worker` first: it opens a
+repair bead (labels `merge-fix`, `repairs:<id>`) that runs directly in the repo
+(isolation off), merges the base into the branch, resolves the conflicts, runs the project
+checks, fast-forwards the base, and closes the original task. Picking the option while a
+repair worker is still running is a no-op.
+
 A human can also unblock a task directly at any time: from the task page
 in the UI, or `POST /api/tasks/<id>/unblock`.
 

@@ -405,3 +405,86 @@ class TestInFlightSkip:
         assert queue.closed == []
         assert queue.blocked == []
         assert (task_dir / ".needs_validation").exists()
+
+
+# ===== MERGE-CONFLICT RECORD =====
+
+
+def _conflict_dirs(fleet_home: Path, repo: Path, task_id: str) -> tuple[Path, Path]:
+    _commit(repo, "tracked.txt", "line1\nline2\n", msg="initial")
+    task_dir, wt = _isolate(fleet_home, repo, task_id)
+    (wt / "tracked.txt").write_text("branch version\nline2\n")
+    _git(wt, "add", "tracked.txt")
+    _git(
+        wt,
+        "-c",
+        "user.email=test@test.com",
+        "-c",
+        "user.name=test",
+        "commit",
+        "-m",
+        "branch edit",
+    )
+    (repo / "tracked.txt").write_text("main version\nline2\n")
+    _git(repo, "add", "tracked.txt")
+    _git(
+        repo,
+        "-c",
+        "user.email=test@test.com",
+        "-c",
+        "user.name=test",
+        "commit",
+        "-m",
+        "main edit",
+    )
+    return task_dir, wt
+
+
+def _meta_of(task_dir: Path) -> dict:
+    return json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+
+
+class TestMergeConflictRecord:
+    def test_conflict_persists_merge_conflict_with_files(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-record-1"
+        task_dir, _ = _conflict_dirs(fleet_home, repo, task_id)
+
+        queue = StubQueue(status="in_progress")
+        _run(_make_state(tmp_path, queue))
+
+        assert len(queue.blocked) == 1
+        assert _meta_of(task_dir)["merge_conflict"] == {
+            "repo_root": str(repo),
+            "base_ref": "main",
+            "branch": f"fleet/{task_id}",
+            "files": ["tracked.txt"],
+        }
+
+    def test_success_path_records_no_merge_conflict(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-record-2"
+        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "feature.txt", "feature content")
+
+        queue = StubQueue(status="in_progress")
+        _run(_make_state(tmp_path, queue))
+
+        assert len(queue.closed) == 1
+        assert "merge_conflict" not in _meta_of(task_dir)
+
+    def test_non_conflict_failure_records_no_merge_conflict(self, tmp_path: Path):
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-record-3"
+        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "f.txt", "work")
+        (repo / "uncommitted.txt").write_text("x")
+        _git(repo, "add", "uncommitted.txt")
+        (repo / "uncommitted.txt").write_text("modified")
+
+        queue = StubQueue(status="in_progress")
+        _run(_make_state(tmp_path, queue))
+
+        assert len(queue.blocked) == 1
+        assert "base repo dirty" in queue.blocked[0][1]
+        assert "merge_conflict" not in _meta_of(task_dir)

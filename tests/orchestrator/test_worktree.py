@@ -269,3 +269,49 @@ def test_has_uncommitted_changes_tracks_real_git_state(tmp_path):
     assert has_uncommitted_changes(repo) is True
     # Unknown state (not a repo) counts as dirty so work is never discarded.
     assert has_uncommitted_changes(tmp_path / "nowhere") is True
+
+
+def _conflicting_repo(git_repo: Path, fleet_home: Path, task_id: str) -> None:
+    """Commit diverging edits of tracked.txt on main and fleet/<task_id>."""
+    _commit(git_repo, "tracked.txt", "line1\nline2\n", msg="initial")
+    wt = worktree.create_worktree(git_repo, task_id, base_ref="main", fleet_home=fleet_home)
+    (wt / "tracked.txt").write_text("branch version\nline2\n")
+    _git(wt, "add", "tracked.txt")
+    _git(
+        wt,
+        "-c",
+        "user.email=test@test.com",
+        "-c",
+        "user.name=test",
+        "commit",
+        "-m",
+        "branch edit",
+    )
+    (git_repo / "tracked.txt").write_text("main version\nline2\n")
+    _git(git_repo, "add", "tracked.txt")
+    _git(
+        git_repo,
+        "-c",
+        "user.email=test@test.com",
+        "-c",
+        "user.name=test",
+        "commit",
+        "-m",
+        "main edit",
+    )
+
+
+class TestConflictFiles:
+    def test_conflict_reports_unmerged_paths(self, git_repo: Path, fleet_home: Path):
+        _conflicting_repo(git_repo, fleet_home, "cf-1")
+        result = worktree.merge_to_base(git_repo, "cf-1", base_ref="main")
+        assert result.ok is False
+        assert result.conflict is True
+        assert result.conflict_files == ("tracked.txt",)
+
+    def test_clean_merge_reports_no_files(self, git_repo: Path, fleet_home: Path):
+        wt = worktree.create_worktree(git_repo, "cf-2", base_ref="main", fleet_home=fleet_home)
+        _commit(wt, "feature.txt", "feature content")
+        result = worktree.merge_to_base(git_repo, "cf-2", base_ref="main")
+        assert result.ok is True
+        assert result.conflict_files == ()

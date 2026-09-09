@@ -18,12 +18,15 @@ from fleet.core.triage_policy import (
     EDIT_RETRY,
     IGNORE_24H,
     IGNORE_FOREVER,
+    RESOLVE_MERGE,
     RETRY_OPUS,
     RETRY_SAME,
     ignore_until_24h,
+    repair_running_label,
 )
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.orchestrator.triage import Triage, apply_answer, collect_candidates, triage_tick
+from tests.conftest import FakeQueue as SharedFakeQueue
 from tests.conftest import make_supervisor
 
 
@@ -327,3 +330,117 @@ def test_triage_interval_zero_never_ticks(tmp_path: Path):
     asyncio.run(Triage(store=store).tick(sup.state))
     assert store.list_pending(100) == []
     assert q.calls == []
+
+
+# --- merge-conflict repair ----------------------------------------------------
+
+_CONFLICT_REASON = "merge conflict into main; resolve on branch fleet/orig then close"
+
+
+def _conflict_meta(**overrides):
+    meta = {
+        "id": "orig",
+        "title": "Original work",
+        "status": "blocked",
+        "blocked_reason": _CONFLICT_REASON,
+        "blocked_at": "ts",
+        "coder": "opencode",
+        "model": "qwen",
+        "merge_conflict": {
+            "repo_root": "/repo/root",
+            "base_ref": "main",
+            "branch": "fleet/orig",
+            "files": ["tracked.txt"],
+        },
+    }
+    meta.update(overrides)
+    return meta
+
+
+def _conflict_task_file(root: Path, **overrides) -> Path:
+    d = root / "tasks" / "orig"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "task.json").write_text(json.dumps(_conflict_meta(**overrides)), encoding="utf-8")
+    return d
+
+
+def test_apply_resolve_merge_spawns_one_repair_bead(tmp_path: Path):
+    q = SharedFakeQueue()
+    _conflict_task_file(tmp_path)
+    outcome = apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE))
+    assert outcome == "repair-spawned"
+    assert len(q.created) == 1
+    repair = q.created[0]
+    assert repair["title"] == "Resolve merge conflict: Original work"
+    assert repair["labels"] == ["merge-fix", "repairs:orig"]
+    assert repair["cwd"] == "/repo/root"
+    assert repair["coder"] == "opencode"
+    assert repair["model"] == "qwen"
+    assert "-l merge-fix,repairs:orig" in (repair["extra_args"] or "")
+    assert '"fleet_isolation": "none"' in (repair["extra_args"] or "")
+    assert q._meta[repair["id"]] == {"fleet_isolation": "none"}
+    body = repair["description"] or ""
+    assert "fleet/orig" in body and "main" in body and "tracked.txt" in body
+    assert "fleet bd close orig" in body
+    # Original stays blocked and records the repair id.
+    assert q.released == [] and q.closed == []
+    meta = json.loads((tmp_path / "tasks" / "orig" / "task.json").read_text())
+    assert meta["status"] == "blocked"
+    assert meta["repair_task_id"] == repair["id"]
+
+
+def test_apply_resolve_merge_second_answer_is_noop(tmp_path: Path):
+    q = SharedFakeQueue()
+    _conflict_task_file(tmp_path)
+    first = apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE))
+    assert first == "repair-spawned"
+    repair_id = q.created[0]["id"]
+    running_label = repair_running_label(repair_id)
+    assert apply_answer(q, tmp_path, _answered("orig", running_label)) == "skipped"
+    assert apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE)) == "skipped"
+    assert len(q.created) == 1
+
+
+def test_apply_resolve_merge_appends_note(tmp_path: Path):
+    q = SharedFakeQueue()
+    _conflict_task_file(tmp_path)
+    assert apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE, note="keep both")) == (
+        "repair-spawned"
+    )
+    assert "Operator note: keep both" in (q.created[0]["description"] or "")
+
+
+def test_apply_resolve_merge_without_info_skips(tmp_path: Path):
+    q = SharedFakeQueue()
+    _task(tmp_path, "t", blocked_reason="r", blocked_at="ts")
+    assert apply_answer(q, tmp_path, _answered("t", RESOLVE_MERGE)) == "skipped"
+    assert q.created == []
+
+
+def test_apply_resolve_merge_respawns_after_repair_closed(tmp_path: Path):
+    q = SharedFakeQueue()
+    _conflict_task_file(tmp_path)
+    assert apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE)) == "repair-spawned"
+    old_id = q.created[0]["id"]
+    q.close(old_id, "done")
+    assert apply_answer(q, tmp_path, _answered("orig", RESOLVE_MERGE)) == "repair-spawned"
+    assert len(q.created) == 2
+    meta = json.loads((tmp_path / "tasks" / "orig" / "task.json").read_text())
+    assert meta["repair_task_id"] == q.created[1]["id"]
+
+
+def test_tick_asks_merge_conflict_proposal(tmp_path: Path):
+    q = SharedFakeQueue()
+    orig = _conflict_meta()
+    bead = Task(id="orig", title="Original work", description=None, status="blocked")
+    q._tasks["orig"] = bead
+    d = tmp_path / "tasks" / "orig"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "task.json").write_text(json.dumps(orig), encoding="utf-8")
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["candidates"] == 1
+    pending = [row for row in s.list_pending(100) if row["task_id"] == "orig"]
+    assert len(pending) == 1
+    assert pending[0]["options"][0] == RESOLVE_MERGE
+    assert "repair worker" in pending[0]["prompt"]

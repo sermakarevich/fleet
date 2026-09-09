@@ -250,10 +250,13 @@ src/fleet/
     status_log.py          # StatusLog service: periodic supervisor_status heartbeat
     supervisor.py          # lifecycle runner: checks, on_start, serve, on_stop, shutdown
     triage.py              # Triage service: one question per blocked bead, own cadence
+                           # (+ repair-worker spawn for merge-conflict blocks)
     worktree.py            # git worktree create/sweep/remove helpers
 
   prompts/                 # prompt assembly for coder launches
     __init__.py            # MODE_TEMPLATES: template sets per launch mode
+  templates/
+    MERGE_REPAIR.md        # merge-conflict repair worker instructions (rendered by orchestrator/triage.py)
 
   schedules/               # recurring workers (ADR 0007)
     cron.py                # five-field cron parsing + next-firing math (pure)
@@ -386,9 +389,10 @@ fallback; nothing writes the old layout):
 
 ```
 $FLEET_HOME/tasks/<id>/
-   task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
-                      # + triage ignore (ignore_until: ISO timestamp or "forever")
-                      # + isolation opt-out (isolation) and, when isolated,
+    task.json          # id, title, description, status, cwd, coder, model, blocked_reason, blocked_at, retry_after
+                       # + triage ignore (ignore_until: ISO timestamp or "forever")
+                       # + merge-conflict strand (merge_conflict, repair_task_id)
+                       # + isolation opt-out (isolation) and, when isolated,
                       # repo_root, base_ref, worktree_path (replaces the old .worktree marker)
    attempts.jsonl     # start/end per worker attempt, append-only (task-level, unchanged)
    STATE.md           # worker memory: ## Plan, ## Done, ## In flight, ## Next, ## Facts

@@ -105,6 +105,7 @@ class MergeResult:
     ok: bool
     conflict: bool
     message: str
+    conflict_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,10 +186,19 @@ class TaskWorktree:
                     return MergeResult(ok=True, conflict=False, message="merged")
                 unmerged = self.repo.run("ls-files", "-u").stdout
                 if is_merge_conflict(result.stdout + result.stderr, unmerged):
+                    files = self._conflict_files()
                     self.repo.run("merge", "--abort")
-                    return MergeResult(ok=False, conflict=True, message=result.stderr)
+                    return MergeResult(
+                        ok=False, conflict=True, message=result.stderr, conflict_files=files
+                    )
                 return MergeResult(ok=False, conflict=False, message=result.stderr)
         return MergeResult(ok=False, conflict=False, message="empty merge plan")
+
+    def _conflict_files(self) -> tuple[str, ...]:
+        """Paths still unmerged; read before the abort clears the conflict state."""
+        out = self.repo.run("diff", "--name-only", "--diff-filter=U").stdout
+        paths = [line.strip() for line in out.splitlines()]
+        return tuple(sorted(path for path in paths if path))
 
     def _resolve_path(self, worktree_path_arg: Path | str | None) -> Path:
         """The explicit worktree path, else this task's path (legacy fallback)."""

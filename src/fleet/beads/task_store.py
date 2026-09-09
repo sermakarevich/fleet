@@ -176,6 +176,7 @@ class TaskStore:
         meta["status"] = "open"
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
+        meta.pop("merge_conflict", None)
         meta.pop("ignore_until", None)
         if wait_sec and wait_sec > 0:
             meta["retry_after"] = (
@@ -201,6 +202,8 @@ class TaskStore:
         meta["status"] = "closed"
         meta.pop("blocked_reason", None)
         meta.pop("blocked_at", None)
+        meta.pop("merge_conflict", None)
+        meta.pop("repair_task_id", None)
         meta.pop("retry_after", None)
         meta.pop("ignore_until", None)
         self.write(task_id, meta)

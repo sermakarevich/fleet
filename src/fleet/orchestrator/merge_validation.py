@@ -16,6 +16,7 @@ from fleet.core.isolation import read as read_isolation_info
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import paths as state_paths
+from fleet.state.task_meta import TaskMeta
 from fleet.state.validation_marker import clear_needs_validation, needs_validation
 
 from . import worktree
@@ -88,6 +89,21 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         await asyncio.to_thread(st.queue.set_blocked, task_id, reason)
         st.log.warning("task.validation_failed", task_id=task_id, conflict=result.conflict)
         worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
+        if result.conflict:
+            # The branch is kept (delete_branch runs only on success); record
+            # where it lives before finish_validation drops the isolation info.
+            try:
+                TaskMeta.update(
+                    task_dir,
+                    merge_conflict={
+                        "repo_root": str(repo_root),
+                        "base_ref": base_ref,
+                        "branch": f"fleet/{task_id}",
+                        "files": list(result.conflict_files),
+                    },
+                )
+            except OSError as exc:
+                st.log.warning("task.conflict_record_failed", task_id=task_id, error=str(exc))
         finish_validation(st, task_dir, task_id)
         return
 

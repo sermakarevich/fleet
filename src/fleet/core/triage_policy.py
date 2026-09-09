@@ -23,12 +23,16 @@ from fleet.core.result import ResultStatus
 # the operator's selected answer against these strings verbatim.
 RETRY_SAME = "retry same setup"
 RETRY_OPUS = "retry with claude/opus"
+RESOLVE_MERGE = "resolve merge conflict with a worker"
 EDIT_RETRY = "edit task text and retry (write in note)"
 CLOSE = "close as won't do"
 IGNORE_24H = "ignore 24h"
 IGNORE_FOREVER = "ignore forever"
 
 COMMON_OPTIONS = [RETRY_SAME, RETRY_OPUS, EDIT_RETRY, CLOSE, IGNORE_24H, IGNORE_FOREVER]
+
+# First option when a merge-conflict block already has a live repair worker.
+REPAIR_RUNNING_PREFIX = "repair worker "
 
 # Options for the digest question asked when too many tasks block at once.
 DIGEST_IGNORE_ALL = "ignore all 24h"
@@ -49,6 +53,50 @@ class Proposal:
 
 
 @dataclass(frozen=True)
+class MergeConflictInfo:
+    """Where a merge-conflict block strands its branch, parsed from task.json."""
+
+    repo_root: str
+    base_ref: str
+    branch: str
+    files: tuple[str, ...] = ()
+    repair_task_id: str | None = None
+
+
+def merge_conflict_info(meta: dict) -> MergeConflictInfo | None:
+    """Parse MergeConflictInfo from a task.json dict; None when never recorded.
+
+    Tolerates missing fields (empty strings, no files) so a half-written
+    record still proposes the repair worker instead of falling to default.
+    """
+    raw = meta.get("merge_conflict")
+    if not isinstance(raw, dict):
+        return None
+    files = raw.get("files")
+    paths = tuple(f for f in files if isinstance(f, str) and f) if isinstance(files, list) else ()
+    repair = meta.get("repair_task_id")
+    return MergeConflictInfo(
+        repo_root=raw.get("repo_root") or "",
+        base_ref=raw.get("base_ref") or "",
+        branch=raw.get("branch") or "",
+        files=paths,
+        repair_task_id=repair if isinstance(repair, str) and repair else None,
+    )
+
+
+def repair_running_label(repair_task_id: str) -> str:
+    """Option text shown while a repair worker for this block is still live."""
+    return f"{REPAIR_RUNNING_PREFIX}{repair_task_id} is running"
+
+
+def is_repair_answer(answer: str | None) -> bool:
+    """True when the answer picks the merge-repair path (or its running label)."""
+    return answer == RESOLVE_MERGE or (
+        isinstance(answer, str) and answer.startswith(REPAIR_RUNNING_PREFIX)
+    )
+
+
+@dataclass(frozen=True)
 class TriageInput:
     """Everything one triage rule needs, derived once by ``propose``."""
 
@@ -60,6 +108,7 @@ class TriageInput:
     stderr_tail: str
     result: dict | None
     blocked_reason: str
+    merge_conflict: MergeConflictInfo | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +118,38 @@ class TriageRule:
     name: str
     matches: Callable[[TriageInput], bool]
     proposal: Callable[[TriageInput], Proposal]
+
+
+def _is_merge_conflict(triage: TriageInput) -> bool:
+    """True when the block reason is a failed validation merge into the base."""
+    return triage.blocked_reason.startswith("merge conflict into")
+
+
+def _merge_conflict_proposal(triage: TriageInput) -> Proposal:
+    """Offer a repair worker that owns the conflicted branch end to end."""
+    info = triage.merge_conflict
+    branch = (info.branch if info and info.branch else f"fleet/{triage.task_id}").strip()
+    base = (info.base_ref if info and info.base_ref else _merge_base(triage.blocked_reason)).strip()
+    files = ", ".join(info.files) if info and info.files else "unknown"
+    first = RESOLVE_MERGE
+    if info and info.repair_task_id:
+        first = repair_running_label(info.repair_task_id)
+    return Proposal(
+        text=(
+            f"{triage.header}\nThe worker finished but its branch `{branch}` no longer merges "
+            f"into `{base}` cleanly (files: {files}). A repair worker can merge {base} into "
+            f"the branch, resolve the conflicts, run the project checks, fast-forward {base}, "
+            "and close this task."
+        ),
+        options=[first, RETRY_SAME, RETRY_OPUS, CLOSE, IGNORE_24H, IGNORE_FOREVER],
+    )
+
+
+def _merge_base(blocked_reason: str) -> str:
+    """Base ref parsed from a merge-conflict block reason, else a generic label."""
+    head, _, _ = blocked_reason.partition(";")
+    ref = head.removeprefix("merge conflict into").strip()
+    return ref or "the base branch"
 
 
 def _is_rate_limited(triage: TriageInput) -> bool:
@@ -166,9 +247,11 @@ def _default_proposal(triage: TriageInput) -> Proposal:
     )
 
 
-# Evaluation order is the policy: rate limits first, then stall, context,
-# the worker's own blocked report, failure, and finally the default ask.
+# Evaluation order is the policy: merge conflicts first (a fresh retry can
+# never fix a stranded branch), then rate limits, stall, context, the
+# worker's own blocked report, failure, and finally the default ask.
 TRIAGE_RULES: list[TriageRule] = [
+    TriageRule("merge_conflict", _is_merge_conflict, _merge_conflict_proposal),
     TriageRule("rate_limited", _is_rate_limited, _rate_limit_proposal),
     TriageRule("stall_exhausted", _is_stall_exhausted, _stall_proposal),
     TriageRule("context_exhausted", _is_context_exhausted, _context_proposal),
@@ -229,6 +312,7 @@ def propose(
         stderr_tail=(attempts.get("stderr_tail") or "").strip(),
         result=result,
         blocked_reason=blocked_reason,
+        merge_conflict=merge_conflict_info(task),
     )
     for rule in TRIAGE_RULES:
         if rule.matches(triage):
