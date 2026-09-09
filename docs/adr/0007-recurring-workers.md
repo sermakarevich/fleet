@@ -60,6 +60,23 @@ Per schedule: `skip` (the default) — when the task opened by the previous
 run is not yet `closed`, record a skipped run instead of opening another;
 `queue` — always open a new task (beads simply queues it).
 
+### Firing rules
+
+`fleet/schedules/firing.py` holds the decision layer. `decide()` is pure:
+disabled schedules wait; otherwise the baseline is the last cron run's
+`scheduled_for` (or `created_at` when no run exists yet) and the first fire
+after the baseline must be at or before now, else the schedule waits with
+`next at <iso>`. Missed minutes coalesce to the LATEST one, so one outage
+produces one make-up run. Overlap applies last: `skip` plus a previous task
+still open records a skip (the reason names the status; the task id stays
+with the caller), `queue` or a closed/gone previous task opens. `fire()` is
+the one writer of cron and manual runs (`n = run_count + 1`); manual runs
+always open with `scheduled_for = now`. A queue `BdError` is stored as a
+skipped run (`bd error: ...`) and re-raised, so a broken queue does not
+retry every tick. `fire_due()` ticks every enabled schedule, logs
+`schedule_fired` / `schedule_skipped` / `schedule_fire_failed`, and never
+lets one schedule stop the others.
+
 ### Catch-up policy
 
 After downtime, at most ONE missed firing is made up (coalesced): the run's
@@ -111,7 +128,7 @@ cron, and schedules stored in beads/Dolt.
 ## Bead plan
 
 1. Sched 1/6: ADR 0007 and `fleet/schedules` package — cron parser, Schedule model, JSON store (this bead; no supervisor or API behaviour changes).
-2. Sched 2/6: scheduler service in `orchestrator/` — tick loop, due check, overlap `skip`/`queue`, one-shot catch-up.
+2. Sched 2/6: firing policy in `fleet/schedules/firing.py` — pure due/overlap/catch-up decisions plus the one run writer (`decide`, `open_task`, `fire`, `fire_due`) shared by the supervisor tick and manual Run now (done).
 3. Sched 3/6: `serve` API for schedules — create/edit/delete/enable/run-now plus run history endpoints.
 4. Sched 4/6: CLI commands for schedules — create/edit/delete/list/runs/run-now.
 5. Sched 5/6: UI schedules page with run history.
