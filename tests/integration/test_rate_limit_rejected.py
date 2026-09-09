@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import time as _time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -89,7 +88,7 @@ def test_rate_limit_rejected_with_resets_at(tmp_path: Path) -> None:
     queue = MemoryQueue()
     queue.add_task(_task())
 
-    future_ts = int(_time.time()) + 30
+    future_ts = int(time.time()) + 30
     coder = FakeClaudeCoder(
         scenario="rate_limit_rejected",
         FAKE_CLAUDE_RESETS_AT=str(future_ts),
@@ -137,5 +136,5 @@ def test_rate_limit_rejected_fallback_no_resets_at(
 
     assert sup.state.paused_until is not None
     # paused_until should be at least ~sleep_sec seconds in the future
-    expected_min = datetime.fromtimestamp(_time.time() + sleep_sec - 2, tz=UTC)
+    expected_min = datetime.fromtimestamp(time.time() + sleep_sec - 2, tz=UTC)
     assert sup.state.paused_until >= expected_min

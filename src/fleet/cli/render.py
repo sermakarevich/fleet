@@ -26,8 +26,8 @@ from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.task import Task
 from fleet.observability.daemon import StartResult
 from fleet.observability.process import ServiceStatus
-from fleet.state import runtime_stats as _runtime_stats
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state import runtime_stats
+from fleet.state.paths import task_dir
 from fleet.state.task_summary import build_task_summary, context_overrides_for_home
 
 _SEC_PER_MINUTE = 60
@@ -154,7 +154,7 @@ def render_tasks_table(
             "cwd": t.cwd,
         }
         summary = build_task_summary(
-            _task_dir(fleet_home, t.id),
+            task_dir(fleet_home, t.id),
             data,
             fleet_home,
             context_limit=context_limit_for(coder, model, overrides),
@@ -275,7 +275,7 @@ def print_job_view(view: JobView) -> None:
         typer.echo("gate: no pending questions")
 
 
-def print_tail_header(task_id: str, stats: _runtime_stats.TaskRuntimeStats) -> None:
+def print_tail_header(task_id: str, stats: runtime_stats.TaskRuntimeStats) -> None:
     """Print the `fleet tail` summary line above the rendered events."""
     last_event_str = stats.last_event_at.strftime("%H:%M:%S") if stats.last_event_at else "-"
     ctx = stats.context_tokens if stats.context_tokens is not None else "-"

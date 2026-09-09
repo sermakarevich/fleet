@@ -289,7 +289,7 @@ def _category_of(  # noqa: PLR0911  # ADR 0006 bead 5
     return None
 
 
-def _trailing_streak(history: list[dict], category: str) -> int:
+def trailing_streak(history: list[dict], category: str) -> int:
     """Count trailing consecutive attempts in *category*, oldest→newest history.
 
     Rows with ``kind == "compact"`` (the compaction job, which journals its
@@ -324,17 +324,17 @@ def streak_of(history: list[dict], outcome: TaskOutcome, reason: str) -> int:
     category = _category_of(outcome.value if isinstance(outcome, TaskOutcome) else outcome, reason)
     if category is None:
         return 0
-    return _trailing_streak(history, category)
+    return trailing_streak(history, category)
 
 
 def rounds_for_history(history: list[dict]) -> dict[str, int]:
     """Return trailing-streak rounds per category for UI/API summaries."""
     return {
-        "failure": _trailing_streak(history, "failure"),
-        "stall": _trailing_streak(history, "stall"),
-        "context": _trailing_streak(history, "context"),
-        "partial": _trailing_streak(history, "partial"),
-        "noclose": _trailing_streak(history, "noclose"),
+        "failure": trailing_streak(history, "failure"),
+        "stall": trailing_streak(history, "stall"),
+        "context": trailing_streak(history, "context"),
+        "partial": trailing_streak(history, "partial"),
+        "noclose": trailing_streak(history, "noclose"),
     }
 
 

@@ -27,6 +27,7 @@ from fleet.core.errors import Json
 from fleet.core.retry_policy import Action
 from fleet.core.task import AttemptKind, EventKind, Task, TaskOutcome
 from fleet.state import attempts as state_attempts
+from fleet.state import paths as state_paths
 from fleet.state.artifacts import StateFile
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.paths import RUN_JSON
@@ -282,7 +283,7 @@ async def compact(ctx: StepContext) -> StepResult:
         worker="task.continue_large",
         kind=AttemptKind.COMPACT.value,
     )
-    compact_dir = state_attempts.attempt_dir(task_dir, compact_n)
+    compact_dir = state_paths.attempt_dir(task_dir, compact_n)
     compact_dir.mkdir(parents=True, exist_ok=True)
     write_run_json(
         compact_dir / RUN_JSON,

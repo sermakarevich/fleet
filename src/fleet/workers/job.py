@@ -44,7 +44,7 @@ from .base import (
 )
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
-from .task import _ensure_state as _seed
+from .task import ensure_state
 
 # artifacts/RESEARCH.md cap the research prompt enforces (also truncates reads).
 RESEARCH_MAX_BYTES = 12 * 1024
@@ -67,7 +67,7 @@ def _default_queue(fleet_home: Path) -> Queue:
 
 def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
     """Seed the STATE.md stub and outputs/ if missing (see workers/task.py)."""
-    _seed(task_dir, task_id)
+    ensure_state(task_dir, task_id)
 
 
 def _write_result(

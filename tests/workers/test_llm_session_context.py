@@ -12,7 +12,7 @@ import structlog
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome
-from fleet.state.paths import task_dir as _task_dir_path
+from fleet.state import paths as state_paths
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.session.classify import error_text_of, is_context_error_text
@@ -51,7 +51,7 @@ class _Gauge:
 
 def _ctx(tmp_path: Path, task_id: str = "t-ctx") -> StepContext:
     task = Task(id=task_id, title="T", description=None, status="in_progress")
-    task_dir = _task_dir_path(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     attempt_dir = task_dir / "attempts" / "1"
     return StepContext(
         task=task,

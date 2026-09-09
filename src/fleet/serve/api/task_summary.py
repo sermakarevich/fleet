@@ -23,7 +23,7 @@ from fleet.coders import context_limit_for
 from fleet.core.config import RuntimeConfig
 from fleet.core.effective import effective_coder_model
 from fleet.core.task import TaskStatus
-from fleet.observability.tailview import event_summary as _event_summary
+from fleet.observability.tailview import event_summary
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_summary import (
@@ -157,7 +157,7 @@ def event_to_json(row: dict, index: int = 0) -> dict:
         "session_id": row.get("session_id", row.get("sessionID")),
         "tool_name": row.get("tool_name"),
         "usage": row.get("usage"),
-        "summary": _event_summary(row_kind, raw_data, row.get("tool_name")),
+        "summary": event_summary(row_kind, raw_data, row.get("tool_name")),
         "raw": raw_data,
     }
 

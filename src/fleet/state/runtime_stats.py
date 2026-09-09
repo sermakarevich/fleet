@@ -15,8 +15,7 @@ from pathlib import Path
 
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.events import EventScanCache, parse_iso, scan_cached
-from fleet.state.paths import fleet_home
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import fleet_home, task_dir
 
 # Owner of cached event scans for the state stats helpers below.
 _events_cache = EventScanCache()
@@ -95,7 +94,7 @@ def task_runtime_stats_from_dir(task_dir: Path) -> TaskRuntimeStats:
 
 def task_runtime_stats(task_id: str) -> TaskRuntimeStats:
     """Best-effort scan of a task's directory for runtime signals."""
-    return task_runtime_stats_from_dir(_task_dir(fleet_home(), task_id))
+    return task_runtime_stats_from_dir(task_dir(fleet_home(), task_id))
 
 
 def task_files_touched_from_dir(task_dir: Path) -> int:

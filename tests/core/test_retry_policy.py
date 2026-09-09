@@ -165,7 +165,7 @@ def test_noop_when_bead_not_in_progress() -> None:
     )
 
 
-def test_rounds_for_history_counts_trailing_streaks() -> None:
+def test_rounds_for_history_countstrailing_streaks() -> None:
     history = _hist(("failure", "x"), ("failure", "x"), ("success", None))
     rounds = rounds_for_history(history)
     assert rounds["noclose"] == 1

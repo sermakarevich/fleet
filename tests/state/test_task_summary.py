@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import json as _json
 from pathlib import Path
 
 from fleet.coders import context_limit_for
@@ -135,11 +134,11 @@ def test_attempt_row_reads_launch_from_run_json(tmp_path: Path) -> None:
     task_dir = _task_dir(tmp_path)
     attempt_dir = make_attempt(task_dir, 1, outcome="partial", reason="x")
     (attempt_dir / "run.json").write_text(
-        _json.dumps({"launch": {"mode": "continue", "pack_bytes": 10, "kind": "work"}})
+        json.dumps({"launch": {"mode": "continue", "pack_bytes": 10, "kind": "work"}})
     )
     (attempt_dir / "prompt.md").write_text("the prompt", encoding="utf-8")
     (attempt_dir / "RESULT.json").write_text(
-        _json.dumps({"schema": 1, "status": "partial", "summary": "wip"})
+        json.dumps({"schema": 1, "status": "partial", "summary": "wip"})
     )
     summary = build_task_summary(task_dir, _data(), tmp_path)
     (row,) = summary["attempts"]

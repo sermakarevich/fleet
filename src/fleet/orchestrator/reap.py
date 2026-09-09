@@ -140,7 +140,7 @@ def maybe_handle_isolated_success(  # noqa: PLR0911  # ADR 0006 bead 20
         return None
 
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "noclose") + 1
+    rounds = retry_policy.trailing_streak(history, "noclose") + 1
     detail = f"uncommitted changes left in {wt_path}"
     if rounds >= NOCLOSE_MAX_ROUNDS:
         return RetryDecision(
@@ -299,7 +299,7 @@ def _release_stall(
     """Release a stall-killed task for retry; the stall ladder counts the round."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "stall") + 1
+    rounds = retry_policy.trailing_streak(history, "stall") + 1
     st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
     st.log.warning("task_stall_handled", task_id=task.id, count=rounds)
 
@@ -315,7 +315,7 @@ def _release_failure(
     """Release a failed task for retry and comment the failure count."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "failure") + 1
+    rounds = retry_policy.trailing_streak(history, "failure") + 1
     note = f" Worker summary: {result.summary}" if result and result.summary else ""
     st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
     st.queue.comment(
@@ -331,7 +331,7 @@ def _release_partial(
     """Release a partial task for retry and comment the progress count."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "partial") + 1
+    rounds = retry_policy.trailing_streak(history, "partial") + 1
     st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
     st.queue.comment(
         task.id,
@@ -346,7 +346,7 @@ def _release_success(
     """Release an rc=0 task that declared nothing, warning about the missing RESULT."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "noclose") + 1
+    rounds = retry_policy.trailing_streak(history, "noclose") + 1
     st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
     st.queue.comment(
         task.id,
@@ -363,7 +363,7 @@ def _release_context(
     """Release a context-pressured task for a compacted retry."""
     wait_sec = decision.wait_sec or 0
     history = attempts.load_attempts(task_dir)
-    rounds = retry_policy._trailing_streak(history, "context") + 1
+    rounds = retry_policy.trailing_streak(history, "context") + 1
     st.queue.release(task.id, reason=decision.reason, wait_sec=wait_sec)
     st.queue.comment(
         task.id,

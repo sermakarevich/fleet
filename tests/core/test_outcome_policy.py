@@ -17,7 +17,7 @@ from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state import paths as state_paths
 from tests.conftest import make_running_worker, make_supervisor
 
 
@@ -132,7 +132,7 @@ def test_waiting_reap_releases_silently(tmp_path: Path) -> None:
 
 
 def _write_result(tmp_path: Path, task_id: str, body: dict) -> None:
-    task_dir = _task_dir(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
 
@@ -142,7 +142,7 @@ def _rc0() -> TaskOutcomeRecord:
 
 
 def _seed_partial_observer_rounds(tmp_path: Path, task_id: str, n: int) -> None:
-    task_dir = _task_dir(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     for _ in range(n):
         m = attempts.record_start(task_dir, coder="c", model="m", worker="observer")
         attempts.record_end(
@@ -173,7 +173,7 @@ def test_task_partial_at_same_history_still_releases(tmp_path: Path) -> None:
     # The cap only applies to observer runs: a task-family partial with two
     # prior task-family partials follows the normal 5-round ladder.
     _write_result(tmp_path, "t-001", {"schema": 1, "status": "partial", "summary": "more work"})
-    task_dir = _task_dir(tmp_path, "t-001")
+    task_dir = state_paths.task_dir(tmp_path, "t-001")
     for _ in range(2):
         m = attempts.record_start(task_dir, coder="c", model="m", worker="task.continue")
         attempts.record_end(

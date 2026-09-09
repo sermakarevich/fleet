@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json as _json
+import json
 import os
 import time
 from pathlib import Path
@@ -362,7 +362,7 @@ def test_bd_passthrough_listed_in_help() -> None:
 def _fake_create_result(task_id: str, title: str = "T") -> MagicMock:
 
     body = {"id": task_id, "title": title, "status": "open"}
-    return MagicMock(returncode=0, stdout=_json.dumps(body), stderr="")
+    return MagicMock(returncode=0, stdout=json.dumps(body), stderr="")
 
 
 def test_bd_create_captures_invocation_cwd_into_task_json(tmp_path, monkeypatch) -> None:
@@ -380,7 +380,7 @@ def test_bd_create_captures_invocation_cwd_into_task_json(tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output + (result.stderr or "")
     meta_path = tmp_path / "tasks" / "fleet-abc" / "task.json"
     assert meta_path.exists()
-    meta = _json.loads(meta_path.read_text())
+    meta = json.loads(meta_path.read_text())
     assert meta["cwd"] == str(invocation_dir)
     assert meta["id"] == "fleet-abc"
 
@@ -484,7 +484,7 @@ def test_bd_create_persists_coder_and_model_overrides(tmp_path, monkeypatch) -> 
             ["bd", "create", "--coder", "agy", "--model", "opus", "T"],
         )
     assert result.exit_code == 0, result.output
-    meta = _json.loads((tmp_path / "tasks" / "fleet-c2" / "task.json").read_text())
+    meta = json.loads((tmp_path / "tasks" / "fleet-c2" / "task.json").read_text())
     assert meta["coder"] == "agy"
     assert meta["model"] == "opus"
 
@@ -499,7 +499,7 @@ def test_bd_create_accepts_equals_form_for_coder(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     forwarded = mock_run.call_args[0][0]
     assert not any(a.startswith("--coder") for a in forwarded)
-    meta = _json.loads((tmp_path / "tasks" / "fleet-c3" / "task.json").read_text())
+    meta = json.loads((tmp_path / "tasks" / "fleet-c3" / "task.json").read_text())
     assert meta["coder"] == "agy"
 
 
@@ -522,7 +522,7 @@ def test_bd_create_without_overrides_does_not_write_them(tmp_path, monkeypatch) 
         "fleet.beads.client.subprocess.run", return_value=_fake_create_result("fleet-c4", "T")
     ):
         runner.invoke(app, ["bd", "create", "T"])
-    meta = _json.loads((tmp_path / "tasks" / "fleet-c4" / "task.json").read_text())
+    meta = json.loads((tmp_path / "tasks" / "fleet-c4" / "task.json").read_text())
     assert "coder" not in meta or meta["coder"] is None
     assert "model" not in meta or meta["model"] is None
 
@@ -673,14 +673,14 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
     attempt_dir = make_attempt(task_dir, 1)
     log_path = attempt_dir / "log.jsonl"
     log_path.write_text(
-        _json.dumps({"event": "subprocess_started", "timestamp": "2026-05-23T11:22:33Z"}) + "\n",
+        json.dumps({"event": "subprocess_started", "timestamp": "2026-05-23T11:22:33Z"}) + "\n",
         encoding="utf-8",
     )
 
     # 3 normalized events with a peak prompt size of 40k tokens (20% of 200k).
     events = attempt_dir / "events.jsonl"
     lines = [
-        _json.dumps(
+        json.dumps(
             {
                 "kind": "assistant_text",
                 "ts": "2026-05-23T11:22:34Z",
@@ -691,7 +691,7 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
                 },
             }
         ),
-        _json.dumps(
+        json.dumps(
             {
                 "kind": "tool_use",
                 "ts": "2026-05-23T11:22:35Z",
@@ -702,7 +702,7 @@ def test_tasks_renders_runtime_stats(tmp_path, monkeypatch) -> None:
                 },
             }
         ),
-        _json.dumps(
+        json.dumps(
             {
                 "kind": "assistant_text",
                 "ts": "2026-05-23T11:22:36Z",

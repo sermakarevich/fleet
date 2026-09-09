@@ -14,9 +14,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from fleet.state import paths as state_paths
 from fleet.state.attempt_journal import AttemptJournal
 from fleet.state.paths import RESULT_JSON, STATE_MD, attempt_dir
-from fleet.state.paths import task_dir as _task_dir
 
 ArtifactKind = Literal["log", "state", "result", "events", "stderr", "prompt"]
 
@@ -57,7 +57,7 @@ def _locate_result(task_dir: Path) -> Path:
 
 def locate(fleet_home: Path, task_id: str, what: ArtifactKind, attempt: int | None = None) -> Path:
     """Filesystem path of one task artifact (may not exist yet)."""
-    task_dir = _task_dir(fleet_home, task_id)
+    task_dir = state_paths.task_dir(fleet_home, task_id)
     if what in _ATTEMPT_FILES:
         return attempt_dir(task_dir, _attempt_n(task_dir, attempt)) / _ATTEMPT_FILES[what]
     if what in _TASK_FILES:

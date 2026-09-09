@@ -30,7 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import fleet as _fleet_pkg
+import fleet
 from fleet.core.iso import now_iso
 from fleet.core.limits import LOG_ROOT, SHUTDOWN_GRACE_SEC
 from fleet.core.process import pid_alive
@@ -48,7 +48,7 @@ def code_fingerprint(pkg_root: Path | None = None) -> str:
     git pulls (changed content) and local edits (uncommitted changes).
     """
     if pkg_root is None:
-        pkg_root = Path(_fleet_pkg.__file__).parent
+        pkg_root = Path(fleet.__file__).parent
     h = hashlib.sha1(usedforsecurity=False)
     for p in sorted(pkg_root.rglob("*.py")):
         h.update(p.as_posix().encode())

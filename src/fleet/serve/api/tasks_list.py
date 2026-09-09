@@ -10,8 +10,7 @@ from fastapi.responses import JSONResponse
 from fleet.beads.cache import get_beads_status_map
 from fleet.beads.client import BdError
 from fleet.beads.reconcile import merge_status
-from fleet.coders import get_coder
-from fleet.coders import list_coders as _list_coders
+from fleet.coders import get_coder, list_coders
 from fleet.serve.api.models import (
     CoderListResponse,
     CreateTaskResponse,
@@ -62,9 +61,9 @@ async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
 
 
 @router.get("/coders", response_model=CoderListResponse)
-async def list_coders() -> JSONResponse:
+async def coders() -> JSONResponse:
     """Coders the create-task form may offer."""
-    return JSONResponse({"coders": _list_coders()})
+    return JSONResponse({"coders": list_coders()})
 
 
 @router.post("/tasks", response_model=CreateTaskResponse)

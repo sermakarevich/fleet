@@ -28,7 +28,7 @@ from fleet.core.task import Event, EventKind, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import task_dir as _resolve_task_dir
+from fleet.state.paths import task_dir
 
 _TOOL_ITEM_TYPES = frozenset(
     {
@@ -218,7 +218,7 @@ class CodexCoder:
         """
         with suppress(OSError):
             _write_codex_config(
-                _codex_home_path(_resolve_task_dir(self.fleet_home, task.id)), self.fleet_home
+                _codex_home_path(task_dir(self.fleet_home, task.id)), self.fleet_home
             )
 
     def normalize_event(self, raw_line: str) -> Event | None:

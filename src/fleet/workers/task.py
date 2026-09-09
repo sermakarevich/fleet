@@ -22,7 +22,7 @@ from .compact import COMPACT_STEP
 from .llm_session import LlmSession
 
 
-def _ensure_state(task_dir: Path, task_id: str) -> None:
+def ensure_state(task_dir: Path, task_id: str) -> None:
     """Create the STATE.md stub and outputs/ if missing.
 
     Never overwrites existing content — the worker owns STATE.md after
@@ -63,7 +63,7 @@ def _plan_launch_for(ctx: StepContext):
 
 async def prepare_artifacts(ctx: StepContext) -> StepResult:
     """Seed the STATE.md stub and record a fresh launch in run.json."""
-    _ensure_state(ctx.task_dir, ctx.task.id)
+    ensure_state(ctx.task_dir, ctx.task.id)
     fresh_plan = LaunchPlan(mode="fresh", pack="", pack_bytes=0, needs_compaction=False)
     ctx.plan = fresh_plan
     _record_launch(ctx, fresh_plan)

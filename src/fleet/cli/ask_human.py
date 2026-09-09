@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from fleet.integrations.ask_human.server import main as _serve_main
+from fleet.integrations.ask_human.server import main
 
 _ASK_HUMAN_HELP = "ask_human MCP server — the backend of the fleet chat tab."
 
@@ -22,7 +22,7 @@ def register(app: typer.Typer) -> None:
     def ask_human_serve() -> None:
         """Run the ask_human MCP server on stdio (the target for `claude mcp add`)."""
 
-        _serve_main()
+        main()
 
     @ask_human_app.command("install")
     def ask_human_install(

@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fleet.core.iso import parse_iso as _parse_iso_clock
+from fleet.core import iso
 from fleet.core.task import EventKind, TaskOutcome
 
 _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit": "edit"}
@@ -25,7 +25,7 @@ _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit"
 
 def parse_iso(ts: str) -> datetime | None:
     """Parse one event timestamp; None when missing or malformed."""
-    return _parse_iso_clock(ts)
+    return iso.parse_iso(ts)
 
 
 def safe_int(v: object) -> int:
@@ -183,7 +183,7 @@ class TimingVisitor(EventVisitor):
         ts_str = row.get("ts")
         if not isinstance(ts_str, str):
             return
-        ts_dt = parse_iso(ts_str)
+        ts_dt = iso.parse_iso(ts_str)
         if ts_dt is None:
             return
         if self._first is None or ts_dt < self._first:
@@ -399,7 +399,7 @@ class RateLimitVisitor(EventVisitor):
         ts_dt: datetime | None = None
         ts_str = row.get("ts")
         if isinstance(ts_str, str):
-            ts_dt = parse_iso(ts_str)
+            ts_dt = iso.parse_iso(ts_str)
         resets_at = rate_info.get("resets_at")
         duration_sec: float | None = None
         if resets_at is not None and ts_dt is not None:

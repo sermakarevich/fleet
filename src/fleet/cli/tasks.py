@@ -26,11 +26,11 @@ from fleet.core.job_phase import phase
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.integrations.ask_human.store import Question, QuestionStore
 from fleet.observability import tailview
-from fleet.state import runtime_stats as _runtime_stats
+from fleet.state import paths as state_paths
+from fleet.state import runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
 from fleet.state.artifact_locator import locate
 from fleet.state.legacy import legacy_state_text
-from fleet.state.paths import task_dir as _task_dir
 from fleet.state.tail import read_new_bytes
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ def _build_job_view(
     fleet_home: Path, task: Task, children: list[Any], pending: list[Question]
 ) -> JobView:
     """Assemble the JobSnapshot-backed view one `fleet job view` prints."""
-    artifacts = _task_dir(fleet_home, task.id) / "artifacts"
+    artifacts = state_paths.task_dir(fleet_home, task.id) / "artifacts"
     snapshot = JobSnapshot(
         has_research=(artifacts / "RESEARCH.md").exists(),
         has_tasks=(artifacts / "tasks.json").exists(),
@@ -231,7 +231,7 @@ def run_show(fleet_home: Path, task_id: str, json_output: bool) -> None:
 
 def run_kill(fleet_home: Path, task_id: str) -> None:
     """Interrupt a running task via its .kill sentinel."""
-    task_dir = _task_dir(fleet_home, task_id)
+    task_dir = state_paths.task_dir(fleet_home, task_id)
     if not (task_dir / "task.json").exists():
         typer.echo(f"Task {task_id} not found.", err=True)
         raise typer.Exit(1)
@@ -283,7 +283,7 @@ def _print_state(fleet_home: Path, task_id: str, task_dir: Path) -> None:
 
 def run_task_artifact(fleet_home: Path, task_id: str, action: TaskAction) -> None:
     """Print a task's log, STATE.md, or RESULT.json artifact."""
-    task_dir = _task_dir(fleet_home, task_id)
+    task_dir = state_paths.task_dir(fleet_home, task_id)
     if not task_dir.exists():
         typer.echo(f"No task directory at {task_dir}", err=True)
         raise typer.Exit(1)
@@ -323,7 +323,7 @@ def _print_tail_events(events_path: Path, n: int, follow: bool) -> None:
 
 def run_tail(fleet_home: Path, task_id: str, n: int, follow: bool) -> None:
     """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
-    task_dir = _task_dir(fleet_home, task_id)
+    task_dir = state_paths.task_dir(fleet_home, task_id)
     if not task_dir.exists():
         typer.echo(f"No task directory for {task_id} at {task_dir}", err=True)
         raise typer.Exit(1)
@@ -336,7 +336,7 @@ def run_tail(fleet_home: Path, task_id: str, n: int, follow: bool) -> None:
             return
         while not events_path.exists():
             time.sleep(1)
-    render.print_tail_header(task_id, _runtime_stats.task_runtime_stats(task_id))
+    render.print_tail_header(task_id, runtime_stats.task_runtime_stats(task_id))
     _print_tail_events(events_path, n, follow)
 
 

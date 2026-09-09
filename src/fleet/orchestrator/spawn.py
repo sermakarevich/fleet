@@ -24,8 +24,7 @@ from fleet.core.retry_policy import Action
 from fleet.core.task import Task, TaskOutcome
 from fleet.orchestrator.state import RunningWorker
 from fleet.state import attempts
-from fleet.state.paths import attempt_dir
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import attempt_dir, task_dir
 from fleet.workers import select_worker
 from fleet.workers.base import StepContext, WorkerRun
 
@@ -116,7 +115,7 @@ def should_isolate(st: SupervisorState, task: Task, repo_root: Path | None) -> b
 
 def _purge_stale_kill_marker(st: SupervisorState, task: Task) -> None:
     """Delete a leftover .kill sentinel before the runner is registered."""
-    (_task_dir(st.fleet_home, task.id) / ".kill").unlink(missing_ok=True)
+    (task_dir(st.fleet_home, task.id) / ".kill").unlink(missing_ok=True)
 
 
 def _resolve_cwd_and_repo(st: SupervisorState, task: Task) -> tuple[Path, Path | None] | None:

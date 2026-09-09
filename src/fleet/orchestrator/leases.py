@@ -30,7 +30,7 @@ import shutil
 import socket
 import subprocess
 from datetime import UTC, datetime
-from pathlib import Path as _Path
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fleet.core.iso import parse_iso
@@ -38,9 +38,8 @@ from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
 from fleet.core.process import pid_alive
 from fleet.core.retry_policy import Action
 from fleet.core.task import TaskOutcome
+from fleet.state import paths as state_paths
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
-from fleet.state.paths import task_dir as _task_dir
-from fleet.state.paths import tasks_root as _tasks_root
 from fleet.state.run_file import RunRecord
 from fleet.state.validation_marker import needs_validation
 
@@ -84,7 +83,7 @@ def _remove_orphan_dir(path) -> None:
     the repo is gone (best effort, never raises).
     """
 
-    target = _Path(path)
+    target = Path(path)
     try:
         result = subprocess.run(
             ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
@@ -93,7 +92,7 @@ def _remove_orphan_dir(path) -> None:
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
-            common = _Path(result.stdout.strip())
+            common = Path(result.stdout.strip())
             repo = common if common.is_absolute() else (target / common)
             rm = subprocess.run(
                 ["git", "-C", str(repo), "worktree", "remove", "--force", str(target)],
@@ -125,7 +124,7 @@ def sweep_orphan_worktrees(st: SupervisorState) -> None:
     worktrees_dir = worktree.worktrees_root(st.fleet_home)
     if not worktrees_dir.is_dir():
         return
-    tasks_root = _tasks_root(st.fleet_home)
+    tasks_root = state_paths.tasks_root(st.fleet_home)
     names = _task_names(tasks_root)
 
     # Worktree dirs still in use: every task.json worktree_path. Tasks
@@ -140,7 +139,7 @@ def sweep_orphan_worktrees(st: SupervisorState) -> None:
         wt = meta.get("worktree_path") if isinstance(meta, dict) else None
         if wt:
             with contextlib.suppress(OSError):
-                live.add(str(_Path(wt).resolve()))
+                live.add(str(Path(wt).resolve()))
 
     for worktree_dir in worktrees_dir.iterdir():
         if not worktree_dir.is_dir():
@@ -161,7 +160,7 @@ def sweep_orphan_worktrees(st: SupervisorState) -> None:
         if not keep:
             for cand in [task_id, *matched]:
                 try:
-                    if needs_validation(_task_dir(st.fleet_home, cand)):
+                    if needs_validation(state_paths.task_dir(st.fleet_home, cand)):
                         keep = True
                         break
                 except OSError:

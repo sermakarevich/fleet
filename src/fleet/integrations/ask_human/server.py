@@ -108,7 +108,7 @@ async def _await_answer(
     since_keepalive = 0.0
     while q["status"] == "pending":
         if deadline is not None and time.time() >= deadline:
-            store._expire_if_pending(qid)
+            store.expire_if_pending(qid)
             q = store.get(qid)
             if q is None:
                 raise QuestionNotFound(qid)

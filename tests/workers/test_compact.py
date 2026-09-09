@@ -13,10 +13,11 @@ import structlog
 import fleet.workers.compact as compact_mod
 from fleet.coders.base import CoderSpec
 from fleet.core.config import RuntimeConfig
-from fleet.core.retry_policy import _trailing_streak
+from fleet.core.retry_policy import trailing_streak
 from fleet.core.task import Event, EventKind, Task
 from fleet.state import attempts as state_attempts
-from fleet.state.paths import task_dir as _task_dir_path
+from fleet.state import paths as state_paths
+from fleet.state.paths import attempt_dir
 from fleet.workers.base import FnStep, StepContext, StepStatus
 from fleet.workers.compact import (
     COMPACT_STEP,
@@ -90,7 +91,7 @@ class _Gauge:
 
 def _setup_task_dir(tmp_path: Path, task_id: str = "t-compact") -> tuple[Task, Path]:
     task = Task(id=task_id, title="T", description=None, status="in_progress")
-    task_dir = _task_dir_path(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True)
     (task_dir / "STATE.md").write_text(f"# {task_id} — STATE\n\n" + _STATE_BODY)
     return task, task_dir
@@ -108,7 +109,7 @@ def _ctx(
         config=config or RuntimeConfig(),
         rate_gauge=_Gauge(),  # type: ignore[arg-type]
         log=structlog.get_logger(),
-        attempt_dir=state_attempts.attempt_dir(task_dir, attempt_n),
+        attempt_dir=attempt_dir(task_dir, attempt_n),
         attempt_n=attempt_n,
     )
 
@@ -157,7 +158,7 @@ def test_compact_writes_state_and_compact_row(tmp_path: Path, monkeypatch) -> No
     compact_rows = [r for r in rows if r.get("kind") == "compact"]
     assert len(compact_rows) == 1
     assert compact_rows[0]["outcome"] == "success"
-    compact_dir = state_attempts.attempt_dir(task_dir, compact_rows[0]["n"])
+    compact_dir = attempt_dir(task_dir, compact_rows[0]["n"])
     run = json.loads((compact_dir / "run.json").read_text(encoding="utf-8"))
     assert run["launch"] == {"mode": "compact", "pack_bytes": 0, "kind": "compact"}
     assert not (compact_dir / "launch.json").exists()
@@ -217,7 +218,7 @@ def test_inputs_exclude_events_and_logs(tmp_path: Path) -> None:
     bounded summary (tool counts, capped tails) feeds the prompt."""
     task, task_dir = _setup_task_dir(tmp_path)
     n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
-    adir = state_attempts.attempt_dir(task_dir, n)
+    adir = attempt_dir(task_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "events.jsonl").write_text(
         "\n".join(
@@ -248,7 +249,7 @@ def test_summaries_are_derived_not_stored(tmp_path: Path) -> None:
     """collect_material computes summaries; stale stored files are ignored."""
     task, task_dir = _setup_task_dir(tmp_path)
     n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
-    adir = state_attempts.attempt_dir(task_dir, n)
+    adir = attempt_dir(task_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "run.json").write_text(
         json.dumps({"launch": {"mode": "continue", "pack_bytes": 5, "kind": "work"}})
@@ -295,7 +296,7 @@ def test_plan_task_skips_compaction_when_disabled(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_trailing_streak_skips_compact_rows(tmp_path: Path) -> None:
+def testtrailing_streak_skips_compact_rows(tmp_path: Path) -> None:
     task, task_dir = _setup_task_dir(tmp_path)
     n1 = state_attempts.record_start(task_dir, coder="c", model="m")
     state_attempts.record_end(
@@ -308,4 +309,4 @@ def test_trailing_streak_skips_compact_rows(tmp_path: Path) -> None:
 
     history = state_attempts.load_attempts(task_dir)
 
-    assert _trailing_streak(history, "context") == 1
+    assert trailing_streak(history, "context") == 1

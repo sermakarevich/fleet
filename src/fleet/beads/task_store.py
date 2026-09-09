@@ -14,7 +14,7 @@ from typing import Any
 from fleet.core.iso import now_iso, parse_iso
 from fleet.core.task import Task
 from fleet.core.triage_policy import ignore_active
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state.paths import task_dir
 from fleet.state.task_meta import TaskMeta
 
 
@@ -66,7 +66,7 @@ class TaskStore:
         self.repo_root = repo_root
 
     def _dir(self, task_id: str) -> Path:
-        return _task_dir(self.repo_root, task_id)
+        return task_dir(self.repo_root, task_id)
 
     def task_dir(self, task_id: str) -> Path:
         """Return the task's dir (used by delete to drop it)."""

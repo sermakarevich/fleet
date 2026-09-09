@@ -10,7 +10,7 @@ Tests import the error helpers from here.
 
 from __future__ import annotations
 
-import json as _json
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -58,7 +58,7 @@ def error_text_of(evt: Event) -> str:
     if not candidate:
         return ""
     try:
-        return _json.dumps(candidate)[:8000]
+        return json.dumps(candidate)[:8000]
     except (TypeError, ValueError):
         return ""
 

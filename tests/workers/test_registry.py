@@ -5,7 +5,7 @@ import structlog
 
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
-from fleet.state.paths import task_dir as _task_dir_path
+from fleet.state.paths import task_dir
 from fleet.workers import select_worker
 from fleet.workers.base import StepContext
 from fleet.workers.task import FreshTask
@@ -14,7 +14,7 @@ from fleet.workers.task import FreshTask
 def _ctx(tmp_path: Path, task_id: str = "t-001") -> StepContext:
     return StepContext(
         task=Task(id=task_id, title="t", description=None, status="in_progress"),
-        task_dir=_task_dir_path(tmp_path, task_id),
+        task_dir=task_dir(tmp_path, task_id),
         workdir=tmp_path,
         fleet_home=tmp_path,
         coder=None,

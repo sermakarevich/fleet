@@ -13,13 +13,13 @@ from pathlib import Path
 from fleet.beads.queue import BeadsQueue
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import LOG_ROOT
-from fleet.state import paths as _state_paths
+from fleet.state import paths
 from fleet.state.config_file import load as load_config
 
 
 def fleet_home() -> Path:
     """Fleet home directory (``$FLEET_HOME`` or ``~/.fleet``)."""
-    return _state_paths.fleet_home()
+    return paths.fleet_home()
 
 
 def log_dir(fleet_home: Path) -> Path:

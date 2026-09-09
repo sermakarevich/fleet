@@ -10,7 +10,7 @@ import fleet.workers.session.monitors as monitors_mod
 from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
-from fleet.state.paths import task_dir as _task_dir_path
+from fleet.state.paths import task_dir
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 
@@ -66,7 +66,7 @@ def _make_ctx(
 ) -> StepContext:
     return StepContext(
         task=task,
-        task_dir=_task_dir_path(tmp_path, task.id),
+        task_dir=task_dir(tmp_path, task.id),
         workdir=tmp_path,
         fleet_home=tmp_path,
         coder=coder,

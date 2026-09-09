@@ -7,7 +7,7 @@ from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts as attempts_mod
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state import paths as state_paths
 from tests.conftest import make_running_worker, make_supervisor
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ def _task(task_id: str = "t-001") -> Task:
 
 
 def _write_result(tmp_path: Path, task_id: str, body: dict) -> None:
-    task_dir = _task_dir(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "RESULT.json").write_text(json.dumps(body), encoding="utf-8")
 
@@ -195,7 +195,7 @@ def test_failure_with_result_summary_in_comment(tmp_path: Path) -> None:
 
 def test_reap_snapshots_state_and_result_then_unlinks(tmp_path: Path) -> None:
 
-    task_dir = _task_dir(tmp_path, "t-001")
+    task_dir = state_paths.task_dir(tmp_path, "t-001")
     task_dir.mkdir(parents=True, exist_ok=True)
     (task_dir / "STATE.md").write_text("## Next\n- keep going\n", encoding="utf-8")
     _write_result(tmp_path, "t-001", {"schema": 1, "status": "done", "summary": "shipped"})

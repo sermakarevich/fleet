@@ -23,9 +23,9 @@ from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.orchestrator.service import Service
+from fleet.state import paths as state_paths
 from fleet.state.config_file import load
 from fleet.state.config_file import write as write_atomic
-from fleet.state.paths import fleet_home as _default_fleet_home
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -61,7 +61,8 @@ class FakeClaudeCoder:
         fleet_home: Path | str | None = None,
         **fake_env: str,
     ) -> None:
-        fleet_home = Path(fleet_home) if fleet_home is not None else _default_fleet_home()
+        resolved = Path(fleet_home) if fleet_home is not None else state_paths.fleet_home()
+        fleet_home = resolved
         self._cli = ClaudeCoder(fleet_home=fleet_home)
         self._scenario = scenario
         self._scenarios = scenarios

@@ -38,9 +38,9 @@ from fleet.core.triage_policy import (
 )
 from fleet.orchestrator.service import ServiceOrder
 from fleet.state import attempts as attempts_mod
+from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import task_dir as _task_dir
 from fleet.state.task_summary import read_declared_result
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ _STDERR_TAIL_CHARS = 1500
 def _read_meta(fleet_home: Path, task_id: str) -> dict:
     """Read task.json; {} when missing or unparsable."""
     try:
-        data = json.loads((_task_dir(fleet_home, task_id) / "task.json").read_text())
+        data = json.loads((state_paths.task_dir(fleet_home, task_id) / "task.json").read_text())
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -117,7 +117,7 @@ def collect_candidates(
         blocked_at = meta.get("blocked_at")
         if store.fetch_pending_for_task(task_id, blocked_at):
             continue
-        task_dir = _task_dir(fleet_home, task_id)
+        task_dir = state_paths.task_dir(fleet_home, task_id)
         history = attempts_mod.load_attempts(task_dir)
         rounds = rounds_for_history(history)
         rate_limited = any(

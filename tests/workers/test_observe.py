@@ -14,7 +14,8 @@ from fleet.core.job_ready import BeadSummary
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.state import attempts
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state import paths as state_paths
+from fleet.state.paths import attempt_dir, task_dir
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.observe import (
     CHILDREN_MD_MAX_BYTES,
@@ -53,7 +54,7 @@ def _ctx(
     queue: FakeQueue | None = None,
 ) -> tuple[StepContext, FakeQueue]:
     queue = queue if queue is not None else FakeQueue()
-    task_dir = _task_dir(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True, exist_ok=True)
     ctx = StepContext(
         task=Task(id=task_id, title="epic", description="goal", status="in_progress", type="epic"),
@@ -76,13 +77,13 @@ def _write_child(
     touch_files: list[str] | None = None,
     blocked_reason: str | None = None,
 ) -> None:
-    child_dir = _task_dir(tmp_path, child_id)
+    child_dir = task_dir(tmp_path, child_id)
     child_dir.mkdir(parents=True, exist_ok=True)
     if result is not None:
         (child_dir / "RESULT.json").write_text(json.dumps(result))
     n = attempts.record_start(child_dir, coder="c", model="m", worker="task.fresh")
     attempts.record_end(child_dir, outcome="success", exit_code=0, reason="", action="close", n=n)
-    adir = attempts.attempt_dir(child_dir, n)
+    adir = attempt_dir(child_dir, n)
     adir.mkdir(parents=True, exist_ok=True)
     (adir / "run.json").write_text(
         json.dumps({"launch": {"mode": "fresh", "pack_bytes": 0, "kind": "work"}})
@@ -161,7 +162,7 @@ def test_collect_children_writes_bounded_digest(tmp_path: Path) -> None:
     )
     queue = FakeQueue([BeadSummary("c-1", "closed"), BeadSummary("c-2", "blocked")])
     ctx, _ = _ctx(tmp_path, queue=queue)
-    ctx.attempt_dir = attempts.attempt_dir(ctx.task_dir, 1)
+    ctx.attempt_dir = attempt_dir(ctx.task_dir, 1)
     ctx.attempt_n = 1
     result = asyncio.run(CollectChildren(queue).run(ctx))
     assert result.status == StepStatus.OK

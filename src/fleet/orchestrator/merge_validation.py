@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.orchestrator.service import ServiceOrder, run_periodic
-from fleet.state.paths import tasks_root as _tasks_root
+from fleet.state import paths as state_paths
 from fleet.state.validation_marker import clear_needs_validation, needs_validation
 
 from . import worktree
@@ -115,7 +115,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
 
 async def run_pending_validations(st: SupervisorState) -> None:
     """Merge the first validated task dir found; at most one per tick."""
-    tasks_root = _tasks_root(st.fleet_home)
+    tasks_root = state_paths.tasks_root(st.fleet_home)
     if not tasks_root.exists():
         return
     for task_dir in sorted(tasks_root.iterdir()):

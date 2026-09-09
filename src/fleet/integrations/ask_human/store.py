@@ -413,7 +413,7 @@ class QuestionStore:
             )
             return cur.rowcount > 0
 
-    def _expire_if_pending(self, qid: str) -> None:
+    def expire_if_pending(self, qid: str) -> None:
         with self._conn() as conn:
             conn.execute(
                 "UPDATE questions SET status='expired', answered_at=?, "
@@ -524,7 +524,7 @@ class QuestionStore:
         deadline = (q["created_at"] + q["timeout_s"]) if q["timeout_s"] else None
         while q["status"] == "pending":
             if deadline is not None and time.time() >= deadline:
-                self._expire_if_pending(qid)
+                self.expire_if_pending(qid)
                 q = self.get(qid)
                 if q is None:
                     raise QuestionNotFound(qid, self.db_path)

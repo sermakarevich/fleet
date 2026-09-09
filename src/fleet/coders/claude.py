@@ -14,8 +14,8 @@ from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, EventKind, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
+from fleet.state import paths as state_paths
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import task_dir as _resolve_task_dir
 
 SHIPPED_HOOKS_DIR = Path(__file__).parent / "hooks"
 """Bash hooks shipped with fleet, installed into the project by this coder."""
@@ -307,7 +307,7 @@ class ClaudeCoder:
 
         task_id = getattr(task, "id", None)
         if task_id:
-            task_dir = _resolve_task_dir(self.fleet_home, task_id)
+            task_dir = state_paths.task_dir(self.fleet_home, task_id)
             write_mcp_config(_attempt_dir_for(task_dir), fleet_mcp_servers(self.fleet_home))
 
     def normalize_event(self, raw_line: str) -> Event | None:

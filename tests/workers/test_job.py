@@ -12,7 +12,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import attempts
-from fleet.state.paths import task_dir as _task_dir
+from fleet.state import paths as state_paths
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.job import (
     JOB_GATE_CONTEXT,
@@ -97,7 +97,7 @@ def _ctx(
     attempt_n: int = 1,
     config: RuntimeConfig | None = None,
 ) -> StepContext:
-    task_dir = _task_dir(tmp_path, task_id)
+    task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True, exist_ok=True)
     return StepContext(
         task=Task(

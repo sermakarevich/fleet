@@ -11,7 +11,6 @@ from fleet.serve.api.models import HealthResponse
 from fleet.serve.auth import websocket_authorized
 from fleet.serve.state import StateDep
 from fleet.state import paths as state_paths
-from fleet.state.paths import task_dir as _task_dir
 
 router = APIRouter()
 
@@ -55,7 +54,7 @@ async def ws_task_events(ws: WebSocket, id: str, state: StateDep) -> None:
     if not websocket_authorized(ws):
         await ws.close(code=4401)
         return
-    task_dir = _task_dir(state_paths.fleet_home(), id)
+    task_dir = state_paths.task_dir(state_paths.fleet_home(), id)
     if not task_dir.is_dir():
         await ws.accept()
         await ws.close(code=4004)

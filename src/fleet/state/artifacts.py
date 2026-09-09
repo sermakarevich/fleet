@@ -20,8 +20,7 @@ from fleet.core.launch import ArtifactSnapshot
 from fleet.state.atomic import write_text_atomic
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.legacy import legacy_result, legacy_state_text
-from fleet.state.paths import RESULT_JSON, STATE_MD
-from fleet.state.paths import outputs_dir as _outputs_dir
+from fleet.state.paths import RESULT_JSON, STATE_MD, outputs_dir
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
@@ -57,7 +56,7 @@ class StateFile:
     def ensure_stub(cls, task_dir: Path, task_id: str) -> None:
         """Seed the STATE.md stub and outputs/ when missing; never overwrite."""
         task_dir.mkdir(parents=True, exist_ok=True)
-        _outputs_dir(task_dir).mkdir(parents=True, exist_ok=True)
+        outputs_dir(task_dir).mkdir(parents=True, exist_ok=True)
         target = cls.path(task_dir)
         if not target.exists():
             cls.write(task_dir, cls.stub_text(task_id))

@@ -18,6 +18,7 @@ from typing import Any
 
 from fleet.core.task import AttemptKind, EventKind
 from fleet.state import attempts as state_attempts
+from fleet.state import paths as state_paths
 from fleet.state.events import iter_attempt_events, scan_rows
 from fleet.state.run_file import RunRecord
 
@@ -147,7 +148,7 @@ def _read_stderr_tail(attempt_dir: Path, n_lines: int) -> list[str]:
 
 def summarize(task_dir: Path, n: int) -> AttemptSummary:
     """Compute the derived summary for attempt *n*. Pure read path."""
-    attempt_dir = state_attempts.attempt_dir(task_dir, n)
+    attempt_dir = state_paths.attempt_dir(task_dir, n)
     run = RunRecord.load(attempt_dir)
     launch = run.launch if run is not None and isinstance(run.launch, dict) else {}
     row = _attempt_row(task_dir, n)
