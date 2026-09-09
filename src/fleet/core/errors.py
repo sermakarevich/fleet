@@ -43,6 +43,34 @@ class QuestionNotFound(FleetError, KeyError):
         self.db_path = Path(db_path) if db_path is not None else None
 
 
+class WorkflowInvalid(FleetError, ValueError):
+    """A workflow definition breaks one or more validation rules."""
+
+    def __init__(self, problems: list[str] | str) -> None:
+        """Remember every human-readable problem found."""
+        items = [problems] if isinstance(problems, str) else list(problems)
+        super().__init__("; ".join(items))
+        self.problems = items
+
+
+class WorkflowNotFound(FleetError, KeyError):
+    """No workflow with this id in the workflows store."""
+
+    def __init__(self, workflow_id: str) -> None:
+        """Remember the missing workflow id."""
+        super().__init__(workflow_id)
+        self.workflow_id = workflow_id
+
+
+class WorkflowNameTaken(FleetError, ValueError):
+    """Another workflow already uses this name (names are unique)."""
+
+    def __init__(self, name: str) -> None:
+        """Remember the colliding name."""
+        super().__init__(name)
+        self.name = name
+
+
 class SubprocessTimeout(FleetError, TimeoutError):
     """A child process outlived its timeout; carries the argv behind it."""
 

@@ -87,3 +87,8 @@ def log_dir(fleet_home: Path) -> Path:
     """Daemon/supervisor log directory: absolute LOG_ROOT as-is, else under the fleet home."""
     root = Path(core_limits.LOG_ROOT)
     return root if root.is_absolute() else fleet_home / root
+
+
+def workflows_db_path(fleet_home: Path) -> Path:
+    """SQLite database for saved workflows and their runs."""
+    return fleet_home / "workflows.db"
