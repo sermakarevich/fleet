@@ -436,7 +436,7 @@ class ContextPressureVisitor(EventVisitor):
         return self._pressure
 
 
-# Every concern stats_from_rows covers, in visit order. scan_rows instantiates
+# Every concern stats_from_rows covers, in visit order. stats_from_rows instantiates
 # one of each per call, so visitors never share state between scans.
 VISITORS: tuple[type[EventVisitor], ...] = (
     CountVisitor,
