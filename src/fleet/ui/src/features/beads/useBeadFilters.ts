@@ -1,11 +1,11 @@
 /**
  * Filter state for the beads page, synced to the URL query string.
  * Owns the status filter, search query and page; derives the filtered,
- * sorted and paginated bead lists. Called by BeadsPage;
- * tested by useBeadFilters.test.ts.
+ * sorted and paginated bead lists. Built on useUrlFilters (ADR 0009
+ * rule 2). Called by BeadsPage; tested by useBeadFilters.test.ts.
  */
 import { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
 import type { Bead } from '../../shared/types';
 
 export type BeadStatusFilter = 'all' | 'open' | 'in_progress' | 'blocked' | 'deferred' | 'closed';
@@ -21,19 +21,7 @@ export const BEAD_FILTERS: Array<{ key: BeadStatusFilter; label: string }> = [
 
 export const BEAD_PAGE_SIZE = 25;
 
-const VALID_STATUSES = new Set<string>(BEAD_FILTERS.map((f) => f.key));
-
-// Read the status filter from the URL, defaulting to in_progress.
-function parseStatusFilter(params: URLSearchParams): BeadStatusFilter {
-  const raw = params.get('status');
-  return raw && VALID_STATUSES.has(raw) ? (raw as BeadStatusFilter) : 'in_progress';
-}
-
-// Read a non-negative page number from the URL.
-function parsePage(params: URLSearchParams): number {
-  const raw = Number(params.get('page'));
-  return Number.isInteger(raw) && raw >= 0 ? raw : 0;
-}
+const VALID = BEAD_FILTERS.map((f) => f.key);
 
 // Keep beads matching the status filter and search query.
 function applyFilter(beads: Bead[], status: BeadStatusFilter, query: string): Bead[] {
@@ -58,19 +46,14 @@ function sortBeads(beads: Bead[]): Bead[] {
 
 // Filter state + URL sync + derived lists for the beads page.
 export function useBeadFilters(beads: Bead[] | undefined) {
-  const [params, setParams] = useSearchParams();
-  const statusFilter = parseStatusFilter(params);
-  const searchQuery = params.get('q') ?? '';
-  const page = parsePage(params);
-
-  function update(patch: Record<string, string>) {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v);
-      else next.delete(k);
-    }
-    setParams(next, { replace: true });
-  }
+  const {
+    status: statusFilter,
+    searchQuery,
+    page,
+    setStatus: setStatusFilter,
+    setSearchQuery,
+    setPage,
+  } = useUrlFilters<BeadStatusFilter>({ valid: VALID, defaultStatus: 'in_progress' });
 
   const sorted = useMemo(
     () => sortBeads(applyFilter(beads ?? [], statusFilter, searchQuery)),
@@ -87,8 +70,8 @@ export function useBeadFilters(beads: Bead[] | undefined) {
     totalPages,
     sorted,
     pageItems,
-    setStatusFilter: (s: BeadStatusFilter) => update({ status: s === 'in_progress' ? '' : s, page: '' }),
-    setSearchQuery: (q: string) => update({ q, page: '' }),
-    setPage: (p: number) => update({ page: p > 0 ? String(p) : '' }),
+    setStatusFilter,
+    setSearchQuery,
+    setPage,
   };
 }

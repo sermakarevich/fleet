@@ -1,10 +1,13 @@
 /**
  * Manage controls for one bead: status select, unblock, remove assignee.
- * Called by BeadDrawer; every outcome toasts via ToastContext.
+ * Called by BeadDrawer; every outcome toasts via ToastContext. Assignee
+ * removal confirms inline via the shared Confirm component.
  */
+import { useState } from 'react';
 import { useRemoveBeadAssignee, useSetBeadStatus, useUnblockBead } from '../../shared/hooks/useApi';
 import type { BeadDetail } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
+import { Confirm } from '../../shared/ui/Confirm';
 
 // Statuses the user can assign (backend VALID_STATUSES minus the rarely
 // used pinned/hooked which fleet does not surface).
@@ -16,6 +19,7 @@ export function BeadActions({ bead }: { bead: BeadDetail }) {
   const unblock = useUnblockBead();
   const removeAssignee = useRemoveBeadAssignee();
   const busy = setStatus.isPending || unblock.isPending || removeAssignee.isPending;
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <div style={styles.controls}>
@@ -40,17 +44,22 @@ export function BeadActions({ bead }: { bead: BeadDetail }) {
           Unblock
         </button>
       )}
-      {bead.assignee && (
+      {bead.assignee && !confirming && (
         <button
           style={styles.unassignBtn}
           disabled={busy}
-          onClick={() => {
-            if (!window.confirm(`Remove assignee "${bead.assignee}" from ${bead.id}?`)) return;
-            removeAssignee.mutate(bead.id);
-          }}
+          onClick={() => setConfirming(true)}
         >
           Remove assignee
         </button>
+      )}
+      {bead.assignee && confirming && (
+        <Confirm
+          verb="Remove assignee"
+          onConfirm={() => { setConfirming(false); removeAssignee.mutate(bead.id); }}
+          onCancel={() => setConfirming(false)}
+          danger={false}
+        />
       )}
     </div>
   );
@@ -60,7 +69,7 @@ const styles = {
   controls: {
     display: 'flex', alignItems: 'flex-end', gap: '0.625rem', flexWrap: 'wrap' as const,
     padding: '0.75rem', background: T.colors.bgElevated,
-    border: `1px solid ${T.colors.border}`, borderRadius: 6, marginBottom: '1rem',
+    border: `1px solid ${T.colors.border}`, borderRadius: '0.375rem', marginBottom: '1rem',
   } as React.CSSProperties,
   controlLabel: {
     display: 'flex', flexDirection: 'column' as const, gap: '0.25rem', fontSize: '0.7rem',
@@ -68,17 +77,17 @@ const styles = {
   } as React.CSSProperties,
   select: {
     padding: '0.25rem 0.5rem', background: T.colors.bgDeep, border: `1px solid ${T.colors.border}`,
-    borderRadius: 4, color: T.colors.textPrimary, fontSize: '0.8125rem',
+    borderRadius: '0.25rem', color: T.colors.textPrimary, fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif', cursor: 'pointer',
   } as React.CSSProperties,
   unblockBtn: {
-    padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid #2563eb',
-    borderRadius: 4, color: T.colors.link, cursor: 'pointer', fontSize: '0.8125rem',
+    padding: '0.3rem 0.75rem', background: 'transparent', border: `1px solid ${T.colors.info}`,
+    borderRadius: '0.25rem', color: T.colors.link, cursor: 'pointer', fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   unassignBtn: {
-    padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid #78716c',
-    borderRadius: 4, color: T.colors.stone, cursor: 'pointer', fontSize: '0.8125rem',
+    padding: '0.3rem 0.75rem', background: 'transparent', border: `1px solid ${T.colors.stoneWarm}`,
+    borderRadius: '0.25rem', color: T.colors.stone, cursor: 'pointer', fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
 };

@@ -193,6 +193,103 @@ export function inputStyle(): CSSProperties {
   };
 }
 
+// Data cell inside a DataList desktop row: fixed width or flex fill.
+export function dataCellStyle(width?: string): CSSProperties {
+  return width
+    ? { width, flexShrink: 0, minWidth: 0 }
+    : { flex: 1, minWidth: 0 };
+}
+
+// Mobile card shell shared by every DataList card.
+export function cardStyle(selected = false): CSSProperties {
+  return {
+    padding: '0.625rem 0.875rem', borderBottom: `1px solid ${T.colors.borderSubtle}`,
+    cursor: 'pointer', display: 'flex', flexDirection: 'column',
+    gap: '0.3rem', fontSize: '0.875rem', color: T.colors.textBody,
+    ...(selected ? { background: T.colors.borderSubtle } : {}),
+  };
+}
+
+// Top line of a card: status chip, id, actions.
+export function cardHeadStyle(): CSSProperties {
+  return { display: 'flex', alignItems: 'center', gap: '0.5rem' };
+}
+
+// Primary card title line, ellipsized.
+export function cardTitleStyle(): CSSProperties {
+  return { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+}
+
+// Muted card metadata row(s).
+export function cardMetaStyle(): CSSProperties {
+  return { display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center' };
+}
+
+// One muted metadata span inside a card.
+export function cardMetaTextStyle(): CSSProperties {
+  return { fontSize: '0.75rem', color: T.colors.textSecondary };
+}
+
+// Monospace identifier inside a card head.
+export function cardIdStyle(): CSSProperties {
+  return {
+    fontFamily: 'monospace', color: T.colors.link, fontSize: '0.8125rem', flex: 1, minWidth: 0,
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  };
+}
+
+// Label/value line of the default DataList card.
+export function cardFieldStyle(): CSSProperties {
+  return { display: 'flex', gap: '0.5rem', fontSize: '0.8125rem', minWidth: 0 };
+}
+
+// Dim field label inside the default DataList card.
+export function cardFieldLabelStyle(): CSSProperties {
+  return { color: T.colors.textDim, flexShrink: 0, minWidth: '4.5rem' };
+}
+
+// Red dot marking a filter button with waiting items.
+export function alertDotStyle(): CSSProperties {
+  return {
+    display: 'inline-block', width: '0.4375rem', height: '0.4375rem',
+    borderRadius: '50%', background: T.colors.danger, flexShrink: 0,
+  };
+}
+
+// Inner layout of a filter button (label + optional dot/count).
+export function filterBtnInnerStyle(): CSSProperties {
+  return { display: 'inline-flex', alignItems: 'center', gap: '0.3rem' };
+}
+
+// Count badge inside a filter button.
+export function filterCountStyle(): CSSProperties {
+  return {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    padding: '0 0.375rem', borderRadius: '9999px', fontSize: '0.7rem',
+    fontWeight: 700, background: T.colors.border, color: T.colors.textPrimary,
+  };
+}
+
+// Inline confirm row ("<Verb>?" + Confirm/Cancel), used by Confirm.
+export function confirmStyle(): CSSProperties {
+  return { display: 'inline-flex', alignItems: 'center', gap: '0.375rem' };
+}
+
+// The "<Verb>?" label of an inline confirm.
+export function confirmLabelStyle(): CSSProperties {
+  return { fontSize: '0.8125rem', color: T.colors.textSecondary, whiteSpace: 'nowrap' };
+}
+
+// Danger-tinted confirm button (Confirm in a destructive Confirm).
+export function confirmBtnStyle(): CSSProperties {
+  return {
+    padding: '0.2rem 0.5rem', background: T.colors.danger,
+    border: `1px solid ${T.colors.danger}`, borderRadius: 4, color: T.colors.white,
+    cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'system-ui, sans-serif',
+    fontWeight: 600,
+  };
+}
+
 // Alternating table row background for readability.
 export function altRowStyle(index: number): CSSProperties {
   return { background: index % 2 === 0 ? 'transparent' : T.colors.bgElevated };

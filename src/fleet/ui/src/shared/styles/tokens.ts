@@ -71,6 +71,7 @@ export const colors = {
   gray:          '#6b7280',
   slateDark:     '#374151',
   stone:         '#a8a29e',
+  stoneWarm:     '#78716c',
 } as const;
 
 export const panel: CSSProperties = {

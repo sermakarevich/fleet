@@ -1,7 +1,8 @@
 /**
- * Unit tests for the recurring schedules table: rows link to the workflow
- * definition and to the last workflow run, plus the empty state and the
- * "never"/"skipped" last-run cases.
+ * Unit tests for the recurring schedule list cells: rows link to the
+ * workflow definition and to the last workflow run, plus the empty
+ * state and the "never"/"skipped" last-run cases. Renders
+ * recurringColumns() through the shared DataList.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -9,7 +10,8 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { formatShortDateTime } from '../../shared/format';
 import type { Schedule } from '../../shared/types';
-import { RecurringTable } from './RecurringTable';
+import { DataList } from '../../shared/ui/DataList';
+import { recurringColumns } from './recurringColumns';
 
 afterEach(cleanup);
 
@@ -61,19 +63,23 @@ function lastRun(overrides = {}) {
   };
 }
 
-describe('RecurringTable', () => {
+function renderList(items: Schedule[], workflowNames: Record<string, string> = {}) {
+  render(
+    <DataList
+      columns={recurringColumns(workflowNames)}
+      rows={items}
+      rowKey={(s) => s.id}
+      onRowClick={vi.fn()}
+      empty="No recurring workflows."
+      isMobile={false}
+    />,
+    { wrapper },
+  );
+}
+
+describe('recurringColumns', () => {
   it('rows link to the workflow and to the last run', () => {
-    const schedule = makeSchedule({ last_run: lastRun() });
-    render(
-      <RecurringTable
-        items={[schedule]}
-        workflowNames={{ 'wf-1': 'nightly-quality' }}
-        selectedId={null}
-        onSelect={vi.fn()}
-        isMobile={false}
-      />,
-      { wrapper },
-    );
+    renderList([makeSchedule({ last_run: lastRun() })], { 'wf-1': 'nightly-quality' });
     const workflowLink = screen.getByText('nightly-quality', { selector: 'a' });
     expect(workflowLink.getAttribute('href')).toBe('/workflows/wf-1');
     const runChip = screen.getByText('Succeeded');
@@ -83,61 +89,24 @@ describe('RecurringTable', () => {
 
   it('renders the next run time when enabled', () => {
     const schedule = makeSchedule();
-    render(
-      <RecurringTable
-        items={[schedule]}
-        workflowNames={{}}
-        selectedId={null}
-        onSelect={vi.fn()}
-        isMobile={false}
-      />,
-      { wrapper },
-    );
+    renderList([schedule]);
     expect(
       screen.getByText(formatShortDateTime(schedule.next_fire_at as string)),
     ).toBeInTheDocument();
   });
 
   it('renders "never" when there is no last run', () => {
-    render(
-      <RecurringTable
-        items={[makeSchedule({ last_run: null })]}
-        workflowNames={{}}
-        selectedId={null}
-        onSelect={vi.fn()}
-        isMobile={false}
-      />,
-      { wrapper },
-    );
+    renderList([makeSchedule({ last_run: null })]);
     expect(screen.getByText('never')).toBeInTheDocument();
   });
 
   it('renders "skipped" for a skipped last run', () => {
-    const schedule = makeSchedule({ last_run: lastRun({ skipped: true, workflow_run_id: null }) });
-    render(
-      <RecurringTable
-        items={[schedule]}
-        workflowNames={{}}
-        selectedId={null}
-        onSelect={vi.fn()}
-        isMobile={false}
-      />,
-      { wrapper },
-    );
+    renderList([makeSchedule({ last_run: lastRun({ skipped: true, workflow_run_id: null }) })]);
     expect(screen.getByText('skipped')).toBeInTheDocument();
   });
 
   it('renders the empty state when there are no recurring workflows', () => {
-    render(
-      <RecurringTable
-        items={[]}
-        workflowNames={{}}
-        selectedId={null}
-        onSelect={vi.fn()}
-        isMobile={false}
-      />,
-      { wrapper },
-    );
+    renderList([]);
     expect(screen.getByText(/No recurring workflows/)).toBeInTheDocument();
   });
 });

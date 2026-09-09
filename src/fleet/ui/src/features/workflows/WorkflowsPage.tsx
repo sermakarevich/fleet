@@ -1,8 +1,10 @@
 /**
  * Workflows browser: list of saved worker stage-graphs, YAML import with
  * replace-on-conflict, and the stage/step editor for new and existing
- * workflows. Called by App's /workflows, /workflows/new and
- * /workflows/:id routes; the edited id lives in the URL so it is shareable.
+ * workflows. Composes DataList on the shared PageShell with
+ * Definitions/Runs sub-tabs; the edited id lives in the URL so it is
+ * shareable. Called by App's /workflows, /workflows/new and
+ * /workflows/:id routes.
  */
 import { useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -16,13 +18,15 @@ import {
   useWorkflowRuns,
   useWorkflows,
 } from '../../shared/hooks/useApi';
-import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
+import { DataList } from '../../shared/ui/DataList';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { PageShell } from '../../shared/ui/PageShell';
 import type { Workflow } from '../../shared/types';
 import { WorkflowEditor } from './WorkflowEditor';
-import { WorkflowsTable } from './WorkflowsTable';
-import { RunsTable } from './RunsTable';
+import { WorkflowCard, workflowColumns } from './workflowColumns';
+import { RunCard, runColumns } from './runColumns';
 
 // Pending import that hit a name clash, waiting on replace confirmation.
 interface ImportConflict {
@@ -36,48 +40,65 @@ function parseWorkflowName(yaml: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
-// Runs of every workflow: status filter, table, paging (limit 50).
-function AllRunsView({ isMobile, onOpen }: { isMobile: boolean; onOpen: (runId: string) => void }) {
-  const [status, setStatus] = useState('all');
+const RUN_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'running', label: 'Running' },
+  { key: 'attention', label: 'Attention' },
+  { key: 'succeeded', label: 'Succeeded' },
+  { key: 'cancelled', label: 'Cancelled' },
+] as const;
+
+type RunFilter = (typeof RUN_FILTERS)[number]['key'];
+
+// Runs of every workflow: status filter, list, paging (limit 50).
+function AllRunsView({ onOpen }: { onOpen: (runId: string) => void }) {
+  const [status, setStatus] = useState<RunFilter>('all');
   const [offset, setOffset] = useState(0);
   const limit = 50;
   const { data, isLoading, error } = useAllWorkflowRuns(
     status === 'all' ? undefined : status,
     { limit, offset },
   );
-  if (isLoading) return <p style={R.msgStyle()}>Loading…</p>;
+  if (isLoading) return <LoadingState />;
   if (error) return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   const runs = data?.runs ?? [];
   const total = data?.total ?? 0;
   return (
     <div>
       <div style={R.filterRowStyle()}>
-        {['all', 'running', 'attention', 'succeeded', 'cancelled'].map((key) => (
+        {RUN_FILTERS.map(({ key, label }) => (
           <button
             key={key}
             style={R.filterBtnStyle(status === key)}
             onClick={() => { setStatus(key); setOffset(0); }}
           >
-            {key === 'all' ? 'All' : key[0].toUpperCase() + key.slice(1)}
+            {label}
           </button>
         ))}
       </div>
       <div style={styles.runsGap} />
-      <RunsTable runs={runs} onOpen={onOpen} isMobile={isMobile} />
+      <DataList
+        columns={runColumns()}
+        rows={runs}
+        rowKey={(run) => run.id}
+        onRowClick={(run) => onOpen(run.id)}
+        renderCard={(run) => <RunCard run={run} />}
+        empty="No runs yet. Start a run from a workflow with the Run button."
+      />
       <Pagination offset={offset} limit={limit} total={total} onPage={setOffset} />
     </div>
   );
 }
 
-// Runs of one workflow (/workflows/:id/runs): back link, table, paging.
-function WorkflowRunsView({ workflowId, isMobile, onOpen }: {
-  workflowId: string; isMobile: boolean; onOpen: (runId: string) => void;
+// Runs of one workflow (/workflows/:id/runs): back link, list, paging.
+function WorkflowRunsView({ workflowId, onOpen }: {
+  workflowId: string; onOpen: (runId: string) => void;
 }) {
   const { data: workflow } = useWorkflow(workflowId);
   const [offset, setOffset] = useState(0);
   const limit = 50;
   const { data, isLoading, error } = useWorkflowRuns(workflowId, { limit, offset });
-  if (isLoading) return <p style={R.msgStyle()}>Loading…</p>;
+  if (isLoading) return <LoadingState />;
   if (error) return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   const runs = data?.runs ?? [];
   const total = data?.total ?? 0;
@@ -88,7 +109,14 @@ function WorkflowRunsView({ workflowId, isMobile, onOpen }: {
         {' · '}
         {workflow?.name ?? workflowId} <span style={R.countStyle()}>({total})</span>
       </p>
-      <RunsTable runs={runs} onOpen={onOpen} isMobile={isMobile} />
+      <DataList
+        columns={runColumns()}
+        rows={runs}
+        rowKey={(run) => run.id}
+        onRowClick={(run) => onOpen(run.id)}
+        renderCard={(run) => <RunCard run={run} />}
+        empty="No runs yet. Start a run from a workflow with the Run button."
+      />
       <Pagination offset={offset} limit={limit} total={total} onPage={setOffset} />
     </div>
   );
@@ -118,10 +146,9 @@ function Pagination({ offset, limit, total, onPage }: {
   );
 }
 
-// Workflows page: heading, import/export entry points, table or editor.
+// Workflows page: heading, import/export entry points, list or editor.
 export function WorkflowsPage() {
   const { data: workflows, isLoading, error } = useWorkflows();
-  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
   const { id: selectedId } = useParams();
@@ -181,26 +208,15 @@ export function WorkflowsPage() {
     navigate(`/workflows/${saved.id}`);
   }
 
-  if (isLoading) {
-    return <p style={R.msgStyle()}>Loading…</p>;
-  }
-  if (error) {
-    return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
-  }
-
   // Runs of one workflow live under /workflows/:id/runs.
   if (runsOfId) {
     return (
-      <div style={R.pageStyle(isMobile)}>
-        <div style={R.topBarStyle()}>
-          <h2 style={R.headingStyle()}>Runs</h2>
-        </div>
+      <PageShell title="Runs">
         <WorkflowRunsView
           workflowId={runsOfId}
-          isMobile={isMobile}
           onOpen={(runId) => navigate(`/workflow-runs/${runId}`)}
         />
-      </div>
+      </PageShell>
     );
   }
 
@@ -208,20 +224,24 @@ export function WorkflowsPage() {
     setSearchParams(next === 'runs' ? { view: 'runs' } : {});
   }
 
+  const cb = {
+    onEdit: (id: string) => navigate(`/workflows/${id}`),
+    onRun,
+    onDelete,
+    runningId: runWorkflow.isPending ? (runWorkflow.variables ?? null) : null,
+  };
+
   return (
-    <div style={R.pageStyle(isMobile)}>
-      <div style={R.topBarStyle()}>
-        <h2 style={R.headingStyle()}>
-          {view === 'runs' ? 'Runs' : <>Workflows <span style={R.countStyle()}>({items.length})</span></>}
-        </h2>
-        <span style={R.filterRowStyle()}>
-          <button style={R.filterBtnStyle(view === 'definitions')} onClick={() => setView('definitions')}>
-            Definitions
-          </button>
-          <button style={R.filterBtnStyle(view === 'runs')} onClick={() => setView('runs')}>
-            Runs
-          </button>
-        </span>
+    <PageShell
+      title={view === 'runs' ? 'Runs' : 'Workflows'}
+      count={view === 'runs' ? undefined : items.length}
+      tabs={[
+        { id: 'definitions', label: 'Definitions' },
+        { id: 'runs', label: 'Runs' },
+      ]}
+      activeTab={view}
+      onTabChange={(id) => setView(id as 'definitions' | 'runs')}
+      actions={
         <span style={styles.topActions}>
           <input
             ref={fileRef}
@@ -242,7 +262,8 @@ export function WorkflowsPage() {
             + New workflow
           </button>
         </span>
-      </div>
+      }
+    >
       {conflict && (
         <p style={styles.conflictBar}>
           {conflict.message}{' '}
@@ -262,20 +283,23 @@ export function WorkflowsPage() {
         />
       ) : view === 'runs' ? (
         <AllRunsView
-          isMobile={isMobile}
           onOpen={(runId) => navigate(`/workflow-runs/${runId}`)}
         />
+      ) : isLoading ? (
+        <LoadingState />
+      ) : error ? (
+        <p style={R.errorMsgStyle()}>Error: {String(error)}</p>
       ) : (
-        <WorkflowsTable
-          items={items}
-          onEdit={(id) => navigate(`/workflows/${id}`)}
-          onRun={onRun}
-          onDelete={onDelete}
-          runningId={runWorkflow.isPending ? (runWorkflow.variables ?? null) : null}
-          isMobile={isMobile}
+        <DataList
+          columns={workflowColumns(cb)}
+          rows={items}
+          rowKey={(workflow) => workflow.id}
+          onRowClick={(workflow) => navigate(`/workflows/${workflow.id}`)}
+          renderCard={(workflow) => <WorkflowCard workflow={workflow} cb={cb} />}
+          empty="No workflows yet. Arrange workers into stages and save them as a workflow, or import a YAML file."
         />
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -285,12 +309,12 @@ const styles = {
     fontSize: '0.875rem', color: T.colors.textSecondary, margin: '0 0 0.75rem',
   } as React.CSSProperties,
   topActions: {
-    marginLeft: 'auto', display: 'inline-flex', gap: '0.5rem', alignItems: 'center',
+    display: 'inline-flex', gap: '0.5rem', alignItems: 'center',
   } as React.CSSProperties,
   hiddenInput: { display: 'none' } as React.CSSProperties,
   conflictBar: {
     padding: '0.5rem 1rem', margin: '0 0 0.875rem',
     background: T.colors.warningBg, color: T.colors.warningFg,
-    borderRadius: 6, fontSize: '0.875rem', fontFamily: 'system-ui, sans-serif',
+    borderRadius: '0.375rem', fontSize: '0.875rem', fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
 };

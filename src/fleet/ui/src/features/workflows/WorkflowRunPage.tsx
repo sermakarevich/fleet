@@ -14,7 +14,7 @@ import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import type { WorkflowStepRun } from '../../shared/types';
 import { StatusChip } from '../../shared/ui/StatusChip';
-import { TriggerChip, RunStatusChip } from './RunRow';
+import { TriggerChip, RunStatusChip } from './runColumns';
 
 // One read-only step card: name, task title, task chip, state, task link.
 function StepCard({ step }: { step: WorkflowStepRun }) {

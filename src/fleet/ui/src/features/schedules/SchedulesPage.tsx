@@ -1,59 +1,58 @@
 /**
  * Schedules browser: list of recurring workers, create/edit form and a
  * detail drawer with upcoming firings and run history.
- * Called by App's /schedules and /schedules/:id routes; the selected id
- * and the create form live in the URL so both are shareable.
+ * Composes DataList on the shared PageShell; the selected id and the
+ * create form live in the URL so both are shareable. Called by App's
+ * /schedules and /schedules/:id routes.
  */
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSchedules } from '../../shared/hooks/useApi';
-import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import * as T from '../../shared/styles/tokens';
-import * as R from '../../shared/styles/recipes';
-import { SchedulesTable } from './SchedulesTable';
+import { DataList } from '../../shared/ui/DataList';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { PageShell } from '../../shared/ui/PageShell';
+import { ScheduleCard, scheduleColumns } from './scheduleColumns';
 import { ScheduleDrawer } from './ScheduleDrawer';
 import { ScheduleForm } from './ScheduleForm';
 
-// Schedules page: heading, table, create form and detail drawer.
+// Schedules page: heading, list, create form and detail drawer.
 export function SchedulesPage() {
   const { data: schedules, isLoading, error } = useSchedules('task');
-  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { id: selectedId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const showCreate = searchParams.get('new') === '1';
 
-  if (isLoading) {
-    return <p style={R.msgStyle()}>Loading…</p>;
-  }
   if (error) {
-    return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
+    return <p style={styles.error}>Error: {String(error)}</p>;
   }
 
   const items = schedules ?? [];
 
   return (
-    <div style={R.pageStyle(isMobile)}>
-      <div style={R.topBarStyle()}>
-        <h2 style={R.headingStyle()}>
-          Schedules <span style={R.countStyle()}>({items.length})</span>
-        </h2>
-        <span style={R.mutedStyle()}>
-          single-task schedules · recurring workflows have their own{' '}
-          <Link to="/recurring">tab</Link>
-        </span>
-        <button
-          style={R.merge(T.btnPrimary, { marginLeft: 'auto' })}
-          onClick={() => setSearchParams({ new: '1' })}
-        >
+    <PageShell
+      title="Schedules"
+      count={items.length}
+      subtitle={<>single-task schedules · recurring workflows have their own <Link to="/recurring">tab</Link></>}
+      actions={
+        <button style={T.btnPrimary} onClick={() => setSearchParams({ new: '1' })}>
           + New schedule
         </button>
-      </div>
-      <SchedulesTable
-        items={items}
-        selectedId={selectedId ?? null}
-        onSelect={(id) => navigate(`/schedules/${id}`)}
-        isMobile={isMobile}
-      />
+      }
+    >
+      {isLoading ? (
+        <LoadingState />
+      ) : (
+        <DataList
+          columns={scheduleColumns()}
+          rows={items}
+          rowKey={(schedule) => schedule.id}
+          onRowClick={(schedule) => navigate(`/schedules/${schedule.id}`)}
+          renderCard={(schedule) => <ScheduleCard schedule={schedule} />}
+          selectedKey={selectedId ?? null}
+          empty="No schedules yet. Create one to run a worker on a cron."
+        />
+      )}
       {selectedId && <ScheduleDrawer scheduleId={selectedId} onClose={() => navigate('/schedules')} />}
       {showCreate && (
         <ScheduleForm
@@ -61,6 +60,12 @@ export function SchedulesPage() {
           onSaved={(saved) => navigate(`/schedules/${saved.id}`)}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
+
+const styles = {
+  error: {
+    padding: '1rem', color: T.colors.danger, fontFamily: 'system-ui, sans-serif',
+  } as React.CSSProperties,
+};

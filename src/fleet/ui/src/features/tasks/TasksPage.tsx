@@ -6,10 +6,12 @@ import { useEventSocket } from '../../shared/hooks/useEventSocket';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import type { FleetEvent } from '../../shared/types';
 import * as R from '../../shared/styles/recipes';
-import { TaskRow } from './TaskRow';
-import { TaskCard } from './TaskCard';
+import { DataList } from '../../shared/ui/DataList';
+import { FilterBar } from '../../shared/ui/FilterBar';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { PageShell } from '../../shared/ui/PageShell';
 import { TASK_FILTERS, useTaskFilters } from './useTaskFilters';
-import { rowStyles } from './itemStyles';
+import { TaskCard, taskColumns } from './taskColumns';
 
 interface TasksSocketMessage {
   task_id: string;
@@ -64,87 +66,48 @@ export function TasksPage() {
       .finally(() => setConfirmingId(null));
   };
 
-  if (isLoading && tasks.length === 0) {
-    return <p style={R.msgStyle()}>Loading…</p>;
-  }
+  const cb = {
+    confirmingId,
+    stoppingIds,
+    onKillClick: (id: string) => setConfirmingId(id),
+    onKillConfirm: handleKillConfirm,
+    onKillCancel: () => setConfirmingId(null),
+  };
+  const columns = taskColumns(cb);
+
   if (error && tasks.length === 0) {
     return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   }
 
   return (
-    <div style={R.pageStyle(isMobile)}>
+    <PageShell title="tasks" count={sortedFiltered.length}>
       <div style={R.topBarStyle()}>
-        <h1 style={R.headingStyle()}>tasks <span style={R.countStyle()}>({sortedFiltered.length})</span></h1>
-        <input
-          type="search"
-          style={R.searchInputStyle(isMobile ? '100%' : '13rem')}
-          placeholder="Search…"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
+        <FilterBar
+          searchQuery={searchQuery}
+          onSearchQuery={setSearchQuery}
+          searchWidth={isMobile ? '100%' : '13rem'}
+          filters={TASK_FILTERS.map(({ key, label }) => ({
+            key,
+            label,
+            alertCount: alertCounts[key] ?? 0,
+          }))}
+          active={filter}
+          onSelect={setFilter}
         />
-        <div style={R.filterRowStyle()}>
-          {TASK_FILTERS.map(({ key, label }) => {
-            const hasAlert = (alertCounts[key] ?? 0) > 0;
-            return (
-              <button
-                key={key}
-                style={R.filterBtnStyle(filter === key)}
-                onClick={() => setFilter(key)}
-              >
-                <span style={rowStyles.filterBtnInner}>
-                  {label}
-                  {hasAlert && <span style={rowStyles.alertDot} />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
-      <div style={R.panelStyle()}>
-        {!isMobile && (
-          <div style={R.colHeaderStyle()}>
-            <span style={rowStyles.colStatus}>Status</span>
-            <span style={rowStyles.colId}>ID</span>
-            <span style={rowStyles.colTitle}>Title</span>
-            <span style={rowStyles.colCoder}>Coder / Model</span>
-            <span style={rowStyles.colContext}>Context</span>
-            <span style={rowStyles.colRuns}>Runs</span>
-            <span style={rowStyles.colTs}>Started</span>
-            <span style={rowStyles.colTs}>Completed</span>
-            <span style={rowStyles.colCwd}>Cwd</span>
-            <span style={rowStyles.colAction} />
-          </div>
-        )}
-
-        {sortedFiltered.length === 0 ? (
-          <p style={R.emptyStyle()}>No tasks match this filter.</p>
-        ) : (
-          pageItems.map(task => isMobile ? (
-            <TaskCard
-              key={task.id}
-              task={task}
-              confirmingId={confirmingId}
-              stoppingIds={stoppingIds}
-              onKillClick={id => setConfirmingId(id)}
-              onKillConfirm={handleKillConfirm}
-              onKillCancel={() => setConfirmingId(null)}
-              onRowClick={id => navigate(`/tasks/${id}`)}
-            />
-          ) : (
-            <TaskRow
-              key={task.id}
-              task={task}
-              confirmingId={confirmingId}
-              stoppingIds={stoppingIds}
-              onKillClick={id => setConfirmingId(id)}
-              onKillConfirm={handleKillConfirm}
-              onKillCancel={() => setConfirmingId(null)}
-              onRowClick={id => navigate(`/tasks/${id}`)}
-            />
-          ))
-        )}
-      </div>
+      {isLoading && tasks.length === 0 ? (
+        <LoadingState />
+      ) : (
+        <DataList
+          columns={columns}
+          rows={pageItems}
+          rowKey={(task) => task.id}
+          onRowClick={(task) => navigate(`/tasks/${task.id}`)}
+          renderCard={(task) => <TaskCard task={task} cb={cb} />}
+          empty="No tasks match this filter."
+        />
+      )}
 
       {totalPages > 1 && (
         <div style={R.paginationStyle()}>
@@ -167,6 +130,6 @@ export function TasksPage() {
           </button>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

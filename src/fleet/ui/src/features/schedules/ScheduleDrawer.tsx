@@ -10,6 +10,8 @@ import { formatShortDateTime as fmtTs } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import { Modal } from '../../shared/ui/Modal';
+import { Confirm } from '../../shared/ui/Confirm';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { StatusChip } from '../../shared/ui/StatusChip';
 import { ScheduleForm } from './ScheduleForm';
 
@@ -38,10 +40,6 @@ export function ScheduleDrawer({ scheduleId, onClose }: { scheduleId: string; on
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   function handleDelete() {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
     void deleteSchedule.mutateAsync(scheduleId).then(onClose);
   }
 
@@ -52,7 +50,7 @@ export function ScheduleDrawer({ scheduleId, onClose }: { scheduleId: string; on
         <button style={styles.closeBtn} onClick={onClose} title="Close" aria-label="Close">✕</button>
       </div>
 
-      {isLoading && <p style={R.msgStyle()}>Loading…</p>}
+      {isLoading && <LoadingState />}
       {error && <p style={R.errorMsgStyle()}>Error: {String(error)}</p>}
 
       {schedule && (
@@ -83,13 +81,21 @@ export function ScheduleDrawer({ scheduleId, onClose }: { scheduleId: string; on
             <button style={styles.ghostBtn} onClick={() => setShowEdit(true)}>
               Edit
             </button>
-            <button
-              style={confirmDelete ? styles.deleteConfirmBtn : styles.deleteBtn}
-              disabled={deleteSchedule.isPending}
-              onClick={handleDelete}
-            >
-              {confirmDelete ? 'Confirm delete' : 'Delete'}
-            </button>
+            {confirmDelete ? (
+              <Confirm
+                verb="Delete"
+                onConfirm={handleDelete}
+                onCancel={() => setConfirmDelete(false)}
+              />
+            ) : (
+              <button
+                style={styles.deleteBtn}
+                disabled={deleteSchedule.isPending}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </button>
+            )}
           </div>
 
           <section style={styles.section}>
@@ -198,11 +204,6 @@ const styles = {
   deleteBtn: {
     ...T.btnDanger, padding: '0.3rem 0.75rem', fontSize: '0.8125rem',
   } as React.CSSProperties,
-  deleteConfirmBtn: {
-    padding: '0.3rem 0.75rem', fontSize: '0.8125rem', fontWeight: 600,
-    background: T.colors.danger, border: `1px solid ${T.colors.danger}`,
-    borderRadius: 4, color: T.colors.white, cursor: 'pointer', fontFamily: 'system-ui, sans-serif',
-  } as React.CSSProperties,
   section: {
     marginBottom: '1.25rem',
   } as React.CSSProperties,
@@ -223,7 +224,7 @@ const styles = {
   } as React.CSSProperties,
   pre: {
     margin: '0 0 0.5rem', padding: '0.625rem 0.75rem', background: T.colors.bgElevated,
-    border: `1px solid ${T.colors.border}`, borderRadius: 6, color: T.colors.textBody,
+    border: `1px solid ${T.colors.border}`, borderRadius: '0.375rem', color: T.colors.textBody,
     fontSize: '0.8125rem', fontFamily: 'ui-monospace, monospace',
     whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, lineHeight: 1.5,
   } as React.CSSProperties,

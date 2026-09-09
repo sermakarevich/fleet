@@ -1,8 +1,8 @@
-/**
- * One workflow as a table row (desktop) or a card (mobile), with Run,
- * Edit, Export and two-step Delete actions.
- * Called by WorkflowsTable; navigation and mutations live in WorkflowsPage.
- */
+// Per-workflow cell renderers for the shared DataList: desktop
+// column definitions plus the mobile card body. Shape and last-run
+// cells stay pure renderers; row actions (Run/Edit/Runs/Export/Delete)
+// confirm deletion inline via the shared Confirm. Rendered by
+// WorkflowsPage via DataList.
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workflow } from '../../shared/types';
@@ -10,14 +10,14 @@ import { formatShortDateTime as fmtTs } from '../../shared/format';
 import { runStatusColor, statusLabel } from '../../shared/status';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
-import { useClickableProps } from '../../shared/ui/Clickable';
+import { Confirm } from '../../shared/ui/Confirm';
+import type { DataColumn } from '../../shared/ui/DataList';
 
-interface Props {
-  workflow: Workflow;
+export interface WorkflowListCallbacks {
   onEdit: (id: string) => void;
   onRun: (id: string) => void;
   onDelete: (id: string) => void;
-  running: boolean;
+  runningId: string | null;
 }
 
 // Shape summary plus a tiny stage strip (one box per stage, width grows
@@ -47,7 +47,7 @@ export function ShapeCell({ workflow }: { workflow: Workflow }) {
 }
 
 // Last-run cell: colored run-status chip linking to the run, or "never".
-export function LastRunCell({ workflow }: { workflow: Workflow }) {
+export function WorkflowLastRunCell({ workflow }: { workflow: Workflow }) {
   const last = workflow.last_run;
   if (!last) return <span style={R.dimStyle()}>never</span>;
   const { bg, fg } = runStatusColor(last.status);
@@ -63,9 +63,16 @@ export function LastRunCell({ workflow }: { workflow: Workflow }) {
 }
 
 // Row actions: Run, Edit, Runs (history), Export (plain download link),
-// two-step Delete.
-function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
+// Delete with an inline shared Confirm.
+export function WorkflowActions({
+  workflow,
+  cb,
+}: {
+  workflow: Workflow;
+  cb: WorkflowListCallbacks;
+}) {
   const [confirming, setConfirming] = useState(false);
+  const running = cb.runningId === workflow.id;
   // The row itself navigates to the editor; actions must not bubble up.
   function stop(e: React.MouseEvent) {
     e.stopPropagation();
@@ -76,14 +83,14 @@ function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
         style={T.btnGhost}
         title="Start a run of this workflow"
         disabled={running}
-        onClick={(e) => { stop(e); onRun(workflow.id); }}
+        onClick={(e) => { stop(e); cb.onRun(workflow.id); }}
       >
         {running ? 'Starting…' : 'Run'}
       </button>
       <button
         style={T.btnGhost}
         title="Edit stages and steps"
-        onClick={(e) => { stop(e); onEdit(workflow.id); }}
+        onClick={(e) => { stop(e); cb.onEdit(workflow.id); }}
       >
         Edit
       </button>
@@ -105,13 +112,11 @@ function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
         Export
       </a>
       {confirming ? (
-        <button
-          style={R.merge(T.btnDanger, styles.deleteBtn)}
-          title="Click again to confirm"
-          onClick={(e) => { stop(e); onDelete(workflow.id); }}
-        >
-          Confirm delete
-        </button>
+        <Confirm
+          verb="Delete"
+          onConfirm={() => cb.onDelete(workflow.id)}
+          onCancel={() => setConfirming(false)}
+        />
       ) : (
         <button
           style={T.btnGhost}
@@ -125,46 +130,60 @@ function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
   );
 }
 
-// Desktop table row for one workflow.
-export function WorkflowRow(props: Props) {
-  const { workflow, onEdit } = props;
-  const rowClick = useClickableProps(() => onEdit(workflow.id));
-  return (
-    <div style={R.rowStyle(false)} className="row-interactive" {...rowClick}>
-      <span style={R.titleCellStyle()} title={workflow.name}>{workflow.name}</span>
-      <span style={styles.shapeCol}>
-        <ShapeCell workflow={workflow} />
-      </span>
-      <span style={styles.lastCol}>
-        <LastRunCell workflow={workflow} />
-      </span>
-      <span style={styles.runsCol}>{workflow.run_count}</span>
-      <span style={styles.updatedCol}>{fmtTs(workflow.updated_at)}</span>
-      <RowActions {...props} />
-    </div>
-  );
+// Desktop columns for the workflows DataList.
+export function workflowColumns(cb: WorkflowListCallbacks): Array<DataColumn<Workflow>> {
+  return [
+    {
+      key: 'name', header: 'Name',
+      render: (workflow) => <span style={R.titleCellStyle()} title={workflow.name}>{workflow.name}</span>,
+    },
+    {
+      key: 'shape', header: 'Shape', width: '12rem',
+      render: (workflow) => <ShapeCell workflow={workflow} />,
+    },
+    {
+      key: 'last', header: 'Last run', width: '6.5rem',
+      render: (workflow) => <WorkflowLastRunCell workflow={workflow} />,
+    },
+    {
+      key: 'runs', header: 'Runs', width: '3rem',
+      render: (workflow) => <span style={styles.runsCol}>{workflow.run_count}</span>,
+    },
+    {
+      key: 'updated', header: 'Updated', width: '8rem',
+      render: (workflow) => <span style={styles.updatedCol}>{fmtTs(workflow.updated_at)}</span>,
+    },
+    {
+      key: 'actions', header: '',
+      render: (workflow) => <WorkflowActions workflow={workflow} cb={cb} />,
+    },
+  ];
 }
 
-// Mobile card for one workflow.
-export function WorkflowCard(props: Props) {
-  const { workflow, onEdit } = props;
-  const cardClick = useClickableProps(() => onEdit(workflow.id));
+// Mobile card body for one workflow.
+export function WorkflowCard({
+  workflow,
+  cb,
+}: {
+  workflow: Workflow;
+  cb: WorkflowListCallbacks;
+}) {
   return (
-    <div style={styles.card} className="row-interactive" {...cardClick}>
-      <div style={styles.cardHead}>
-        <span style={styles.cardName} title={workflow.name}>{workflow.name}</span>
-        <LastRunCell workflow={workflow} />
+    <>
+      <div style={R.cardHeadStyle()}>
+        <span style={R.cardTitleStyle()} title={workflow.name}>{workflow.name}</span>
+        <WorkflowLastRunCell workflow={workflow} />
       </div>
-      <div style={styles.cardMeta}>
+      <div style={R.cardMetaStyle()}>
         <ShapeCell workflow={workflow} />
       </div>
-      <div style={styles.cardMeta}>
-        <span style={styles.cardMetaText}>
+      <div style={R.cardMetaStyle()}>
+        <span style={R.cardMetaTextStyle()}>
           {workflow.run_count} run{workflow.run_count === 1 ? '' : 's'} · updated {fmtTs(workflow.updated_at)}
         </span>
       </div>
-      <RowActions {...props} />
-    </div>
+      <WorkflowActions workflow={workflow} cb={cb} />
+    </>
   );
 }
 
@@ -174,20 +193,17 @@ const styles = {
     fontSize: '0.8125rem', color: T.colors.textSecondary,
   } as React.CSSProperties,
   strip: {
-    display: 'inline-flex', alignItems: 'center', gap: '2px',
+    display: 'inline-flex', alignItems: 'center', gap: '0.125rem',
   } as React.CSSProperties,
   stripBox: {
     display: 'inline-block', height: '0.625rem',
-    background: T.colors.accent, borderRadius: 2, flexShrink: 0,
+    background: T.colors.accent, borderRadius: '0.125rem', flexShrink: 0,
   } as React.CSSProperties,
-  shapeCol: { width: '12rem', flexShrink: 0 } as React.CSSProperties,
-  lastCol: { width: '6.5rem', flexShrink: 0 } as React.CSSProperties,
   runsCol: {
-    width: '3rem', flexShrink: 0, fontSize: '0.8125rem',
-    color: T.colors.textSecondary, textAlign: 'right' as const,
+    fontSize: '0.8125rem', color: T.colors.textSecondary, textAlign: 'right' as const,
   } as React.CSSProperties,
   updatedCol: {
-    width: '8rem', flexShrink: 0, fontSize: '0.8125rem', color: T.colors.textSecondary,
+    fontSize: '0.8125rem', color: T.colors.textSecondary,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   actions: {
@@ -197,24 +213,5 @@ const styles = {
   exportLink: {
     textDecoration: 'none', padding: '0.2rem 0.625rem', fontSize: '0.8125rem',
     display: 'inline-flex', alignItems: 'center',
-  } as React.CSSProperties,
-  deleteBtn: { padding: '0.2rem 0.625rem', fontSize: '0.8125rem' } as React.CSSProperties,
-  card: {
-    padding: '0.625rem 0.875rem', borderBottom: `1px solid ${T.colors.borderSubtle}`,
-    cursor: 'pointer', display: 'flex', flexDirection: 'column' as const,
-    gap: '0.3rem', fontSize: '0.875rem', color: T.colors.textBody,
-  } as React.CSSProperties,
-  cardHead: {
-    display: 'flex', alignItems: 'center', gap: '0.5rem',
-  } as React.CSSProperties,
-  cardName: {
-    flex: 1, minWidth: 0, overflow: 'hidden',
-    textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-  } as React.CSSProperties,
-  cardMeta: {
-    display: 'flex', gap: '0.625rem', flexWrap: 'wrap' as const,
-  } as React.CSSProperties,
-  cardMetaText: {
-    fontSize: '0.75rem', color: T.colors.textSecondary,
   } as React.CSSProperties,
 };

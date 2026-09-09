@@ -1,6 +1,7 @@
 /**
- * Unit tests for the runs list: row rendering, progress counts, the
- * mobile card variant, and the status filter in the Runs view.
+ * Unit tests for the runs list cells: row rendering, progress counts,
+ * the mobile card variant, and the status filter in the Runs view.
+ * Renders runColumns() through the shared DataList.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -10,7 +11,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { api } from '../../shared/api';
 import { ToastProvider } from '../../shared/contexts/ToastContext';
 import type { WorkflowRun, WorkflowStepRun } from '../../shared/types';
-import { RunsTable } from './RunsTable';
+import { DataList } from '../../shared/ui/DataList';
+import { RunCard, runColumns } from './runColumns';
 import { WorkflowsPage } from './WorkflowsPage';
 
 afterEach(cleanup);
@@ -60,6 +62,21 @@ function tableWrapper({ children }: { children: ReactNode }) {
   return <MemoryRouter>{children}</MemoryRouter>;
 }
 
+function renderList(runs: WorkflowRun[], isMobile: boolean) {
+  render(
+    <DataList
+      columns={runColumns()}
+      rows={runs}
+      rowKey={(r) => r.id}
+      onRowClick={vi.fn()}
+      renderCard={(run) => <RunCard run={run} />}
+      empty="No runs yet."
+      isMobile={isMobile}
+    />,
+    { wrapper: tableWrapper },
+  );
+}
+
 function pageWrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -85,16 +102,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('RunsTable', () => {
+describe('runColumns', () => {
   it('renders one row per run with workflow, number, trigger and status', () => {
-    const onOpen = vi.fn();
-    render(
-      <RunsTable
-        runs={[makeRun(), makeRun({ id: 'run-2', n: 4, trigger: 'cron', status: 'succeeded' })]}
-        onOpen={onOpen}
-        isMobile={false}
-      />,
-      { wrapper: tableWrapper },
+    renderList(
+      [makeRun(), makeRun({ id: 'run-2', n: 4, trigger: 'cron', status: 'succeeded' })],
+      false,
     );
     expect(screen.getAllByText('nightly-quality')).toHaveLength(2);
     expect(screen.getByText('#3')).toBeInTheDocument();
@@ -106,25 +118,19 @@ describe('RunsTable', () => {
   });
 
   it('shows done/total progress counts', () => {
-    render(<RunsTable runs={[makeRun()]} onOpen={vi.fn()} isMobile={false} />, {
-      wrapper: tableWrapper,
-    });
+    renderList([makeRun()], false);
     expect(screen.getByText('1/3')).toBeInTheDocument();
     expect(screen.getByLabelText('1 of 3 steps done')).toBeInTheDocument();
   });
 
   it('renders the mobile card variant', () => {
-    render(<RunsTable runs={[makeRun()]} onOpen={vi.fn()} isMobile={true} />, {
-      wrapper: tableWrapper,
-    });
+    renderList([makeRun()], true);
     expect(screen.getByText('Running')).toBeInTheDocument();
     expect(screen.getByText('1/3')).toBeInTheDocument();
   });
 
   it('renders the empty state when there are no runs', () => {
-    render(<RunsTable runs={[]} onOpen={vi.fn()} isMobile={false} />, {
-      wrapper: tableWrapper,
-    });
+    renderList([], false);
     expect(screen.getByText(/No runs yet/)).toBeInTheDocument();
   });
 

@@ -19,7 +19,9 @@ import { formatShortDateTime as fmtTs } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
 import { Modal } from '../../shared/ui/Modal';
-import { RunProgress, RunStatusChip, TriggerChip } from '../workflows/RunRow';
+import { Confirm } from '../../shared/ui/Confirm';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { RunProgress, RunStatusChip, TriggerChip } from '../workflows/runColumns';
 import { RecurringForm } from './RecurringForm';
 import type { ScheduleRun } from '../../shared/types';
 
@@ -86,10 +88,6 @@ export function RecurringDrawer({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   function handleDelete() {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
     void deleteSchedule.mutateAsync(scheduleId).then(onClose);
   }
 
@@ -113,7 +111,7 @@ export function RecurringDrawer({
         </button>
       </div>
 
-      {isLoading && <p style={R.msgStyle()}>Loading…</p>}
+      {isLoading && <LoadingState />}
       {error && <p style={R.errorMsgStyle()}>Error: {String(error)}</p>}
 
       {schedule && (
@@ -144,13 +142,21 @@ export function RecurringDrawer({
             <button style={styles.ghostBtn} onClick={() => setShowEdit(true)}>
               Edit
             </button>
-            <button
-              style={confirmDelete ? styles.deleteConfirmBtn : styles.deleteBtn}
-              disabled={deleteSchedule.isPending}
-              onClick={handleDelete}
-            >
-              {confirmDelete ? 'Confirm delete' : 'Delete'}
-            </button>
+            {confirmDelete ? (
+              <Confirm
+                verb="Delete"
+                onConfirm={handleDelete}
+                onCancel={() => setConfirmDelete(false)}
+              />
+            ) : (
+              <button
+                style={styles.deleteBtn}
+                disabled={deleteSchedule.isPending}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </button>
+            )}
           </div>
 
           <section style={styles.section}>
@@ -281,17 +287,6 @@ const styles = {
     ...T.btnDanger,
     padding: '0.3rem 0.75rem',
     fontSize: '0.8125rem',
-  } as React.CSSProperties,
-  deleteConfirmBtn: {
-    padding: '0.3rem 0.75rem',
-    fontSize: '0.8125rem',
-    fontWeight: 600,
-    background: T.colors.danger,
-    border: `1px solid ${T.colors.danger}`,
-    borderRadius: 4,
-    color: T.colors.white,
-    cursor: 'pointer',
-    fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
   section: {
     marginBottom: '1.25rem',

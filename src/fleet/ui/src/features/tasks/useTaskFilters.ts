@@ -1,10 +1,11 @@
 /**
  * Filter state for the tasks page: status filter, search query and page,
- * plus the filtered, sorted and paginated task lists. Called by
- * TasksPage; mirrors the useBeadFilters pattern with local state instead
- * of URL sync (the tasks page owns no shareable URL today).
+ * plus the filtered, sorted and paginated task lists. State lives in the
+ * URL (ADR 0009 rule 2) via useUrlFilters so the list is shareable.
+ * Called by TasksPage.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
 import type { TaskSummary } from '../../shared/types';
 
 export type TaskStatusFilter = 'all' | 'running' | 'pending' | 'blocked' | 'done' | 'failed';
@@ -19,6 +20,8 @@ export const TASK_FILTERS: Array<{ key: TaskStatusFilter; label: string }> = [
 ];
 
 export const TASKS_PAGE_SIZE = 25;
+
+const VALID = TASK_FILTERS.map((f) => f.key);
 
 const ALERT_FILTERS: TaskStatusFilter[] = ['blocked', 'failed'];
 
@@ -58,13 +61,14 @@ function sortTasks(tasks: TaskSummary[]): TaskSummary[] {
 
 // Filter state + derived lists for the tasks page.
 export function useTaskFilters(tasks: TaskSummary[]) {
-  const [filter, setFilter] = useState<TaskStatusFilter>('running');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [page, setPage] = useState(0);
-
-  useEffect(() => {
-    setPage(0);
-  }, [filter, searchQuery]);
+  const {
+    status: filter,
+    searchQuery,
+    page,
+    setStatus: setFilter,
+    setSearchQuery,
+    setPage,
+  } = useUrlFilters<TaskStatusFilter>({ valid: VALID, defaultStatus: 'running' });
 
   const sortedFiltered = useMemo(
     () => sortTasks(applyFilter(tasks, filter, searchQuery)),

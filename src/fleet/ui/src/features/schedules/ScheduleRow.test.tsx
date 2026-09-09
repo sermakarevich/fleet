@@ -1,12 +1,15 @@
 /**
- * Unit tests for one schedule row: next-run rendering, the "never" and
- * "skipped" last-run cases, and the disabled placeholder.
+ * Unit tests for the schedule list cells: next-run rendering, the
+ * "never" and "skipped" last-run cases, and the disabled placeholder.
+ * Renders scheduleColumns() through the shared DataList.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { formatShortDateTime } from '../../shared/format';
 import type { Schedule } from '../../shared/types';
-import { ScheduleRow } from './ScheduleRow';
+import { DataList } from '../../shared/ui/DataList';
+import { scheduleColumns } from './scheduleColumns';
 
 afterEach(cleanup);
 
@@ -36,24 +39,35 @@ function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
   };
 }
 
-function renderRow(schedule: Schedule) {
-  render(<ScheduleRow schedule={schedule} selected={false} onSelect={vi.fn()} />);
+function renderList(schedule: Schedule) {
+  render(
+    <MemoryRouter>
+      <DataList
+        columns={scheduleColumns()}
+        rows={[schedule]}
+        rowKey={(s) => s.id}
+        onRowClick={vi.fn()}
+        empty="No schedules."
+        isMobile={false}
+      />
+    </MemoryRouter>,
+  );
 }
 
-describe('ScheduleRow', () => {
+describe('scheduleColumns', () => {
   it('renders the next run time when enabled', () => {
     const schedule = makeSchedule();
-    renderRow(schedule);
+    renderList(schedule);
     expect(screen.getByText(formatShortDateTime(schedule.next_fire_at as string))).toBeInTheDocument();
   });
 
   it('renders "never" when there is no last run', () => {
-    renderRow(makeSchedule({ last_run: null }));
+    renderList(makeSchedule({ last_run: null }));
     expect(screen.getByText('never')).toBeInTheDocument();
   });
 
   it('renders "skipped" for a skipped last run', () => {
-    renderRow(
+    renderList(
       makeSchedule({
         last_run: {
           schedule_id: 'sched-1',
@@ -74,8 +88,23 @@ describe('ScheduleRow', () => {
 
   it('renders a placeholder next run when disabled', () => {
     const schedule = makeSchedule({ enabled: false });
-    renderRow(schedule);
+    renderList(schedule);
     expect(screen.queryByText(formatShortDateTime(schedule.next_fire_at as string))).not.toBeInTheDocument();
     expect(screen.getByText('off')).toBeInTheDocument();
+  });
+
+  it('renders the empty state when there are no schedules', () => {
+    render(
+      <MemoryRouter>
+        <DataList
+          columns={scheduleColumns()}
+          rows={[]}
+          rowKey={(s: Schedule) => s.id}
+          empty="No schedules yet."
+          isMobile={false}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('No schedules yet.')).toBeInTheDocument();
   });
 });
