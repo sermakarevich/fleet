@@ -5,6 +5,7 @@
 import type { Bead } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
+import { useClickableProps } from '../../shared/ui/Clickable';
 import { StatusChip } from '../../shared/ui/StatusChip';
 
 interface Props {
@@ -21,8 +22,9 @@ function Dim({ children }: { children: React.ReactNode }) {
 // Desktop table row for one bead.
 export function BeadRow({ bead, selected, onSelect }: Props) {
   const depCount = bead.dependency_count ?? 0;
+  const rowClick = useClickableProps(() => onSelect(bead.id));
   return (
-    <div style={R.rowStyle(selected)} className="row-interactive" tabIndex={0} onClick={() => onSelect(bead.id)}>
+    <div style={R.rowStyle(selected)} className="row-interactive" {...rowClick}>
       <StatusChip status={bead.status} width="6rem" />
       <span style={R.idCellStyle()}>{bead.id}</span>
       <span style={R.titleCellStyle()} title={bead.title}>{bead.title}</span>
@@ -42,12 +44,12 @@ export function BeadRow({ bead, selected, onSelect }: Props) {
 // Mobile card for one bead.
 export function BeadCard({ bead, selected, onSelect }: Props) {
   const depCount = bead.dependency_count ?? 0;
+  const cardClick = useClickableProps(() => onSelect(bead.id));
   return (
     <div
       style={R.merge(styles.card, R.when(selected, styles.cardSelected))}
       className="row-interactive"
-      tabIndex={0}
-      onClick={() => onSelect(bead.id)}
+      {...cardClick}
     >
       <div style={styles.cardHead}>
         <StatusChip status={bead.status} width="6rem" />

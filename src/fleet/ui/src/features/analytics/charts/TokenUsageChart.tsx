@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as P from '../chartTheme';
 import { bucketTickLabel, bucketTooltipLabel } from '../timeBuckets';
-import { fmtTokens } from '../../../shared/format';
+import { formatTokens } from '../../../shared/format';
 
 interface Props {
   bucketSize: 'hour' | 'day';
@@ -22,7 +22,7 @@ export function TokenUsageChart({ bucketSize, buckets }: Props) {
       tick={P.chartAxisTick}
       tickLine={false}
       axisLine={false}
-      tickFormatter={(v: number) => fmtTokens(v)}
+      tickFormatter={(v: number) => formatTokens(v)}
       width={56}
     />
   );
@@ -30,7 +30,7 @@ export function TokenUsageChart({ bucketSize, buckets }: Props) {
     <Tooltip
       {...P.chartTooltipProps}
       labelFormatter={(iso: string) => bucketTooltipLabel(bucketSize, iso)}
-      formatter={(value: number) => fmtTokens(value)}
+      formatter={(value: number) => formatTokens(value)}
     />
   );
 

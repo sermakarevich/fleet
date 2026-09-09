@@ -1,10 +1,11 @@
 import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
-import { fmtTs } from '../../shared/format';
+import { formatTimestamp } from '../../shared/format';
+import { useClickableProps } from '../../shared/ui/Clickable';
 import { StatusChip } from '../../shared/ui/StatusChip';
-import { styles, cardStyles } from './itemStyles';
-import type { TaskRowProps } from './TaskRow';
+import { rowStyles, cardStyles } from './itemStyles';
+import type { TaskItemProps } from './types';
 
-export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: TaskRowProps) {
+export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillConfirm, onKillCancel, onRowClick }: TaskItemProps) {
   const isStopping = stoppingIds.has(task.id) && task.status === 'in_progress';
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
   const isConfirming = confirmingId === task.id;
@@ -13,32 +14,32 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
   const isBlocked = task.status === 'blocked';
   const unblockTask = useUnblockTask();
   const unignoreTask = useUnignoreTask();
+  const cardClick = useClickableProps(() => onRowClick(task.id));
 
   return (
     <div
       style={cardStyles.card}
       className="row-interactive"
-      tabIndex={0}
-      onClick={() => onRowClick(task.id)}
+      {...cardClick}
     >
       <div style={cardStyles.cardHead}>
         <StatusChip status={task.status} stopping={isStopping} width="auto" />
         <span style={cardStyles.cardId}>{task.id}</span>
-        <span style={cardStyles.cardActions} onClick={e => e.stopPropagation()}>
+        <span style={cardStyles.cardActions}>
           {isBlocked && (
-            <button style={styles.unblockBtn} onClick={() => unblockTask.mutate({ id: task.id })}>Unblock</button>
+            <button style={rowStyles.unblockBtn} onClick={(e) => { e.stopPropagation(); unblockTask.mutate({ id: task.id }); }}>Unblock</button>
           )}
           {isBlocked && task.ignored && (
-            <button style={styles.unblockBtn} onClick={() => unignoreTask.mutate(task.id)}>Unignore</button>
+            <button style={rowStyles.unblockBtn} onClick={(e) => { e.stopPropagation(); unignoreTask.mutate(task.id); }}>Unignore</button>
           )}
           {killEligible && !isConfirming && !isStopping && (
-            <button style={styles.killBtn} onClick={() => onKillClick(task.id)}>Kill</button>
+            <button style={rowStyles.killBtn} onClick={(e) => { e.stopPropagation(); onKillClick(task.id); }}>Kill</button>
           )}
-          {isStopping && <span style={styles.stoppingLabel}>stopping…</span>}
+          {isStopping && <span style={rowStyles.stoppingLabel}>stopping…</span>}
           {isConfirming && (
-            <span style={styles.confirm}>
-              <button style={styles.yesBtn} onClick={() => onKillConfirm(task.id)}>Yes</button>
-              <button style={styles.cancelBtn} onClick={onKillCancel}>No</button>
+            <span style={rowStyles.confirm}>
+              <button style={rowStyles.yesBtn} onClick={(e) => { e.stopPropagation(); onKillConfirm(task.id); }}>Yes</button>
+              <button style={rowStyles.cancelBtn} onClick={(e) => { e.stopPropagation(); onKillCancel(); }}>No</button>
             </span>
           )}
         </span>
@@ -46,18 +47,18 @@ export function TaskCard({ task, confirmingId, stoppingIds, onKillClick, onKillC
       <div style={cardStyles.cardTitle}>{task.title}</div>
       {task.description && <div style={cardStyles.cardDesc}>{task.description}</div>}
       {isBlocked && (
-        <div style={styles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
+        <div style={rowStyles.blockedReason} title={task.blocked_reason ?? 'No recorded reason'}>
           {task.blocked_reason ?? 'No recorded reason'}
         </div>
       )}
       {task.ignored && (
-        <div style={styles.ignoredBadge} title={`Triage ignored until ${task.ignore_until ?? '—'}`}>
+        <div style={rowStyles.ignoredBadge} title={`Triage ignored until ${task.ignore_until ?? '—'}`}>
           ignored until {task.ignore_until ?? '—'}
         </div>
       )}
       <div style={cardStyles.cardMeta}>
         <span style={cardStyles.cardMetaText}>{coderModelStr || '(default)'}</span>
-        <span style={cardStyles.cardMetaText}>{fmtTs(task.started_at)}</span>
+        <span style={cardStyles.cardMetaText}>{formatTimestamp(task.started_at)}</span>
         <span style={cardStyles.cardMetaText} title={task.cwd ?? undefined}>{cwdShort}</span>
       </div>
       {task.restarts > 0 && (

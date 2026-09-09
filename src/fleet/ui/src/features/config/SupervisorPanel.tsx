@@ -1,5 +1,5 @@
 import type { SupervisorStatus } from '../../shared/types';
-import { fmtDateTime } from '../../shared/format';
+import { formatDateTime } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function SupervisorPanel({ status, onPause, onResume, onRestart, loading }: Props) {
-  const startedAt = fmtDateTime(status.started_at);
+  const startedAt = formatDateTime(status.started_at);
 
   const handleRestart = async () => {
     if (!window.confirm('Restart the supervisor daemon?')) return;

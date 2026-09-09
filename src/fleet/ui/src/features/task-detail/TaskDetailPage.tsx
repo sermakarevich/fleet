@@ -3,7 +3,8 @@ import { useParams, Navigate } from 'react-router-dom';
 import { useTask, useConfig } from '../../shared/hooks/useApi';
 import { useEventSocket } from '../../shared/hooks/useEventSocket';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
-import { Header } from './Header';
+import { TaskDetailHeader } from './TaskDetailHeader';
+import { Tabs } from '../../shared/ui/Tabs';
 import { LiveTab } from './tabs/LiveTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
 import { ChildrenTab } from './tabs/ChildrenTab';
@@ -87,23 +88,20 @@ export function TaskDetailPage() {
 
   return (
     <div style={styles.page}>
-      <Header task={taskWithStatus ?? task} config={config} />
+      <TaskDetailHeader task={taskWithStatus ?? task} config={config} />
       <div style={styles.body}>
         <div style={styles.main}>
-          <div style={styles.tabBar}>
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                style={merge(styles.tabBtn, when(activeTab === tab.id, styles.tabBtnActive), {  })}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <div style={styles.tabContent}>
+          <Tabs
+            tabs={TABS}
+            activeTab={activeTab}
+            onTabChange={(id) => setActiveTab(id as TabId)}
+            label="Task views"
+            barStyle={styles.tabBar}
+            tabStyle={(active) => merge(styles.tabBtn, when(active, styles.tabBtnActive), {  })}
+            panelStyle={styles.tabContent}
+          >
             {renderTab()}
-          </div>
+          </Tabs>
         </div>
         {!isMobile && <ActivityGutter task={taskWithStatus ?? task} events={events} />}
       </div>

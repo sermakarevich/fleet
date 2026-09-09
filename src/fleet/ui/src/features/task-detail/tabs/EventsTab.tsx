@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
 import { usePoll } from '../../../shared/poll';
 import type { StreamEvent } from '../../../shared/types';
-import { fmtClockTime } from '../../../shared/format';
-import { eventKindColor } from '../../../shared/status';
+import { formatClockTime } from '../../../shared/format';
+import { eventKindColor } from '../../../shared/colors';
+import { useClickableProps } from '../../../shared/ui/Clickable';
 import { merge, when } from '../../../shared/styles/recipes';
 
 interface Props {
@@ -98,31 +99,7 @@ export function EventsTab({ taskId, status }: Props) {
           return (
             <div key={i}>
               {showSeparator && <div style={styles.separator} />}
-              <div
-                style={merge(styles.row, when(evt.kind === 'error', styles.rowError), {  })}
-                onClick={() => handleToggleExpand(i)}
-              >
-                <span style={styles.ts}>{fmtClockTime(evt.ts)}</span>
-                <span
-                  style={merge(styles.badge, { background: eventKindColor(evt.kind) + '22', color: eventKindColor(evt.kind), borderColor: eventKindColor(evt.kind) + '66',  })}
-                >
-                  {evt.kind}
-                </span>
-                {evt.tool_name && <span style={styles.toolName}>{evt.tool_name}</span>}
-                <span style={styles.summary}>{evt.summary || evt.kind}</span>
-                {' '}{(() => {
-                  // render usage tokens right-aligned
-                  if (evt.usage) {
-                    const inTok = evt.usage.input_tokens ?? evt.usage.cache_creation_input_tokens;
-                    const outTok = evt.usage.output_tokens ?? evt.usage.cache_read_input_tokens;
-                    const parts: string[] = [];
-                    if (typeof inTok === 'number') parts.push(`in:${inTok}`);
-                    if (typeof outTok === 'number') parts.push(`out:${outTok}`);
-                    if (parts.length) return <span style={styles.usage}>{parts.join(', ')}</span>;
-                  }
-                  return null;
-                })()}
-              </div>
+              <EventRow evt={evt} expanded={expandedIdx === i} onToggle={() => handleToggleExpand(i)} />
               {expandedIdx === i && (
                 <pre style={styles.rawPre}>
                   <code>{JSON.stringify(evt.raw, null, 2)}</code>
@@ -136,8 +113,40 @@ export function EventsTab({ taskId, status }: Props) {
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  container: {
+// One event line: keyboard-operable, expands the raw payload on activate.
+function EventRow({ evt, expanded, onToggle }: { evt: StreamEvent; expanded: boolean; onToggle: () => void }) {
+  const rowClick = useClickableProps(onToggle);
+  return (
+    <div
+      style={merge(styles.row, when(evt.kind === 'error', styles.rowError), {  })}
+      {...rowClick}
+      aria-expanded={expanded}
+    >
+      <span style={styles.ts}>{formatClockTime(evt.ts)}</span>
+      <span
+        style={merge(styles.badge, { background: eventKindColor(evt.kind) + '22', color: eventKindColor(evt.kind), borderColor: eventKindColor(evt.kind) + '66',  })}
+      >
+        {evt.kind}
+      </span>
+      {evt.tool_name && <span style={styles.toolName}>{evt.tool_name}</span>}
+      <span style={styles.summary}>{evt.summary || evt.kind}</span>
+      {' '}{(() => {
+        // render usage tokens right-aligned
+        if (evt.usage) {
+          const inTok = evt.usage.input_tokens ?? evt.usage.cache_creation_input_tokens;
+          const outTok = evt.usage.output_tokens ?? evt.usage.cache_read_input_tokens;
+          const parts: string[] = [];
+          if (typeof inTok === 'number') parts.push(`in:${inTok}`);
+          if (typeof outTok === 'number') parts.push(`out:${outTok}`);
+          if (parts.length) return <span style={styles.usage}>{parts.join(', ')}</span>;
+        }
+        return null;
+      })()}
+    </div>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {  container: {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',

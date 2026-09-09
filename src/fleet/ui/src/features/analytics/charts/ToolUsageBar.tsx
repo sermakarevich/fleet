@@ -1,7 +1,7 @@
 import type { AnalyticsToolRow } from '../../../shared/types';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
-import { fmtCount } from '../../../shared/format';
+import { formatCount } from '../../../shared/format';
 import { merge } from '../../../shared/styles/recipes';
 
 interface ToolUsageBarProps {
@@ -27,7 +27,7 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
     <div style={panel}>
       <div style={P.panelTitle}>
         <span>Tool usage</span>
-        {total > 0 && <span style={P.panelTitleAside}>{fmtCount(total)} calls</span>}
+        {total > 0 && <span style={P.panelTitleAside}>{formatCount(total)} calls</span>}
       </div>
       {top.length === 0 ? (
         <p style={P.panelEmpty}>No tool data in this window.</p>
@@ -47,7 +47,7 @@ export function ToolUsageBar({ tools }: ToolUsageBarProps) {
                 />
               </div>
               <span style={styles.toolCount}>
-                {fmtCount(row.count)}
+                {formatCount(row.count)}
               </span>
             </div>
           ))}

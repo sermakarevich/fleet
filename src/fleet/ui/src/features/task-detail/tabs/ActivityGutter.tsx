@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Sparkline } from '../../../shared/ui/Sparkline';
 import type { FleetEvent, TaskDetail } from '../../../shared/types';
-import { fmtIdle, fmtInt } from '../../../shared/format';
+import { formatIdle, formatInteger } from '../../../shared/format';
 import { useNow } from '../../../shared/hooks/useNow';
 import { useKillTask } from '../../../shared/hooks/useApi';
-import { eventKindColor } from '../../../shared/status';
+import { eventKindColor } from '../../../shared/colors';
 import { merge } from '../../../shared/styles/recipes';
 
 interface Props {
@@ -61,13 +61,13 @@ export function ActivityGutter({ task, events }: Props) {
         <div style={styles.label}>tokens</div>
         <Sparkline value={tokenTotal ?? null} />
         {tokenTotal != null && (
-          <div style={styles.value}>{fmtInt(tokenTotal ?? null)}</div>
+          <div style={styles.value}>{formatInteger(tokenTotal ?? null)}</div>
         )}
       </div>
 
       <div style={styles.section}>
         <div style={styles.label}>idle</div>
-        <div style={styles.value}>{fmtIdle(idleSec)}</div>
+        <div style={styles.value}>{formatIdle(idleSec)}</div>
       </div>
 
       {lastEventKind && (

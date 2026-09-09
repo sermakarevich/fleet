@@ -3,6 +3,7 @@ import { Command } from 'cmdk';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { errorMessage } from '../../shared/api';
+import { Modal } from '../../shared/ui/Modal';
 import { usePauseSupervisor, useResumeSupervisor, useSearch } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
 
@@ -43,15 +44,6 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
     error: searchError,
   } = useSearch(debouncedQuery);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, setOpen]);
-
   const cachedTasks = (qc.getQueryData<TaskSummary[]>(['tasks']) ?? []).filter(t =>
     !inputValue ||
     t.title?.toLowerCase().includes(inputValue.toLowerCase()) ||
@@ -84,12 +76,11 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
   if (!open) return null;
 
   return (
-    <div style={s.backdrop} onClick={() => setOpen(false)}>
-      <div style={s.panel} onClick={e => e.stopPropagation()}>
-        <Command shouldFilter={false} style={s.command}>
+    <Modal labelledBy="cmd-palette-title" onClose={() => setOpen(false)} panelStyle={s.panel}>
+      <h2 id="cmd-palette-title" style={s.srOnly}>Command palette</h2>
+      <Command shouldFilter={false} style={s.command}>
           <div style={s.inputWrap}>
             <Command.Input
-              autoFocus
               value={inputValue}
               onValueChange={setInputValue}
               placeholder="Jump to task, run action, or search…"
@@ -156,22 +147,22 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
               <Command.Empty style={s.empty}>No results found</Command.Empty>
             )}
           </Command.List>
-        </Command>
-      </div>
-    </div>
+      </Command>
+    </Modal>
   );
 }
 
 const s = {
-  backdrop: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(0,0,0,0.55)',
-    zIndex: 2000,
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingTop: '18vh',
+  srOnly: {
+    position: 'absolute' as const,
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap' as const,
+    borderWidth: 0,
   },
   panel: {
     width: 560,

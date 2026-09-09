@@ -9,7 +9,7 @@ import * as R from '../../shared/styles/recipes';
 import { TaskRow } from './TaskRow';
 import { TaskCard } from './TaskCard';
 import { TASK_FILTERS, useTaskFilters } from './useTaskFilters';
-import { styles } from './itemStyles';
+import { rowStyles } from './itemStyles';
 
 interface TasksSocketMessage {
   task_id: string;
@@ -91,9 +91,9 @@ export function TasksPage() {
                 style={R.filterBtnStyle(filter === key)}
                 onClick={() => setFilter(key)}
               >
-                <span style={styles.filterBtnInner}>
+                <span style={rowStyles.filterBtnInner}>
                   {label}
-                  {hasAlert && <span style={styles.alertDot} />}
+                  {hasAlert && <span style={rowStyles.alertDot} />}
                 </span>
               </button>
             );
@@ -104,16 +104,16 @@ export function TasksPage() {
       <div style={R.panelStyle()}>
         {!isMobile && (
           <div style={R.colHeaderStyle()}>
-            <span style={styles.colStatus}>Status</span>
-            <span style={styles.colId}>ID</span>
-            <span style={styles.colTitle}>Title</span>
-            <span style={styles.colCoder}>Coder / Model</span>
-            <span style={styles.colContext}>Context</span>
-            <span style={styles.colRuns}>Runs</span>
-            <span style={styles.colTs}>Started</span>
-            <span style={styles.colTs}>Completed</span>
-            <span style={styles.colCwd}>Cwd</span>
-            <span style={styles.colAction} />
+            <span style={rowStyles.colStatus}>Status</span>
+            <span style={rowStyles.colId}>ID</span>
+            <span style={rowStyles.colTitle}>Title</span>
+            <span style={rowStyles.colCoder}>Coder / Model</span>
+            <span style={rowStyles.colContext}>Context</span>
+            <span style={rowStyles.colRuns}>Runs</span>
+            <span style={rowStyles.colTs}>Started</span>
+            <span style={rowStyles.colTs}>Completed</span>
+            <span style={rowStyles.colCwd}>Cwd</span>
+            <span style={rowStyles.colAction} />
           </div>
         )}
 

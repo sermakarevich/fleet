@@ -3,9 +3,10 @@
  * Called by ChatPage; parses the form into a string|string[] answer
  * and hands it to the chat hook's submit.
  */
+import { useEffect, useRef } from 'react';
 import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
-import { relTime } from '../../shared/format';
+import { formatRelativeAge } from '../../shared/format';
 
 interface Props {
   question: ChatQuestion;
@@ -30,6 +31,14 @@ function readAnswer(form: HTMLFormElement, q: ChatQuestion): string | string[] |
 
 // Detail header, prompt and answer form for one question.
 export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notify, onSubmit }: Props) {
+  const answerRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus the answer box when a new question is selected (the autoFocus
+  // prop is banned by jsx-a11y, so focus imperatively on question change).
+  useEffect(() => {
+    answerRef.current?.focus();
+  }, [q.id]);
+
   function handleSubmit(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     const answer = readAnswer(ev.currentTarget, q);
@@ -47,7 +56,7 @@ export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notif
         <div style={styles.detailMeta}>
           <span style={styles.mono}>#{q.id.slice(0, 8)}</span>
           {q.session_id && <span>session {q.session_id}</span>}
-          <span>asked {relTime(q.created_at, serverOffset, now)} ago</span>
+          <span>asked {formatRelativeAge(q.created_at, serverOffset, now)} ago</span>
           {q.timeout_s != null && <span>timeout {Math.round(q.timeout_s)}s</span>}
           {q.priority > 0 && <span style={styles.prioText}>priority {q.priority}</span>}
         </div>
@@ -73,9 +82,9 @@ export function AnswerForm({ question: q, serverOffset, now, isSubmitting, notif
         ) : (
           <textarea
             name="answer"
+            ref={answerRef}
             style={styles.textarea}
             placeholder="Type your answer…"
-            autoFocus
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 (e.currentTarget.form as HTMLFormElement).requestSubmit();

@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { onAuthRequired, setFleetToken } from '../api';
+import { Modal } from './Modal';
 
 export function TokenGate() {
   const qc = useQueryClient();
@@ -26,20 +27,17 @@ export function TokenGate() {
   }
 
   return (
-    <div style={styles.backdrop}>
-      <div style={styles.panel}>
-        <h2 style={styles.title}>Fleet API token required</h2>
+    <Modal labelledBy="token-gate-title" onClose={() => setOpen(false)} panelStyle={styles.panel}>
+        <h2 id="token-gate-title" style={styles.title}>Fleet API token required</h2>
         <p style={styles.hint}>The server rejected the request (401). Paste the token to retry.</p>
         <input
           type="password"
-          autoFocus
           style={styles.input}
           placeholder="API token"
           value={token}
           onChange={(e) => setToken(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') save();
-            if (e.key === 'Escape') setOpen(false);
           }}
         />
         <div style={styles.actions}>
@@ -50,21 +48,11 @@ export function TokenGate() {
             Save token
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
 const styles = {
-  backdrop: {
-    position: 'fixed' as const,
-    inset: 0,
-    background: 'rgba(0,0,0,0.55)',
-    zIndex: 3000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   panel: {
     width: 380,
     background: '#18181b',

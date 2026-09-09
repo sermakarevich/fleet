@@ -4,6 +4,7 @@
  * actions. Called by App when the new-task button fires.
  */
 import * as R from '../../shared/styles/recipes';
+import { Modal } from '../../shared/ui/Modal';
 import { useNewTaskForm } from './hooks/useNewTaskForm';
 import { CoderModelPriority, DepsAndArgs, TemplatePicker } from './NewTaskOptions';
 import { styles } from './newTaskPanelStyles';
@@ -30,12 +31,14 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.panel} onClick={(e) => e.stopPropagation()}>
+    <Modal labelledBy="new-task-title" onClose={onClose} panelStyle={styles.panel}>
         <div style={styles.header}>
-          <h2 style={styles.heading}>New task</h2>
-          <button style={styles.closeBtn} onClick={onClose}>×</button>
+          <h2 id="new-task-title" style={styles.heading}>New task</h2>
+          <button style={styles.closeBtn} onClick={onClose} aria-label="Close">×</button>
         </div>
+        {/* Form-wide Cmd/Ctrl+Enter shortcut: every field stays natively
+            keyboard-operable, so this needs no tab stop or role of its own. */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} style={styles.form}>
           <label style={R.fieldLabelStyle()}>
             Title *
@@ -44,7 +47,6 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
               value={f.title}
               onChange={(e) => f.setTitle(e.target.value)}
               placeholder="What should this task do?"
-              autoFocus
             />
             {f.titleError && <span style={styles.errorMsg}>{f.titleError}</span>}
           </label>
@@ -86,7 +88,6 @@ export function NewTaskPanel({ onClose, onCreated }: Props) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

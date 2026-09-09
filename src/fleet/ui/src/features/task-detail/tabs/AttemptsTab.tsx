@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import type { TaskAttempt } from '../../../shared/types';
-import { fmtClockTime, fmtDuration } from '../../../shared/format';
+import { formatClockTime, formatDuration } from '../../../shared/format';
 
 // peak_context_pct from the API is already on the 0-100 scale (see
 // state/task_summary.py::_build_attempts_summary), unlike shared/format.ts's
-// fmtPct which expects a 0..1 fraction — so this stays local.
-function fmtContextPct(pct: number | null): string {
-  if (pct == null) return '—';
-  return `${Math.round(pct)}%`;
+// formatPercent which expects a 0..1 fraction — so this stays local.
+function formatAttemptContextPercent(percent: number | null): string {
+  if (percent == null) return '—';
+  return `${Math.round(percent)}%`;
 }
 import { useAttemptSummary, useAttemptPrompt } from '../../../shared/hooks/useApi';
 import { merge, when } from '../../../shared/styles/recipes';
@@ -74,12 +74,12 @@ function AttemptRow({
         <span style={styles.cell}>
           {attempt.kind === 'compact' ? 'compaction' : (attempt.mode ?? '—')}
         </span>
-        <span style={styles.cell}>{fmtClockTime(attempt.started_at)}</span>
-        <span style={styles.cell}>{fmtDuration(attempt.duration_sec)}</span>
+        <span style={styles.cell}>{formatClockTime(attempt.started_at)}</span>
+        <span style={styles.cell}>{formatDuration(attempt.duration_sec)}</span>
         <span style={styles.cell}>{[attempt.coder, attempt.model].filter(Boolean).join(' / ') || '—'}</span>
         <span style={styles.cell}>{attempt.outcome ?? '—'}</span>
         {attempt.context_badge && <span style={styles.contextBadge}>context</span>}
-        <span style={styles.cell}>{fmtContextPct(attempt.peak_context_pct)}</span>
+        <span style={styles.cell}>{formatAttemptContextPercent(attempt.peak_context_pct)}</span>
         <span style={styles.cell}>{attempt.files_touched} files</span>
         <span style={styles.cell}>{attempt.commits.length} commits</span>
         <span style={merge(styles.cell, styles.reasonCell)} title={attempt.reason ?? undefined}>

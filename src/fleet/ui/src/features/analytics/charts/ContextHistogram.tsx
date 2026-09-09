@@ -1,7 +1,7 @@
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { merge } from '../../../shared/styles/recipes';
-import { fmtCount } from '../../../shared/format';
+import { formatCount } from '../../../shared/format';
 
 const BUCKET_LABELS = ['0-25', '25-50', '50-75', '75-100', '100+'];
 const LABEL_COLORS: Record<number, string> = {
@@ -35,7 +35,7 @@ export function ContextHistogram({ buckets }: ContextHistogramProps) {
 
           return (
             <div key={BUCKET_LABELS[i]} style={bucketWrapper}>
-              <div style={countLabel}>{fmtCount(count)}</div>
+              <div style={countLabel}>{formatCount(count)}</div>
               <div style={barContainer}>
                 <div
                   style={merge(styles.bar, { height: `${heightPct}%`, minHeight: `${MIN_HEIGHT_PX}px`, background: color })}
