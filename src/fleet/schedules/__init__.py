@@ -8,13 +8,14 @@ imports `core`, `state`, and `beads` only.
 
 from __future__ import annotations
 
-from fleet.schedules.cron import CronError, CronSchedule, next_fire, parse, upcoming
+from fleet.schedules.cron import CronError, CronSchedule, next_fire, parse, upcoming, zone
 from fleet.schedules.firing import (
     Action,
     Decision,
     decide,
     fire,
     fire_due,
+    next_due,
     open_task,
     previous_task_status,
 )
@@ -35,10 +36,12 @@ __all__ = [
     "fire",
     "fire_due",
     "new_id",
+    "next_due",
     "next_fire",
     "open_task",
     "parse",
     "previous_task_status",
     "render",
     "upcoming",
+    "zone",
 ]

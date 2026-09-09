@@ -21,6 +21,7 @@ from fleet.serve.api.analytics import router as analytics_router
 from fleet.serve.api.beads import router as beads_router
 from fleet.serve.api.chat import router as chat_router
 from fleet.serve.api.config import router as config_router
+from fleet.serve.api.schedules import router as schedules_router
 from fleet.serve.api.search import router as search_router
 from fleet.serve.api.supervisor import router as supervisor_router
 from fleet.serve.api.system import router as system_router
@@ -46,5 +47,6 @@ ROUTERS: list[APIRouter] = [
     config_router,
     analytics_router,
     search_router,
+    schedules_router,
     chat_router,
 ]

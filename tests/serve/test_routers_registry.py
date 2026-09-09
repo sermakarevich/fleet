@@ -61,6 +61,8 @@ def test_app_serves_registered_routes(tmp_path, monkeypatch) -> None:
         "/api/config",
         "/api/analytics/summary",
         "/api/search",
+        "/api/schedules",
+        "/api/schedules/{schedule_id}",
         "/api/chat/questions",
         "/healthz",
     ):

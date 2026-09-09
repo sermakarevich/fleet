@@ -736,6 +736,138 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Schedules
+         * @description Every schedule with next firing, run count and latest run.
+         */
+        get: operations["list_schedules_api_schedules_get"];
+        put?: never;
+        /**
+         * Create Schedule
+         * @description Validate and save a schedule; 201 with the view.
+         */
+        post: operations["create_schedule_api_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Cron
+         * @description Live cron check for the form; a bad expression is valid=false.
+         */
+        post: operations["preview_cron_api_schedules_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Schedule
+         * @description One schedule with upcoming firings and enriched run history.
+         */
+        get: operations["get_schedule_api_schedules__schedule_id__get"];
+        /**
+         * Update Schedule
+         * @description Validate and rewrite a schedule, keeping id and created_at.
+         */
+        put: operations["update_schedule_api_schedules__schedule_id__put"];
+        post?: never;
+        /**
+         * Delete Schedule
+         * @description Remove a schedule and its run history.
+         */
+        delete: operations["delete_schedule_api_schedules__schedule_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Schedule
+         * @description Fire one manual run now and return it with the new task id.
+         */
+        post: operations["run_schedule_api_schedules__schedule_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable Schedule
+         * @description Enable a schedule without resending the full body.
+         */
+        post: operations["enable_schedule_api_schedules__schedule_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable Schedule
+         * @description Disable a schedule without resending the full body.
+         */
+        post: operations["disable_schedule_api_schedules__schedule_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/questions": {
         parameters: {
             query?: never;
@@ -1236,6 +1368,18 @@ export interface components {
             id: string;
         };
         /**
+         * CronPreviewResponse
+         * @description Cron validity plus upcoming UTC firings (never 4xx for a bad expression).
+         */
+        CronPreviewResponse: {
+            /** Valid */
+            valid: boolean;
+            /** Error */
+            error: string | null;
+            /** Upcoming */
+            upcoming: string[];
+        };
+        /**
          * DiffResponse
          * @description git diff envelope for GET /api/tasks/{id}/diff.
          */
@@ -1458,6 +1602,129 @@ export interface components {
             status: "ok" | "fail" | "outcome";
             /** Reason */
             reason: string;
+        };
+        /**
+         * ScheduleDetail
+         * @description One schedule with upcoming firings and enriched run history.
+         */
+        ScheduleDetail: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Cron */
+            cron: string;
+            /** Timezone */
+            timezone: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            /** Cwd */
+            cwd: string | null;
+            /** Coder */
+            coder: string | null;
+            /** Model */
+            model: string | null;
+            /** Priority */
+            priority: number;
+            /** Overlap */
+            overlap: string;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Next Fire At */
+            next_fire_at: string | null;
+            /** Run Count */
+            run_count: number;
+            last_run: components["schemas"]["ScheduleRunView"] | null;
+            /** Upcoming */
+            upcoming: string[];
+            /** Runs */
+            runs: components["schemas"]["ScheduleRunView"][];
+        };
+        /**
+         * ScheduleListResponse
+         * @description Envelope for GET /api/schedules.
+         */
+        ScheduleListResponse: {
+            /** Schedules */
+            schedules: components["schemas"]["ScheduleView"][];
+        };
+        /**
+         * ScheduleRunResponse
+         * @description Envelope for POST /api/schedules/{id}/run.
+         */
+        ScheduleRunResponse: {
+            run: components["schemas"]["ScheduleRunView"];
+        };
+        /**
+         * ScheduleRunView
+         * @description One schedule run plus the task it opened (status/title null when gone).
+         */
+        ScheduleRunView: {
+            /** Schedule Id */
+            schedule_id: string;
+            /** N */
+            n: number;
+            /** Scheduled For */
+            scheduled_for: string;
+            /** Fired At */
+            fired_at: string;
+            /** Trigger */
+            trigger: string;
+            /** Task Id */
+            task_id: string | null;
+            /** Skipped */
+            skipped: boolean;
+            /** Reason */
+            reason: string;
+            /** Task Status */
+            task_status: string | null;
+            /** Task Title */
+            task_title: string | null;
+        };
+        /**
+         * ScheduleView
+         * @description One schedule with its next firing, run count and latest run.
+         */
+        ScheduleView: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Cron */
+            cron: string;
+            /** Timezone */
+            timezone: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string;
+            /** Cwd */
+            cwd: string | null;
+            /** Coder */
+            coder: string | null;
+            /** Model */
+            model: string | null;
+            /** Priority */
+            priority: number;
+            /** Overlap */
+            overlap: string;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Next Fire At */
+            next_fire_at: string | null;
+            /** Run Count */
+            run_count: number;
+            last_run: components["schemas"]["ScheduleRunView"] | null;
         };
         /**
          * SearchHit
@@ -2887,6 +3154,252 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_schedules_api_schedules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleListResponse"];
+                };
+            };
+        };
+    };
+    create_schedule_api_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleView"];
+                };
+            };
+        };
+    };
+    preview_cron_api_schedules_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CronPreviewResponse"];
+                };
+            };
+        };
+    };
+    get_schedule_api_schedules__schedule_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schedule_api_schedules__schedule_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_schedule_api_schedules__schedule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_schedule_api_schedules__schedule_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleRunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_schedule_api_schedules__schedule_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_schedule_api_schedules__schedule_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
             /** @description Validation Error */

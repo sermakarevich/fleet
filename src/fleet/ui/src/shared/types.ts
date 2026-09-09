@@ -41,6 +41,10 @@ export type SearchResult = Schemas['SearchHit'];
 export type LogLine = Schemas['LogLine'];
 export type FileOp = Schemas['FileOp'];
 export type ChatQuestion = Schemas['Question'];
+export type Schedule = Schemas['ScheduleView'];
+export type ScheduleRun = Schemas['ScheduleRunView'];
+export type ScheduleDetail = Schemas['ScheduleDetail'];
+export type CronPreview = Schemas['CronPreviewResponse'];
 
 // --- UI-only types (never cross the API boundary) ---
 
@@ -66,4 +70,18 @@ export interface CreateTaskInput {
   priority?: number;
   dependencies?: string[];
   args?: string;
+}
+
+export interface ScheduleInput {
+  name: string;
+  cron: string;
+  timezone?: string;
+  enabled?: boolean;
+  title: string;
+  description?: string;
+  cwd?: string;
+  coder?: string;
+  model?: string;
+  priority?: number;
+  overlap?: string;
 }
