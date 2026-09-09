@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 
 import typer
 
 from fleet.beads import client as beads_client
 from fleet.beads.create_args import rewrite_create_argv
 from fleet.beads.queue import BeadsQueue
+from fleet.cli import subproc
 from fleet.coders import get_coder
+from fleet.core.errors import SubprocessTimeout
 from fleet.state import paths as state_paths
 
 
@@ -89,7 +90,11 @@ def register(app: typer.Typer) -> None:  # noqa: PLR0915  # ADR 0006 bead 12
         if not is_create:
             # Simple passthrough: stream stdout/stderr straight to the terminal
             # (no capture) so colors/interactivity behave like a direct `bd` call.
-            result = subprocess.run(["bd", *bd_args], cwd=fleet_home, check=False)
+            try:
+                result = subproc.run(["bd", *bd_args], cwd=fleet_home)
+            except SubprocessTimeout as exc:
+                typer.echo(f"Error: {' '.join(exc.argv)} timed out.", err=True)
+                raise typer.Exit(1) from exc
             raise typer.Exit(result.returncode)
 
         try:

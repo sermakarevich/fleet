@@ -6,12 +6,12 @@ import os
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import IO
 
 import structlog
 
+from fleet.core.iso import now_iso
 from fleet.core.redact import redact
 from fleet.core.task import Event, EventKind
 
@@ -92,7 +92,7 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
     human-readable console output to stderr.
     """
     log_root.mkdir(parents=True, exist_ok=True)
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = now_iso()[:10]
     fleet_path = log_root / f"fleet-{date}.jsonl"
     fleet_file = fleet_path.open("a", encoding="utf-8")
     processors = [

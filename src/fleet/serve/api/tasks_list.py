@@ -11,6 +11,7 @@ from fleet.beads.client import BdError
 from fleet.beads.reconcile import merge_status
 from fleet.beads.status_cache import get_beads_status_map
 from fleet.coders import get_coder, list_coders
+from fleet.serve.api.artifact_files import read_templates
 from fleet.serve.api.models import (
     CoderListResponse,
     CreateTaskResponse,
@@ -20,10 +21,10 @@ from fleet.serve.api.models import (
 from fleet.serve.api.task_summary import (
     build_all_summaries,
     config_defaults,
+    list_raw_tasks,
     recency_key,
 )
 from fleet.serve.state import StateDep
-from fleet.state.task_index import TaskIndex
 
 router = APIRouter(prefix="/api")
 
@@ -32,8 +33,7 @@ router = APIRouter(prefix="/api")
 async def list_tasks(state: StateDep, closed_limit: int = 300) -> JSONResponse:
     """List task summaries, active first then recently-closed (FR-07)."""
     fleet_home = state.fleet_home
-    index = TaskIndex(fleet_home)
-    raw_tasks = [raw for _, raw in index.iter_meta()]
+    raw_tasks = await asyncio.to_thread(list_raw_tasks, fleet_home)
     beads_map = await asyncio.to_thread(get_beads_status_map, fleet_home)
     reconciled = [
         merge_status(raw, beads_map.get(raw.get("id", "")))
@@ -99,12 +99,5 @@ async def create_task(request: Request, state: StateDep) -> JSONResponse:
 @router.get("/templates", response_model=TemplateListResponse)
 async def list_templates(state: StateDep) -> JSONResponse:
     """Prompt templates stored under the fleet home."""
-    templates_dir = state.fleet_home / "templates"
-    templates = []
-    if templates_dir.is_dir():
-        for f in sorted(templates_dir.glob("*.md")):
-            try:
-                templates.append({"name": f.stem, "content": f.read_text(encoding="utf-8")})
-            except OSError:
-                continue
+    templates = await asyncio.to_thread(read_templates, state.fleet_home / "templates")
     return JSONResponse({"templates": templates})

@@ -41,3 +41,13 @@ class QuestionNotFound(FleetError, KeyError):
         super().__init__(qid)
         self.qid = qid
         self.db_path = Path(db_path) if db_path is not None else None
+
+
+class SubprocessTimeout(FleetError, TimeoutError):
+    """A child process outlived its timeout; carries the argv behind it."""
+
+    def __init__(self, argv: list[str], timeout_s: float) -> None:
+        """Remember which command hung and how long it was allowed."""
+        super().__init__(f"{' '.join(argv)} timed out after {timeout_s}s")
+        self.argv = argv
+        self.timeout_s = timeout_s

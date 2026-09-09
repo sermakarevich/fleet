@@ -93,6 +93,11 @@ def build_all_summaries(
     ]
 
 
+def list_raw_tasks(fleet_home: Path) -> list[dict]:
+    """Raw task.json dicts for every task (runs in a thread; walks tasks/)."""
+    return [raw for _, raw in TaskIndex(fleet_home).iter_meta()]
+
+
 def fetch_beads_info(task_id: str, fleet_home: Path) -> dict | None:
     """{status, priority, depends_on} from bd show, or None if unavailable."""
     try:

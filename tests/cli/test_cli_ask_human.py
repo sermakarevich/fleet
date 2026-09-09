@@ -41,7 +41,7 @@ def test_install_registers_with_claude_mcp_add() -> None:
 
     with (
         patch("shutil.which", side_effect=fake_which),
-        patch("fleet.cli.ask_human.subprocess.run", side_effect=fake_run),
+        patch("fleet.cli.subproc.run", side_effect=fake_run),
     ):
         result = runner.invoke(app, ["ask-human", "install"])
 

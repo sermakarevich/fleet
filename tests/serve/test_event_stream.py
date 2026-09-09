@@ -363,8 +363,8 @@ def test_prune_stale_removes_deleted_task_entry(tmp_path: Path) -> None:
     deleted_dir.mkdir()
 
     watcher = FileWatcher(WebSocketBroadcaster())
-    watcher._tail_state["task-alive"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
-    watcher._tail_state["task-deleted"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
+    watcher._tail_state["task-alive"] = _TailState(offset=0, path=Path("x"))
+    watcher._tail_state["task-deleted"] = _TailState(offset=0, path=Path("x"))
 
     deleted_dir.rmdir()
     watcher._prune_stale(tasks_dir)

@@ -22,6 +22,7 @@ from rich.text import Text
 from fleet.beads.status_cache import get_beads_status_map
 from fleet.coders import context_limit_for
 from fleet.core.effective import effective_coder_model
+from fleet.core.iso import parse_iso
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.task import Task
 from fleet.observability.daemon import StartResult
@@ -44,7 +45,9 @@ def format_started(started_at_iso: str | None) -> str:
     """Local start time (today: HH:MM:SS, older: Mon DD HH:MM), "-" when unknown."""
     if not started_at_iso:
         return "-"
-    ts = datetime.fromisoformat(started_at_iso)
+    ts = parse_iso(started_at_iso)
+    if ts is None:
+        return "-"
     now = datetime.now(tz=UTC)
     local = ts.astimezone()
     if local.date() == now.astimezone().date():

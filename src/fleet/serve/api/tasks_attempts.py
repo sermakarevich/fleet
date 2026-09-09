@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -26,15 +27,30 @@ def _attempt_dir(task_id: str, attempt_no: int, state: AppState) -> Path | None:
     return adir if adir.is_dir() else None
 
 
+def _read_text_or_none(path: Path) -> str | None:
+    """File text, None when missing/unreadable (runs in a thread)."""
+    if not path.exists():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _render_attempt_summary(task_dir: Path, attempt_no: int) -> str:
+    """Derived attempt summary markdown (runs in a thread; reads files)."""
+    return render_markdown(summarize(task_dir, attempt_no))
+
+
 @router.get("/tasks/{task_id}/attempts/{attempt_no}/summary", response_model=ContentResponse)
 async def get_attempt_summary(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
     """Derived attempt summary, rendered on demand (never stored)."""
     task_dir = TaskIndex(state.fleet_home).find(task_id)
-    attempt_dir = _attempt_dir(task_id, attempt_no, state)
-    if task_dir is None or attempt_dir is None:
+    attempt_path = _attempt_dir(task_id, attempt_no, state)
+    if task_dir is None or attempt_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     try:
-        content = render_markdown(summarize(task_dir, attempt_no))
+        content = await asyncio.to_thread(_render_attempt_summary, task_dir, attempt_no)
     except (OSError, ValueError):
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse({"content": content})
@@ -43,34 +59,37 @@ async def get_attempt_summary(task_id: str, attempt_no: int, state: StateDep) ->
 @router.get("/tasks/{task_id}/attempts/{attempt_no}/state", response_model=ContentResponse)
 async def get_attempt_state(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
     """STATE.md snapshot taken at reap for one attempt."""
-    attempt_dir = _attempt_dir(task_id, attempt_no, state)
-    if attempt_dir is None:
+    attempt_path = _attempt_dir(task_id, attempt_no, state)
+    if attempt_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = attempt_state_snapshot(attempt_dir)
+    f = attempt_state_snapshot(attempt_path)
     if f is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": f.read_text(encoding="utf-8")})
+    content = await asyncio.to_thread(_read_text_or_none, f)
+    if content is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"content": content})
 
 
 @router.get("/tasks/{task_id}/attempts/{attempt_no}/prompt", response_model=ContentResponse)
 async def get_attempt_prompt(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
     """Recorded prompt.md for one attempt."""
-    attempt_dir = _attempt_dir(task_id, attempt_no, state)
-    if attempt_dir is None:
+    attempt_path = _attempt_dir(task_id, attempt_no, state)
+    if attempt_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = attempt_dir / "prompt.md"
-    if not f.exists():
+    content = await asyncio.to_thread(_read_text_or_none, attempt_path / "prompt.md")
+    if content is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": f.read_text(encoding="utf-8")})
+    return JSONResponse({"content": content})
 
 
 @router.get("/tasks/{task_id}/attempts/{attempt_no}/log", response_model=ContentResponse)
 async def get_attempt_log(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
     """Raw log.jsonl for one attempt."""
-    attempt_dir = _attempt_dir(task_id, attempt_no, state)
-    if attempt_dir is None:
+    attempt_path = _attempt_dir(task_id, attempt_no, state)
+    if attempt_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    f = attempt_dir / "log.jsonl"
-    if not f.exists():
+    content = await asyncio.to_thread(_read_text_or_none, attempt_path / "log.jsonl")
+    if content is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": f.read_text(encoding="utf-8")})
+    return JSONResponse({"content": content})

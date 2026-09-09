@@ -24,9 +24,8 @@ def _count_active(fleet_home: Path) -> int:
     return sum(1 for _, raw in rows if raw.get("status") == "in_progress")
 
 
-@router.get("", response_model=SupervisorResponse)
-async def get_supervisor_status() -> JSONResponse:
-    """Supervisor liveness, slot counts, pause flag, code staleness (FR-42)."""
+def _supervisor_snapshot() -> dict:
+    """Supervisor liveness payload (runs in a thread; reads pid/task files)."""
     fleet_home = get_fleet_home()
     config = load_config(fleet_home / "runtime.toml")
     svc = ServiceRegistry(fleet_home).status("supervisor")
@@ -34,36 +33,46 @@ async def get_supervisor_status() -> JSONResponse:
     active_count = _count_active(fleet_home) if running else 0
     paused = (fleet_home / ".pause").exists()
     max_concurrent = config.max_concurrent
-    return JSONResponse(
-        {
-            "pid": svc.pid,
-            "started_at": svc.since,
-            "running": running,
-            "max_concurrent": max_concurrent,
-            "active_count": active_count,
-            "free_slots": max(0, max_concurrent - active_count),
-            "paused": paused,
-            "version_fingerprint": svc.fingerprint,
-            "stale": svc.stale,
-        }
-    )
+    return {
+        "pid": svc.pid,
+        "started_at": svc.since,
+        "running": running,
+        "max_concurrent": max_concurrent,
+        "active_count": active_count,
+        "free_slots": max(0, max_concurrent - active_count),
+        "paused": paused,
+        "version_fingerprint": svc.fingerprint,
+        "stale": svc.stale,
+    }
+
+
+def _set_paused(paused: bool) -> None:
+    """Create or remove the .pause flag file (runs in a thread)."""
+    pause_file = get_fleet_home() / ".pause"
+    if paused:
+        pause_file.touch()
+    elif pause_file.exists():
+        pause_file.unlink()
+
+
+@router.get("", response_model=SupervisorResponse)
+async def get_supervisor_status() -> JSONResponse:
+    """Supervisor liveness, slot counts, pause flag, code staleness (FR-42)."""
+    snapshot = await asyncio.to_thread(_supervisor_snapshot)
+    return JSONResponse(snapshot)
 
 
 @router.post("/pause", response_model=PauseResponse)
 async def pause_supervisor() -> JSONResponse:
     """Pause claiming (running workers finish)."""
-    fleet_home = get_fleet_home()
-    (fleet_home / ".pause").touch()
+    await asyncio.to_thread(_set_paused, True)
     return JSONResponse({"paused": True})
 
 
 @router.post("/resume", response_model=PauseResponse)
 async def resume_supervisor() -> JSONResponse:
     """Clear the pause flag."""
-    fleet_home = get_fleet_home()
-    pause_file = fleet_home / ".pause"
-    if pause_file.exists():
-        pause_file.unlink()
+    await asyncio.to_thread(_set_paused, False)
     return JSONResponse({"paused": False})
 
 

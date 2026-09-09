@@ -11,7 +11,6 @@ are NOT auto-restarted on crash; use `restart` to pick up code changes.
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -20,9 +19,10 @@ import uvicorn
 from rich.console import Console
 
 import fleet
-from fleet.cli import bootstrap, render
+from fleet.cli import bootstrap, render, subproc
 from fleet.coders import get_coder
 from fleet.core.config import RuntimeConfig
+from fleet.core.errors import SubprocessTimeout
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.ollama_tunnel import ensure_tunnel
 from fleet.observability.daemon import (
@@ -144,10 +144,13 @@ def _build_ui() -> None:
         return
     _console.print("Building UI ([bold]just ui-build[/])…")
     try:
-        result = subprocess.run(["just", "ui-build"], cwd=str(repo_root), check=False)
+        result = subproc.run(["just", "ui-build"], cwd=str(repo_root))
     except FileNotFoundError:
         _console.print("[yellow]Skipping UI build:[/] `just` is not installed.")
         return
+    except SubprocessTimeout:
+        _console.print("[red]UI build timed out[/] — leaving the running server untouched.")
+        raise typer.Exit(1) from None
     if result.returncode != 0:
         _console.print("[red]UI build failed[/] — leaving the running server untouched.")
         raise typer.Exit(result.returncode)

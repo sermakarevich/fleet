@@ -10,8 +10,8 @@ preview the serve API stores per event row.
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
+from fleet.core.iso import parse_iso
 from fleet.core.task import EventKind
 
 from .event_render import render
@@ -21,11 +21,9 @@ def _ts_prefix(event: dict) -> str:
     """HH:MM:SS from the event timestamp, placeholder when unparseable."""
     ts_str = event.get("ts")
     if isinstance(ts_str, str):
-        try:
-            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        dt = parse_iso(ts_str)
+        if dt is not None:
             return dt.strftime("%H:%M:%S")
-        except (ValueError, OSError):
-            pass
     return "--:--:--"
 
 

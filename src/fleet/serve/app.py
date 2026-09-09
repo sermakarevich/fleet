@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, suppress
+from collections.abc import Coroutine
+from contextlib import asynccontextmanager
 from http import HTTPStatus
+from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import Response
@@ -17,6 +18,7 @@ from starlette.types import Scope
 
 import fleet.integrations.telegram.notify as tg_notify
 from fleet.beads.queue import Queue
+from fleet.core.limits import QUESTION_BACKOFF_MAX_SEC, QUESTION_POLL_SEC
 from fleet.integrations.telegram.api import TelegramApi
 from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
 from fleet.integrations.telegram.listener import inbound_listener
@@ -29,7 +31,7 @@ from fleet.state.paths import fleet_home
 logger = logging.getLogger(__name__)
 
 _QUESTION_MSGS = "telegram_question_msgs.json"
-_QUESTION_POLL_SEC = 2.0
+_QUESTION_WATERMARK = "telegram_question_watermark"
 
 
 def _question_messages(state: AppState) -> MessageStore:
@@ -37,28 +39,76 @@ def _question_messages(state: AppState) -> MessageStore:
     return MessageStore(state.fleet_home / _QUESTION_MSGS)
 
 
+def supervise(coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
+    """Start *coro* as a background task that logs its own crash.
+
+    A failed serve background task used to surface only at shutdown (or
+    never); the done-callback logs the exception with the task name so a
+    watcher/poller/listener crash is visible while the server keeps running.
+    """
+    task = asyncio.create_task(coro)
+
+    def _done(done_task: asyncio.Task[None]) -> None:
+        if done_task.cancelled():
+            return
+        exc = done_task.exception()
+        if exc is not None:
+            logger.error("background task failed", exc_info=exc, extra={"task": name})
+
+    task.add_done_callback(_done)
+    return task
+
+
+def _load_watermark(path: Path, default: float) -> float:
+    """Persisted question watermark, or *default* when absent/invalid."""
+    try:
+        return max(default, float(path.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return default
+
+
+def _save_watermark(path: Path, watermark: float) -> None:
+    """Persist the question watermark; a bad disk never kills the poller."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(watermark), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("question_poller watermark save failed", extra={"error": str(exc)})
+
+
 async def _question_poller(app: FastAPI) -> None:
     """Forward new ask_human questions to Telegram until cancelled."""
     state = app.state.fleet_state
-    watermark: float = await asyncio.to_thread(state.question_store.max_created_at)
+    token = state.telegram_token
+    api = TelegramApi(token)
+    watermark_path = state.fleet_home / _QUESTION_WATERMARK
+    db_watermark: float = await asyncio.to_thread(state.question_store.max_created_at)
+    watermark = await asyncio.to_thread(_load_watermark, watermark_path, db_watermark)
+    saved = watermark
+    delay = QUESTION_POLL_SEC
     while True:
         try:
-            await asyncio.sleep(_QUESTION_POLL_SEC)
-            token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+            await asyncio.sleep(delay)
             chat_id = state.config.telegram_chat_id if state.config else ""
             if not token or not chat_id:
+                delay = QUESTION_POLL_SEC
                 continue
             watermark = await tg_notify.notify_new_questions(
-                TelegramApi(token),
+                api,
                 state.question_store,
                 _question_messages(state),
                 chat_id,
                 watermark,
             )
+            if watermark != saved:
+                await asyncio.to_thread(_save_watermark, watermark_path, watermark)
+                saved = watermark
+            delay = QUESTION_POLL_SEC
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("question_poller error")
+            delay = min(delay * 2, QUESTION_BACKOFF_MAX_SEC)
 
 
 def _command_env(state: AppState) -> CommandEnv:
@@ -91,30 +141,27 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     mgr = state.connection_manager
 
     @asynccontextmanager
-    async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    async def _lifespan(app: FastAPI):
         refresh_config(state)
-        watcher_task = asyncio.create_task(state.watcher.start(state.fleet_home))
-        poller_task = asyncio.create_task(_question_poller(app))
-        listener_task = asyncio.create_task(
-            inbound_listener(
-                TelegramApi(os.environ.get("TELEGRAM_BOT_TOKEN", "")),
-                state.question_store,
-                _command_env(state),
-                OffsetStore(state.fleet_home / "telegram_update_offset"),
-            )
-        )
+        tasks = [
+            supervise(state.watcher.start(state.fleet_home), "watcher"),
+            supervise(_question_poller(app), "question_poller"),
+            supervise(
+                inbound_listener(
+                    TelegramApi(state.telegram_token),
+                    state.question_store,
+                    _command_env(state),
+                    OffsetStore(state.fleet_home / "telegram_update_offset"),
+                ),
+                "inbound_listener",
+            ),
+        ]
         try:
             yield
         finally:
-            watcher_task.cancel()
-            poller_task.cancel()
-            listener_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await watcher_task
-            with suppress(asyncio.CancelledError):
-                await poller_task
-            with suppress(asyncio.CancelledError):
-                await listener_task
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     app = FastAPI(lifespan=_lifespan)
     refresh_config(state)

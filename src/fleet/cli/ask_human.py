@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 import sys
 from typing import Annotated
 
 import typer
 
+from fleet.cli import subproc
+from fleet.core.errors import SubprocessTimeout
 from fleet.integrations.ask_human.server import main
 
 _ASK_HUMAN_HELP = "ask_human MCP server — the backend of the fleet chat tab."
@@ -39,29 +40,29 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
         fleet_bin = shutil.which("fleet") or sys.argv[0]
 
-        subprocess.run(
-            [claude, "mcp", "remove", "ask_human", "--scope", scope],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        result = subprocess.run(
-            [
-                claude,
-                "mcp",
-                "add",
-                "ask_human",
-                "--scope",
-                scope,
-                "--",
-                fleet_bin,
-                "ask-human",
-                "serve",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            subproc.run(
+                [claude, "mcp", "remove", "ask_human", "--scope", scope],
+                capture=True,
+            )
+            result = subproc.run(
+                [
+                    claude,
+                    "mcp",
+                    "add",
+                    "ask_human",
+                    "--scope",
+                    scope,
+                    "--",
+                    fleet_bin,
+                    "ask-human",
+                    "serve",
+                ],
+                capture=True,
+            )
+        except SubprocessTimeout as exc:
+            typer.echo(f"Error: {' '.join(exc.argv)} timed out.", err=True)
+            raise typer.Exit(1) from exc
         if result.returncode != 0:
             typer.echo(f"Error: claude mcp add failed: {result.stderr.strip()}", err=True)
             raise typer.Exit(1)

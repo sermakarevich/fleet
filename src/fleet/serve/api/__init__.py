@@ -4,6 +4,13 @@ Called by serve/app.py (`for r in ROUTERS: app.include_router(r)`). Adding a
 router is adding one line here. Every module under serve/api/ that defines a
 module-level ``router`` must appear in this list (enforced by
 tests/serve/test_routers_registry.py).
+
+Blocking-I/O rule: ``async def`` handlers never touch the filesystem (or a
+subprocess, socket, or sqlite) directly — the read runs in a sync helper via
+``await asyncio.to_thread(...)``. (Starlette would also accept a plain
+``def`` handler run in its threadpool, but this codebase keeps handlers
+async and pushes the blocking call one level down so every route reads the
+same way.) Enforced by tests/test_no_blocking_io_in_async.py.
 """
 
 from __future__ import annotations

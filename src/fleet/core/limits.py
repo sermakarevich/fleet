@@ -36,3 +36,17 @@ BD_TIMEOUT_SEC: int = 60
 # Subprocess ceiling for every `git` call (see orchestrator/git.py::GitRepo).
 # One place owns the timeout so no git invocation can hang a service loop.
 GIT_TIMEOUT_SEC: int = 120
+# Default ceiling for every other `subprocess.run` call (CLI helpers such as
+# `just ui-build`, `claude mcp ...`, the `bd` passthrough). A hung child
+# fails fast as a typed error, never hangs the caller forever.
+SUBPROCESS_TIMEOUT_SEC: int = 60
+# Serve event-stream watcher: how often the task dirs are re-scanned
+# (see serve/event_stream.py::FileWatcher).
+SERVE_WATCH_INTERVAL_SEC: float = 0.2
+# Serve question poller: idle tick between Telegram notify rounds, and the
+# backoff ceiling after repeated Telegram failures (see serve/app.py).
+QUESTION_POLL_SEC: float = 2.0
+QUESTION_BACKOFF_MAX_SEC: float = 60.0
+# Serve event-stream watcher: replay window for in-progress tasks on serve
+# restart (see serve/event_stream.py::FileWatcher).
+WS_REPLAY_LINES: int = 50

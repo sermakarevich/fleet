@@ -8,6 +8,7 @@ env, offset file) built from here by create_app — never app.state itself.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
@@ -35,6 +36,8 @@ class AppState:
     connection_manager: WebSocketBroadcaster = field(repr=False)
     config: RuntimeConfig | None = None
     config_mtime: float | None = None
+    telegram_token: str = ""
+    """Telegram bot token, read once from the environment at startup."""
 
 
 def build_state(queue: Queue | None = None) -> AppState:
@@ -48,6 +51,7 @@ def build_state(queue: Queue | None = None) -> AppState:
         config_path=fleet_home / "runtime.toml",
         watcher=FileWatcher(mgr=mgr),
         connection_manager=mgr,
+        telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
     )
 
 

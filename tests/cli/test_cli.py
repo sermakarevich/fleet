@@ -261,7 +261,7 @@ def test_build_ui_runs_just_from_repo_root(tmp_path, monkeypatch) -> None:
     (tmp_path / "justfile").write_text("ui-build:\n\techo hi\n")
     monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)
     run_mock = MagicMock(return_value=MagicMock(returncode=0))
-    monkeypatch.setattr("fleet.cli.daemons.subprocess.run", run_mock)
+    monkeypatch.setattr("fleet.cli.subproc.run", run_mock)
     climod._build_ui()
     args, kwargs = run_mock.call_args
     assert args[0] == ["just", "ui-build"]
@@ -271,7 +271,7 @@ def test_build_ui_runs_just_from_repo_root(tmp_path, monkeypatch) -> None:
 def test_build_ui_skips_when_no_justfile(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)  # no justfile present
     run_mock = MagicMock()
-    monkeypatch.setattr("fleet.cli.daemons.subprocess.run", run_mock)
+    monkeypatch.setattr("fleet.cli.subproc.run", run_mock)
     climod._build_ui()  # must not raise
     assert not run_mock.called
 
@@ -279,9 +279,7 @@ def test_build_ui_skips_when_no_justfile(tmp_path, monkeypatch) -> None:
 def test_build_ui_raises_on_build_failure(tmp_path, monkeypatch) -> None:
     (tmp_path / "justfile").write_text("ui-build:\n\tfalse\n")
     monkeypatch.setattr(climod, "_repo_root", lambda: tmp_path)
-    monkeypatch.setattr(
-        "fleet.cli.daemons.subprocess.run", MagicMock(return_value=MagicMock(returncode=2))
-    )
+    monkeypatch.setattr("fleet.cli.subproc.run", MagicMock(return_value=MagicMock(returncode=2)))
     with pytest.raises(typer.Exit):
         climod._build_ui()
 
@@ -293,7 +291,7 @@ def test_build_ui_skips_when_just_missing(tmp_path, monkeypatch) -> None:
     def _missing(*args, **kwargs):
         raise FileNotFoundError("just")
 
-    monkeypatch.setattr("fleet.cli.daemons.subprocess.run", _missing)
+    monkeypatch.setattr("fleet.cli.subproc.run", _missing)
     climod._build_ui()  # must not raise
 
 
@@ -320,7 +318,7 @@ def test_ready_no_tasks_prints_message() -> None:
 def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.beads.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
         result = runner.invoke(app, ["bd", "ready", "--limit", "5", "--json"])
     assert result.exit_code == 0
     mock_run.assert_called_once()
@@ -332,7 +330,7 @@ def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch)
 def test_bd_passthrough_propagates_nonzero_exit_code(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=2)
-    with patch("fleet.cli.beads.subprocess.run", return_value=completed):
+    with patch("fleet.cli.subproc.run", return_value=completed):
         result = runner.invoke(app, ["bd", "show", "missing-id"])
     assert result.exit_code == 2
 
@@ -341,7 +339,7 @@ def test_bd_passthrough_does_not_intercept_help_flag(tmp_path, monkeypatch) -> N
     """A `--help` after `bd` should be passed to bd, not handled by typer."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.beads.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
         runner.invoke(app, ["bd", "--help"])
     mock_run.assert_called_once()
     args, _ = mock_run.call_args
@@ -433,7 +431,7 @@ def test_bd_create_dry_run_does_not_write_task_json(tmp_path, monkeypatch) -> No
 def test_bd_create_nonzero_exit_does_not_write_task_json(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=1, stdout="", stderr="some bd error\n")
-    with patch("fleet.cli.beads.subprocess.run", return_value=completed):
+    with patch("fleet.beads.client.subprocess.run", return_value=completed):
         result = runner.invoke(app, ["bd", "create", "boom"])
     assert result.exit_code == 1
     assert not (tmp_path / "tasks").exists() or not list((tmp_path / "tasks").iterdir())
@@ -443,7 +441,7 @@ def test_bd_non_create_subcommand_uses_simple_passthrough(tmp_path, monkeypatch)
     """`bd show ...` must NOT be intercepted — keeps stdout flowing to the terminal."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     completed = MagicMock(returncode=0)
-    with patch("fleet.cli.beads.subprocess.run", return_value=completed) as mock_run:
+    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
         runner.invoke(app, ["bd", "show", "fleet-1"])
     # Simple passthrough: no capture_output kwarg.
     _, kwargs = mock_run.call_args
