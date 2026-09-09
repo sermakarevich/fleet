@@ -381,7 +381,7 @@ def _latest_supervisor_log(log_dir: Path) -> Path:
 
 def run_log(fleet_home: Path, lines: int | None) -> None:
     """Print the newest supervisor log in full, or only its last N lines."""
-    latest = _latest_supervisor_log(bootstrap.log_dir(fleet_home))
+    latest = _latest_supervisor_log(state_paths.log_dir(fleet_home))
     if lines is None:
         render.print_text(latest.read_text(encoding="utf-8"))
         return

@@ -1,5 +1,13 @@
 LOG_ROOT = "logging"
 
+# Daemon log rotation (see observability/daemon.py, state/journal.py): a
+# daemon log (serve.daemon.log, supervisor.daemon.log, fleet-<date>.jsonl)
+# is rotated when it reaches LOG_ROTATE_BYTES, keeping LOG_ROTATE_KEEP
+# numbered backups (<name>.1 … <name>.N, oldest dropped). Daemon logs used
+# to grow forever; 20 MiB x5 bounds a runaway log at ~120 MiB per file.
+LOG_ROTATE_BYTES: int = 20 * 1024 * 1024
+LOG_ROTATE_KEEP: int = 5
+
 CONFIG_POLL_INTERVAL_SEC: int = 5
 CLAIM_POLL_INTERVAL_SEC: int = 5
 SHUTDOWN_GRACE_SEC: int = 30

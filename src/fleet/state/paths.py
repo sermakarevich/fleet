@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from fleet.core import limits as core_limits
+
 TASK_JSON = "task.json"
 RUN_JSON = "run.json"
 EVENTS_JSONL = "events.jsonl"
@@ -79,3 +81,9 @@ def outputs_dir(task_dir: Path) -> Path:
 def prompt_file(attempt_dir: Path) -> Path:
     """The recorded prompt for one attempt (attempts/<n>/prompt.md)."""
     return attempt_dir / PROMPT_MD
+
+
+def log_dir(fleet_home: Path) -> Path:
+    """Daemon/supervisor log directory: absolute LOG_ROOT as-is, else under the fleet home."""
+    root = Path(core_limits.LOG_ROOT)
+    return root if root.is_absolute() else fleet_home / root

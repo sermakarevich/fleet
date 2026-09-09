@@ -34,7 +34,6 @@ from fleet.integrations.ollama_tunnel import (
 from fleet.observability.daemon import (
     DaemonSpec,
     StartResult,
-    read_pidfile,
     restart,
     serve_spec,
     start,
@@ -42,12 +41,14 @@ from fleet.observability.daemon import (
     supervisor_spec,
     tunnel_spec,
 )
+from fleet.observability.pidfile import read as read_pid_record
 from fleet.observability.process import service_status
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import DEFAULT_CHECKS
 from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.serve.auth import warn_if_exposed
 from fleet.state.journal import setup_supervisor_logger
+from fleet.state.paths import log_dir as resolve_log_dir
 
 if TYPE_CHECKING:
     import structlog
@@ -68,19 +69,21 @@ def _repo_root() -> Path:
 
 def _serve_stored_port() -> int | None:
     """Port recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = read_pidfile(serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
-    if not data or data.get("port") is None:
+    spec = serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)
+    record = read_pid_record(spec.pidfile)
+    if record is None or record.extra.get("port") is None:
         return None
     try:
-        return int(data["port"])
+        return int(record.extra["port"])
     except (TypeError, ValueError):
         return None
 
 
 def _serve_stored_host() -> str | None:
     """Host recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = read_pidfile(serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
-    host = data.get("host") if data else None
+    spec = serve_spec(bootstrap.fleet_home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)
+    record = read_pid_record(spec.pidfile)
+    host = record.extra.get("host") if record is not None else None
     return str(host) if host else None
 
 
@@ -120,7 +123,7 @@ def _ensure_tunnel(fleet_home: Path, config: RuntimeConfig, log: structlog.Bound
 def _build_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
     """Assemble the foreground supervisor with logging, tunnel, and services."""
     runtime_toml = fleet_home / "runtime.toml"
-    log = setup_supervisor_logger(bootstrap.log_dir(fleet_home))
+    log = setup_supervisor_logger(resolve_log_dir(fleet_home))
     _ensure_tunnel(fleet_home, config, log)
     question_store = QuestionStore(ask_human_db_path(fleet_home))
     return Supervisor(

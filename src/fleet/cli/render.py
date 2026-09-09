@@ -347,7 +347,8 @@ def print_start_report(result: StartResult, label: str, logfile: Path) -> None:
         _console.print(f"[yellow]{label} already running[/] (pid {result.pid}).")
         return
     if not result.alive:
-        _console.print(f"[red]{label} failed to start[/] — process exited immediately.")
+        detail = f" ({result.detail})" if result.detail else ""
+        _console.print(f"[red]{label} failed to start[/]{detail} — process exited immediately.")
         _print_log_tail(logfile)
         raise typer.Exit(1)
     _console.print(f"[green]{label} started[/] (pid {result.pid}). Logs: {logfile}")

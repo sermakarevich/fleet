@@ -37,3 +37,33 @@ def write_text_atomic(path: Path, text: str, encoding: str = "utf-8") -> None:
 def write_json_atomic(path: Path, obj: Any) -> None:
     """Write *obj* as indented JSON to *path* atomically."""
     write_text_atomic(path, json.dumps(obj, indent=2))
+
+
+def rotate_overgrown(path: Path, *, max_bytes: int, keep: int) -> None:
+    """Rotate *path* when it reaches *max_bytes*, keeping *keep* backups.
+
+    Shifts ``<name>.N`` → ``<name>.N+1``, drops the oldest beyond *keep*,
+    then moves *path* to ``<name>.1``. A no-op when the file is missing or
+    under budget. Callers rotate *before* opening the file for append so a
+    fresh empty file is what gets opened.
+    """
+    try:
+        if path.stat().st_size < max_bytes:
+            return
+    except OSError:
+        return
+    for n in range(keep, 0, -1):
+        src = path.with_name(f"{path.name}.{n}")
+        try:
+            if not src.exists():
+                continue
+        except OSError:
+            continue
+        if n == keep:
+            with contextlib.suppress(OSError):
+                src.unlink()
+        else:
+            with contextlib.suppress(OSError):
+                src.replace(path.with_name(f"{path.name}.{n + 1}"))
+    with contextlib.suppress(OSError):
+        path.replace(path.with_name(f"{path.name}.1"))

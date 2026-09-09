@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from fleet.observability.daemon import read_pidfile, restart, supervisor_spec
+from fleet.observability.daemon import restart, supervisor_spec
+from fleet.observability.pidfile import read as read_pid_record
 from fleet.observability.process import ServiceRegistry
 from fleet.serve.api.models import PauseResponse, RestartResponse, SupervisorResponse
 from fleet.serve.auth import HTTP_AUTH
@@ -83,11 +84,11 @@ async def restart_supervisor() -> JSONResponse:
     fleet_home = get_fleet_home()
     spec = supervisor_spec(fleet_home)
     result = await asyncio.to_thread(restart, spec)
-    pid_data = read_pidfile(spec) or {}
+    record = read_pid_record(spec.pidfile)
     return JSONResponse(
         {
             "pid": result.pid,
             "alive": result.alive,
-            "started_at": pid_data.get("started_at"),
+            "started_at": record.started_at if record is not None else None,
         }
     )

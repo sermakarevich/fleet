@@ -16,10 +16,12 @@ from fleet.observability.daemon import (
     TUNNEL_PIDFILE_NAME,
     DaemonSpec,
     code_fingerprint,
-    read_pidfile,
     supervisor_spec,
 )
 from fleet.state import paths as state_paths
+
+from .pidfile import PidFile
+from .pidfile import read as read_pid_file
 
 
 @dataclass(frozen=True)
@@ -80,26 +82,24 @@ class ServiceRegistry:
         build = _SPECS.get(name)
         if build is None:
             return ServiceStatus(pid=None, alive=False, since=None, fingerprint=None)
-        data = read_pidfile(build(self.fleet_home)) or {}
-        return _from_pid_data(data)
+        record = read_pid_file(build(self.fleet_home).pidfile)
+        return _from_pid_record(record)
 
     def supervisor_running(self) -> bool:
         """True when the supervisor pid file points at a live process."""
         return self.status("supervisor").alive
 
 
-def _from_pid_data(data: dict) -> ServiceStatus:
-    raw_pid = data.get("pid", 0)
-    try:
-        pid = int(raw_pid) or None
-    except (TypeError, ValueError):
-        pid = None
-    alive = pid is not None and pid_alive(pid)
-    stored = data.get("version_fingerprint")
+def _from_pid_record(record: PidFile | None) -> ServiceStatus:
+    """Liveness fact from a pidfile record; a missing record means not alive."""
+    if record is None:
+        return ServiceStatus(pid=None, alive=False, since=None, fingerprint=None)
+    alive = pid_alive(record.pid)
+    stored = record.fingerprint
     return ServiceStatus(
-        pid=pid,
+        pid=record.pid,
         alive=alive,
-        since=data.get("started_at"),
+        since=record.started_at,
         fingerprint=stored,
         stale=stored is not None and stored != code_fingerprint(),
     )

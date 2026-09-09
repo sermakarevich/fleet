@@ -7,6 +7,7 @@ from pathlib import Path
 from fleet.beads.queue import BeadsQueue
 from fleet.cli import bootstrap
 from fleet.core.config import RuntimeConfig
+from fleet.state.paths import log_dir
 
 
 def test_home_respects_fleet_home_env(tmp_path: Path, monkeypatch) -> None:
@@ -17,14 +18,14 @@ def test_home_respects_fleet_home_env(tmp_path: Path, monkeypatch) -> None:
 
 def test_log_dir_joins_relative_root(tmp_path: Path, monkeypatch) -> None:
     """A relative LOG_ROOT resolves under the fleet home."""
-    monkeypatch.setattr(bootstrap, "LOG_ROOT", "logging")
-    assert bootstrap.log_dir(tmp_path) == tmp_path / "logging"
+    monkeypatch.setattr("fleet.core.limits.LOG_ROOT", "logging")
+    assert log_dir(tmp_path) == tmp_path / "logging"
 
 
 def test_log_dir_keeps_absolute_root(tmp_path: Path, monkeypatch) -> None:
     """An absolute LOG_ROOT passes through untouched."""
-    monkeypatch.setattr(bootstrap, "LOG_ROOT", "/var/log/fleet")
-    assert bootstrap.log_dir(tmp_path) == Path("/var/log/fleet")
+    monkeypatch.setattr("fleet.core.limits.LOG_ROOT", "/var/log/fleet")
+    assert log_dir(tmp_path) == Path("/var/log/fleet")
 
 
 def test_queue_bound_to_home(tmp_path: Path) -> None:

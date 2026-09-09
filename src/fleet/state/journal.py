@@ -12,8 +12,11 @@ from typing import IO
 import structlog
 
 from fleet.core.iso import now_iso
+from fleet.core.limits import LOG_ROTATE_BYTES, LOG_ROTATE_KEEP
 from fleet.core.redact import redact
 from fleet.core.task import Event, EventKind
+
+from .atomic import rotate_overgrown
 
 EVENTS_MAX_BYTES: int = 50 * 1024 * 1024
 EVENTS_KEEP_ROTATED: int = 1
@@ -94,6 +97,7 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
     log_root.mkdir(parents=True, exist_ok=True)
     date = now_iso()[:10]
     fleet_path = log_root / f"fleet-{date}.jsonl"
+    rotate_overgrown(fleet_path, max_bytes=LOG_ROTATE_BYTES, keep=LOG_ROTATE_KEEP)
     fleet_file = fleet_path.open("a", encoding="utf-8")
     processors = [
         structlog.contextvars.merge_contextvars,

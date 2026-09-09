@@ -17,6 +17,7 @@ from fleet.beads.client import BdError
 from fleet.cli.main import app
 from fleet.core.task import Task
 from fleet.observability.daemon import StartResult
+from fleet.observability.pidfile import PidFile
 from fleet.observability.process import ServiceStatus
 from tests.helpers.task_dir import make_attempt
 
@@ -240,10 +241,10 @@ def test_serve_restart_no_build_skips_hook(tmp_path, monkeypatch) -> None:
 def test_serve_restart_reuses_stored_port(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     with (
-        patch("fleet.cli.daemons.read_pidfile") as mock_read,
+        patch("fleet.cli.daemons.read_pid_record") as mock_read,
         patch("fleet.cli.daemons.restart") as mock_restart,
     ):
-        mock_read.return_value = {"pid": 999, "started_at": "x", "port": 8080}
+        mock_read.return_value = PidFile(pid=999, started_at="x", extra={"port": 8080})
         mock_restart.return_value = StartResult(pid=7, already_running=False, alive=True)
         result = runner.invoke(app, ["serve", "restart", "--no-build"])
     assert result.exit_code == 0, result.output
