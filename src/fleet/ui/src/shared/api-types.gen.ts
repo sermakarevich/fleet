@@ -1150,6 +1150,10 @@ export interface components {
             telegram_default_cwd: string;
             /** Opencode Ollama Url */
             opencode_ollama_url: string;
+            /** Ollama Ssh Host */
+            ollama_ssh_host: string;
+            /** Ollama Remote Port */
+            ollama_remote_port: number;
             /** Max Concurrent Overrides */
             max_concurrent_overrides: string;
             /** Context Windows */

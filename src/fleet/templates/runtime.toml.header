@@ -21,6 +21,15 @@
 #   for a local Ollama install.
 #   Set via: fleet config set opencode_ollama_url=http://...
 #
+# ollama_ssh_host: SSH host alias for the GPU box serving Ollama.
+#   Defaults to rtx. Used with ollama_remote_port to build the
+#   `ssh -N -L` forward that backs opencode_ollama_url.
+#   Set via: fleet config set ollama_ssh_host=gpubox
+#
+# ollama_remote_port: Ollama port on the GPU box (remote end of the tunnel).
+#   Defaults to 11434.
+#   Set via: fleet config set ollama_remote_port=11434
+#
 # opencode_bedrock_region: AWS Bedrock region for Claude-on-Bedrock.
 #   Empty string (default) inherits region from environment/AWS config.
 #   Set via: fleet config set opencode_bedrock_region=us-east-1

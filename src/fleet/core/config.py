@@ -25,6 +25,8 @@ class RuntimeConfig:
     telegram_allowed_ids: str = ""
     telegram_default_cwd: str = ""
     opencode_ollama_url: str = "http://127.0.0.1:11435/v1"
+    ollama_ssh_host: str = "rtx"
+    ollama_remote_port: int = 11434
     max_concurrent_overrides: str = ""
     context_windows: str = ""
     opencode_default_model: str = "qwen3.6:latest"

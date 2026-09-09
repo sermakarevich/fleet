@@ -31,7 +31,10 @@ ALLOWED: dict[str, set[str]] = {
         "integrations",
     },
     "observability": {"core", "state"},
-    "integrations": {"core", "state", "beads"},
+    # Bead 24: the ollama tunnel (integrations) starts its ssh child through
+    # observability/daemon so one pidfile owner tracks it. Same tier, one
+    # direction only (observability never imports integrations).
+    "integrations": {"core", "state", "beads", "observability"},
     "serve": {
         "core",
         "state",

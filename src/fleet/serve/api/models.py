@@ -343,6 +343,8 @@ class ConfigView(BaseModel):
     telegram_allowed_ids: str
     telegram_default_cwd: str
     opencode_ollama_url: str
+    ollama_ssh_host: str
+    ollama_remote_port: int
     max_concurrent_overrides: str
     context_windows: str
     opencode_default_model: str

@@ -24,7 +24,13 @@ from fleet.coders import get_coder
 from fleet.core.config import RuntimeConfig
 from fleet.core.errors import SubprocessTimeout
 from fleet.integrations.ask_human.store import QuestionStore
-from fleet.integrations.ollama_tunnel import ensure_tunnel
+from fleet.integrations.mcp_servers import ask_human_db_path
+from fleet.integrations.ollama_tunnel import (
+    TunnelResult,
+    TunnelSettings,
+    ensure_tunnel,
+    tunnel_daemon_spec,
+)
 from fleet.observability.daemon import (
     DaemonSpec,
     StartResult,
@@ -34,6 +40,7 @@ from fleet.observability.daemon import (
     start,
     stop,
     supervisor_spec,
+    tunnel_spec,
 )
 from fleet.observability.process import service_status
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
@@ -99,11 +106,12 @@ def _report_status(fleet_home: Path, name: str, label: str, restart_hint: str) -
         raise typer.Exit(1)
 
 
-def _ensure_tunnel(config: RuntimeConfig, log: structlog.BoundLogger) -> None:
-    """Bring up the SSH tunnel to the rtx Ollama box (non-fatal when it fails)."""
-    tunnel = ensure_tunnel(config.opencode_ollama_url)
+def _ensure_tunnel(fleet_home: Path, config: RuntimeConfig, log: structlog.BoundLogger) -> None:
+    """Bring up the SSH tunnel to the GPU-box Ollama (non-fatal when it fails)."""
+    settings = TunnelSettings.from_config(config)
+    tunnel = ensure_tunnel(settings, fleet_home)
     if tunnel.status == "failed":
-        log.warning("ollama_tunnel_failed", detail=tunnel.detail, url=config.opencode_ollama_url)
+        log.warning("ollama_tunnel_failed", detail=tunnel.detail, url=settings.local_url)
         typer.echo(f"warning: ollama tunnel not available ({tunnel.detail})", err=True)
     else:
         log.info("ollama_tunnel", status=tunnel.status, detail=tunnel.detail)
@@ -113,8 +121,8 @@ def _build_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
     """Assemble the foreground supervisor with logging, tunnel, and services."""
     runtime_toml = fleet_home / "runtime.toml"
     log = setup_supervisor_logger(bootstrap.log_dir(fleet_home))
-    _ensure_tunnel(config, log)
-    question_store = QuestionStore()
+    _ensure_tunnel(fleet_home, config, log)
+    question_store = QuestionStore(ask_human_db_path(fleet_home))
     return Supervisor(
         state=SupervisorState(
             config=config,
@@ -278,17 +286,60 @@ def _register_serve_commands(app: typer.Typer) -> None:
 
 
 def register(app: typer.Typer) -> None:
-    """Wire `fleet run`, `fleet serve`, and `fleet tunnel` commands."""
+    """Wire `fleet run`, `fleet serve`, `fleet tunnel`, and `fleet ollama tunnel`."""
     _register_run_commands(app)
 
     @app.command("tunnel")
     def tunnel_cmd() -> None:
-        """Ensure the SSH tunnel to the rtx Ollama box is up (starts it if needed)."""
-        config = bootstrap.config(bootstrap.fleet_home())
-        result = ensure_tunnel(config.opencode_ollama_url)
-        if result.status == "failed":
-            _console.print(f"[red]tunnel failed:[/red] {result.detail}")
-            raise typer.Exit(1)
-        _console.print(f"tunnel {result.status}: {result.detail}")
+        """Ensure the SSH tunnel to the GPU-box Ollama is up (starts it if needed)."""
+        fleet_home = bootstrap.fleet_home()
+        settings = TunnelSettings.from_config(bootstrap.config(fleet_home))
+        _report_tunnel(ensure_tunnel(settings, fleet_home))
 
+    _register_ollama_commands(app)
     _register_serve_commands(app)
+
+
+def _report_tunnel(result: TunnelResult) -> None:
+    """Echo an ensure/start outcome; exit nonzero when the tunnel failed."""
+    if result.status == "failed":
+        _console.print(f"[red]tunnel failed:[/red] {result.detail}")
+        raise typer.Exit(1)
+    _console.print(f"tunnel {result.status}: {result.detail}")
+
+
+def _tunnel_stop_spec(fleet_home: Path, config: RuntimeConfig) -> DaemonSpec:
+    """Spec for stopping: full forward facts when configured, pidfile-only otherwise."""
+    try:
+        return tunnel_daemon_spec(fleet_home, TunnelSettings.from_config(config))
+    except ValueError:
+        return tunnel_spec(fleet_home, [])
+
+
+def _register_ollama_commands(app: typer.Typer) -> None:
+    """Wire `fleet ollama tunnel start|stop|status` (tunnel daemon commands)."""
+    ollama_app = typer.Typer(no_args_is_help=True, help="Ollama SSH tunnel to the GPU box.")
+    app.add_typer(ollama_app, name="ollama")
+    tunnel_app = typer.Typer(no_args_is_help=True, help="Manage the ollama SSH tunnel daemon.")
+    ollama_app.add_typer(tunnel_app, name="tunnel")
+
+    @tunnel_app.command("start")
+    def ollama_tunnel_start() -> None:
+        """Ensure the tunnel is up, starting its ssh daemon when needed."""
+        fleet_home = bootstrap.fleet_home()
+        settings = TunnelSettings.from_config(bootstrap.config(fleet_home))
+        _report_tunnel(ensure_tunnel(settings, fleet_home))
+
+    @tunnel_app.command("stop")
+    def ollama_tunnel_stop() -> None:
+        """Stop the tunnel ssh daemon."""
+        fleet_home = bootstrap.fleet_home()
+        stopped = stop(_tunnel_stop_spec(fleet_home, bootstrap.config(fleet_home)))
+        _console.print("ollama tunnel stopped." if stopped else "ollama tunnel not running.")
+
+    @tunnel_app.command("status")
+    def ollama_tunnel_status() -> None:
+        """Show whether the tunnel ssh daemon is running."""
+        _report_status(
+            bootstrap.fleet_home(), "ollama-tunnel", "ollama tunnel", "fleet ollama tunnel start"
+        )

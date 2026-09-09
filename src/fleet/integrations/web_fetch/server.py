@@ -22,7 +22,9 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-_DEFAULT_OLLAMA_URL = "http://127.0.0.1:11435/v1"
+from fleet.integrations.ollama_tunnel import DEFAULT_OLLAMA_URL
+
+_DEFAULT_OLLAMA_URL = DEFAULT_OLLAMA_URL
 _FETCH_TIMEOUT_S = 30
 _LLM_TIMEOUT_S = 120
 _MAX_PAGE_CHARS = 40000  # bound what we feed the model

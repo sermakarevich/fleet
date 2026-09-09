@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fleet.core.process import pid_alive
 from fleet.observability.daemon import (
+    TUNNEL_PIDFILE_NAME,
     DaemonSpec,
     code_fingerprint,
     read_pidfile,
@@ -44,9 +45,22 @@ def _serve_spec(fleet_home: Path) -> DaemonSpec:
     )
 
 
+def _tunnel_spec(fleet_home: Path) -> DaemonSpec:
+    """Reader spec for the ollama tunnel (pidfile only; argv unused for status)."""
+    return DaemonSpec(
+        name="ollama-tunnel",
+        pidfile=fleet_home / TUNNEL_PIDFILE_NAME,
+        logfile=fleet_home / "logs" / "ollama_tunnel.daemon.log",
+        argv=[],
+        cwd=fleet_home,
+        stop_timeout=10.0,
+    )
+
+
 _SPECS: dict[str, Callable[[Path], DaemonSpec]] = {
     "supervisor": supervisor_spec,
     "serve": _serve_spec,
+    "ollama-tunnel": _tunnel_spec,
 }
 
 
@@ -92,7 +106,7 @@ def _from_pid_data(data: dict) -> ServiceStatus:
 
 
 def service_status(name: str, fleet_home: Path | None = None) -> ServiceStatus:
-    """Liveness fact for *name* (`supervisor` or `serve`)."""
+    """Liveness fact for *name* (``supervisor``, ``serve``, or ``ollama-tunnel``)."""
     return ServiceRegistry(
         fleet_home if fleet_home is not None else state_paths.fleet_home()
     ).status(name)

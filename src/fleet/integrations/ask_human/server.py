@@ -11,9 +11,10 @@ calling agent.
 
 The wait is asynchronous and open-ended: a question blocks *indefinitely* until
 a human answers — there is no timeout. To keep the MCP connection healthy across
-arbitrarily long waits, the tool never blocks the event loop (it ``await``s
-between store polls) and emits a periodic progress notification as a keepalive,
-so the client won't time the request out and drop it.
+arbitrarily long waits, the shared blocking wait (``store.wait_for_answer``)
+runs in a worker thread while the event loop emits a periodic progress
+notification as a keepalive, so the client won't time the request out and
+drop it.
 
 Run standalone:  fleet ask-human serve   (or python -m fleet.integrations.ask_human.server;
 stdio transport). Vendored from ~/git/claude/mcp/ask_human — keep
@@ -24,23 +25,20 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
-from contextlib import suppress
 from os.path import basename
 from typing import Any
 
+import structlog
 from mcp.server.fastmcp import Context, FastMCP
 
-from fleet.core.errors import QuestionNotFound
+from .store import Question, QuestionStore, wait_for_answer
 
-from .store import Question, QuestionStore
+_log = structlog.get_logger(__name__)
 
-store = QuestionStore()
-
-# How often to poll the store, and how often to emit a keepalive progress
-# notification while a question is still pending. The keepalive doubles as a
-# liveness signal and resets the client's request timeout, so an open-ended
-# wait is never dropped.
+# How often the shared wait polls the store, and how often to emit a
+# keepalive progress notification while a question is still pending. The
+# keepalive doubles as a liveness signal and resets the client's request
+# timeout, so an open-ended wait is never dropped.
 _POLL_INTERVAL_S = 1.0
 _KEEPALIVE_S = 20.0
 
@@ -60,6 +58,29 @@ mcp = FastMCP(
         "wrong. Treat a `note` as the operator's authoritative correction."
     ),
 )
+
+
+class _StoreBox:
+    """Named owner of the process-wide question store (built once, in ``main``)."""
+
+    store: QuestionStore | None = None
+
+
+def build_store() -> QuestionStore:
+    """Question store for this server process.
+
+    The MCP child inherits ``ASK_HUMAN_DB`` from ``fleet_mcp_servers``;
+    without it (manual runs) ``QuestionStore`` falls back to the FLEET_HOME
+    database. Built here and in ``main()``, never at import time.
+    """
+    return QuestionStore()
+
+
+def get_store() -> QuestionStore:
+    """Process-wide store, built on first use (``main()`` builds it eagerly)."""
+    if _StoreBox.store is None:
+        _StoreBox.store = build_store()
+    return _StoreBox.store
 
 
 def _result(question: Question) -> dict[str, Any]:
@@ -93,42 +114,36 @@ async def _await_answer(
 ) -> Question:
     """Wait until ``qid`` resolves, without ever blocking the event loop.
 
-    Unlike ``QuestionStore.wait`` (synchronous — fine for the standalone CLI),
-    this is for the async MCP server: it ``await``s between quick store polls so
-    the server keeps servicing the MCP protocol during long waits, and emits a
-    progress notification every ``keepalive_s`` seconds as a liveness signal /
-    request-timeout reset. Honors the question's ``timeout_s`` (expiring to its
-    ``default`` on timeout); with ``timeout_s=None`` it waits indefinitely.
+    The shared ``wait_for_answer`` runs in a worker thread (same
+    implementation as the synchronous ``QuestionStore.wait``); this
+    coroutine only waits on it in ``keepalive_s`` slices so it can emit a
+    progress notification as a liveness signal / request-timeout reset.
+    Honors the question's ``timeout_s`` (expiring to its ``default`` on
+    timeout); with ``timeout_s=None`` it waits indefinitely.
     """
-    q = store.get(qid)
-    if q is None:
-        raise QuestionNotFound(qid)
-    deadline = (q["created_at"] + q["timeout_s"]) if q["timeout_s"] else None
+    waiter = asyncio.create_task(
+        asyncio.to_thread(wait_for_answer, store, qid, poll_interval=poll_interval)
+    )
     waited = 0.0
-    since_keepalive = 0.0
-    while q["status"] == "pending":
-        if deadline is not None and time.time() >= deadline:
-            store.expire_if_pending(qid)
-            q = store.get(qid)
-            if q is None:
-                raise QuestionNotFound(qid)
-            return q
-        await asyncio.sleep(poll_interval)
-        waited += poll_interval
-        since_keepalive += poll_interval
-        if ctx is not None and since_keepalive >= keepalive_s:
-            since_keepalive = 0.0
-            # Keepalive is best-effort; never fail the wait over it.
-            with suppress(Exception):
-                await ctx.report_progress(
-                    progress=waited,
-                    total=None,
-                    message="waiting for a human operator…",
-                )
-        q = store.get(qid)
-        if q is None:
-            raise QuestionNotFound(qid)
-    return q
+    try:
+        while not waiter.done():
+            done, _pending = await asyncio.wait({waiter}, timeout=keepalive_s)
+            if done:
+                break
+            waited += keepalive_s
+            if ctx is not None:
+                try:
+                    await ctx.report_progress(
+                        progress=waited,
+                        total=None,
+                        message="waiting for a human operator…",
+                    )
+                except Exception as exc:
+                    _log.debug("ask_human keepalive failed", error=str(exc))
+        return waiter.result()
+    finally:
+        if not waiter.done():
+            waiter.cancel()
 
 
 @mcp.tool()
@@ -173,6 +188,7 @@ async def ask_human_question(
     # so the operator always sees attribution (env default > none).
     effective_agent_id = agent_id or _default_agent_id()
 
+    store = get_store()
     qid = store.create(
         prompt=prompt,
         options=options,
@@ -185,6 +201,7 @@ async def ask_human_question(
 
 
 def main() -> None:
+    get_store()
     mcp.run()
 
 

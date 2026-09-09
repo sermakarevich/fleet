@@ -7,11 +7,20 @@ bot, the triage loop, the job gate). Callers receive an injected instance
 (``serve/state.py::AppState.question_store``); nothing reads a module
 global. The MCP child-process env var (``ASK_HUMAN_DB``, owned by
 ``integrations/mcp_servers.py``) tells the *server* process where the DB
-is — a different concern from this module.
+is — the default path below delegates to that same module, so there is
+exactly one place that knows where the database lives.
+
+Schema changes are ordered ``MIGRATIONS`` applied under
+``PRAGMA user_version``: a fresh database is created at the latest version,
+an old one is migrated step by step, and a database whose version stamp
+claims more than its columns deliver (a half-applied schema) is repaired
+instead of silently obeyed.
 
 Concurrency-safe: WAL journal mode + a generous ``busy_timeout`` let many
 agent writers and operator readers/writers coexist without "database is
-locked" errors. Answering is a single conditional
+locked" errors. Each thread holds exactly one connection (created once,
+PRAGMAs set once); separate processes still get separate connections.
+Answering is a single conditional
 ``UPDATE ... WHERE status='pending'`` so the first responder wins and two
 operators can never double-answer.
 
@@ -24,25 +33,34 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import time
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from fleet.core.errors import Json, QuestionNotFound
+from fleet.integrations.mcp_servers import ASK_HUMAN_DB_ENV, ask_human_db_path
+from fleet.state.paths import fleet_home
 
 
 def _default_db_path() -> Path:
-    """DB location when the caller passes no path (MCP server default)."""
-    return Path(
-        os.environ.get("ASK_HUMAN_DB") or (Path.home() / ".claude" / "ask_human" / "questions.db")
-    )
+    """DB location when the caller passes no path.
+
+    ``ASK_HUMAN_DB`` (set by ``mcp_servers`` for the MCP server child)
+    wins; otherwise the shared file under FLEET_HOME. Never a personal
+    ``~/.claude`` directory.
+    """
+    override = os.environ.get(ASK_HUMAN_DB_ENV)
+    if override:
+        return Path(override)
+    return ask_human_db_path(fleet_home())
 
 
-_SCHEMA = """
+_SCHEMA_BASE = """
 CREATE TABLE IF NOT EXISTS questions (
     id             TEXT PRIMARY KEY,
     agent_id       TEXT,
@@ -53,20 +71,30 @@ CREATE TABLE IF NOT EXISTS questions (
     priority       INTEGER NOT NULL DEFAULT 0,
     status         TEXT NOT NULL DEFAULT 'pending',  -- pending | answered | expired | cancelled
     answer         TEXT,  -- JSON answer; NULL when answered via `note` alone
-    note           TEXT,  -- free-text note; always allowed alongside `options`
     default_answer TEXT,  -- JSON; returned on timeout
     timeout_s      REAL,
     answered_by    TEXT,
     created_at     REAL NOT NULL,
-    answered_at    REAL,
-    task_id        TEXT,  -- bead this question is about, or NULL
-    context        TEXT   -- disambiguator, e.g. blocked_at; digest id-lists
+    answered_at    REAL
 );
 CREATE INDEX IF NOT EXISTS idx_questions_open
     ON questions(status, priority DESC, created_at ASC);
-CREATE INDEX IF NOT EXISTS idx_questions_task
-    ON questions(task_id, context, status);
 """
+
+# Ordered schema steps after the base table above, applied under
+# PRAGMA user_version. Each statement adds exactly one column; the column
+# name is parsed back out (see _migration_column) so a half-applied schema
+# (version stamp ahead of its columns) is detected and repaired.
+MIGRATIONS: list[str] = [
+    "ALTER TABLE questions ADD COLUMN note TEXT",
+    "ALTER TABLE questions ADD COLUMN task_id TEXT",
+    "ALTER TABLE questions ADD COLUMN context TEXT",
+]
+
+#: Schema level of a fully migrated database: the number of MIGRATIONS.
+SCHEMA_VERSION = len(MIGRATIONS)
+
+_TASK_INDEX = "CREATE INDEX IF NOT EXISTS idx_questions_task ON questions(task_id, context, status)"
 
 # Statuses that mean the question is no longer waiting for a human.
 _RESOLVED = ("answered", "expired", "cancelled")
@@ -85,6 +113,51 @@ def _loads(value: Any) -> Json:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return value
+
+
+def _migration_column(statement: str) -> str:
+    """Column name added by an ``ALTER TABLE ... ADD COLUMN <name> ...`` step."""
+    parts = statement.split()
+    return parts[parts.index("COLUMN") + 1]
+
+
+def _user_version(conn: sqlite3.Connection) -> int:
+    """Schema level stamped on the database (0 when never migrated)."""
+    row = conn.execute("PRAGMA user_version").fetchone()
+    return int(row[0])
+
+
+def _column_names(conn: sqlite3.Connection) -> set[str]:
+    """Live column names of the questions table."""
+    return {row["name"] for row in conn.execute("PRAGMA table_info(questions)")}
+
+
+def _add_column(conn: sqlite3.Connection, statement: str, column: str) -> None:
+    """Run one ALTER TABLE step, tolerating a concurrent migrator winning the race."""
+    try:
+        conn.execute(statement)
+    except sqlite3.OperationalError:
+        if column not in _column_names(conn):
+            raise
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Bring the on-disk schema to SCHEMA_VERSION, in MIGRATIONS order.
+
+    Fresh databases get the base table plus every step; old ones get the
+    missing steps; a database stamped ahead of its columns gets the steps
+    it is actually missing. The version stamp is written last.
+    """
+    conn.executescript(_SCHEMA_BASE)
+    columns = _column_names(conn)
+    for statement in MIGRATIONS:
+        column = _migration_column(statement)
+        if column in columns:
+            continue
+        _add_column(conn, statement, column)
+        columns.add(column)
+    conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    conn.execute(_TASK_INDEX)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,64 +228,104 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return _row_to_question(row).to_dict()
 
 
+# Blocking-wait cadence shared by QuestionStore.wait and the async MCP
+# server: poll every second, slowing to every five seconds after a minute.
+_POLL_BASE_S = 1.0
+_POLL_SLOW_S = 5.0
+_BACKOFF_AFTER_S = 60.0
+
+
+def _poll_interval(elapsed_s: float, base_s: float) -> float:
+    """Wait cadence: base rate for the first minute, then the slow rate."""
+    if elapsed_s < _BACKOFF_AFTER_S:
+        return base_s
+    return max(base_s, _POLL_SLOW_S)
+
+
+def wait_for_answer(
+    store: QuestionStore,
+    qid: str,
+    *,
+    poll_interval: float = _POLL_BASE_S,
+    clock: Callable[[], float] = time.time,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Question:
+    """Block until the question resolves, then return its final row.
+
+    The one blocking-wait implementation: ``QuestionStore.wait`` calls it
+    directly and the async MCP server runs it in a worker thread (see
+    ``server._await_answer``). Honors the question's ``timeout_s``
+    (measured from creation): on timeout the question is marked
+    ``expired`` and its ``default_answer`` (if any) becomes the answer.
+    ``clock``/``sleep`` are injectable so tests never wait on wall time.
+    """
+    question = store.get(qid)
+    if question is None:
+        raise QuestionNotFound(qid, store.db_path)
+    start = clock()
+    deadline = (question.created_at + question.timeout_s) if question.timeout_s else None
+    while question.status == "pending":
+        if deadline is not None and clock() >= deadline:
+            store.expire_if_pending(qid)
+            resolved = store.get(qid)
+            if resolved is None:
+                raise QuestionNotFound(qid, store.db_path)
+            return resolved
+        sleep(_poll_interval(clock() - start, poll_interval))
+        question = store.get(qid)
+        if question is None:
+            raise QuestionNotFound(qid, store.db_path)
+    return question
+
+
 class QuestionStore:
     """Thread- and process-safe question queue backed by a single SQLite file.
 
-    A fresh connection is opened per operation, so instances are safe to share
-    across threads and to use from independent processes (MCP server + each
-    operator frontend) pointing at the same ``db_path``.
+    Each thread holds exactly one connection (opened on first use, PRAGMAs
+    set once), so instances are safe to share across threads; separate
+    processes (MCP server + each operator frontend) still get their own
+    connections to the same ``db_path`` and coordinate through WAL mode.
     """
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = Path(db_path) if db_path is not None else _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local = threading.local()
         with self._conn() as conn:
-            # Pre-existing DB from before some columns existed: the
-            # CREATE TABLE went through but a later statement (index on
-            # a not-yet-migrated column) failed. _migrate below adds the
-            # missing columns and re-creates the indexes.
-            with suppress(sqlite3.OperationalError):
-                conn.executescript(_SCHEMA)
-            self._migrate(conn)
+            _apply_migrations(conn)
 
-    @staticmethod
-    def _migrate(conn: sqlite3.Connection) -> None:
-        """Bring an older on-disk schema up to date in place.
-
-        ``_SCHEMA`` only runs on a *fresh* DB (``CREATE TABLE IF NOT EXISTS``),
-        so columns added after a DB was first created must be patched in here.
-        Each step is guarded by ``PRAGMA table_info`` so it's a no-op on a DB
-        that already has the column (and never collides with the fresh schema).
-        """
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(questions)")}
-        if "note" not in cols:
-            # Another process (server + CLI start together) may add it first.
-            with suppress(sqlite3.OperationalError):
-                conn.execute("ALTER TABLE questions ADD COLUMN note TEXT")
-        if "task_id" not in cols:
-            with suppress(sqlite3.OperationalError):
-                conn.execute("ALTER TABLE questions ADD COLUMN task_id TEXT")
-        if "context" not in cols:
-            with suppress(sqlite3.OperationalError):
-                conn.execute("ALTER TABLE questions ADD COLUMN context TEXT")
-        # Index for the triage pending lookup (task_id + blocked_at); harmless
-        # to re-run on a DB that already has it.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_questions_task ON questions(task_id, context, status)"
-        )
+    def _connect(self) -> sqlite3.Connection:
+        """Open a fresh connection with the store PRAGMAs set exactly once."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
+        """Yield the calling thread's single connection, committing on success."""
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")
-            conn.execute("PRAGMA synchronous=NORMAL")
+            conn = self._local.connection
+        except AttributeError:
+            conn = self._connect()
+            self._local.connection = conn
+        try:
             yield conn
             conn.commit()
-        finally:
-            conn.close()
+        except Exception:
+            conn.rollback()
+            raise
+
+    def close(self) -> None:
+        """Close the calling thread's connection, if it has one."""
+        try:
+            conn = self._local.connection
+        except AttributeError:
+            return
+        del self._local.connection
+        conn.close()
 
     # -- writes ---------------------------------------------------------------
 
@@ -405,6 +518,7 @@ class QuestionStore:
             return cur.rowcount > 0
 
     def cancel(self, qid: str) -> bool:
+        """Cancel a pending question; False when already resolved."""
         with self._conn() as conn:
             cur = conn.execute(
                 "UPDATE questions SET status='cancelled', answered_at=? "
@@ -414,6 +528,7 @@ class QuestionStore:
             return cur.rowcount > 0
 
     def expire_if_pending(self, qid: str) -> None:
+        """Mark a pending question expired, falling back to its default answer."""
         with self._conn() as conn:
             conn.execute(
                 "UPDATE questions SET status='expired', answered_at=?, "
@@ -425,11 +540,13 @@ class QuestionStore:
     # -- reads ----------------------------------------------------------------
 
     def get(self, qid: str) -> Question | None:
+        """One question by id, or None when unknown."""
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
         return _row_to_question(row) if row is not None else None
 
     def list_pending(self, limit: int = 100) -> list[Question]:
+        """Pending questions, highest priority first."""
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM questions WHERE status='pending' "
@@ -511,26 +628,12 @@ class QuestionStore:
 
     # -- blocking wait --------------------------------------------------------
 
-    def wait(self, qid: str, poll_interval: float = 0.5) -> Question:
+    def wait(self, qid: str, poll_interval: float = _POLL_BASE_S) -> Question:
         """Block until the question is resolved, then return its final row.
 
         Honors the question's ``timeout_s`` (measured from creation). On timeout
         the question is marked ``expired`` and its ``default_answer`` (if any)
         becomes the answer, so callers never block forever when a timeout is set.
+        See ``wait_for_answer`` for the shared implementation.
         """
-        q = self.get(qid)
-        if q is None:
-            raise QuestionNotFound(qid, self.db_path)
-        deadline = (q["created_at"] + q["timeout_s"]) if q["timeout_s"] else None
-        while q["status"] == "pending":
-            if deadline is not None and time.time() >= deadline:
-                self.expire_if_pending(qid)
-                q = self.get(qid)
-                if q is None:
-                    raise QuestionNotFound(qid, self.db_path)
-                return q
-            time.sleep(poll_interval)
-            q = self.get(qid)
-            if q is None:
-                raise QuestionNotFound(qid, self.db_path)
-        return q
+        return wait_for_answer(self, qid, poll_interval=poll_interval)

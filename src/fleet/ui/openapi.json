@@ -2625,6 +2625,14 @@
             "type": "string",
             "title": "Opencode Ollama Url"
           },
+          "ollama_ssh_host": {
+            "type": "string",
+            "title": "Ollama Ssh Host"
+          },
+          "ollama_remote_port": {
+            "type": "integer",
+            "title": "Ollama Remote Port"
+          },
           "max_concurrent_overrides": {
             "type": "string",
             "title": "Max Concurrent Overrides"
@@ -2758,6 +2766,8 @@
           "telegram_allowed_ids",
           "telegram_default_cwd",
           "opencode_ollama_url",
+          "ollama_ssh_host",
+          "ollama_remote_port",
           "max_concurrent_overrides",
           "context_windows",
           "opencode_default_model",

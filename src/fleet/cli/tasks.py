@@ -25,6 +25,7 @@ from fleet.core.effective import effective_coder_model
 from fleet.core.job_phase import phase_of
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.integrations.ask_human.store import Question, QuestionStore
+from fleet.integrations.mcp_servers import ask_human_db_path
 from fleet.observability import tailview
 from fleet.state import paths as state_paths
 from fleet.state import runtime_stats
@@ -90,10 +91,12 @@ def _fetch_children(queue: BeadsQueue, job_id: str) -> list[Any]:
         return []
 
 
-def _pending_gate(job_id: str) -> list[Question]:
+def _pending_gate(fleet_home: Path, job_id: str) -> list[Question]:
     """Pending job-gate questions, best-effort (empty when the store is unreadable)."""
     try:
-        return QuestionStore().fetch_pending_for_task(job_id, "job_gate")
+        return QuestionStore(ask_human_db_path(fleet_home)).fetch_pending_for_task(
+            job_id, "job_gate"
+        )
     except Exception:
         return []
 
@@ -324,7 +327,9 @@ def run_job_view(fleet_home: Path, job_id: str) -> None:
     q = bootstrap.queue(fleet_home)
     task = _fetch_job(q, job_id)
     children = _fetch_children(q, job_id)
-    render.print_job_view(_build_job_view(fleet_home, task, children, _pending_gate(job_id)))
+    render.print_job_view(
+        _build_job_view(fleet_home, task, children, _pending_gate(fleet_home, job_id))
+    )
 
 
 def _print_tail_events(events_path: Path, line_count: int, follow: bool) -> None:

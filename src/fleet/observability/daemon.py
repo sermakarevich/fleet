@@ -323,3 +323,35 @@ def serve_spec(fleet_home: Path, host: str, port: int) -> DaemonSpec:
         stop_timeout=10.0,
         extra={"port": port, "host": host},
     )
+
+
+#: PID-file name for the ollama SSH tunnel (shared with the status reader
+#: in observability/process.py so both sides track the same file).
+TUNNEL_PIDFILE_NAME = ".ollama_tunnel.pid"
+
+
+def tunnel_spec(
+    fleet_home: Path,
+    argv: list[str],
+    *,
+    local_port: int = 0,
+    ssh_host: str = "",
+    remote_port: int = 0,
+) -> DaemonSpec:
+    """Daemon spec for the ollama SSH tunnel forward.
+
+    ``argv`` is the foreground ``ssh -N`` holding the forward (built by
+    ``integrations/ollama_tunnel.py``); the spec only adds fleet's daemon
+    bookkeeping. Stores the forward facts so ``status`` can report them.
+    Callers that only need the pidfile (stop after a config change) pass
+    ``argv=[]`` — stop never execs it.
+    """
+    return DaemonSpec(
+        name="ollama-tunnel",
+        pidfile=fleet_home / TUNNEL_PIDFILE_NAME,
+        logfile=_log_dir(fleet_home) / "ollama_tunnel.daemon.log",
+        argv=argv,
+        cwd=fleet_home,
+        stop_timeout=10.0,
+        extra={"port": local_port, "host": ssh_host, "remote_port": remote_port},
+    )
