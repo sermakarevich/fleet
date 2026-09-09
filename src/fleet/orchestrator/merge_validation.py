@@ -17,7 +17,12 @@ from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import paths as state_paths
 from fleet.state.task_meta import TaskMeta
-from fleet.state.validation_marker import clear_needs_validation, needs_validation
+from fleet.state.validation_marker import (
+    clear_needs_validation,
+    needs_validation,
+    release_validation_lock,
+    try_acquire_validation_lock,
+)
 
 from . import worktree
 
@@ -38,11 +43,52 @@ def finish_validation(st: SupervisorState, task_dir: Path, task_id: str) -> None
 
 
 async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> None:
-    """Merge one validated worktree into its base ref, generically."""
+    """Merge one validated worktree into its base ref, generically.
+
+    Exclusive per task dir: the first holder of the ``.validating`` lock
+    wins; losers return without touching the bead. The winner re-checks
+    the marker and the bead status after acquiring, so a validation that
+    already merged (marker gone, bead closed) is skipped, never re-blocked.
+    """
+    fd = try_acquire_validation_lock(task_dir)
+    if fd is None:
+        st.log.debug("task.validation_skipped_locked", task_id=task_id)
+        return
+    try:
+        if not needs_validation(task_dir):
+            return
+        if await asyncio.to_thread(_is_closed, st, task_id):
+            st.log.info("task.validation_skipped_closed", task_id=task_id)
+            clear_needs_validation(task_dir)
+            return
+        await _validate_locked(st, task_dir, task_id)
+    finally:
+        release_validation_lock(fd, task_dir)
+
+
+def _is_closed(st: SupervisorState, task_id: str) -> bool:
+    """True when the bead already reads closed (missing bead counts as open)."""
+    try:
+        return st.queue.get(task_id).status == "closed"
+    except Exception as exc:
+        st.log.debug("task.validation_status_unknown", task_id=task_id, error=str(exc))
+        return False
+
+
+async def _block_unless_closed(st: SupervisorState, task_id: str, reason: str) -> None:
+    """Block the bead unless it already closed (a won merge must never regress)."""
+    if await asyncio.to_thread(_is_closed, st, task_id):
+        st.log.info("task.validation_skipped_closed", task_id=task_id)
+        return
+    await asyncio.to_thread(st.queue.set_blocked, task_id, reason)
+
+
+async def _validate_locked(st: SupervisorState, task_dir: Path, task_id: str) -> None:
+    """Merge one validated worktree; caller holds the task's validation lock."""
     info = read_isolation_info(task_dir)
     if info is None or not info.repo_root:
-        await asyncio.to_thread(
-            st.queue.set_blocked,
+        await _block_unless_closed(
+            st,
             task_id,
             "validation failed: missing isolation info; merge manually",
         )
@@ -54,8 +100,8 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
     wt_path = Path(info.worktree_path)
 
     if not repo_root.is_dir():
-        await asyncio.to_thread(
-            st.queue.set_blocked,
+        await _block_unless_closed(
+            st,
             task_id,
             f"validation failed: repo_root gone ({repo_root}); merge manually",
         )
@@ -63,22 +109,46 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         return
 
     if worktree.is_repo_dirty(repo_root):
-        await asyncio.to_thread(st.queue.set_blocked, task_id, "base repo dirty; merge manually")
+        await _block_unless_closed(st, task_id, "base repo dirty; merge manually")
         st.log.warning("task.validation_dirty_base", task_id=task_id)
         clear_needs_validation(task_dir)
         return
 
     if not wt_path.is_dir() or not worktree.is_committed_clean(wt_path, base_ref=base_ref):
-        await asyncio.to_thread(
-            st.queue.set_blocked,
-            task_id,
-            f"validation failed: worktree not clean/ahead of {base_ref}; merge manually",
-        )
-        st.log.warning("task.validation_not_clean", task_id=task_id)
-        worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
-        finish_validation(st, task_dir, task_id)
+        await _not_clean(st, task_dir, task_id, repo_root, wt_path, base_ref)
         return
 
+    await _merge(st, task_dir, task_id, repo_root, wt_path, base_ref)
+
+
+async def _not_clean(
+    st: SupervisorState,
+    task_dir: Path,
+    task_id: str,
+    repo_root: Path,
+    wt_path: Path,
+    base_ref: str,
+) -> None:
+    """Block a worktree that is gone or not ahead, unless the bead closed."""
+    await _block_unless_closed(
+        st,
+        task_id,
+        f"validation failed: worktree not clean/ahead of {base_ref}; merge manually",
+    )
+    st.log.warning("task.validation_not_clean", task_id=task_id)
+    worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
+    finish_validation(st, task_dir, task_id)
+
+
+async def _merge(
+    st: SupervisorState,
+    task_dir: Path,
+    task_id: str,
+    repo_root: Path,
+    wt_path: Path,
+    base_ref: str,
+) -> None:
+    """Merge the branch, run the post-merge gate, then close the bead."""
     result = worktree.merge_to_base(repo_root, task_id, base_ref=base_ref)
     if not result.ok:
         reason = (
@@ -86,7 +156,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
             if result.conflict
             else f"validation merge failed: {result.message}"
         )
-        await asyncio.to_thread(st.queue.set_blocked, task_id, reason)
+        await _block_unless_closed(st, task_id, reason)
         st.log.warning("task.validation_failed", task_id=task_id, conflict=result.conflict)
         worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
         if result.conflict:
@@ -111,9 +181,7 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
     if post_cmd.strip():
         ok, tail = await asyncio.to_thread(worktree.run_post_merge_command, post_cmd, repo_root)
         if not ok:
-            await asyncio.to_thread(
-                st.queue.set_blocked, task_id, f"post-merge command failed:\n{tail}"
-            )
+            await _block_unless_closed(st, task_id, f"post-merge command failed:\n{tail}")
             st.log.warning("task.post_merge_failed", task_id=task_id)
             worktree.cleanup_worktree(repo_root, task_id, wt_path, fleet_home=st.fleet_home)
             finish_validation(st, task_dir, task_id)

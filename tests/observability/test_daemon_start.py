@@ -121,3 +121,92 @@ def test_popen_failure_returns_typed_result(tmp_path: Path, monkeypatch) -> None
     assert result.already_running is False
     assert "ssh binary not found" in result.detail
     assert pidfile_mod.read(spec.pidfile) is None
+
+
+# ---------------------------------------------------------------------------
+# supervisor single-instance: lifetime lock + orphan scan
+# ---------------------------------------------------------------------------
+
+
+def make_supervisor_spec(tmp_path: Path) -> DaemonSpec:
+    """A supervisor DaemonSpec rooted at tmp_path (pidfile beside the lock)."""
+    spec = make_spec(tmp_path)
+    return DaemonSpec(
+        name="supervisor",
+        pidfile=tmp_path / ".supervisor.pid",
+        logfile=spec.logfile,
+        argv=spec.argv,
+        cwd=tmp_path,
+        stop_timeout=5.0,
+        extra={},
+    )
+
+
+def test_supervisor_lock_roundtrip(tmp_path: Path) -> None:
+    """Holding the lock reports held; releasing reports free."""
+    fh = daemon_mod.acquire_supervisor_lock(tmp_path)
+    assert fh is not None
+    try:
+        assert daemon_mod.supervisor_lock_held(tmp_path) is True
+    finally:
+        daemon_mod.release_supervisor_lock(fh)
+    assert daemon_mod.supervisor_lock_held(tmp_path) is False
+
+
+def test_second_supervisor_start_refused_while_lock_held(tmp_path: Path, monkeypatch) -> None:
+    """A supervisor start spawns nothing while another foreground holds the lock."""
+    spec = make_supervisor_spec(tmp_path)
+    monkeypatch.setattr(daemon_mod, "find_supervisor_orphans", lambda *a, **k: [])
+    fh = daemon_mod.acquire_supervisor_lock(tmp_path)
+    assert fh is not None
+    try:
+        popen = mock_spawn(monkeypatch, alive=True)
+        result = start(spec)
+    finally:
+        daemon_mod.release_supervisor_lock(fh)
+
+    assert result.already_running is True
+    assert "already running" in result.detail
+    assert not popen.called  # did not spawn a duplicate supervisor
+
+
+def test_supervisor_start_proceeds_after_lock_released(tmp_path: Path, monkeypatch) -> None:
+    """Once the previous foreground exits, a supervisor start spawns again."""
+    spec = make_supervisor_spec(tmp_path)
+    monkeypatch.setattr(daemon_mod, "find_supervisor_orphans", lambda *a, **k: [])
+    fh = daemon_mod.acquire_supervisor_lock(tmp_path)
+    assert fh is not None
+    daemon_mod.release_supervisor_lock(fh)
+    popen = mock_spawn(monkeypatch, alive=True)
+
+    result = start(spec)
+
+    assert result.alive is True
+    assert popen.call_count == 1
+
+
+def test_supervisor_start_refused_for_orphan_without_pidfile(tmp_path: Path, monkeypatch) -> None:
+    """A live foreground with no pidfile still refuses a second start."""
+    spec = make_supervisor_spec(tmp_path)
+    assert not spec.pidfile.exists()  # stale/missing pidfile, like the incident
+    monkeypatch.setattr(daemon_mod, "find_supervisor_orphans", lambda *a, **k: [78937])
+    popen = mock_spawn(monkeypatch, alive=True)
+
+    result = start(spec)
+
+    assert result.already_running is True
+    assert result.pid == 78937
+    assert not popen.called
+
+
+def test_argv_match_and_ps_parse(tmp_path: Path) -> None:
+    """The scan recognises `python -m fleet run foreground` argv rows."""
+    assert (
+        daemon_mod._argv_is_supervisor(["/usr/bin/python", "-m", "fleet", "run", "foreground"])
+        is True
+    )
+    assert (
+        daemon_mod._argv_is_supervisor(["/usr/bin/python", "-m", "fleet", "run", "status"]) is False
+    )
+    rows = daemon_mod._parse_ps_output("  PID ARGS\n 1234 python -m fleet run foreground\n")
+    assert rows == {1234: ["python", "-m", "fleet", "run", "foreground"]}

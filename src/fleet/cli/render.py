@@ -382,6 +382,7 @@ def print_service_status(label: str, status: ServiceStatus, restart_hint: str) -
     """Print one daemon's liveness line plus a stale-code warning when stale."""
     if not status.alive:
         _console.print(f"{label}: [red]stopped[/]")
+        _print_orphans(label, status)
         return
     parts = [f"pid {status.pid}"] if status.pid else []
     if status.since:
@@ -394,6 +395,19 @@ def print_service_status(label: str, status: ServiceStatus, restart_hint: str) -
             f"[bold yellow]⚠  {label} is running stale code[/] — "
             f"run [bold]{restart_hint}[/] to pick up changes."
         )
+    _print_orphans(label, status)
+
+
+def _print_orphans(label: str, status: ServiceStatus) -> None:
+    """Warn about untracked supervisor processes the pidfile misses."""
+    orphans = getattr(status, "orphan_pids", ())
+    if not orphans:
+        return
+    pids = ", ".join(str(pid) for pid in orphans)
+    _console.print(
+        f"[bold yellow]⚠  {label} orphan process(es) detected: pid(s) {pids}[/] — "
+        "run [bold]`fleet run stop`[/] to terminate them."
+    )
 
 
 @dataclass(frozen=True)

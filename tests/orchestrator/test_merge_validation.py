@@ -15,6 +15,7 @@ from fleet.orchestrator import merge_validation as mv_mod
 from fleet.orchestrator import worktree
 from fleet.orchestrator.merge_validation import MergeValidation
 from fleet.orchestrator.service import ServiceOrder
+from fleet.state.validation_marker import release_validation_lock, try_acquire_validation_lock
 from tests.conftest import make_running_worker, make_supervisor
 
 
@@ -385,6 +386,61 @@ class TestPostMergeCommand:
         assert "src/fleet/ui" not in src
         assert "create_subprocess_exec" not in src
         assert "post_merge_command" in src
+
+
+# ===== EXCLUSIVE VALIDATION (duplicate-supervisor race) =====
+
+
+class TestExclusiveValidation:
+    def test_second_validator_skips_while_lock_held(self, tmp_path: Path):
+        """A validator that loses the `.validating` race merges nothing."""
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-excl-1"
+        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "feature.txt", "feature content")
+
+        queue = StubQueue(status="in_progress")
+        st = _make_state(tmp_path, queue)
+        fd = try_acquire_validation_lock(task_dir)  # first validator wins
+        assert fd is not None
+        try:
+            _run(st)  # second validator loses the race
+        finally:
+            release_validation_lock(fd, task_dir)
+
+        assert queue.closed == []
+        assert queue.blocked == []
+        assert (task_dir / ".needs_validation").exists()  # still pending
+
+    def test_two_validators_merge_exactly_once(self, tmp_path: Path):
+        """Sequential validators on one marker: one merge, never blocked."""
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-excl-2"
+        _, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "feature.txt", "feature content")
+
+        queue = StubQueue(status="in_progress")
+        st = _make_state(tmp_path, queue)
+        _run(st)  # first validator merges
+        _run(st)  # second validator finds no marker and skips
+
+        assert len(queue.closed) == 1
+        assert queue.blocked == []
+
+    def test_closed_bead_never_reblocked(self, tmp_path: Path):
+        """A merged bead (marker left behind, bead closed) is skipped, not blocked."""
+        fleet_home, repo = _setup_repo(tmp_path)
+        task_id = "test-excl-3"
+        task_dir, wt = _isolate(fleet_home, repo, task_id)
+        _commit(wt, "feature.txt", "feature content")
+
+        queue = StubQueue(status="closed")  # merged by the winning supervisor
+        st = _make_state(tmp_path, queue)
+        _run(st)
+
+        assert queue.closed == []
+        assert queue.blocked == []
+        assert not (task_dir / ".needs_validation").exists()
 
 
 # ===== IN-FLIGHT SKIP =====

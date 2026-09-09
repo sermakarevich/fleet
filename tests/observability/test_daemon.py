@@ -251,3 +251,23 @@ def test_status_cleans_stale_pidfile(tmp_path: Path, monkeypatch) -> None:
     st = status(spec)
     assert st.running is False
     assert not spec.pidfile.exists()
+
+
+def test_status_reports_supervisor_orphans(tmp_path: Path, monkeypatch) -> None:
+    """`fleet run status` surfaces foreground pids the pidfile misses."""
+    spec = make_spec(tmp_path, name="supervisor")
+    seed_pidfile(spec, os.getpid())  # genuinely alive, no pid_alive patch needed
+    monkeypatch.setattr(
+        "fleet.observability.daemon.find_supervisor_orphans",
+        lambda *a, **k: [78937],
+    )
+    st = status(spec)
+    assert st.running is True
+    assert st.orphans == (78937,)
+
+
+def test_status_no_orphans_for_other_daemons(tmp_path: Path) -> None:
+    """Non-supervisor daemons never report orphans."""
+    spec = make_spec(tmp_path, name="serve")
+    seed_pidfile(spec, os.getpid())
+    assert status(spec).orphans == ()

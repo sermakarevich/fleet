@@ -8,7 +8,7 @@ observability/daemon.py — nobody else parses them.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from fleet.core.process import pid_alive
@@ -16,6 +16,7 @@ from fleet.observability.daemon import (
     TUNNEL_PIDFILE_NAME,
     DaemonSpec,
     code_fingerprint,
+    find_supervisor_orphans,
     supervisor_spec,
 )
 from fleet.state import paths as state_paths
@@ -33,6 +34,8 @@ class ServiceStatus:
     since: str | None
     fingerprint: str | None
     stale: bool = False
+    # Supervisor pids alive for this fleet home that the pidfile misses.
+    orphan_pids: tuple[int, ...] = ()
 
 
 def _serve_spec(fleet_home: Path) -> DaemonSpec:
@@ -83,7 +86,18 @@ class ServiceRegistry:
         if build is None:
             return ServiceStatus(pid=None, alive=False, since=None, fingerprint=None)
         record = read_pid_file(build(self.fleet_home).pidfile)
-        return _from_pid_record(record)
+        status = _from_pid_record(record)
+        if name != "supervisor":
+            return status
+        return replace(status, orphan_pids=tuple(self._orphans(record)))
+
+    def _orphans(self, record: PidFile | None) -> list[int]:
+        """Untracked supervisor pids for this fleet home (best effort)."""
+        try:
+            known = record.pid if record is not None else None
+            return find_supervisor_orphans(self.fleet_home, known)
+        except OSError:
+            return []
 
     def supervisor_running(self) -> bool:
         """True when the supervisor pid file points at a live process."""

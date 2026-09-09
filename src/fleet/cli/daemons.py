@@ -33,6 +33,9 @@ from fleet.integrations.ollama_tunnel import (
 from fleet.observability.daemon import (
     DaemonSpec,
     StartResult,
+    acquire_supervisor_lock,
+    find_supervisor_orphans,
+    release_supervisor_lock,
     restart,
     serve_spec,
     start,
@@ -112,6 +115,19 @@ def _build_ui(repo_root: Path | None = None) -> None:
     _console.print("[green]UI build complete.[/]")
 
 
+def _duplicate_message(fleet_home: Path) -> str:
+    """Human detail for a refused second supervisor (names the holder)."""
+    try:
+        orphans = find_supervisor_orphans(fleet_home, None)
+    except OSError:
+        orphans = []
+    holder = f" (pid {orphans[0]})" if orphans else ""
+    return (
+        f"another supervisor is already running for {fleet_home}{holder}; "
+        "run `fleet run stop` to stop it before starting a new one."
+    )
+
+
 def _register_run_commands(app: typer.Typer) -> None:
     """Wire `fleet run ...` (supervisor daemon commands)."""
     run_app = typer.Typer(
@@ -125,12 +141,18 @@ def _register_run_commands(app: typer.Typer) -> None:
     def run_foreground() -> None:
         """Run the supervisor in the foreground (blocks). This is what `start` execs."""
         fleet_home = bootstrap.fleet_home()
-        supervisor = bootstrap.bootstrap_supervisor(fleet_home, bootstrap.config(fleet_home))
+        lock_fh = acquire_supervisor_lock(fleet_home)
+        if lock_fh is None:
+            fail(_duplicate_message(fleet_home), ExitCode.ERROR)
         try:
-            rc = asyncio.run(supervisor.run())
-        except NotImplementedError as exc:
-            fail(str(exc))
-        raise typer.Exit(rc)
+            supervisor = bootstrap.bootstrap_supervisor(fleet_home, bootstrap.config(fleet_home))
+            try:
+                rc = asyncio.run(supervisor.run())
+            except NotImplementedError as exc:
+                fail(str(exc))
+            raise typer.Exit(rc)
+        finally:
+            release_supervisor_lock(lock_fh)
 
     @run_app.command("start")
     def run_start() -> None:
