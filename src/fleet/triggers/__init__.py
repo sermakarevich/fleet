@@ -7,7 +7,9 @@ is one trigger reacting to one event by opening one bead.
 
 from __future__ import annotations
 
+from fleet.triggers.firing import decide, fire, fire_due, open_count, open_task
 from fleet.triggers.model import Firing, Trigger, TriggerEvent, new_id
+from fleet.triggers.render import render
 from fleet.triggers.store import TriggerStore
 
 __all__ = [
@@ -15,5 +17,11 @@ __all__ = [
     "Trigger",
     "TriggerEvent",
     "TriggerStore",
+    "decide",
+    "fire",
+    "fire_due",
     "new_id",
+    "open_count",
+    "open_task",
+    "render",
 ]
