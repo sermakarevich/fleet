@@ -1,3 +1,6 @@
+// Runs tab of the workers page: today's worker list on DataList +
+// FilterBar with URL-synced status filters, plus the needs-attention
+// strip above the list. Rendered by WorkersPage when ?tab=runs (default).
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKillTask, useTasks } from '../../shared/hooks/useApi';
@@ -9,19 +12,21 @@ import * as R from '../../shared/styles/recipes';
 import { DataList } from '../../shared/ui/DataList';
 import { FilterBar } from '../../shared/ui/FilterBar';
 import { LoadingState } from '../../shared/ui/LoadingState';
-import { PageShell } from '../../shared/ui/PageShell';
-import { TASK_FILTERS, useTaskFilters } from './useTaskFilters';
-import { TaskCard, taskColumns } from './taskColumns';
+import { NeedsAttentionStrip } from './NeedsAttentionStrip';
+import { WORKER_FILTERS, useWorkerFilters } from './useWorkerFilters';
+import { TaskCard, taskColumns, type WorkerActionVerb } from './workerColumns';
 
 interface TasksSocketMessage {
   task_id: string;
   event: FleetEvent;
 }
 
-export function TasksPage() {
+// Runs list: filters, strip, table/cards, pagination and the shared
+// kill/retry/close confirm flow (mutations fire in the row cells).
+export function RunsTab() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<{ id: string; verb: WorkerActionVerb } | null>(null);
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
 
   const { data: polledTasks, isLoading, error } = useTasks();
@@ -44,13 +49,12 @@ export function TasksPage() {
     searchQuery,
     page,
     totalPages,
-    sortedFiltered,
     pageItems,
     alertCounts,
     setFilter,
     setSearchQuery,
     setPage,
-  } = useTaskFilters(tasks);
+  } = useWorkerFilters(tasks);
 
   useEffect(() => {
     setStoppingIds(prev => {
@@ -60,18 +64,24 @@ export function TasksPage() {
     });
   }, [tasks]);
 
-  const handleKillConfirm = (id: string) => {
-    void killTask.mutateAsync(id)
-      .then(() => setStoppingIds(prev => new Set([...prev, id])))
-      .finally(() => setConfirmingId(null));
+  // Kill runs through the page (stopping label); retry/close mutations
+  // already fired in the row cell, so every verb just clears the confirm.
+  const handleActionConfirm = (id: string, verb: WorkerActionVerb) => {
+    if (verb === 'Kill') {
+      void killTask.mutateAsync(id)
+        .then(() => setStoppingIds(prev => new Set([...prev, id])))
+        .finally(() => setConfirming(null));
+    } else {
+      setConfirming(null);
+    }
   };
 
   const cb = {
-    confirmingId,
+    confirming,
     stoppingIds,
-    onKillClick: (id: string) => setConfirmingId(id),
-    onKillConfirm: handleKillConfirm,
-    onKillCancel: () => setConfirmingId(null),
+    onActionClick: (id: string, verb: WorkerActionVerb) => setConfirming({ id, verb }),
+    onActionConfirm: handleActionConfirm,
+    onActionCancel: () => setConfirming(null),
   };
   const columns = taskColumns(cb);
 
@@ -80,13 +90,18 @@ export function TasksPage() {
   }
 
   return (
-    <PageShell title="tasks" count={sortedFiltered.length}>
+    <>
+      <NeedsAttentionStrip
+        tasks={tasks}
+        onSelectBlocked={() => setFilter('blocked')}
+        onSelectFailed={() => setFilter('failed')}
+      />
       <div style={R.topBarStyle()}>
         <FilterBar
           searchQuery={searchQuery}
           onSearchQuery={setSearchQuery}
           searchWidth={isMobile ? '100%' : '13rem'}
-          filters={TASK_FILTERS.map(({ key, label }) => ({
+          filters={WORKER_FILTERS.map(({ key, label }) => ({
             key,
             label,
             alertCount: alertCounts[key] ?? 0,
@@ -103,9 +118,9 @@ export function TasksPage() {
           columns={columns}
           rows={pageItems}
           rowKey={(task) => task.id}
-          onRowClick={(task) => navigate(`/tasks/${task.id}`)}
+          onRowClick={(task) => navigate(`/workers/${task.id}`)}
           renderCard={(task) => <TaskCard task={task} cb={cb} />}
-          empty="No tasks match this filter."
+          empty="No workers match this filter."
         />
       )}
 
@@ -130,6 +145,6 @@ export function TasksPage() {
           </button>
         </div>
       )}
-    </PageShell>
+    </>
   );
 }

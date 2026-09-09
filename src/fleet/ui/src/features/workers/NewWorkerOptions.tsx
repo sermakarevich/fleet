@@ -1,16 +1,16 @@
 /**
- * Field groups for the new-task modal: coder/model/priority row,
+ * Field groups for the new-worker modal: coder/model/priority row,
  * dependencies, extra args and the template picker.
- * Called by NewTaskPanel; state comes from useNewTaskForm.
+ * Called by NewWorkerPanel; state comes from useNewWorkerForm.
  */
 import * as R from '../../shared/styles/recipes';
 import { formatKiloTokens } from '../../shared/format';
 import type { Template } from '../../shared/types';
-import type { NewTaskForm } from './hooks/useNewTaskForm';
-import { styles } from './newTaskPanelStyles';
+import type { NewWorkerForm } from './hooks/useNewWorkerForm';
+import { styles } from './newWorkerPanelStyles';
 
 // Coder, model and priority inputs side by side.
-export function CoderModelPriority({ f }: { f: NewTaskForm }) {
+export function CoderModelPriority({ f }: { f: NewWorkerForm }) {
   return (
     <div style={styles.row}>
       <label style={R.merge(styles.label, styles.grow)}>
@@ -37,7 +37,7 @@ export function CoderModelPriority({ f }: { f: NewTaskForm }) {
 }
 
 // Dependencies multi-select plus extra args input.
-export function DepsAndArgs({ f }: { f: NewTaskForm }) {
+export function DepsAndArgs({ f }: { f: NewWorkerForm }) {
   return (
     <>
       {f.openTasks.length > 0 && (

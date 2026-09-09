@@ -11,10 +11,10 @@ import * as T from '../../shared/styles/tokens';
 interface Props {
   open: boolean;
   setOpen: (v: boolean) => void;
-  onCreateTask: () => void;
+  onCreateWorker: () => void;
 }
 
-export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
+export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pauseSupervisor = usePauseSupervisor();
@@ -57,9 +57,10 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
   };
 
   const actions = [
-    { id: 'create', label: 'Create new task', run: () => { onCreateTask(); setOpen(false); } },
-    { id: 'schedules', label: 'Go to Schedules', run: () => go('/schedules') },
-    { id: 'create-schedule', label: 'Create new schedule', run: () => go('/schedules?new=1') },
+    { id: 'create', label: 'New worker', run: () => { onCreateWorker(); setOpen(false); } },
+    { id: 'workers', label: 'Go to workers', run: () => go('/workers') },
+    { id: 'scheduled-workers', label: 'Scheduled workers', run: () => go('/workers?tab=scheduled') },
+    { id: 'create-schedule', label: 'Create new schedule', run: () => go('/workers?tab=scheduled&new=1') },
     { id: 'workflows', label: 'Go to Workflows', run: () => go('/workflows') },
     { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?view=runs') },
     { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
@@ -91,20 +92,20 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
             <Command.Input
               value={inputValue}
               onValueChange={setInputValue}
-              placeholder="Jump to task, run action, or search…"
+              placeholder="Jump to worker, run action, or search…"
               style={s.input}
             />
           </div>
           <Command.List style={s.list}>
             {cachedTasks.length > 0 && (
               <Command.Group>
-                <div style={s.groupHeading}>Jump to task</div>
+                <div style={s.groupHeading}>Jump to worker</div>
                 {cachedTasks.slice(0, 8).map(t => (
                   <Command.Item
                     key={t.id}
                     value={t.id}
                     style={s.item}
-                    onSelect={() => go(`/tasks/${t.id}`)}
+                    onSelect={() => go(`/workers/${t.id}`)}
                     className="cmd-item"
                   >
                     <span style={s.itemLabel}>{t.title ?? t.id}</span>
@@ -140,7 +141,7 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
                     key={`${r.task_id}-${i}`}
                     value={`search-${i}`}
                     style={s.item}
-                    onSelect={() => go(`/tasks/${r.task_id}`)}
+                    onSelect={() => go(`/workers/${r.task_id}`)}
                     className="cmd-item"
                   >
                     <span style={s.itemLabel}>{r.task_title}</span>

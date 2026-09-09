@@ -16,7 +16,7 @@ interface TaskSocketMessage {
 function useDocumentTitle() {
   const { data } = useChatQuestions();
   const pendingCount = data?.pending.length ?? 0;
-  const taskMatch = useMatch('/tasks/:id');
+  const taskMatch = useMatch('/workers/:id');
   const taskId = taskMatch?.params.id;
   useEffect(() => {
     const prefix = pendingCount > 0 ? `(${pendingCount}) ` : '';

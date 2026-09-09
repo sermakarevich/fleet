@@ -1,6 +1,6 @@
 /**
  * Websocket overlays for the tasks list: per-task patches from /ws/events
- * (last event kind, idle reset, token count). Called by TasksPage, which
+ * (last event kind, idle reset, token count). Called by RunsTab (workers page), which
  * derives the displayed list from the polled query plus these overlays in
  * a useMemo so polls never discard updates that arrived between polls.
  */

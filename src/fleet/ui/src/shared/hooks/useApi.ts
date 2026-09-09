@@ -164,13 +164,6 @@ export function useCloseTask() {
   });
 }
 
-export function useDeleteTask() {
-  return useTaskMutation('Delete task', (id: string) => api.deleteTask(id), {
-    invalidate: [['tasks']],
-    success: 'Task deleted.',
-  });
-}
-
 export function useRemoveAssignee() {
   return useTaskMutation('Remove assignee', (id: string) => api.removeAssignee(id), {
     invalidate: [['tasks']],
@@ -179,7 +172,7 @@ export function useRemoveAssignee() {
 }
 
 export function useCreateTask() {
-  // No success toast: NewTaskPanel already toasts the created id via onCreated.
+  // No success toast: NewWorkerPanel already toasts the created id via onCreated.
   return useTaskMutation('Create task', (payload: CreateTaskInput) => api.createTask(payload), {
     invalidate: [['tasks']],
   });

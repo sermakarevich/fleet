@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { ChatPage } from '../features/chat/ChatPage';
-import { TasksPage } from '../features/tasks/TasksPage';
+import { WorkersPage } from '../features/workers/WorkersPage';
 import { BeadsPage } from '../features/beads/BeadsPage';
-import { SchedulesPage } from '../features/schedules/SchedulesPage';
 import { RecurringPage } from '../features/recurring/RecurringPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/task-detail/TaskDetailPage';
 import { ConfigPage } from '../features/config/ConfigPage';
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage';
-import { NewTaskPanel } from '../features/tasks/NewTaskPanel';
+import { NewWorkerPanel } from '../features/workers/NewWorkerPanel';
 import { CommandPalette } from '../features/command-palette/CommandPalette';
 import { useCommandPalette } from '../shared/hooks/useCommandPalette';
 import { ToastProvider, useToast } from '../shared/contexts/ToastContext';
@@ -25,30 +24,44 @@ function NotFound() {
     <div style={styles.notFound}>
       <h2>404 — Page not found</h2>
       <p>
-        <Link to="/tasks">← Back to Tasks</Link>
+        <Link to="/workers">← Back to Workers</Link>
       </p>
     </div>
   );
 }
 
+// Legacy /tasks/:id URLs redirect to the renamed worker detail page.
+export function TaskIdRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/workers/${id}`} replace />;
+}
+
+// Legacy /schedules/:id URLs redirect into the workers Scheduled sub-tab.
+export function ScheduleIdRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/workers?tab=scheduled&schedule=${id}`} replace />;
+}
+
 function AppInner() {
-  const [showNewTask, setShowNewTask] = useState(false);
+  const [showNewWorker, setShowNewWorker] = useState(false);
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
   const { addToast } = useToast();
 
   return (
     <>
       <GlobalEvents />
-      <NavBar onNewTask={() => setShowNewTask(true)} />
+      <NavBar onNewWorker={() => setShowNewWorker(true)} />
       <TokenGate />
       <main style={styles.main}>
         <Routes>
-          <Route path="/" element={<Navigate to="/tasks" replace />} />
-          <Route path="/tasks" element={<TasksPage />} />
-          <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/" element={<Navigate to="/workers" replace />} />
+          <Route path="/workers" element={<WorkersPage />} />
+          <Route path="/workers/:id" element={<TaskDetailPage />} />
+          <Route path="/tasks" element={<Navigate to="/workers" replace />} />
+          <Route path="/tasks/:id" element={<TaskIdRedirect />} />
           <Route path="/bd" element={<BeadsPage />} />
-          <Route path="/schedules" element={<SchedulesPage />} />
-          <Route path="/schedules/:id" element={<SchedulesPage />} />
+          <Route path="/schedules" element={<Navigate to={{ pathname: '/workers', search: '?tab=scheduled' }} replace />} />
+          <Route path="/schedules/:id" element={<ScheduleIdRedirect />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/recurring" element={<RecurringPage />} />
           <Route path="/recurring/:id" element={<RecurringPage />} />
@@ -62,16 +75,16 @@ function AppInner() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      {showNewTask && (
-        <NewTaskPanel
-          onClose={() => setShowNewTask(false)}
-          onCreated={id => addToast(`Task ${id} created`)}
+      {showNewWorker && (
+        <NewWorkerPanel
+          onClose={() => setShowNewWorker(false)}
+          onCreated={id => addToast(`Worker ${id} created`)}
         />
       )}
       <CommandPalette
         open={paletteOpen}
         setOpen={setPaletteOpen}
-        onCreateTask={() => setShowNewTask(true)}
+        onCreateWorker={() => setShowNewWorker(true)}
       />
     </>
   );

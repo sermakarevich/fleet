@@ -1,6 +1,6 @@
 /**
  * The one status chip used by every table and card.
- * Replaces the former copies in features/tasks/statusChip.ts and
+ * Replaces the former copies in features/workers/statusChip.ts and
  * features/beads/BeadsPage.tsx. Called by TaskRow, TaskCard,
  * BeadRow and anywhere else a status needs a colored label.
  */

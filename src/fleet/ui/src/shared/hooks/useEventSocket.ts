@@ -1,6 +1,6 @@
 /**
  * The one websocket hook for the whole UI (replaces useWebSocket and
- * useTaskWebSocket). Called by GlobalEvents, TasksPage and
+ * useTaskWebSocket). Called by GlobalEvents, RunsTab and
  * TaskDetailPage; NavBar reads useSocketStatus for the connection dot.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';

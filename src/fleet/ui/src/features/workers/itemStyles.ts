@@ -2,7 +2,7 @@
  * Styles only the tasks table and cards need.
  * Generic page/row/chip recipes live in shared/styles/recipes.ts;
  * this module keeps task-specific cells, badges and action buttons.
- * Called by TasksPage, TaskRow and TaskCard.
+ * Called by WorkersPage, WorkerRow and WorkerCard.
  */
 import * as T from '../../shared/styles/tokens';
 
@@ -123,6 +123,22 @@ export const rowStyles = {
     fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
     fontWeight: 600,
+  } as React.CSSProperties,
+  retryBtn: {
+    padding: '0.2rem 0.625rem',
+    background: 'transparent',
+    border: `1px solid ${T.colors.amber}`,
+    borderRadius: '0.25rem',
+    color: T.colors.amber,
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontFamily: 'system-ui, sans-serif',
+    fontWeight: 600,
+  } as React.CSSProperties,
+  closeBtn: {
+    ...T.btnGhost,
+    padding: '0.2rem 0.625rem',
+    fontSize: '0.8125rem',
   } as React.CSSProperties,
   stoppingLabel: {
     fontSize: '0.8125rem',

@@ -60,7 +60,7 @@ function StalenessChip() {
   );
 }
 
-export function NavBar({ onNewTask }: { onNewTask: () => void }) {
+export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
   const isMobile = useIsMobile();
   const navRef = useRef<HTMLElement>(null);
 
@@ -77,9 +77,8 @@ export function NavBar({ onNewTask }: { onNewTask: () => void }) {
 
   const navLinks = (
     <>
-      <NavLink style={navLinkStyle} to="/tasks">tasks</NavLink>
+      <NavLink style={navLinkStyle} to="/workers">Workers</NavLink>
       <NavLink style={navLinkStyle} to="/bd">bd</NavLink>
-      <NavLink style={navLinkStyle} to="/schedules">schedules</NavLink>
       <NavLink style={navLinkStyle} to="/workflows">workflows</NavLink>
       <NavLink style={navLinkStyle} to="/recurring">recurring</NavLink>
       <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>
@@ -97,14 +96,14 @@ export function NavBar({ onNewTask }: { onNewTask: () => void }) {
     return (
       <nav ref={navRef} style={styles.navMobile}>
         <div style={styles.navMobileTop}>
-          <Link style={styles.brand} to="/tasks">
+          <Link style={styles.brand} to="/workers">
             fleet
           </Link>
           <StalenessChip />
           <span style={merge(styles.dot, { marginLeft: 'auto', fontSize: '0.7rem' })}>
             <ConnectionDot />
           </span>
-          <button style={styles.newTaskBtn} onClick={onNewTask}>+ New</button>
+          <button style={styles.newTaskBtn} onClick={onNewWorker}>+ New</button>
         </div>
         <div style={styles.navMobileLinks} className="nav-scroll">
           {navLinks}
@@ -115,11 +114,11 @@ export function NavBar({ onNewTask }: { onNewTask: () => void }) {
 
   return (
     <nav ref={navRef} style={styles.nav}>
-      <Link style={styles.brand} to="/tasks">
+      <Link style={styles.brand} to="/workers">
         fleet
       </Link>
       {navLinks}
-      <button style={styles.newTaskBtn} onClick={onNewTask}>+ New task</button>
+      <button style={styles.newTaskBtn} onClick={onNewWorker}>+ New worker</button>
       <StalenessChip />
       <ConnectionDot />
     </nav>

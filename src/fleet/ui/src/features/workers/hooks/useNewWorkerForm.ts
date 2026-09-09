@@ -1,11 +1,22 @@
 /**
- * Form state for the new-task panel.
+ * Form state for the new-worker panel.
  * Owns field values, coder/model/template lookups, recent cwds, open
- * tasks and submit/validation. Called by NewTaskPanel.
+ * workers and submit/validation. "Run now" posts to POST /api/tasks;
+ * "on a schedule" posts the same worker fields as a task-target schedule
+ * (same payload shape as ScheduleForm). Called by NewWorkerPanel.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useCoders, useCreateTask, useTemplates, useTasks } from '../../../shared/hooks/useApi';
+import {
+  useCoders,
+  useCreateSchedule,
+  useCreateTask,
+  useCronPreview,
+  useTasks,
+  useTemplates,
+} from '../../../shared/hooks/useApi';
 import type { CoderInfo, Template } from '../../../shared/types';
+
+export type RunMode = 'now' | 'schedule';
 
 // Split a template body into title (first line) and description.
 function splitTemplate(content: string): { title: string; description: string } {
@@ -16,8 +27,17 @@ function splitTemplate(content: string): { title: string; description: string } 
   };
 }
 
-// All new-task form state plus submit and keyboard handling.
-export function useNewTaskForm(onClose: () => void, onCreated: (id: string) => void) {
+// Browser time zone, falling back to UTC when unavailable.
+function defaultTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+// All new-worker form state plus submit and keyboard handling.
+export function useNewWorkerForm(onClose: () => void, onCreated: (id: string) => void) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [cwd, setCwd] = useState('');
@@ -27,11 +47,19 @@ export function useNewTaskForm(onClose: () => void, onCreated: (id: string) => v
   const [args, setArgs] = useState('');
   const [dependencies, setDependencies] = useState<string[]>([]);
   const [titleError, setTitleError] = useState('');
+  const [mode, setMode] = useState<RunMode>('now');
+  const [scheduleName, setScheduleName] = useState('');
+  const [cron, setCron] = useState('');
+  const [timezone, setTimezone] = useState(defaultTimezone());
+  const [overlap, setOverlap] = useState('skip');
+  const [scheduleError, setScheduleError] = useState('');
 
   const { data: codersData } = useCoders();
   const { data: templatesData } = useTemplates();
   const { data: tasksData } = useTasks();
   const createTask = useCreateTask();
+  const createSchedule = useCreateSchedule();
+  const cronPreview = useCronPreview(cron, timezone);
 
   const coders: CoderInfo[] = codersData?.coders ?? [];
   const templates: Template[] = templatesData?.templates ?? [];
@@ -63,12 +91,10 @@ export function useNewTaskForm(onClose: () => void, onCreated: (id: string) => v
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  async function submit() {
-    if (!title.trim()) {
-      setTitleError('Title is required');
-      return;
-    }
-    setTitleError('');
+  const cronValid = cronPreview.data?.valid === true;
+  const pending = createTask.isPending || createSchedule.isPending;
+
+  async function submitNow() {
     try {
       const result = await createTask.mutateAsync({
         title: title.trim(),
@@ -87,6 +113,45 @@ export function useNewTaskForm(onClose: () => void, onCreated: (id: string) => v
     }
   }
 
+  async function submitSchedule() {
+    const name = scheduleName.trim() || title.trim();
+    if (!cronValid) {
+      setScheduleError('A valid cron expression is required');
+      return;
+    }
+    setScheduleError('');
+    try {
+      const saved = await createSchedule.mutateAsync({
+        name,
+        cron: cron.trim(),
+        timezone: timezone.trim() || undefined,
+        enabled: true,
+        title: title.trim(),
+        description: description || undefined,
+        cwd: cwd || undefined,
+        coder: coder || undefined,
+        model: model || undefined,
+        priority: priority ? Number(priority) : 2,
+        overlap,
+        target: 'task',
+      });
+      onCreated(saved.id);
+      onClose();
+    } catch {
+      // error displayed via createSchedule.error
+    }
+  }
+
+  async function submit() {
+    if (!title.trim()) {
+      setTitleError('Title is required');
+      return;
+    }
+    setTitleError('');
+    if (mode === 'schedule') await submitSchedule();
+    else await submitNow();
+  }
+
   function handleCoderChange(name: string) {
     setCoder(name);
     const info = coders.find((c) => c.name === name);
@@ -100,13 +165,20 @@ export function useNewTaskForm(onClose: () => void, onCreated: (id: string) => v
     setDescription(rest);
   }
 
+  function applyPreset(expression: string) {
+    setCron(expression);
+  }
+
   return {
     title, setTitle, description, setDescription, cwd, setCwd,
     coder, model, setModel, priority, setPriority, args, setArgs,
     dependencies, setDependencies, titleError,
-    coders, templates, recentCwds, openTasks, createTask,
-    submit, handleCoderChange, applyTemplate,
+    mode, setMode, scheduleName, setScheduleName, cron, setCron,
+    timezone, setTimezone, overlap, setOverlap, scheduleError,
+    cronPreview, cronValid, pending,
+    coders, templates, recentCwds, openTasks, createTask, createSchedule,
+    submit, handleCoderChange, applyTemplate, applyPreset,
   };
 }
 
-export type NewTaskForm = ReturnType<typeof useNewTaskForm>;
+export type NewWorkerForm = ReturnType<typeof useNewWorkerForm>;

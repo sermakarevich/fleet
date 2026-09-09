@@ -1,8 +1,8 @@
 /**
- * Panel-specific styles for the new-task modal.
+ * Panel-specific styles for the new-worker modal.
  * Generic field/input recipes live in shared/styles/recipes.ts;
- * this module keeps what only NewTaskPanel uses.
- * Called by NewTaskPanel.
+ * this module keeps what only NewWorkerPanel uses.
+ * Called by NewWorkerPanel.
  */
 import * as T from '../../shared/styles/tokens';
 
@@ -42,6 +42,21 @@ export const styles = {
   } as React.CSSProperties,
   textarea: {
     fontFamily: 'monospace', resize: 'vertical' as const,
+  } as React.CSSProperties,
+  mono: {
+    fontFamily: 'ui-monospace, monospace',
+  } as React.CSSProperties,
+  runSwitch: {
+    display: 'flex', gap: '1rem', alignItems: 'center',
+    border: `1px solid ${T.colors.borderSubtle}`, borderRadius: '0.25rem',
+    padding: '0.5rem 0.75rem', margin: 0,
+    fontSize: '0.875rem', color: T.colors.textSecondary,
+  } as React.CSSProperties,
+  runLegend: {
+    fontSize: '0.75rem', color: T.colors.textDim, padding: '0 0.375rem',
+  } as React.CSSProperties,
+  runOption: {
+    display: 'inline-flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer',
   } as React.CSSProperties,
   multiSelect: {
     fontFamily: 'monospace', padding: '0.25rem', fontSize: '0.8125rem',

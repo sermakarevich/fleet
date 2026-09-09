@@ -140,7 +140,7 @@ export function ScheduleDrawer({ scheduleId, onClose }: { scheduleId: string; on
                   {run.skipped || !run.task_id ? (
                     <span style={R.dimStyle()}>skipped — {run.reason || 'no reason'}</span>
                   ) : (
-                    <Link to={`/tasks/${run.task_id}`} style={styles.taskLink}>
+                    <Link to={`/workers/${run.task_id}`} style={styles.taskLink}>
                       <span style={R.monoStyle()}>{run.task_id}</span>
                       <StatusChip status={run.task_status ?? 'unknown'} width="5rem" />
                     </Link>

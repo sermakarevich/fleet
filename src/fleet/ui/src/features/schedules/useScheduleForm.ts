@@ -1,7 +1,7 @@
 /**
  * Form state for the schedule create/edit modal.
  * Owns field values, cron preview validity, coder lookup and
- * create/update submit. Called by ScheduleForm; mirrors useNewTaskForm.
+ * create/update submit. Called by ScheduleForm; mirrors useNewWorkerForm.
  */
 import { useState } from 'react';
 import { useCoders, useCreateSchedule, useCronPreview, useUpdateSchedule } from '../../shared/hooks/useApi';

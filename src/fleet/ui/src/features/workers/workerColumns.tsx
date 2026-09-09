@@ -1,8 +1,8 @@
-// Per-task cell renderers for the shared DataList: desktop column
-// definitions plus the mobile card. Rendered by TasksPage; the kill
-// flow lives in TaskActions (shared Confirm). Cell styles stay in
-// itemStyles; page/row/chip recipes come from shared/styles.
-import { useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
+// Per-worker cell renderers for the shared DataList: desktop column
+// definitions plus the mobile card. Rendered by WorkersPage; the kill /
+// retry / close flows confirm through the shared Confirm. Cell styles stay
+// in itemStyles; page/row/chip recipes come from shared/styles.
+import { useCloseTask, useRequeueTask, useUnblockTask, useUnignoreTask } from '../../shared/hooks/useApi';
 import type { TaskSummary } from '../../shared/types';
 import { formatTimestamp, formatTokens, formatContextTitle } from '../../shared/format';
 import * as R from '../../shared/styles/recipes';
@@ -11,12 +11,14 @@ import { StatusChip } from '../../shared/ui/StatusChip';
 import type { DataColumn } from '../../shared/ui/DataList';
 import { rowStyles, cardStyles } from './itemStyles';
 
+export type WorkerActionVerb = 'Kill' | 'Retry' | 'Close';
+
 export interface TaskListCallbacks {
-  confirmingId: string | null;
+  confirming: { id: string; verb: WorkerActionVerb } | null;
   stoppingIds: Set<string>;
-  onKillClick: (id: string) => void;
-  onKillConfirm: (id: string) => void;
-  onKillCancel: () => void;
+  onActionClick: (id: string, verb: WorkerActionVerb) => void;
+  onActionConfirm: (id: string, verb: WorkerActionVerb) => void;
+  onActionCancel: () => void;
 }
 
 function runsTitle(task: TaskSummary): string {
@@ -30,6 +32,16 @@ function isStaleLease(task: TaskSummary): boolean {
   return task.status === 'in_progress'
     && task.lease != null
     && Number(new Date(task.lease.lease_until)) < Date.now();
+}
+
+// Retry re-queues a stuck worker; offered on failed and blocked rows.
+function isRetryEligible(task: TaskSummary): boolean {
+  return task.status === 'failed' || task.status === 'blocked';
+}
+
+// Close archives a worker that should not run; offered on running/queued rows.
+function isCloseEligible(task: TaskSummary): boolean {
+  return task.status === 'in_progress' || task.status === 'open' || task.status === 'ready';
 }
 
 // Title cell: title plus description, blocked reason and lease badges.
@@ -63,17 +75,38 @@ export function TaskTitleCell({ task }: { task: TaskSummary }) {
   );
 }
 
-// Kill / unblock / unignore buttons for one task row or card.
+// Kill / retry / close / unblock / unignore buttons for one worker row or card.
 function TaskActionsCell({ task, cb }: { task: TaskSummary; cb: TaskListCallbacks }) {
   const unblockTask = useUnblockTask();
   const unignoreTask = useUnignoreTask();
+  const requeueTask = useRequeueTask();
+  const closeTask = useCloseTask();
   const isBlocked = task.status === 'blocked';
   const killEligible = new Set(['in_progress', 'blocked', 'open', 'ready']).has(task.status);
-  const isConfirming = cb.confirmingId === task.id;
+  const retryEligible = isRetryEligible(task);
+  const closeEligible = isCloseEligible(task);
+  const confirmingVerb = cb.confirming?.id === task.id ? cb.confirming.verb : null;
   const isStopping = cb.stoppingIds.has(task.id) && task.status === 'in_progress';
 
   function stop(e: React.MouseEvent) {
     e.stopPropagation();
+  }
+
+  function fire(verb: WorkerActionVerb) {
+    if (verb === 'Retry') requeueTask.mutate(task.id);
+    else if (verb === 'Close') closeTask.mutate(task.id);
+  }
+
+  // Wire the shared Confirm to the mutation; WorkersPage only tracks which
+  // row/verb is confirming.
+  function confirmFor(verb: WorkerActionVerb) {
+    return (
+      <Confirm
+        verb={verb}
+        onConfirm={() => { fire(verb); cb.onActionConfirm(task.id, verb); }}
+        onCancel={cb.onActionCancel}
+      />
+    );
   }
 
   return (
@@ -88,20 +121,30 @@ function TaskActionsCell({ task, cb }: { task: TaskSummary; cb: TaskListCallback
           Unignore
         </button>
       )}
-      {killEligible && !isConfirming && !isStopping && (
-        <button style={rowStyles.killBtn} onClick={(e) => { stop(e); cb.onKillClick(task.id); }}>
+      {retryEligible && confirmingVerb !== 'Retry' && (
+        <button style={rowStyles.retryBtn} onClick={(e) => { stop(e); cb.onActionClick(task.id, 'Retry'); }}>
+          Retry
+        </button>
+      )}
+      {confirmingVerb === 'Retry' && confirmFor('Retry')}
+      {closeEligible && confirmingVerb !== 'Close' && (
+        <button style={rowStyles.closeBtn} onClick={(e) => { stop(e); cb.onActionClick(task.id, 'Close'); }}>
+          Close
+        </button>
+      )}
+      {confirmingVerb === 'Close' && confirmFor('Close')}
+      {killEligible && !confirmingVerb && !isStopping && (
+        <button style={rowStyles.killBtn} onClick={(e) => { stop(e); cb.onActionClick(task.id, 'Kill'); }}>
           Kill
         </button>
       )}
       {isStopping && <span style={rowStyles.stoppingLabel}>stopping…</span>}
-      {isConfirming && (
-        <Confirm verb="Kill" onConfirm={() => cb.onKillConfirm(task.id)} onCancel={cb.onKillCancel} />
-      )}
+      {confirmingVerb === 'Kill' && confirmFor('Kill')}
     </span>
   );
 }
 
-// Desktop columns for the tasks DataList.
+// Desktop columns for the workers DataList.
 export function taskColumns(cb: TaskListCallbacks): Array<DataColumn<TaskSummary>> {
   return [
     {
@@ -165,7 +208,7 @@ export function taskColumns(cb: TaskListCallbacks): Array<DataColumn<TaskSummary
   ];
 }
 
-// Mobile card for one task, with the same kill flow as the desktop row.
+// Mobile card for one worker, with the same action flow as the desktop row.
 export function TaskCard({ task, cb }: { task: TaskSummary; cb: TaskListCallbacks }) {
   const isStopping = cb.stoppingIds.has(task.id) && task.status === 'in_progress';
   const cwdShort = task.cwd ? (task.cwd.split('/').pop() ?? task.cwd) : '—';
