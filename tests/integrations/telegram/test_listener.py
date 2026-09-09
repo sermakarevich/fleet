@@ -81,7 +81,7 @@ def test_no_token_returns_without_fetching(tmp_path: Path) -> None:
     assert api.seen_offsets == []
 
 
-def test_empty_allowlist_never_fetches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_allowlist_never_fetches(tmp_path: Path) -> None:
     """Default-deny: no allowlist means sleep, never getUpdates."""
     api = FakeApi([_update("/help")])
     store, env, offsets = _parts(tmp_path, api, allowed_ids="")
@@ -93,9 +93,8 @@ def test_empty_allowlist_never_fetches(tmp_path: Path, monkeypatch: pytest.Monke
         if calls[0] >= 2:
             raise asyncio.CancelledError()
 
-    monkeypatch.setattr(asyncio, "sleep", _sleep)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets))
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=_sleep))
     assert api.seen_offsets == []
 
 
@@ -134,9 +133,7 @@ def test_saved_offset_is_passed_to_fetch(tmp_path: Path) -> None:
     assert api.seen_offsets == [8]
 
 
-def test_network_error_backs_off_and_continues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_network_error_backs_off_and_continues(tmp_path: Path) -> None:
     """A failed poll sleeps with backoff; the loop survives it."""
     api = FakeApi([_update("/help")])
     calls = [0]
@@ -156,9 +153,8 @@ def test_network_error_backs_off_and_continues(
     async def _sleep(s: float) -> None:
         sleeps.append(s)
 
-    monkeypatch.setattr(asyncio, "sleep", _sleep)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets))
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=_sleep))
     assert sleeps[:1] == [1.0]
     assert len(api.sent) == 1
 

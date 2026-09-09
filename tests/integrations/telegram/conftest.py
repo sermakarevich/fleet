@@ -49,13 +49,14 @@ def insert_question(
     status: str = "pending",
     options: list[str] | None = None,
     agent_id: str = "test-agent",
+    answer: str | None = None,
 ) -> None:
     """Insert one pending question row a test can then poll for."""
     conn = sqlite3.connect(str(path))
     conn.execute(
-        "INSERT INTO questions (id, agent_id, prompt, created_at, status, options)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (qid, agent_id, prompt, created_at, status, json.dumps(options)),
+        "INSERT INTO questions (id, agent_id, prompt, created_at, status, options, answer)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (qid, agent_id, prompt, created_at, status, json.dumps(options), answer),
     )
     conn.commit()
     conn.close()
@@ -66,9 +67,10 @@ def make_fake_app(
     store: QuestionStore | None = None,
     fleet_home: Path | None = None,
     token: str = "tok",
+    allowed_ids: str = "",
 ) -> MagicMock:
     """A serve app double with an explicit token (no env reads, no patching)."""
-    config = RuntimeConfig(telegram_chat_id=chat_id)
+    config = RuntimeConfig(telegram_chat_id=chat_id, telegram_allowed_ids=allowed_ids)
     fake_app = MagicMock()
     fake_app.state.fleet_state.config = config
     fake_app.state.fleet_state.question_store = store
