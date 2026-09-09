@@ -118,7 +118,7 @@ def test_git_task_isolates_by_default(tmp_path: Path) -> None:
     assert base_ref == "main"
     assert Path(wt_path).is_dir()
     assert worker is not None
-    assert worker.run._ctx.project_root == Path(wt_path)
+    assert worker.run.ctx.project_root == Path(wt_path)
     assert "t-wt-1" not in s.state.running
 
 
@@ -133,7 +133,7 @@ def test_non_git_task_runs_in_place(tmp_path: Path) -> None:
 
     assert "t-wt-2" not in queue.isolation_infos
     assert worker is not None
-    assert worker.run._ctx.project_root == plain
+    assert worker.run.ctx.project_root == plain
 
 
 def test_opt_out_metadata_runs_in_place(tmp_path: Path) -> None:

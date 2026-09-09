@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
-from fleet.orchestrator.service import PeriodicService, ServiceOrder
+from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state.paths import tasks_root as _tasks_root
 from fleet.state.validation_marker import clear_needs_validation, needs_validation
 
@@ -128,15 +128,19 @@ async def run_pending_validations(st: SupervisorState) -> None:
         return  # ONE per tick
 
 
-class MergeValidation(PeriodicService):
+class MergeValidation:
     """Validate and merge finished isolated work on the claim cadence."""
 
     order = ServiceOrder.Claim
     name = "merge_validation"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC)
+        self.interval_sec = interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
 
     async def tick(self, st: SupervisorState) -> None:
         """Merge one pending validation, if any."""
         await run_pending_validations(st)
+
+    async def serve(self, st: SupervisorState) -> None:
+        """Tick on the claim cadence until shutdown (shared periodic loop)."""
+        await run_periodic(self.name, self.interval_sec, self.tick, st)

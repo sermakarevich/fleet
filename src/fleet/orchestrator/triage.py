@@ -34,7 +34,7 @@ from fleet.core.triage_policy import (
     RETRY_OPUS,
     RETRY_SAME,
 )
-from fleet.orchestrator.service import Service, ServiceOrder
+from fleet.orchestrator.service import ServiceOrder
 from fleet.state import attempts as attempts_mod
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
@@ -264,7 +264,7 @@ def triage_tick(st: SupervisorState, store: Any) -> dict:
     return {"applied": applied, "asked": asked, "candidates": len(candidates)}
 
 
-class Triage(Service):
+class Triage:
     """Ask the operator about blocked beads on a configurable cadence."""
 
     order = ServiceOrder.Triage

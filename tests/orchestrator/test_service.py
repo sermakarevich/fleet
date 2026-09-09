@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fleet.orchestrator.service import PeriodicService, Service, ServiceOrder, emit
+from fleet.orchestrator.service import PeriodicService, ServiceOrder, emit
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
 
@@ -27,7 +27,7 @@ def _state(tmp_path, log=None):  # type: ignore[no-untyped-def]
     return sup.state
 
 
-class _Recorder(Service):
+class _Recorder:
     def __init__(self, name: str, order: ServiceOrder, calls: list, fail_on: str = "") -> None:
         self.name = name
         self.order = order
@@ -41,6 +41,9 @@ class _Recorder(Service):
 
     async def on_stop(self, st: SupervisorState) -> None:
         self._calls.append((self.name, "on_stop"))
+
+    async def serve(self, st: SupervisorState) -> None:
+        return None
 
 
 def test_emit_calls_in_order_regardless_of_list_order(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -66,51 +69,52 @@ def test_emit_continues_after_one_raises(tmp_path) -> None:  # type: ignore[no-u
     assert any(event == "bad_on_start_failed" for event, _ in log.warnings)
 
 
-class _Counter(PeriodicService):
-    name = "counter"
-    order = ServiceOrder.Claim
+def _counter_service(interval_sec: float, ticks: list, fail_first: bool = False) -> PeriodicService:
+    """A PeriodicService whose tick counts calls (and optionally fails once)."""
+    state = {"fail_first": fail_first}
 
-    def __init__(self, interval_sec: float, fail_first: bool = False) -> None:
-        super().__init__(interval_sec)
-        self.ticks = 0
-        self._fail_first = fail_first
-
-    async def tick(self, st: SupervisorState) -> None:
-        self.ticks += 1
-        if self._fail_first:
-            self._fail_first = False
+    async def tick(st: SupervisorState) -> None:
+        ticks.append(1)
+        if state["fail_first"]:
+            state["fail_first"] = False
             raise RuntimeError("bad tick")
+
+    return PeriodicService(
+        name="counter", order=ServiceOrder.Claim, interval_sec=interval_sec, tick=tick
+    )
 
 
 def test_periodic_service_ticks_and_stops_on_shutdown(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """PeriodicService ticks repeatedly and exits once shutting_down is set."""
     st = _state(tmp_path)
-    svc = _Counter(interval_sec=0.01)
+    ticks: list = []
+    svc = _counter_service(interval_sec=0.01, ticks=ticks)
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(st))
-        while svc.ticks < 3:
+        while len(ticks) < 3:
             await asyncio.sleep(0.005)
         st.shutting_down = True
         await asyncio.wait_for(task, timeout=2.0)
 
     asyncio.run(_run())
-    assert svc.ticks >= 3
+    assert len(ticks) >= 3
 
 
 def test_periodic_tick_exception_is_logged_not_raised(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """A failing tick logs a warning and the loop keeps ticking."""
     log = _StubLog()
     st = _state(tmp_path, log=log)
-    svc = _Counter(interval_sec=0.01, fail_first=True)
+    ticks: list = []
+    svc = _counter_service(interval_sec=0.01, ticks=ticks, fail_first=True)
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(st))
-        while svc.ticks < 2:
+        while len(ticks) < 2:
             await asyncio.sleep(0.005)
         st.shutting_down = True
         await asyncio.wait_for(task, timeout=2.0)
 
     asyncio.run(_run())
-    assert svc.ticks >= 2
+    assert len(ticks) >= 2
     assert any(event == "counter_tick_failed" for event, _ in log.warnings)

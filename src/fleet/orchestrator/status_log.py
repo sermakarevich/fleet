@@ -1,4 +1,10 @@
-"""Periodic supervisor heartbeat: log in-flight count and rate-limit usage."""
+"""Periodic supervisor heartbeat: log in-flight count and rate-limit usage.
+
+Called by ``orchestrator/`` ``default_services`` (wiring) and
+``orchestrator/reap.py`` (``fleet_log_context`` for outcome lines). The
+work is one ``status_log_tick`` function; ``make_status_log`` wraps it in
+a ``PeriodicService`` with the heartbeat cadence.
+"""
 
 from __future__ import annotations
 
@@ -28,15 +34,16 @@ def fleet_log_context(st: SupervisorState) -> dict:
     }
 
 
-class StatusLog(PeriodicService):
-    """Emit the supervisor_status heartbeat on a fixed cadence."""
+async def status_log_tick(st: SupervisorState) -> None:
+    """Log one supervisor_status heartbeat line."""
+    st.log.info("supervisor_status", **fleet_log_context(st))
 
-    order = ServiceOrder.Logging
-    name = "status_log"
 
-    def __init__(self, interval_sec: float = STATUS_LOG_INTERVAL_SEC) -> None:
-        super().__init__(interval_sec)
-
-    async def tick(self, st: SupervisorState) -> None:
-        """Log one supervisor_status heartbeat line."""
-        st.log.info("supervisor_status", **fleet_log_context(st))
+def make_status_log(interval_sec: float = STATUS_LOG_INTERVAL_SEC) -> PeriodicService:
+    """Build the status-log periodic service (default: the status cadence)."""
+    return PeriodicService(
+        name="status_log",
+        order=ServiceOrder.Logging,
+        interval_sec=interval_sec,
+        tick=status_log_tick,
+    )

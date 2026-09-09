@@ -121,14 +121,6 @@ def _ctx(
     )
 
 
-def _factory(queue: FakeQueue):
-    return lambda home: queue
-
-
-def _store_factory(store: FakeStore):
-    return lambda home: store
-
-
 def _valid_tasks(*keys: str) -> dict:
     return {
         "tasks": [
@@ -150,7 +142,7 @@ def _write_tasks(ctx: StepContext, doc: dict) -> None:
 
 def test_plan_job_research_first(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.research"
     assert [s.name for s in worker.steps] == ["job_prepare", "llm_session"]
 
@@ -159,7 +151,7 @@ def test_plan_job_design_after_research(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.design"
 
 
@@ -168,7 +160,7 @@ def test_plan_job_gate_when_tasks_no_approval(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.gate"
     assert [s.name for s in worker.steps] == ["ask_approval"]
 
@@ -179,7 +171,7 @@ def test_plan_job_spawn_when_approved(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
     (ctx.task_dir / "artifacts" / "APPROVED").write_text("approved\n")
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.spawn"
 
 
@@ -188,7 +180,7 @@ def test_plan_job_spawn_when_gate_off(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.spawn"
 
 
@@ -198,7 +190,7 @@ def test_plan_job_observe_when_children_exist(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
     _write_tasks(ctx, _valid_tasks("t1"))
     queue = FakeQueue([{"id": "kid-1", "status": "open"}])
-    worker = plan_job(ctx, _factory(queue))
+    worker = plan_job(ctx, queue)
     assert worker.name == "job.observe"
     assert [s.name for s in worker.steps] == [
         "wait_children",
@@ -220,7 +212,7 @@ def test_plan_job_blocks_after_two_research_failures(tmp_path: Path) -> None:
             action="release",
             n=n,
         )
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.blocked"
 
 
@@ -237,7 +229,7 @@ def test_plan_job_partial_research_does_not_block(tmp_path: Path) -> None:
             action="release",
             n=n,
         )
-    worker = plan_job(ctx, _factory(FakeQueue()))
+    worker = plan_job(ctx, FakeQueue())
     assert worker.name == "job.research"
 
 
@@ -250,7 +242,7 @@ def test_gate_posts_question_and_waits(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1", "t2"))
     store = FakeStore()
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "outcome"
     assert result.outcome is not None
     assert result.outcome.outcome == TaskOutcome.WAITING
@@ -265,7 +257,7 @@ def test_gate_waits_on_pending_question(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(pending=[{"id": "q1"}])
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "outcome"
     assert result.outcome.outcome == TaskOutcome.WAITING
     assert store.asked == []
@@ -275,7 +267,7 @@ def test_gate_approve_writes_marker(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "approve", "note": None}])
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "ok"
     assert (ctx.task_dir / "artifacts" / "APPROVED").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
@@ -286,7 +278,7 @@ def test_gate_revise_appends_note_and_deletes_tasks(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "revise (write note)", "note": "split t1"}])
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "ok"
     assert not (ctx.task_dir / "artifacts" / "tasks.json").exists()
     notes = (ctx.task_dir / "artifacts" / "DESIGN_NOTES.md").read_text(encoding="utf-8")
@@ -299,7 +291,7 @@ def test_gate_cancel_blocks(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "cancel job", "note": None}])
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "ok"
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "blocked"
@@ -310,7 +302,7 @@ def test_gate_invalid_tasks_skips_question(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, {"tasks": [{"key": "a", "title": "", "body": ""}]})
     store = FakeStore()
-    result = asyncio.run(AskApproval(_store_factory(store)).run(ctx))
+    result = asyncio.run(AskApproval(store).run(ctx))
     assert result.status == "ok"
     assert store.asked == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
@@ -337,7 +329,7 @@ def test_spawn_creates_children_with_deps_and_footer(tmp_path: Path) -> None:
         },
     )
     queue = FakeQueue()
-    result = asyncio.run(SpawnChildren(_factory(queue)).run(ctx))
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == "ok"
     assert [spec["title"] for _, spec in queue.created] == ["one", "two"]
     assert queue.created[0][1]["depends_on"] == []
@@ -355,7 +347,7 @@ def test_spawn_resumes_without_duplicates(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1", "t2"))
     (ctx.task_dir / "artifacts" / "children.json").write_text(json.dumps({"t1": "kid-old"}))
     queue = FakeQueue()
-    result = asyncio.run(SpawnChildren(_factory(queue)).run(ctx))
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == "ok"
     # Only t2 is created; t1 keeps its earlier id.
     assert [spec["title"] for _, spec in queue.created] == ["title t2"]
@@ -367,7 +359,7 @@ def test_spawn_invalid_tasks_writes_errors(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, {"tasks": "nope"})
     queue = FakeQueue()
-    result = asyncio.run(SpawnChildren(_factory(queue)).run(ctx))
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == "ok"
     assert queue.created == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()

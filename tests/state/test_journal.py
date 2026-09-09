@@ -6,7 +6,7 @@ import pytest
 import structlog
 
 from fleet.core.task import Event
-from fleet.state.journal import TaskLog, append_event, open_task_log, setup_supervisor_logger
+from fleet.state.journal import TaskLogRecord, append_event, open_task_log, setup_supervisor_logger
 
 
 @pytest.fixture(autouse=True)
@@ -67,12 +67,11 @@ def test_open_task_log_jsonl_contains_bound_fields(tmp_path: Path):
     assert "pid" in record
 
 
-def test_open_task_log_returns_task_log_instance(tmp_path: Path):
-    tl = open_task_log(tmp_path / "t-001", "t-001")
-    assert isinstance(tl, TaskLog)
-    assert hasattr(tl, "log")
-    assert hasattr(tl, "stderr_file")
-    tl.__exit__(None, None, None)
+def test_open_task_log_yields_frozen_record(tmp_path: Path):
+    with open_task_log(tmp_path / "t-001", "t-001") as tl:
+        assert isinstance(tl, TaskLogRecord)
+        assert hasattr(tl, "log")
+        assert hasattr(tl, "stderr_file")
 
 
 def test_open_task_log_appends_across_runs(tmp_path: Path):

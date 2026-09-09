@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -65,14 +65,15 @@ class ConnectionManager:
             await self.disconnect(ws)
 
 
+@dataclass
 class FileWatcher:
-    def __init__(self) -> None:
-        self._tail_state: dict[str, _TailState] = {}
-        self._mgr: ConnectionManager | None = None
+    """Tail attempt events.jsonl files and broadcast new events over websockets."""
 
-    async def start(self, fleet_home: Path, mgr: ConnectionManager) -> None:
+    mgr: ConnectionManager
+    _tail_state: dict[str, _TailState] = field(default_factory=dict)
+
+    async def start(self, fleet_home: Path) -> None:
         """Tail the latest attempt's events.jsonl for all task dirs until cancelled."""
-        self._mgr = mgr
         index = TaskIndex(fleet_home)
         while True:
             for task_dir in index.iter_dirs():
@@ -98,7 +99,6 @@ class FileWatcher:
 
     async def _replay_tail(self, task_id: str, path: Path, tail_lines: int = 50) -> None:
         """Broadcast the last `tail_lines` events from path (replay on serve restart)."""
-        assert self._mgr is not None
         try:
             data = path.read_bytes()
         except OSError:
@@ -109,7 +109,7 @@ class FileWatcher:
                 event_dict = json.loads(line_bytes)
             except json.JSONDecodeError:
                 continue
-            await self._mgr.broadcast(task_id, redact(event_dict))
+            await self.mgr.broadcast(task_id, redact(event_dict))
 
     async def _tail_one(self, task_dir: Path, task_id: str, path: Path) -> None:
         """Read new bytes from path since last offset and broadcast each parsed event.
@@ -118,7 +118,6 @@ class FileWatcher:
         root (where task.json lives and where state.events aggregates across
         all attempts for enrichment).
         """
-        assert self._mgr is not None
         try:
             stat = path.stat()
         except OSError:
@@ -152,7 +151,7 @@ class FileWatcher:
                 continue
             if event_dict.get("kind") == "session_ended":
                 event_dict = self._enrich_session_ended(task_id, task_dir, event_dict)
-            await self._mgr.broadcast(task_id, redact(event_dict))
+            await self.mgr.broadcast(task_id, redact(event_dict))
 
     def _enrich_session_ended(self, task_id: str, task_dir: Path, event_dict: dict) -> dict:
         """Inject summary stats into a session_ended event before broadcast."""

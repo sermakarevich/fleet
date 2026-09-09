@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 
 from fleet.orchestrator import default_services
-from fleet.orchestrator.service import Service, ServiceOrder
+from fleet.orchestrator.service import ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_supervisor
 
 
-class _HookRecorder(Service):
+class _HookRecorder:
     def __init__(self, name: str, order: ServiceOrder, calls: list) -> None:
         self.name = name
         self.order = order
         self._calls = calls
+
+    async def serve(self, st: SupervisorState) -> None:
+        return None
 
     async def on_start(self, st: SupervisorState) -> None:
         self._calls.append((self.name, "on_start"))

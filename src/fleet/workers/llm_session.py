@@ -30,7 +30,7 @@ from fleet.core.launch import LaunchPlan
 from fleet.core.limits import SHUTDOWN_GRACE_SEC
 from fleet.core.task import Event, TaskOutcomeRecord
 from fleet.state.atomic import write_text_atomic
-from fleet.state.journal import TaskLog, open_task_log
+from fleet.state.journal import TaskLogRecord, open_task_log
 from fleet.state.paths import PROMPT_MD, RUN_JSON
 
 from .base import StepContext, StepResult, write_run_json
@@ -194,7 +194,7 @@ class LlmSession:
         ctx: StepContext,
         task_dir: Path,
         attempt_dir: Path,
-        task_log: TaskLog,
+        task_log: TaskLogRecord,
         plan: LaunchPlan | None,
         launch_mode: str,
     ) -> None:
@@ -239,7 +239,7 @@ class LlmSession:
     def _finish(
         self,
         ctx: StepContext,
-        task_log: TaskLog,
+        task_log: TaskLogRecord,
         attempt_dir: Path,
         state: MonitorContext,
         exit_code: int | None,

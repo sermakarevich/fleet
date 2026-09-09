@@ -1,6 +1,6 @@
 """The compaction step: shrink STATE.md before a continue launch (ADR 0003).
 
-Runs BEFORE ``PrepareContinue`` inside ``ContinueLargeTask`` when
+Runs BEFORE the ``prepare_continue`` step inside ``ContinueLargeTask`` when
 ``core.launch.plan_launch(...).needs_compaction`` is true. Inputs are bounded
 BY CONSTRUCTION — never raw logs: the current STATE.md, the last 3 attempt
 summaries (derived via ``state/attempt_summary.py``, 4 KB each), the last
@@ -29,7 +29,7 @@ from fleet.state.artifacts import StateFile
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.paths import RUN_JSON
 
-from .base import StepContext, StepResult, write_run_json
+from .base import FnStep, StepContext, StepResult, write_run_json
 from .session.process import KILL_GRACE_SEC, CoderProcess
 from .session.stream import EventStream
 
@@ -241,110 +241,109 @@ async def _run_compaction_model(
     return "\n".join(texts)
 
 
-class Compact:
-    """Compaction step: rewrite STATE.md within its byte cap.
+async def compact(ctx: StepContext) -> StepResult:
+    """Rewrite STATE.md within its byte cap (the compact step's run function).
 
     Journals its own ``kind="compact"`` attempt row (visible and costed in
     the Attempts timeline) but never fails the worker: any model failure,
     timeout, or over-cap output falls back to the pure truncation in
     ``core.compaction_fallback`` and logs ``compaction_fallback``.
     """
+    task_dir = ctx.task_dir
+    state_cap = ctx.config.state_max_bytes
+    if not ctx.config.compaction_enabled:
+        return StepResult(status="ok", reason="compaction disabled")
 
-    name = "compact"
+    try:
+        coder_cls: Any = get_coder(ctx.config.compaction_coder)
+    except ValueError as exc:
+        ctx.log.warning("compaction_fallback", reason=f"unknown coder: {exc}")
+        return _compact_fallback(ctx, f"unknown coder: {exc}")
 
-    async def run(self, ctx: StepContext) -> StepResult:
+    coder = coder_cls(model=ctx.config.compaction_model, fleet_home=ctx.fleet_home)
+    material = collect_material(task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
+    prompt = render_compaction_prompt(material)
+    try:
+        argv = _compaction_argv(coder, ctx.task, task_dir, prompt)
+    except (ValueError, TypeError, AttributeError) as exc:
+        ctx.log.warning("compaction_fallback", reason=f"argv build failed: {exc}")
+        return _compact_fallback(ctx, "argv build failed")
 
-        task_dir = ctx.task_dir
-        state_cap = ctx.config.state_max_bytes
-        if not ctx.config.compaction_enabled:
-            return StepResult(status="ok", reason="compaction disabled")
-
-        try:
-            coder_cls: Any = get_coder(ctx.config.compaction_coder)
-        except ValueError as exc:
-            ctx.log.warning("compaction_fallback", reason=f"unknown coder: {exc}")
-            return self._fallback(ctx, f"unknown coder: {exc}")
-
-        coder = coder_cls(model=ctx.config.compaction_model, fleet_home=ctx.fleet_home)
-        material = collect_material(task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
-        prompt = render_compaction_prompt(material)
-        try:
-            argv = _compaction_argv(coder, ctx.task, task_dir, prompt)
-        except (ValueError, TypeError, AttributeError) as exc:
-            ctx.log.warning("compaction_fallback", reason=f"argv build failed: {exc}")
-            return self._fallback(ctx, "argv build failed")
-
-        compact_n = state_attempts.record_start(
-            task_dir,
-            coder=ctx.config.compaction_coder,
-            model=ctx.config.compaction_model,
-            worker="task.continue_large",
-            kind="compact",
-        )
-        compact_dir = state_attempts.attempt_dir(task_dir, compact_n)
-        compact_dir.mkdir(parents=True, exist_ok=True)
-        write_run_json(
-            compact_dir / RUN_JSON,
-            launch={"mode": "compact", "pack_bytes": 0, "kind": "compact"},
-        )
-        fallback_reason: str | None = None
-        try:
-            output = await _run_compaction_model(coder, ctx.task, argv, task_dir, compact_dir)
-        except (TimeoutError, OSError) as exc:
-            fallback_reason = f"model call failed: {exc}"
-            output = ""
-        parsed = parse_compaction_output(output) if not fallback_reason else None
-        if parsed is not None and len(parsed.encode("utf-8")) > state_cap:
-            fallback_reason = "output violated byte cap"
-            parsed = None
-        if parsed is None:
-            if fallback_reason is None:
-                fallback_reason = "unparseable model output"
-            ctx.log.warning("compaction_fallback", reason=fallback_reason)
-            state = compact_fallback(
-                material.state,
-                material.summaries,
-                material.result_text,
-                material.git_log,
-                task_id=ctx.task.id,
-                max_bytes=state_cap,
-            )
-            outcome_reason = f"compaction_fallback: {fallback_reason}"
-        else:
-            state = parsed
-            outcome_reason = "compacted"
-        try:
-            StateFile.write(task_dir, state)
-        except OSError as exc:
-            self._finish_compact_row(ctx, compact_n, "failure", str(exc))
-            return StepResult(status="fail", reason=f"compaction write failed: {exc}")
-        self._finish_compact_row(ctx, compact_n, "success", outcome_reason)
-        return StepResult(status="ok", reason=outcome_reason)
-
-    def _fallback(self, ctx: StepContext, reason: str) -> StepResult:
-        material = collect_material(ctx.task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
+    compact_n = state_attempts.record_start(
+        task_dir,
+        coder=ctx.config.compaction_coder,
+        model=ctx.config.compaction_model,
+        worker="task.continue_large",
+        kind="compact",
+    )
+    compact_dir = state_attempts.attempt_dir(task_dir, compact_n)
+    compact_dir.mkdir(parents=True, exist_ok=True)
+    write_run_json(
+        compact_dir / RUN_JSON,
+        launch={"mode": "compact", "pack_bytes": 0, "kind": "compact"},
+    )
+    fallback_reason: str | None = None
+    try:
+        output = await _run_compaction_model(coder, ctx.task, argv, task_dir, compact_dir)
+    except (TimeoutError, OSError) as exc:
+        fallback_reason = f"model call failed: {exc}"
+        output = ""
+    parsed = parse_compaction_output(output) if not fallback_reason else None
+    if parsed is not None and len(parsed.encode("utf-8")) > state_cap:
+        fallback_reason = "output violated byte cap"
+        parsed = None
+    if parsed is None:
+        if fallback_reason is None:
+            fallback_reason = "unparseable model output"
+        ctx.log.warning("compaction_fallback", reason=fallback_reason)
         state = compact_fallback(
             material.state,
             material.summaries,
             material.result_text,
             material.git_log,
             task_id=ctx.task.id,
-            max_bytes=ctx.config.state_max_bytes,
+            max_bytes=state_cap,
         )
-        try:
-            StateFile.write(ctx.task_dir, state)
-        except OSError as exc:
-            return StepResult(status="fail", reason=f"compaction write failed: {exc}")
-        ctx.log.warning("compaction_fallback", reason=reason)
-        return StepResult(status="ok", reason=f"compaction_fallback: {reason}")
+        outcome_reason = f"compaction_fallback: {fallback_reason}"
+    else:
+        state = parsed
+        outcome_reason = "compacted"
+    try:
+        StateFile.write(task_dir, state)
+    except OSError as exc:
+        _finish_compact_row(ctx, compact_n, "failure", str(exc))
+        return StepResult(status="fail", reason=f"compaction write failed: {exc}")
+    _finish_compact_row(ctx, compact_n, "success", outcome_reason)
+    return StepResult(status="ok", reason=outcome_reason)
 
-    def _finish_compact_row(self, ctx: StepContext, n: int, outcome: str, reason: str) -> None:
-        try:
-            state_attempts.record_end(
-                ctx.task_dir, outcome=outcome, exit_code=0, reason=reason, action="close", n=n
-            )
-        except OSError as exc:
-            ctx.log.warning("attempt_record_failed", error=str(exc))
 
-    async def cancel(self, reason: str) -> None:
-        return None
+def _compact_fallback(ctx: StepContext, reason: str) -> StepResult:
+    """Truncate STATE.md deterministically when the model path is unavailable."""
+    material = collect_material(ctx.task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
+    state = compact_fallback(
+        material.state,
+        material.summaries,
+        material.result_text,
+        material.git_log,
+        task_id=ctx.task.id,
+        max_bytes=ctx.config.state_max_bytes,
+    )
+    try:
+        StateFile.write(ctx.task_dir, state)
+    except OSError as exc:
+        return StepResult(status="fail", reason=f"compaction write failed: {exc}")
+    ctx.log.warning("compaction_fallback", reason=reason)
+    return StepResult(status="ok", reason=f"compaction_fallback: {reason}")
+
+
+def _finish_compact_row(ctx: StepContext, n: int, outcome: str, reason: str) -> None:
+    """Close the compact attempt row, warning (never raising) on failure."""
+    try:
+        state_attempts.record_end(
+            ctx.task_dir, outcome=outcome, exit_code=0, reason=reason, action="close", n=n
+        )
+    except OSError as exc:
+        ctx.log.warning("attempt_record_failed", error=str(exc))
+
+
+COMPACT_STEP = FnStep("compact", compact)

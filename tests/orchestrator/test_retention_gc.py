@@ -9,7 +9,12 @@ import time
 from pathlib import Path
 
 from fleet.core.limits import GC_INTERVAL_SEC
-from fleet.orchestrator.retention_gc import RetentionGc
+from fleet.orchestrator.retention_gc import (
+    make_retention_gc,
+    retention_gc_on_start,
+    retention_gc_pass,
+    retention_gc_tick,
+)
 from tests.conftest import make_supervisor
 
 OLD = time.time() - 40 * 86400
@@ -45,7 +50,7 @@ def test_on_start_runs_one_pass(tmp_path: Path) -> None:
     home = _home_with_old_task(tmp_path, "fleet-old")
     sup = _sup_for(home, tmp_path)
 
-    asyncio.run(RetentionGc().on_start(sup.state))
+    asyncio.run(retention_gc_on_start(sup.state))
 
     assert (home / "archive" / "tasks" / "fleet-old").is_dir()
     assert not (home / "tasks" / "fleet-old").exists()
@@ -57,7 +62,7 @@ def test_tick_runs_another_pass(tmp_path: Path) -> None:
     home = _home_with_old_task(tmp_path, "fleet-old-tick")
     sup = _sup_for(home, tmp_path)
 
-    asyncio.run(RetentionGc().tick(sup.state))
+    asyncio.run(retention_gc_tick(sup.state))
 
     assert (home / "archive" / "tasks" / "fleet-old-tick").is_dir()
     assert not (home / "tasks" / "fleet-old-tick").exists()
@@ -74,7 +79,7 @@ def test_disabled_config_skips_everything(tmp_path: Path) -> None:
     sup = _sup_for(home, tmp_path)
     sup.state.config.gc_retention_days = 0
     sup.state.config.gc_archive_days = 0
-    RetentionGc().run_pass(sup.state)
+    retention_gc_pass(sup.state)
 
     assert (home / "tasks" / "fleet-old").is_dir()
     assert wt.is_dir()
@@ -82,5 +87,5 @@ def test_disabled_config_skips_everything(tmp_path: Path) -> None:
 
 def test_default_interval_matches_limits() -> None:
     """Default interval comes from core/limits.py; ctor arg overrides it."""
-    assert RetentionGc().interval_sec == GC_INTERVAL_SEC
-    assert RetentionGc(interval_sec=0.01).interval_sec == 0.01
+    assert make_retention_gc().interval_sec == GC_INTERVAL_SEC
+    assert make_retention_gc(interval_sec=0.01).interval_sec == 0.01

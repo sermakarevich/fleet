@@ -14,12 +14,10 @@ other three steps are pure Python and exit in seconds.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
 
-from fleet.beads.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.job_plan import validate_followups
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.launch import LaunchPlan
@@ -28,7 +26,7 @@ from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
 from fleet.state.attempt_summary import summarize
 from fleet.state.legacy import legacy_result
-from fleet.state.paths import RESULT_JSON
+from fleet.state.paths import RESULT_JSON, fleet_home
 from fleet.state.paths import task_dir as task_dir_path
 
 from .base import StepContext, StepResult, Worker, merge_run_json
@@ -39,10 +37,9 @@ from .llm_session import LlmSession
 CHILDREN_MD_MAX_BYTES = 8 * 1024
 CHILD_SECTION_MAX_CHARS = 600
 
-QueueFactory = Callable[[Path], Any]
 
-
-def _default_queue(home: Path) -> BeadsQueue:
+def _default_queue(home: Path) -> Queue:
+    """Build the production queue for *home* (plan functions call this per attempt)."""
     return BeadsQueue(home)
 
 
@@ -62,12 +59,12 @@ class WaitChildren:
 
     name = "wait_children"
 
-    def __init__(self, queue_factory: QueueFactory | None = None) -> None:
-        self._queue_factory = queue_factory or _default_queue
+    def __init__(self, queue: Queue) -> None:
+        self._queue = queue
 
     async def run(self, ctx: StepContext) -> StepResult:
         try:
-            children = _as_summaries(self._queue_factory(ctx.fleet_home).list_children(ctx.task.id))
+            children = _as_summaries(self._queue.list_children(ctx.task.id))
         except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
             return StepResult(status="fail", reason=f"cannot list children: {exc}")
         ctx.scratch["children"] = [{"id": c.id, "status": c.status} for c in children]
@@ -81,9 +78,6 @@ class WaitChildren:
                 reason=f"{len(running)} of {len(children)} children still running",
             ),
         )
-
-    async def cancel(self, reason: str) -> None:
-        return None
 
 
 def _latest_result(task_dir: Path) -> tuple[str, str]:
@@ -181,8 +175,8 @@ class CollectChildren:
 
     name = "collect_children"
 
-    def __init__(self, queue_factory: QueueFactory | None = None) -> None:
-        self._queue_factory = queue_factory or _default_queue
+    def __init__(self, queue: Queue) -> None:
+        self._queue = queue
 
     async def run(self, ctx: StepContext) -> StepResult:
         raw, early = self._load_rows(ctx)
@@ -213,16 +207,11 @@ class CollectChildren:
         try:
             rows = [
                 {"id": c.id, "status": c.status}
-                for c in _as_summaries(
-                    self._queue_factory(ctx.fleet_home).list_children(ctx.task.id)
-                )
+                for c in _as_summaries(self._queue.list_children(ctx.task.id))
             ]
         except Exception as exc:  # noqa: BLE001 - step contract
             return None, StepResult(status="fail", reason=f"cannot list children: {exc}")
         return rows, None
-
-    async def cancel(self, reason: str) -> None:
-        return None
 
 
 class SpawnFollowups:
@@ -230,8 +219,8 @@ class SpawnFollowups:
 
     name = "spawn_followups"
 
-    def __init__(self, queue_factory: QueueFactory | None = None) -> None:
-        self._queue_factory = queue_factory or _default_queue
+    def __init__(self, queue: Queue) -> None:
+        self._queue = queue
 
     async def run(self, ctx: StepContext) -> StepResult:
         try:
@@ -246,11 +235,9 @@ class SpawnFollowups:
             specs = validate_followups(result.followups, max_followups=max_followups)
         except ValueError as exc:
             with suppress(Exception):  # noqa: BLE001 - commenting is best effort
-                self._queue_factory(ctx.fleet_home).comment(
-                    ctx.task.id, f"[fleet] ignoring invalid follow-ups: {exc}"
-                )
+                self._queue.comment(ctx.task.id, f"[fleet] ignoring invalid follow-ups: {exc}")
             return StepResult(status="ok")
-        queue = self._queue_factory(ctx.fleet_home)
+        queue = self._queue
         created: dict[str, str] = {}
         try:
             for spec in specs:
@@ -274,15 +261,19 @@ class SpawnFollowups:
             return StepResult(status="fail", reason=f"cannot spawn follow-ups: {exc}")
         return StepResult(status="ok")
 
-    async def cancel(self, reason: str) -> None:
-        return None
+
+def _observer_steps(
+    queue: Queue,
+) -> tuple[WaitChildren, CollectChildren, LlmSession, SpawnFollowups]:
+    """Build one observer pipeline over a shared queue (fresh LlmSession each call)."""
+    return (WaitChildren(queue), CollectChildren(queue), LlmSession(), SpawnFollowups(queue))
 
 
 # Canonical observer pipeline (see ADR 0003). `plan_observer` below builds
 # fresh step instances per attempt instead of reusing these: LlmSession
 # holds per-attempt subprocess state on `self`, and attempts run
 # concurrently across tasks.
-Observer = Worker("observer", (WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups()))
+Observer = Worker("observer", _observer_steps(_default_queue(fleet_home())))
 
 
 def plan_observer(ctx: StepContext) -> Worker:
@@ -292,7 +283,4 @@ def plan_observer(ctx: StepContext) -> Worker:
     children run, and SpawnFollowups is a no-op unless RESULT.json declares
     follow-ups — so one static list covers every epic attempt.
     """
-    _ = ctx
-    return Worker(
-        Observer.name, (WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups())
-    )
+    return Worker(Observer.name, _observer_steps(_default_queue(ctx.fleet_home)))

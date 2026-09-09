@@ -4,6 +4,8 @@ import contextlib
 import json
 import os
 import sys
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import IO
@@ -43,68 +45,44 @@ _JSON_PROCESSORS: list = [
 ]
 
 
-class _DualSink:
-    """Final processor: writes JSON to a file and console-style to a stream."""
+def make_dual_sink(json_file: IO[str], console_file: IO[str]) -> Callable:
+    """Build the final structlog processor writing JSON to a file, console to a stream."""
+    json_renderer = structlog.processors.JSONRenderer()
+    colors = bool(getattr(console_file, "isatty", lambda: False)())
+    console_renderer = structlog.dev.ConsoleRenderer(colors=colors)
+    console_ts = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
 
-    def __init__(self, json_file: IO[str], console_file: IO[str]) -> None:
-        self._json_file = json_file
-        self._console_file = console_file
-        self._json_renderer = structlog.processors.JSONRenderer()
-        colors = bool(getattr(console_file, "isatty", lambda: False)())
-        self._console_renderer = structlog.dev.ConsoleRenderer(colors=colors)
-        self._console_ts = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
-
-    def __call__(self, logger, method_name, event_dict):
+    def dual_sink(logger, method_name, event_dict):
         # structlog processors are untyped; bead 2 owns journal.
-        json_line = self._json_renderer(logger, method_name, dict(event_dict))
+        json_line = json_renderer(logger, method_name, dict(event_dict))
         console_ed = dict(event_dict)
         console_ed.pop("timestamp", None)
-        console_ed = self._console_ts(logger, method_name, console_ed)  # type: ignore[assignment]
-        console_line = self._console_renderer(logger, method_name, console_ed)
+        console_ed = console_ts(logger, method_name, console_ed)  # type: ignore[assignment]
+        console_line = console_renderer(logger, method_name, console_ed)
         # JSONRenderer returns str with default settings.
-        self._json_file.write(json_line + "\n")  # type: ignore[arg-type, operator]
-        self._json_file.flush()
+        json_file.write(json_line + "\n")  # type: ignore[arg-type, operator]
+        json_file.flush()
         # ConsoleRenderer returns str when colors=False.
-        self._console_file.write(console_line + "\n")
-        self._console_file.flush()
+        console_file.write(console_line + "\n")
+        console_file.flush()
         return ""
+
+    return dual_sink
 
 
 class _NullLogger:
-    """No-op logger; all writing is done by _DualSink."""
+    """No-op logger; all writing is done by the dual sink."""
 
-    def msg(self, _):
-        return None
-
-    log = msg
-    info = msg
-    error = msg
-    debug = msg
-    warning = msg
-    critical = msg
-    failure = msg
-    exception = msg
+    def __getattr__(self, _name: str) -> Callable[..., None]:
+        return lambda *args, **kwargs: None
 
 
-class TaskLog:
-    def __init__(
-        self,
-        log: structlog.BoundLogger,
-        stderr_file: IO[bytes],
-        _jsonl_file: IO[str],
-    ) -> None:
-        self.log = log
-        self.stderr_file = stderr_file
-        self._jsonl_file = _jsonl_file
+@dataclass(frozen=True)
+class TaskLogRecord:
+    """Handles for one attempt's logs: JSONL logger plus the raw stderr file."""
 
-    def __enter__(self) -> TaskLog:
-        return self
-
-    def __exit__(self, *_) -> None:
-        self._jsonl_file.flush()
-        self._jsonl_file.close()
-        self.stderr_file.flush()
-        self.stderr_file.close()
+    log: structlog.BoundLogger
+    stderr_file: IO[bytes]
 
 
 def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
@@ -121,10 +99,10 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
         structlog.contextvars.merge_contextvars,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.stdlib.add_log_level,
-        _DualSink(fleet_file, sys.stderr),
+        make_dual_sink(fleet_file, sys.stderr),
     ]
     structlog.configure(
-        processors=processors,  # type: ignore[arg-type]  # _DualSink is untyped; bead 2 owns journal
+        processors=processors,  # type: ignore[arg-type]  # dual sink is untyped; bead 2 owns journal
         wrapper_class=structlog.BoundLogger,
         context_class=dict,
         logger_factory=lambda *args, **kwargs: _NullLogger(),
@@ -132,11 +110,13 @@ def setup_supervisor_logger(log_root: Path) -> structlog.BoundLogger:
     return structlog.get_logger().bind(component="supervisor", pid=os.getpid())
 
 
-def open_task_log(attempt_dir: Path, task_id: str) -> TaskLog:
+@contextlib.contextmanager
+def open_task_log(attempt_dir: Path, task_id: str) -> Iterator[TaskLogRecord]:
     """Open this attempt's log.jsonl and log.stderr files (append mode).
 
     *attempt_dir* is the per-attempt directory (`tasks/<id>/attempts/<n>`),
-    not the task directory root.
+    not the task directory root. Yields a frozen record; both files are
+    flushed and closed on exit.
     """
     attempt_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = attempt_dir / "log.jsonl"
@@ -147,11 +127,13 @@ def open_task_log(attempt_dir: Path, task_id: str) -> TaskLog:
         structlog.PrintLogger(jsonl_file),
         processors=_JSON_PROCESSORS,
     ).bind(task_id=task_id, pid=os.getpid())
-    return TaskLog(
-        log=log,
-        stderr_file=stderr_file,
-        _jsonl_file=jsonl_file,
-    )
+    try:
+        yield TaskLogRecord(log=log, stderr_file=stderr_file)
+    finally:
+        jsonl_file.flush()
+        jsonl_file.close()
+        stderr_file.flush()
+        stderr_file.close()
 
 
 def append_event(attempt_dir: Path, evt: Event) -> None:

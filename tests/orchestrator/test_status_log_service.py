@@ -12,7 +12,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.task import Event
-from fleet.orchestrator.status_log import StatusLog, fleet_log_context
+from fleet.orchestrator.status_log import fleet_log_context, make_status_log, status_log_tick
 from fleet.state.journal import setup_supervisor_logger
 from tests.conftest import make_running_worker, make_supervisor
 
@@ -84,7 +84,7 @@ def test_tick_emits_supervisor_status(tmp_path: Path) -> None:
         )
     )
 
-    asyncio.run(StatusLog().tick(sup.state))
+    asyncio.run(status_log_tick(sup.state))
 
     records = _read_fleet_log(log_root)
     status_events = [r for r in records if r.get("event") == "supervisor_status"]
@@ -105,7 +105,7 @@ def test_serve_ticks_until_shutdown(tmp_path: Path) -> None:
     log = setup_supervisor_logger(log_root)
     sup = make_supervisor(tmp_path, services=[], checks=[])
     sup.state.log = log
-    svc = StatusLog(interval_sec=0.05)
+    svc = make_status_log(interval_sec=0.05)
 
     async def _run() -> None:
         task = asyncio.create_task(svc.serve(sup.state))
@@ -122,5 +122,5 @@ def test_serve_ticks_until_shutdown(tmp_path: Path) -> None:
 
 def test_default_interval_matches_limits() -> None:
     """Default interval comes from core/limits.py; ctor arg overrides it."""
-    assert StatusLog().interval_sec == STATUS_LOG_INTERVAL_SEC
-    assert StatusLog(interval_sec=0.01).interval_sec == 0.01
+    assert make_status_log().interval_sec == STATUS_LOG_INTERVAL_SEC
+    assert make_status_log(interval_sec=0.01).interval_sec == 0.01

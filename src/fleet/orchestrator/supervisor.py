@@ -10,8 +10,8 @@ from collections.abc import AsyncIterator, Sequence
 from fleet.core.config import RuntimeConfig
 from fleet.core.limits import SHUTDOWN_GRACE_SEC
 
-from .checks import DEFAULT_CHECKS, StartupCheck, run_startup_checks
-from .service import Service, emit
+from .checks import DEFAULT_CHECKS, StartupCheckSpec, run_startup_checks
+from .service import Service, build_hooks, emit_hooks
 from .state import SupervisorState
 
 
@@ -22,12 +22,12 @@ class Supervisor:
         self,
         state: SupervisorState,
         services: list[Service],
-        checks: Sequence[StartupCheck] | None = None,
+        checks: Sequence[StartupCheckSpec] | None = None,
         shutdown_grace_sec: float | None = None,
     ) -> None:
         self.state = state
         self._services: list[Service] = sorted(services, key=lambda s: s.order)
-        self._checks: Sequence[StartupCheck] = (
+        self._checks: Sequence[StartupCheckSpec] = (
             list(checks) if checks is not None else list(DEFAULT_CHECKS)
         )
         self.shutdown_grace_sec = (
@@ -36,6 +36,7 @@ class Supervisor:
             else float(SHUTDOWN_GRACE_SEC)
         )
         self.state.services = self._services
+        self._hooks = build_hooks(self._services)
         self._done: asyncio.Event | None = None
 
     @property
@@ -52,9 +53,9 @@ class Supervisor:
         async with self._signals_to_shutdown():
             run_startup_checks(self.state, self._checks)
             self.state.services = self._services
-            await emit(self._services, "on_start", self.state)
+            await emit_hooks(self._hooks, "on_start", self.state)
             await self._serve_until_shutdown()
-            await emit(self._services, "on_stop", self.state)
+            await emit_hooks(self._hooks, "on_stop", self.state)
         return 0
 
     @contextlib.asynccontextmanager

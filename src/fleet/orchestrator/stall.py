@@ -17,20 +17,20 @@ from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.task import TaskOutcomeRecord
 from fleet.state.attempts import latest_attempt_dir
 
-from .service import PeriodicService, ServiceOrder
+from .service import ServiceOrder, run_periodic
 
 if TYPE_CHECKING:
     from .state import RunningWorker, SupervisorState
 
 
-class StallWatch(PeriodicService):
+class StallWatch:
     """Watch event silence per worker; warn once, kill once when configured."""
 
     order = ServiceOrder.Stall
     name = "stall_watch"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(interval_sec if interval_sec is not None else STATUS_LOG_INTERVAL_SEC)
+        self.interval_sec = interval_sec if interval_sec is not None else STATUS_LOG_INTERVAL_SEC
         self._warned: set[str] = set()
         self._killed: set[str] = set()
 
@@ -41,6 +41,10 @@ class StallWatch(PeriodicService):
         _ = (st, outcome)
         self._warned.discard(worker.task.id)
         self._killed.discard(worker.task.id)
+
+    async def serve(self, st: SupervisorState) -> None:
+        """Tick on the stall cadence until shutdown (shared periodic loop)."""
+        await run_periodic(self.name, self.interval_sec, self.tick, st)
 
     async def tick(self, st: SupervisorState) -> None:
         """Warn about (and maybe kill) workers quiet past the stall threshold."""

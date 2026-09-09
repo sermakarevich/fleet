@@ -40,13 +40,14 @@ class AppState:
 def build_state(queue: Queue | None = None) -> AppState:
     """Build the state for create_app; refreshes config in the lifespan."""
     home = fleet_home()
+    mgr = ConnectionManager()
     return AppState(
         home=home,
         queue=queue if queue is not None else BeadsQueue(home),
         question_store=QuestionStore(ask_human_db_path(home)),
         config_path=home / "runtime.toml",
-        watcher=FileWatcher(),
-        connection_manager=ConnectionManager(),
+        watcher=FileWatcher(mgr=mgr),
+        connection_manager=mgr,
     )
 
 

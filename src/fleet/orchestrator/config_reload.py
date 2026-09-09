@@ -1,4 +1,9 @@
-"""Config hot-reload: poll runtime.toml and emit on_config_reloaded on change."""
+"""Config hot-reload: poll runtime.toml and emit on_config_reloaded on change.
+
+Called by ``orchestrator/`` ``default_services`` (wiring). The last-seen
+mtime lives in the tick closure built by ``make_config_reload``, so each
+supervisor gets its own reload state without a class.
+"""
 
 from __future__ import annotations
 
@@ -12,20 +17,14 @@ if TYPE_CHECKING:
     from fleet.orchestrator.state import SupervisorState
 
 
-class ConfigReload(PeriodicService):
-    """Poll runtime.toml and swap live config when the file changes."""
+def make_config_reload(interval_sec: float = CONFIG_POLL_INTERVAL_SEC) -> PeriodicService:
+    """Build the config-reload periodic service with its own mtime cell."""
+    seen: dict[str, float | None] = {"mtime": None}
 
-    order = ServiceOrder.Config
-    name = "config_reload"
-
-    def __init__(self, interval_sec: float = CONFIG_POLL_INTERVAL_SEC) -> None:
-        super().__init__(interval_sec)
-        self._mtime: float | None = None
-
-    async def tick(self, st: SupervisorState) -> None:
+    async def config_reload_tick(st: SupervisorState) -> None:
         """Reload config when runtime.toml changed and notify services."""
         try:
-            result = reload_if_changed(st.runtime_toml_path, self._mtime)
+            result = reload_if_changed(st.runtime_toml_path, seen["mtime"])
         except OSError:
             return
         if result is None:
@@ -33,6 +32,13 @@ class ConfigReload(PeriodicService):
         new_config, new_mtime = result
         old_config = st.config
         st.config = new_config
-        self._mtime = new_mtime
+        seen["mtime"] = new_mtime
         st.log.info("config_reloaded", path=str(st.runtime_toml_path))
         await emit(st.services, "on_config_reloaded", st, old_config, new_config)
+
+    return PeriodicService(
+        name="config_reload",
+        order=ServiceOrder.Config,
+        interval_sec=interval_sec,
+        tick=config_reload_tick,
+    )

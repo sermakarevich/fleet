@@ -8,7 +8,7 @@ steps; ``WorkerRun`` is the handle the orchestrator keeps per in-flight task.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -24,7 +24,9 @@ from fleet.state.paths import RUN_JSON
 from fleet.state.run_file import RunRecord
 
 
-class RateGauge(Protocol):
+class RateGaugeLike(Protocol):
+    """Anything that drains rate-limit events (the orchestrator's RateGauge)."""
+
     def update(self, evt: Event) -> None: ...
 
 
@@ -36,7 +38,7 @@ class StepContext:
     fleet_home: Path
     coder: Coder | None
     config: RuntimeConfig
-    rate_gauge: RateGauge
+    rate_gauge: RateGaugeLike
     log: structlog.BoundLogger
     # Per-attempt directory (tasks/<id>/attempts/<n>) and its number. Set by
     # orchestrator/spawn.py from attempts.record_start's return value before
@@ -66,17 +68,31 @@ class StepResult:
 
 
 class Step(Protocol):
-    name: str
+    """One atomic pipeline stage: a name plus an async run.
+
+    ``cancel`` is optional: only steps holding a subprocess (``llm_session``)
+    define it. ``run_worker``/``WorkerRun`` probe for it with
+    ``getattr(step, "cancel", None)`` and skip steps that lack it.
+    """
+
+    @property
+    def name(self) -> str:
+        """Step name recorded in run.json["steps"]."""
+        ...
 
     async def run(self, ctx: StepContext) -> StepResult: ...
 
-    async def cancel(self, reason: str) -> None:
-        """Interrupt this step while it is running. Default is a no-op.
 
-        ``llm_session`` is the step that overrides this to signal the
-        process group; steps with no subprocess have nothing to interrupt.
-        """
-        return
+@dataclass(frozen=True)
+class FnStep:
+    """A stateless step defined by one async function (composition over inheritance)."""
+
+    name: str
+    fn: Callable[[StepContext], Awaitable[StepResult]]
+
+    async def run(self, ctx: StepContext) -> StepResult:
+        """Run the wrapped function against *ctx*."""
+        return await self.fn(ctx)
 
 
 @dataclass(frozen=True)
@@ -174,32 +190,32 @@ async def run_worker(
     return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0)
 
 
+@dataclass
 class WorkerRun:
     """Handle the supervisor keeps per in-flight task (replaces TaskRunner)."""
 
-    def __init__(self, worker: Worker, ctx: StepContext) -> None:
-        self.worker = worker
-        self._ctx = ctx
-        self._current_step: Step | None = None
+    worker: Worker
+    ctx: StepContext
+    _current_step: Step | None = None
 
     def _set_current(self, step: Step | None) -> None:
         self._current_step = step
 
     async def run(self) -> TaskOutcomeRecord:
-        return await run_worker(self.worker, self._ctx, on_step=self._set_current)
+        return await run_worker(self.worker, self.ctx, on_step=self._set_current)
 
     def merge_run_json(self, **updates: Any) -> None:
         """Merge *updates* into this run's attempt run.json (see `merge_run_json`)."""
-        merge_run_json(self._ctx, **updates)
+        merge_run_json(self.ctx, **updates)
 
     async def kill(self, reason: str = "manual_kill") -> None:
-        """Forward to the step currently running."""
-        step = self._current_step
-        if step is not None:
-            await step.cancel(reason)
+        """Forward to the step currently running (no-op when it lacks cancel)."""
+        cancel = getattr(self._current_step, "cancel", None)
+        if cancel is not None:
+            await cancel(reason)
 
     async def cancel(self) -> None:
         """Forward a shutdown cancel to the step currently running."""
-        step = self._current_step
-        if step is not None:
-            await step.cancel("supervisor_shutdown")
+        cancel = getattr(self._current_step, "cancel", None)
+        if cancel is not None:
+            await cancel("supervisor_shutdown")

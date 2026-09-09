@@ -34,7 +34,7 @@ from fleet.core.task import Event, Task, TaskOutcome
 from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER
 from fleet.state.run_file import RunRecord
 
-from ..base import RateGauge, StepContext
+from ..base import RateGaugeLike, StepContext
 from .classify import error_text_of, is_context_error_text
 
 # Tick cadence for on_tick: the existing probe interval, not a new one.
@@ -60,7 +60,7 @@ class MonitorContext:
     attempt_dir: Path
     coder: Coder
     config: RuntimeConfig
-    rate_gauge: RateGauge
+    rate_gauge: RateGaugeLike
     task_log: BoundLogger
     ctx_log: BoundLogger
     context_limit: int

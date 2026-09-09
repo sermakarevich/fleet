@@ -10,30 +10,26 @@ from __future__ import annotations
 from typing import Any
 
 from .claim import Claim
-from .config_reload import ConfigReload
-from .kill_sentinel import KillSentinel
+from .config_reload import make_config_reload
+from .kill_sentinel import make_kill_sentinel
 from .leases import LeaseReconcile
 from .merge_validation import MergeValidation
 from .reap import Reap
-from .retention_gc import RetentionGc
+from .retention_gc import make_retention_gc
 from .service import Service
 from .stall import StallWatch
 from .state import SupervisorState
-from .status_log import StatusLog
+from .status_log import make_status_log
 from .supervisor import Supervisor
 from .triage import Triage
 
 __all__ = [
     "Claim",
-    "ConfigReload",
-    "KillSentinel",
     "LeaseReconcile",
     "MergeValidation",
     "Reap",
-    "RetentionGc",
     "Service",
     "StallWatch",
-    "StatusLog",
     "Supervisor",
     "SupervisorState",
     "Triage",
@@ -48,14 +44,14 @@ def default_services(question_store: Any | None = None) -> list[Service]:
     real ask_human store) so this package never imports integrations.
     """
     return [
-        ConfigReload(),
+        make_config_reload(),
         LeaseReconcile(),
         Claim(),
         MergeValidation(),
         Reap(),
         StallWatch(),
-        KillSentinel(),
+        make_kill_sentinel(),
         Triage(store=question_store),
-        RetentionGc(),
-        StatusLog(),
+        make_retention_gc(),
+        make_status_log(),
     ]

@@ -158,10 +158,8 @@ def test_bare_serve_shows_help_lists_daemon_subcommands() -> None:
 
 def test_run_start_reports_started(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        DaemonCls.return_value.start.return_value = StartResult(
-            pid=4321, already_running=False, alive=True
-        )
+    with patch("fleet.cli.daemons.start") as mock_start:
+        mock_start.return_value = StartResult(pid=4321, already_running=False, alive=True)
         result = runner.invoke(app, ["run", "start"])
     assert result.exit_code == 0, result.output
     assert "started" in result.output.lower()
@@ -170,10 +168,8 @@ def test_run_start_reports_started(tmp_path, monkeypatch) -> None:
 
 def test_run_start_already_running(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        DaemonCls.return_value.start.return_value = StartResult(
-            pid=4321, already_running=True, alive=True
-        )
+    with patch("fleet.cli.daemons.start") as mock_start:
+        mock_start.return_value = StartResult(pid=4321, already_running=True, alive=True)
         result = runner.invoke(app, ["run", "start"])
     assert result.exit_code == 0, result.output
     assert "already running" in result.output.lower()
@@ -181,10 +177,8 @@ def test_run_start_already_running(tmp_path, monkeypatch) -> None:
 
 def test_run_start_failure_exits_nonzero(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        inst = DaemonCls.return_value
-        inst.start.return_value = StartResult(pid=4321, already_running=False, alive=False)
-        inst.spec = MagicMock(logfile=tmp_path / "missing.log")
+    with patch("fleet.cli.daemons.start") as mock_start:
+        mock_start.return_value = StartResult(pid=4321, already_running=False, alive=False)
         result = runner.invoke(app, ["run", "start"])
     assert result.exit_code != 0
     assert "failed" in result.output.lower()
@@ -192,8 +186,8 @@ def test_run_start_failure_exits_nonzero(tmp_path, monkeypatch) -> None:
 
 def test_run_stop_reports_stopped(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        DaemonCls.return_value.stop.return_value = True
+    with patch("fleet.cli.daemons.stop") as mock_stop:
+        mock_stop.return_value = True
         result = runner.invoke(app, ["run", "stop"])
     assert result.exit_code == 0, result.output
     assert "stopped" in result.output.lower()
@@ -225,38 +219,36 @@ def test_run_status_stopped_exits_nonzero(tmp_path, monkeypatch) -> None:
 def test_serve_restart_builds_ui_by_default(tmp_path, monkeypatch) -> None:
     """`serve restart` passes the UI-build hook so the SPA is rebuilt first."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        inst = DaemonCls.return_value
-        inst.read_pidfile.return_value = None
-        inst.restart.return_value = StartResult(pid=7, already_running=False, alive=True)
+    with patch("fleet.cli.daemons.restart") as mock_restart:
+        mock_restart.return_value = StartResult(pid=7, already_running=False, alive=True)
         result = runner.invoke(app, ["serve", "restart"])
     assert result.exit_code == 0, result.output
-    _, kwargs = inst.restart.call_args
+    _, kwargs = mock_restart.call_args
     assert kwargs["before_start"] is climod._build_ui
 
 
 def test_serve_restart_no_build_skips_hook(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        inst = DaemonCls.return_value
-        inst.read_pidfile.return_value = None
-        inst.restart.return_value = StartResult(pid=7, already_running=False, alive=True)
+    with patch("fleet.cli.daemons.restart") as mock_restart:
+        mock_restart.return_value = StartResult(pid=7, already_running=False, alive=True)
         result = runner.invoke(app, ["serve", "restart", "--no-build"])
     assert result.exit_code == 0, result.output
-    _, kwargs = inst.restart.call_args
+    _, kwargs = mock_restart.call_args
     assert kwargs["before_start"] is None
 
 
 def test_serve_restart_reuses_stored_port(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.daemons.Daemon") as DaemonCls:
-        inst = DaemonCls.return_value
-        inst.read_pidfile.return_value = {"pid": 999, "started_at": "x", "port": 8080}
-        inst.restart.return_value = StartResult(pid=7, already_running=False, alive=True)
+    with (
+        patch("fleet.cli.daemons.read_pidfile") as mock_read,
+        patch("fleet.cli.daemons.restart") as mock_restart,
+    ):
+        mock_read.return_value = {"pid": 999, "started_at": "x", "port": 8080}
+        mock_restart.return_value = StartResult(pid=7, already_running=False, alive=True)
         result = runner.invoke(app, ["serve", "restart", "--no-build"])
     assert result.exit_code == 0, result.output
     # The spec used for the restart carries the port read from the PID file.
-    last_spec = DaemonCls.call_args[0][0]
+    last_spec = mock_restart.call_args[0][0]
     assert last_spec.extra.get("port") == 8080
 
 

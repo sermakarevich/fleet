@@ -31,7 +31,7 @@ from fleet.state.validation_marker import set_needs_validation
 
 from . import worktree
 from .claim import read_isolation_info
-from .service import Service, ServiceOrder, emit
+from .service import ServiceOrder, emit
 from .status_log import fleet_log_context
 
 if TYPE_CHECKING:
@@ -497,7 +497,7 @@ def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutc
         snapshot_attempt_artifacts(st, task, task_dir, n)
 
 
-class Reap(Service):
+class Reap:
     """Collect finished workers and apply their outcomes, then notify services."""
 
     order = ServiceOrder.Reap

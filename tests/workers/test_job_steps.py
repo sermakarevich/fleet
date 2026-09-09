@@ -138,7 +138,7 @@ def test_ask_approval_uses_declared_config(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     ctx.config = RuntimeConfig(job_max_children=1)
     _write_tasks(ctx, _valid_tasks("a", "b"))  # 2 tasks > cap of 1
-    result = asyncio.run(AskApproval(lambda home: FakeStore()).run(ctx))
+    result = asyncio.run(AskApproval(FakeStore()).run(ctx))
     assert result.status == "ok"
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"
@@ -147,7 +147,7 @@ def test_ask_approval_uses_declared_config(tmp_path: Path) -> None:
 def test_ask_approval_waits_for_gate(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("a"))
-    result = asyncio.run(AskApproval(lambda home: FakeStore()).run(ctx))
+    result = asyncio.run(AskApproval(FakeStore()).run(ctx))
     assert result.status == "outcome"
     assert result.outcome is not None
     assert result.outcome.outcome == TaskOutcome.WAITING
@@ -157,7 +157,7 @@ def test_spawn_children_isolated(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("a"))
     queue = FakeQueue()
-    result = asyncio.run(SpawnChildren(lambda home: queue).run(ctx))
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == "ok"
     assert [spec["title"] for _, spec in queue.created] == ["title a"]
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import is_dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.job_ready import BeadSummary
 from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
-from fleet.orchestrator.checks import StartupCheck
+from fleet.orchestrator.checks import StartupCheckSpec
 from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.orchestrator.service import Service
 from fleet.orchestrator.state import RunningWorker
@@ -235,7 +235,7 @@ def make_supervisor(
     config: RuntimeConfig | None = None,
     queue=None,
     services: list[Service] | None = None,
-    checks: list[StartupCheck] | None = None,
+    checks: list[StartupCheckSpec] | None = None,
     coder: Coder | None = None,
     project_root: Path | None = None,
     intervals: dict[str, float] | None = None,
@@ -264,11 +264,21 @@ def make_supervisor(
     )
     built = services if services is not None else default_services()
     if intervals:
+        rebuilt: list[Service] = []
         for svc in built:
             names = {type(svc).__name__.lower(), getattr(svc, "name", "").lower()}
-            for key, value in intervals.items():
-                if key.lower() in names and hasattr(svc, "interval_sec"):
-                    svc.interval_sec = value
+            override = next(
+                (value for key, value in intervals.items() if key.lower() in names), None
+            )
+            adjusted = svc
+            if override is not None and hasattr(svc, "interval_sec"):
+                if is_dataclass(svc) and not isinstance(svc, type):
+                    # Frozen PeriodicService instances are replaced, not mutated.
+                    adjusted = replace(svc, interval_sec=override)
+                else:
+                    svc.interval_sec = override
+            rebuilt.append(adjusted)
+        built = rebuilt
     return Supervisor(
         state=state,
         services=built,

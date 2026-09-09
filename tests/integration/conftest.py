@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import asdict, replace
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -22,6 +22,7 @@ from fleet.core.job_ready import BeadSummary
 from fleet.core.task import Task
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.rate_gauge import RateGauge
+from fleet.orchestrator.service import Service
 from fleet.state.config_file import load
 from fleet.state.config_file import write as write_atomic
 from fleet.state.paths import fleet_home as _default_fleet_home
@@ -396,10 +397,17 @@ def make_supervisor(
         coder_pin=coder or FakeClaudeCoder(fleet_home=tmp_path),
     )
     services = default_services()
+    fast: list[Service] = []
     for svc in services:
+        adjusted = svc
         if getattr(svc, "name", "") in ("claim", "config_reload") and hasattr(svc, "interval_sec"):
-            svc.interval_sec = 1
-    return Supervisor(state=state, services=services, shutdown_grace_sec=3)
+            if is_dataclass(svc) and not isinstance(svc, type):
+                # Frozen PeriodicService instances are replaced, not mutated.
+                adjusted = replace(svc, interval_sec=1)
+            else:
+                svc.interval_sec = 1
+        fast.append(adjusted)
+    return Supervisor(state=state, services=fast, shutdown_grace_sec=3)
 
 
 # ---------------------------------------------------------------------------

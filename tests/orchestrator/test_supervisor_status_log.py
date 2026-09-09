@@ -12,7 +12,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
-from fleet.orchestrator.status_log import StatusLog, fleet_log_context
+from fleet.orchestrator.status_log import fleet_log_context, make_status_log, status_log_tick
 from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts as attempts_mod
 from fleet.state.journal import setup_supervisor_logger
@@ -166,7 +166,7 @@ def test_status_log_snapshot_emits_supervisor_status_event(tmp_path: Path) -> No
         )
     )
 
-    asyncio.run(StatusLog().tick(s.state))
+    asyncio.run(status_log_tick(s.state))
 
     records = _read_fleet_log(log_root)
     status_events = [r for r in records if r.get("event") == "supervisor_status"]
@@ -185,7 +185,7 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
-    svc = StatusLog(interval_sec=0.05)
+    svc = make_status_log(interval_sec=0.05)
 
     async def _run() -> None:
         serve_task = asyncio.create_task(svc.serve(s.state))
@@ -205,7 +205,7 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
 
 def test_status_log_loop_exits_on_shutdown(tmp_path: Path, monkeypatch) -> None:
     s = _make_supervisor(tmp_path)
-    svc = StatusLog(interval_sec=0.05)
+    svc = make_status_log(interval_sec=0.05)
 
     async def _run() -> bool:
         s.state.shutting_down = True

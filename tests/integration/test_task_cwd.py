@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.orchestrator.service import Service, ServiceOrder
+from fleet.orchestrator.service import ServiceOrder
 from tests.integration.conftest import (
     BD_AVAILABLE,
     FakeClaudeCoder,
@@ -53,9 +53,12 @@ def test_task_runs_in_its_own_cwd(tmp_path: Path) -> None:
 
     # Stop as soon as the task completes successfully.
 
-    class _DoneRecorder(Service):
+    class _DoneRecorder:
         order = ServiceOrder.Logging
         name = "test_done_recorder"
+
+        async def serve(self, st) -> None:  # type: ignore[no-untyped-def]
+            return None
 
         async def on_worker_finished(self, st, worker, outcome) -> None:  # type: ignore[no-untyped-def]
             done.set()

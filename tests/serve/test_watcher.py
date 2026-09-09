@@ -23,8 +23,7 @@ def test_file_watcher_detects_new_line(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     async def _run() -> None:
         # First call: initializes tail state (offset=0 for empty file) and returns
@@ -70,8 +69,7 @@ def test_file_watcher_redacts_credentials(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     async def _run() -> None:
         await watcher._tail_one(task_dir, task_id, events_file)
@@ -109,8 +107,7 @@ def test_file_watcher_skips_invalid_json(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     async def _run() -> None:
         await watcher._tail_one(task_dir, task_id, events_file)
@@ -171,8 +168,7 @@ def test_file_watcher_enriches_session_ended(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     async def _run() -> None:
         # Prime offset past the tool_use line
@@ -225,8 +221,7 @@ def test_file_watcher_non_session_ended_not_enriched(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     async def _run() -> None:
         await watcher._tail_one(task_dir, task_id, events_file)
@@ -279,8 +274,7 @@ def test_replay_recent_events_for_in_progress_task(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
@@ -316,8 +310,7 @@ def test_no_replay_for_non_in_progress_task(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
@@ -350,8 +343,7 @@ def test_replay_capped_at_50_lines(tmp_path: Path) -> None:
     mgr = MagicMock()
     mgr.broadcast = AsyncMock()
 
-    watcher = FileWatcher()
-    watcher._mgr = mgr
+    watcher = FileWatcher(mgr)
 
     asyncio.run(watcher._tail_one(task_dir, task_id, events_file))
 
@@ -370,7 +362,7 @@ def test_prune_stale_removes_deleted_task_entry(tmp_path: Path) -> None:
     deleted_dir = tasks_dir / "task-deleted"
     deleted_dir.mkdir()
 
-    watcher = FileWatcher()
+    watcher = FileWatcher(ConnectionManager())
     watcher._tail_state["task-alive"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
     watcher._tail_state["task-deleted"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
 

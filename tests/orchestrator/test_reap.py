@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import Reap, outcome_of, pop_finished
-from fleet.orchestrator.service import Service, ServiceOrder
+from fleet.orchestrator.service import ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_running_worker, make_supervisor
 
@@ -38,7 +38,7 @@ class StubQueue:
         pass
 
 
-class _Recorder(Service):
+class _Recorder:
     """Service double that records on_worker_finished calls."""
 
     order = ServiceOrder.Logging

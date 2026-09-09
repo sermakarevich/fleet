@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from fleet.observability.daemon import Daemon, supervisor_spec
+from fleet.observability.daemon import read_pidfile, restart, supervisor_spec
 from fleet.observability.process import ServiceRegistry
 from fleet.serve.api.models import PauseResponse, RestartResponse, SupervisorResponse
 from fleet.state.config_file import load as load_config
@@ -70,9 +70,9 @@ async def resume_supervisor() -> JSONResponse:
 async def restart_supervisor() -> JSONResponse:
     """Restart the supervisor daemon; returns the new pid facts."""
     home = get_fleet_home()
-    daemon = Daemon(supervisor_spec(home))
-    result = await asyncio.to_thread(daemon.restart)
-    pid_data = daemon.read_pidfile() or {}
+    spec = supervisor_spec(home)
+    result = await asyncio.to_thread(restart, spec)
+    pid_data = read_pidfile(spec) or {}
     return JSONResponse(
         {
             "pid": result.pid,

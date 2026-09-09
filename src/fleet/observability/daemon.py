@@ -102,184 +102,184 @@ class DaemonStatus:
     stale: bool = False
 
 
-class Daemon:
-    """Manage a single :class:`DaemonSpec` via its PID file."""
+def read_pidfile(spec: DaemonSpec) -> dict | None:  # noqa: PLR0911
+    """Return the parsed PID-file dict, or None if absent/unreadable.
 
-    def __init__(self, spec: DaemonSpec) -> None:
-        self.spec = spec
-
-    # -- PID file -----------------------------------------------------------
-
-    def read_pidfile(self) -> dict | None:  # noqa: PLR0911  # ADR 0006 bead 17
-        """Return the parsed PID-file dict, or None if absent/unreadable.
-
-        Tolerates a bare-integer PID file for backward compatibility with the
-        ``{pid}`` shape the supervisor route already understands.
-        """
-        path = self.spec.pidfile
-        if not path.exists():
-            return None
-        try:
-            text = path.read_text(encoding="utf-8").strip()
-        except OSError:
-            return None
-        if not text:
-            return None
-        try:
-            data = json.loads(text)
-        except (ValueError, json.JSONDecodeError):
-            return {"pid": int(text)} if text.isdigit() else None
-        if isinstance(data, dict):
-            return data
-        if isinstance(data, int):
-            return {"pid": data}
+    Tolerates a bare-integer PID file for backward compatibility with the
+    ``{pid}`` shape the supervisor route already understands.
+    """
+    path = spec.pidfile
+    if not path.exists():
         return None
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except (ValueError, json.JSONDecodeError):
+        return {"pid": int(text)} if text.isdigit() else None
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, int):
+        return {"pid": data}
+    return None
 
-    def pid(self) -> int | None:
-        data = self.read_pidfile()
-        if not data:
-            return None
-        try:
-            pid = int(data.get("pid", 0))
-        except (TypeError, ValueError):
-            return None
-        return pid or None
 
-    def is_alive(self) -> bool:
-        pid = self.pid()
-        return pid is not None and pid_alive(pid)
+def _pid(spec: DaemonSpec) -> int | None:
+    """PID recorded in the pidfile, or None when missing/unparseable."""
+    data = read_pidfile(spec)
+    if not data:
+        return None
+    try:
+        pid = int(data.get("pid", 0))
+    except (TypeError, ValueError):
+        return None
+    return pid or None
 
-    def _write_pidfile(self, pid: int) -> None:
-        self.spec.pidfile.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "pid": pid,
-            "started_at": now_iso(),
-            "version_fingerprint": code_fingerprint(),
-            **self.spec.extra,
-        }
-        tmp = self.spec.pidfile.with_name(self.spec.pidfile.name + ".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        tmp.replace(self.spec.pidfile)  # atomic on POSIX
 
-    def _clear_pidfile(self) -> None:
-        with contextlib.suppress(FileNotFoundError):
-            self.spec.pidfile.unlink()
+def _is_alive(spec: DaemonSpec) -> bool:
+    """True when the pidfile points at a live process."""
+    pid = _pid(spec)
+    return pid is not None and pid_alive(pid)
 
-    # -- lifecycle ----------------------------------------------------------
 
-    def status(self) -> DaemonStatus:
-        """Report current state, cleaning up a stale PID file as a side effect."""
-        data = self.read_pidfile()
-        if not data:
-            return DaemonStatus(running=False, pid=None, started_at=None, extra={})
-        pid = self.pid()
-        if pid is None or not pid_alive(pid):
-            self._clear_pidfile()  # stale
-            return DaemonStatus(running=False, pid=None, started_at=None, extra={})
-        extra = {
-            k: v for k, v in data.items() if k not in ("pid", "started_at", "version_fingerprint")
-        }
-        stored_fp = data.get("version_fingerprint")
-        current_fp = code_fingerprint()
-        stale = stored_fp is not None and stored_fp != current_fp
-        return DaemonStatus(
-            running=True,
-            pid=pid,
-            started_at=data.get("started_at"),
-            extra=extra,
-            version_fingerprint=stored_fp,
-            stale=stale,
+def _write_pidfile(spec: DaemonSpec, pid: int) -> None:
+    """Record *pid* plus start facts atomically (POSIX rename)."""
+    spec.pidfile.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "pid": pid,
+        "started_at": now_iso(),
+        "version_fingerprint": code_fingerprint(),
+        **spec.extra,
+    }
+    tmp = spec.pidfile.with_name(spec.pidfile.name + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(spec.pidfile)  # atomic on POSIX
+
+
+def _clear_pidfile(spec: DaemonSpec) -> None:
+    """Remove the pidfile, ignoring a missing file."""
+    with contextlib.suppress(FileNotFoundError):
+        spec.pidfile.unlink()
+
+
+def status(spec: DaemonSpec) -> DaemonStatus:
+    """Report current state, cleaning up a stale PID file as a side effect."""
+    data = read_pidfile(spec)
+    if not data:
+        return DaemonStatus(running=False, pid=None, started_at=None, extra={})
+    pid = _pid(spec)
+    if pid is None or not pid_alive(pid):
+        _clear_pidfile(spec)  # stale
+        return DaemonStatus(running=False, pid=None, started_at=None, extra={})
+    extra = {k: v for k, v in data.items() if k not in ("pid", "started_at", "version_fingerprint")}
+    stored_fp = data.get("version_fingerprint")
+    stale = stored_fp is not None and stored_fp != code_fingerprint()
+    return DaemonStatus(
+        running=True,
+        pid=pid,
+        started_at=data.get("started_at"),
+        extra=extra,
+        version_fingerprint=stored_fp,
+        stale=stale,
+    )
+
+
+def start(spec: DaemonSpec) -> StartResult:
+    """Spawn the daemon detached, write the PID file, probe liveness.
+
+    Idempotent: if a live process is already recorded, returns it with
+    ``already_running=True`` without spawning a second one.
+    """
+    existing = _pid(spec)
+    if existing is not None and pid_alive(existing):
+        return StartResult(pid=existing, already_running=True, alive=True)
+
+    # Stale or absent PID file — (re)spawn.
+    spec.logfile.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(spec.logfile, "a", encoding="utf-8")  # noqa: SIM115
+    try:
+        proc = subprocess.Popen(  # noqa: S603
+            spec.argv,
+            cwd=str(spec.cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # detach from controlling terminal
+            env=os.environ.copy(),
         )
+    finally:
+        log_fh.close()  # child keeps its own dup of the fd
 
-    def start(self) -> StartResult:
-        """Spawn the daemon detached, write the PID file, probe liveness.
+    _write_pidfile(spec, proc.pid)
 
-        Idempotent: if a live process is already recorded, returns it with
-        ``already_running=True`` without spawning a second one.
-        """
-        existing = self.pid()
-        if existing is not None and pid_alive(existing):
-            return StartResult(pid=existing, already_running=True, alive=True)
+    # Give the child a moment to fail fast (bad config, import error, etc.).
+    time.sleep(STARTUP_PROBE_SEC)
+    alive = pid_alive(proc.pid)
+    if not alive:
+        _clear_pidfile(spec)
+    return StartResult(pid=proc.pid, already_running=False, alive=alive)
 
-        # Stale or absent PID file — (re)spawn.
-        self.spec.logfile.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(self.spec.logfile, "a", encoding="utf-8")  # noqa: SIM115
-        try:
-            proc = subprocess.Popen(  # noqa: S603
-                self.spec.argv,
-                cwd=str(self.spec.cwd),
-                stdin=subprocess.DEVNULL,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,  # detach from controlling terminal
-                env=os.environ.copy(),
-            )
-        finally:
-            log_fh.close()  # child keeps its own dup of the fd
 
-        self._write_pidfile(proc.pid)
+def stop(spec: DaemonSpec, timeout: float | None = None) -> bool:
+    """Stop the daemon: SIGTERM, wait, then SIGKILL the process group.
 
-        # Give the child a moment to fail fast (bad config, import error, etc.).
-        time.sleep(STARTUP_PROBE_SEC)
-        alive = pid_alive(proc.pid)
-        if not alive:
-            self._clear_pidfile()
-        return StartResult(pid=proc.pid, already_running=False, alive=alive)
+    Returns True if a live process was signalled, False if nothing was
+    running (idempotent). Always clears the PID file.
+    """
+    timeout = spec.stop_timeout if timeout is None else timeout
+    pid = _pid(spec)
+    if pid is None or not pid_alive(pid):
+        _clear_pidfile(spec)
+        return False
 
-    def stop(self, timeout: float | None = None) -> bool:
-        """Stop the daemon: SIGTERM, wait, then SIGKILL the process group.
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        _clear_pidfile(spec)
+        return False
 
-        Returns True if a live process was signalled, False if nothing was
-        running (idempotent). Always clears the PID file.
-        """
-        timeout = self.spec.stop_timeout if timeout is None else timeout
-        pid = self.pid()
-        if pid is None or not pid_alive(pid):
-            self._clear_pidfile()
-            return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not pid_alive(pid):
+            _clear_pidfile(spec)
+            return True
+        time.sleep(_STOP_POLL_SEC)
 
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            self._clear_pidfile()
-            return False
+    # Still alive past the grace window — hard-kill the whole session.
+    _sigkill(pid)
+    _clear_pidfile(spec)
+    return True
 
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if not pid_alive(pid):
-                self._clear_pidfile()
-                return True
-            time.sleep(_STOP_POLL_SEC)
 
-        # Still alive past the grace window — hard-kill the whole session.
-        self._sigkill(pid)
-        self._clear_pidfile()
-        return True
+def _sigkill(pid: int) -> None:
+    """SIGKILL the process group (falling back to the pid) without raising."""
+    # start_new_session makes the daemon a process-group leader (pgid==pid),
+    # so killing the group takes down any child processes it spawned too.
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+        return
+    except (ProcessLookupError, PermissionError):
+        pass
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
 
-    @staticmethod
-    def _sigkill(pid: int) -> None:
-        # start_new_session makes the daemon a process-group leader (pgid==pid),
-        # so killing the group takes down any child processes it spawned too.
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-            return
-        except (ProcessLookupError, PermissionError):
-            pass
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
 
-    def restart(self, before_start: Callable[[], None] | None = None) -> StartResult:
-        """Stop (if running) then start.
+def restart(spec: DaemonSpec, before_start: Callable[[], None] | None = None) -> StartResult:
+    """Stop (if running) then start.
 
-        ``before_start`` runs **before** the stop, so an expensive/flaky
-        pre-step (e.g. ``make ui-build``) executes against the still-running
-        daemon and, if it raises, aborts the restart without taking the daemon
-        down. Exceptions from ``before_start`` propagate to the caller.
-        """
-        if before_start is not None:
-            before_start()
-        self.stop()
-        return self.start()
+    ``before_start`` runs **before** the stop, so an expensive/flaky
+    pre-step (e.g. ``make ui-build``) executes against the still-running
+    daemon and, if it raises, aborts the restart without taking the daemon
+    down. Exceptions from ``before_start`` propagate to the caller.
+    """
+    if before_start is not None:
+        before_start()
+    stop(spec)
+    return start(spec)
 
 
 def python_module_argv(*args: str) -> list[str]:

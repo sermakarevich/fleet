@@ -22,7 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fleet.beads.queue import BeadsQueue
+from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.job_phase import phase, phase_failures
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
@@ -49,12 +49,9 @@ GATE_OPTION_REVISE = "revise (write note)"
 GATE_OPTION_CANCEL = "cancel job"
 GATE_OPTIONS = [GATE_OPTION_APPROVE, GATE_OPTION_REVISE, GATE_OPTION_CANCEL]
 
-QueueFactory = Callable[[Path], Any]
-StoreFactory = Callable[[Path], Any]
 
-
-def _default_queue(home: Path) -> Any:
-
+def _default_queue(home: Path) -> Queue:
+    """Build the production queue for *home* (plan functions call this per attempt)."""
     return BeadsQueue(home)
 
 
@@ -151,9 +148,6 @@ class JobPrepare:
             hook(ctx.project_root, ctx.task)
         return StepResult(status="ok")
 
-    async def cancel(self, reason: str) -> None:
-        return None
-
 
 def _waiting(reason: str) -> StepResult:
     """An outcome step result that re-releases the bead to wait on a human."""
@@ -168,13 +162,13 @@ class AskApproval:
 
     name = "ask_approval"
 
-    def __init__(self, store_factory: StoreFactory | None = None) -> None:
-        self._store_factory = store_factory
+    def __init__(self, store: Any = None) -> None:
+        self._store = store
 
     def _store_for(self, ctx: StepContext) -> Any:
-        """Explicit factory first, else the store orchestrator/spawn.py injected."""
-        if self._store_factory is not None:
-            return self._store_factory(ctx.fleet_home)
+        """Explicit store first, else the store orchestrator/spawn.py injected."""
+        if self._store is not None:
+            return self._store
         return ctx.question_store
 
     def _invalid_plan(self, ctx: StepContext, errors: list[str]) -> StepResult:
@@ -306,9 +300,6 @@ class AskApproval:
         )
         return StepResult(status="ok")
 
-    async def cancel(self, reason: str) -> None:
-        return None
-
 
 def _topo_order(tasks: list[dict]) -> list[dict]:
     """Order validated task dicts so dependencies come first (stable)."""
@@ -357,8 +348,8 @@ class SpawnChildren:
 
     name = "spawn_children"
 
-    def __init__(self, queue_factory: QueueFactory | None = None) -> None:
-        self._queue_factory = queue_factory or _default_queue
+    def __init__(self, queue: Queue) -> None:
+        self._queue = queue
 
     async def run(self, ctx: StepContext) -> StepResult:
         ordered, early = self._load_ordered(ctx)
@@ -368,7 +359,7 @@ class SpawnChildren:
         artifacts_dir = ctx.task_dir / "artifacts"
         children_file = artifacts_dir / "children.json"
         created = _load_journal(children_file)
-        queue = self._queue_factory(ctx.fleet_home)
+        queue = self._queue
         try:
             self._spawn_missing(ctx, queue, ordered, created, children_file)
             queue.comment(
@@ -447,9 +438,6 @@ class SpawnChildren:
         )
         return StepResult(status="ok")
 
-    async def cancel(self, reason: str) -> None:
-        return None
-
 
 class BlockJob:
     """Terminal worker arm: the phase failed too often, block for a human."""
@@ -468,11 +456,8 @@ class BlockJob:
         )
         return StepResult(status="ok")
 
-    async def cancel(self, reason: str) -> None:
-        return None
 
-
-def _snapshot_for(ctx: StepContext, queue_factory: QueueFactory | None = None) -> JobSnapshot:
+def _snapshot_for(ctx: StepContext, queue: Queue | None = None) -> JobSnapshot:
     """Read the task directory + children into a pure phase snapshot (I/O here)."""
     artifacts_dir = ctx.task_dir / "artifacts"
     has_research = (artifacts_dir / "RESEARCH.md").exists()
@@ -480,8 +465,7 @@ def _snapshot_for(ctx: StepContext, queue_factory: QueueFactory | None = None) -
     approved = (artifacts_dir / "APPROVED").exists()
     gate_enabled = bool(ctx.config.job_gate) and ((ctx.task.job_gate or "") != "off")
     try:
-        factory = queue_factory or _default_queue
-        children = factory(ctx.fleet_home).list_children(ctx.task.id)
+        children = (queue or _default_queue(ctx.fleet_home)).list_children(ctx.task.id)
         has_children = len(list(children)) > 0
     except Exception:  # noqa: BLE001 - fall back to the spawn journal
         try:
@@ -498,7 +482,7 @@ def _snapshot_for(ctx: StepContext, queue_factory: QueueFactory | None = None) -
     )
 
 
-def plan_job(ctx: StepContext, queue_factory: QueueFactory | None = None) -> Worker:
+def plan_job(ctx: StepContext, queue: Queue | None = None) -> Worker:
     """Pick the job worker for this attempt: research/design/gate/spawn/observe.
 
     Reads files and the child list (I/O), then applies the pure
@@ -507,7 +491,8 @@ def plan_job(ctx: StepContext, queue_factory: QueueFactory | None = None) -> Wor
     instead. Fresh step instances are built on every call (LlmSession holds
     per-attempt subprocess state).
     """
-    snapshot = _snapshot_for(ctx, queue_factory)
+    queue = queue or _default_queue(ctx.fleet_home)
+    snapshot = _snapshot_for(ctx, queue)
     current_phase = phase(snapshot)
     if current_phase in ("research", "design"):
         history = [
@@ -525,8 +510,8 @@ def plan_job(ctx: StepContext, queue_factory: QueueFactory | None = None) -> Wor
     if current_phase == "gate":
         return Worker("job.gate", (AskApproval(),))
     if current_phase == "spawn":
-        return Worker("job.spawn", (SpawnChildren(),))
+        return Worker("job.spawn", (SpawnChildren(queue),))
     return Worker(
         "job.observe",
-        (WaitChildren(), CollectChildren(), LlmSession(), SpawnFollowups()),
+        (WaitChildren(queue), CollectChildren(queue), LlmSession(), SpawnFollowups(queue)),
     )

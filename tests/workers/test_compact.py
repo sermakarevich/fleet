@@ -16,15 +16,15 @@ from fleet.core.retry_policy import _trailing_streak
 from fleet.core.task import Event, Task
 from fleet.state import attempts as state_attempts
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import StepContext
+from fleet.workers.base import FnStep, StepContext
 from fleet.workers.compact import (
-    Compact,
+    COMPACT_STEP,
     collect_material,
     parse_compaction_output,
     render_compaction_prompt,
 )
 from fleet.workers.llm_session import LlmSession
-from fleet.workers.task import ContinueLargeTask, ContinueTask, PrepareContinue, plan_task
+from fleet.workers.task import ContinueLargeTask, ContinueTask, plan_task
 
 _STATE_BODY = (
     "## Plan\n- plan\n\n## Done\n- shipped x\n\n## In flight\n- y\n\n"
@@ -145,7 +145,7 @@ def test_compact_writes_state_and_compact_row(tmp_path: Path, monkeypatch) -> No
     outer_n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     ctx = _ctx(task, task_dir, outer_n)
 
-    result = asyncio.run(Compact().run(ctx))
+    result = asyncio.run(COMPACT_STEP.run(ctx))
 
     assert result.status == "ok"
     assert result.reason == "compacted"
@@ -173,7 +173,7 @@ def test_oversize_output_falls_back(tmp_path: Path, monkeypatch) -> None:
     outer_n = state_attempts.record_start(task_dir, coder="claude", model="sonnet")
     ctx = _ctx(task, task_dir, outer_n)
 
-    result = asyncio.run(Compact().run(ctx))
+    result = asyncio.run(COMPACT_STEP.run(ctx))
 
     assert result.status == "ok"
     assert result.reason.startswith("compaction_fallback")
@@ -198,7 +198,7 @@ def test_timeout_falls_back(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(compact_mod, "_run_compaction_model", _boom)
 
-    result = asyncio.run(Compact().run(ctx))
+    result = asyncio.run(COMPACT_STEP.run(ctx))
 
     assert result.status == "ok"
     assert result.reason.startswith("compaction_fallback")
@@ -273,7 +273,7 @@ def test_plan_task_returns_continue_large_when_needs_compaction(tmp_path: Path) 
     worker = plan_task(ctx)
 
     assert worker.name == ContinueLargeTask.name == "task.continue_large"
-    assert [type(s) for s in worker.steps] == [Compact, PrepareContinue, LlmSession]
+    assert [type(s) for s in worker.steps] == [FnStep, FnStep, LlmSession]
 
 
 def test_plan_task_skips_compaction_when_disabled(tmp_path: Path) -> None:

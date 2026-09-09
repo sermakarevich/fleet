@@ -25,7 +25,16 @@ from fleet.coders import get_coder
 from fleet.core.config import RuntimeConfig
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.ollama_tunnel import ensure_tunnel
-from fleet.observability.daemon import Daemon, StartResult, serve_spec, supervisor_spec
+from fleet.observability.daemon import (
+    DaemonSpec,
+    StartResult,
+    read_pidfile,
+    restart,
+    serve_spec,
+    start,
+    stop,
+    supervisor_spec,
+)
 from fleet.observability.process import service_status
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import DEFAULT_CHECKS
@@ -51,9 +60,7 @@ def _repo_root() -> Path:
 
 def _serve_stored_port() -> int | None:
     """Port recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = Daemon(
-        serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)
-    ).read_pidfile()
+    data = read_pidfile(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
     if not data or data.get("port") is None:
         return None
     try:
@@ -64,9 +71,7 @@ def _serve_stored_port() -> int | None:
 
 def _serve_stored_host() -> str | None:
     """Host recorded in the serve PID file, if any (used to preserve it on restart)."""
-    data = Daemon(
-        serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT)
-    ).read_pidfile()
+    data = read_pidfile(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
     host = data.get("host") if data else None
     return str(host) if host else None
 
@@ -80,9 +85,9 @@ def _resolve_serve_endpoint(port: int | None, host: str | None) -> tuple[str, in
     return (host or DEFAULT_SERVE_HOST, port if port is not None else DEFAULT_SERVE_PORT)
 
 
-def _report_start(daemon: Daemon, result: StartResult, label: str) -> None:
+def _report_start(spec: DaemonSpec, result: StartResult, label: str) -> None:
     """Echo a start/restart outcome; exits nonzero when the daemon died immediately."""
-    render.print_start_report(result, label, daemon.spec.logfile)
+    render.print_start_report(result, label, spec.logfile)
 
 
 def _report_status(home: Path, name: str, label: str, restart_hint: str) -> None:
@@ -180,21 +185,20 @@ def _register_run_commands(app: typer.Typer) -> None:
     @run_app.command("start")
     def run_start() -> None:
         """Start the supervisor as a background daemon."""
-        daemon = Daemon(supervisor_spec(bootstrap.home()))
-        _report_start(daemon, daemon.start(), "supervisor")
+        spec = supervisor_spec(bootstrap.home())
+        _report_start(spec, start(spec), "supervisor")
 
     @run_app.command("stop")
     def run_stop() -> None:
         """Stop the supervisor daemon (graceful SIGTERM, then SIGKILL)."""
-        daemon = Daemon(supervisor_spec(bootstrap.home()))
-        stopped = daemon.stop()
+        stopped = stop(supervisor_spec(bootstrap.home()))
         _console.print("supervisor stopped." if stopped else "supervisor not running.")
 
     @run_app.command("restart")
     def run_restart() -> None:
         """Restart the supervisor daemon to pick up code changes."""
-        daemon = Daemon(supervisor_spec(bootstrap.home()))
-        _report_start(daemon, daemon.restart(), "supervisor")
+        spec = supervisor_spec(bootstrap.home())
+        _report_start(spec, restart(spec), "supervisor")
 
     @run_app.command("status")
     def run_status() -> None:
@@ -229,14 +233,13 @@ def _register_serve_commands(app: typer.Typer) -> None:
         host: Annotated[str, typer.Option("--host", help=_HOST_HELP)] = DEFAULT_SERVE_HOST,
     ) -> None:
         """Start the UI server as a background daemon (FR-48, FR-49)."""
-        daemon = Daemon(serve_spec(bootstrap.home(), host, port))
-        _report_start(daemon, daemon.start(), "serve")
+        spec = serve_spec(bootstrap.home(), host, port)
+        _report_start(spec, start(spec), "serve")
 
     @serve_app.command("stop")
     def serve_stop() -> None:
         """Stop the UI server daemon."""
-        daemon = Daemon(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
-        stopped = daemon.stop()
+        stopped = stop(serve_spec(bootstrap.home(), DEFAULT_SERVE_HOST, DEFAULT_SERVE_PORT))
         _console.print("serve stopped." if stopped else "serve not running.")
 
     @serve_app.command("restart")
@@ -259,9 +262,9 @@ def _register_serve_commands(app: typer.Typer) -> None:
         the current server running. Pass --no-build to restart without rebuilding.
         """
         resolved_host, resolved_port = _resolve_serve_endpoint(port, host)
-        daemon = Daemon(serve_spec(bootstrap.home(), resolved_host, resolved_port))
+        spec = serve_spec(bootstrap.home(), resolved_host, resolved_port)
         before = None if no_build else _build_ui
-        _report_start(daemon, daemon.restart(before_start=before), "serve")
+        _report_start(spec, restart(spec, before_start=before), "serve")
 
     @serve_app.command("status")
     def serve_status() -> None:

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
-from fleet.orchestrator.service import PeriodicService, ServiceOrder, emit
+from fleet.orchestrator.service import ServiceOrder, emit, run_periodic
 from fleet.orchestrator.spawn import spawn_worker
 
 if TYPE_CHECKING:
@@ -116,14 +116,14 @@ async def release_after_spawn_failure(st: SupervisorState, task: Task, exc: Exce
         st.log.exception("spawn_failed_release", task_id=task.id)
 
 
-class Claim(PeriodicService):
+class Claim:
     """Poll the queue and spawn one worker per tick when a cap allows."""
 
     order = ServiceOrder.Claim
     name = "claim"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC)
+        self.interval_sec = interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
 
     def _paused(self, st: SupervisorState) -> bool:
         """True while the rate-limit pause holds; clears it once it passes.
@@ -170,3 +170,7 @@ class Claim(PeriodicService):
             return
         st.running[task.id] = worker
         await emit(st.services, "on_worker_started", st, worker)
+
+    async def serve(self, st: SupervisorState) -> None:
+        """Tick on the claim cadence until shutdown (shared periodic loop)."""
+        await run_periodic(self.name, self.interval_sec, self.tick, st)

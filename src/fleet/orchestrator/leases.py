@@ -43,7 +43,7 @@ from fleet.state.run_file import RunRecord
 from fleet.state.validation_marker import needs_validation
 
 from . import worktree
-from .service import PeriodicService, ServiceOrder
+from .service import ServiceOrder, run_periodic
 
 if TYPE_CHECKING:
     from fleet.core.task import Task
@@ -269,14 +269,16 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
         st.log.warning("lease_release_failed", task_id=task.id, error=str(exc))
 
 
-class LeaseReconcile(PeriodicService):
+class LeaseReconcile:
     """Reclaim dead leases on start and then on the lease cadence."""
 
     order = ServiceOrder.Leases
     name = "lease_reconcile"
 
     def __init__(self, interval_sec: float | None = None) -> None:
-        super().__init__(interval_sec if interval_sec is not None else LEASE_RECONCILE_INTERVAL_SEC)
+        self.interval_sec = (
+            interval_sec if interval_sec is not None else LEASE_RECONCILE_INTERVAL_SEC
+        )
         self._lease_logged: set[str] = set()
 
     async def on_start(self, st: SupervisorState) -> None:
@@ -287,3 +289,7 @@ class LeaseReconcile(PeriodicService):
     async def tick(self, st: SupervisorState) -> None:
         """Reclaim dead leases."""
         reconcile_leases(st, self._lease_logged)
+
+    async def serve(self, st: SupervisorState) -> None:
+        """Tick on the lease cadence until shutdown (shared periodic loop)."""
+        await run_periodic(self.name, self.interval_sec, self.tick, st)

@@ -7,9 +7,9 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import StepContext
+from fleet.workers.base import FnStep, StepContext
 from fleet.workers.llm_session import LlmSession
-from fleet.workers.task import FreshTask, PrepareArtifacts, plan_task
+from fleet.workers.task import PREPARE_ARTIFACTS, FreshTask, plan_task
 
 
 class StubCoder:
@@ -43,7 +43,7 @@ def test_prepare_artifacts_creates_stubs(tmp_path: Path) -> None:
     ctx.attempt_dir = ctx.task_dir / "attempts" / "1"
     ctx.attempt_n = 1
 
-    result = asyncio.run(PrepareArtifacts().run(ctx))
+    result = asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 
     assert result.status == "ok"
     state = ctx.task_dir / "STATE.md"
@@ -62,7 +62,7 @@ def test_prepare_artifacts_does_not_overwrite_existing_state(tmp_path: Path) -> 
     ctx.task_dir.mkdir(parents=True)
     (ctx.task_dir / "STATE.md").write_text("custom state content")
 
-    asyncio.run(PrepareArtifacts().run(ctx))
+    asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 
     assert (ctx.task_dir / "STATE.md").read_text() == "custom state content"
 
@@ -73,7 +73,7 @@ def test_prepare_artifacts_leaves_previous_result_json_alone(tmp_path: Path) -> 
     ctx.task_dir.mkdir(parents=True)
     (ctx.task_dir / "RESULT.json").write_text('{"schema": 1, "status": "partial"}')
 
-    asyncio.run(PrepareArtifacts().run(ctx))
+    asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 
     assert (ctx.task_dir / "RESULT.json").read_text() == '{"schema": 1, "status": "partial"}'
 
@@ -81,7 +81,7 @@ def test_prepare_artifacts_leaves_previous_result_json_alone(tmp_path: Path) -> 
 def test_prepare_artifacts_calls_write_runtime_config(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path, task_id="t-cfg")
 
-    asyncio.run(PrepareArtifacts().run(ctx))
+    asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 
     coder = ctx.coder
     assert isinstance(coder, StubCoder)
@@ -97,7 +97,7 @@ def test_plan_task_returns_fresh_task_shaped_worker(tmp_path: Path) -> None:
     worker = plan_task(ctx)
 
     assert worker.name == FreshTask.name == "task.fresh"
-    assert [type(s) for s in worker.steps] == [PrepareArtifacts, LlmSession]
+    assert [type(s) for s in worker.steps] == [FnStep, LlmSession]
 
 
 def test_plan_task_builds_fresh_step_instances(tmp_path: Path) -> None:

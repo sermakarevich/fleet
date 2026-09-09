@@ -93,7 +93,7 @@ def create_app(queue: Queue | None = None) -> FastAPI:
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         refresh_config(state)
-        watcher_task = asyncio.create_task(state.watcher.start(state.home, mgr))
+        watcher_task = asyncio.create_task(state.watcher.start(state.home))
         poller_task = asyncio.create_task(_question_poller(app))
         listener_task = asyncio.create_task(
             inbound_listener(

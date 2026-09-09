@@ -13,9 +13,9 @@ from pathlib import Path
 
 from fleet.core.process import pid_alive
 from fleet.observability.daemon import (
-    Daemon,
     DaemonSpec,
     code_fingerprint,
+    read_pidfile,
     supervisor_spec,
 )
 from fleet.state.paths import fleet_home
@@ -66,7 +66,7 @@ class ServiceRegistry:
         build = _SPECS.get(name)
         if build is None:
             return ServiceStatus(pid=None, alive=False, since=None, fingerprint=None)
-        data = Daemon(build(self.home)).read_pidfile() or {}
+        data = read_pidfile(build(self.home)) or {}
         return _from_pid_data(data)
 
     def supervisor_running(self) -> bool:
