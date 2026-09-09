@@ -123,6 +123,11 @@ def log_dir(fleet_home: Path) -> Path:
     return root if root.is_absolute() else fleet_home / root
 
 
+def triggers_root(fleet_home: Path) -> Path:
+    """Folder of trigger definitions (`<id>.json`) and firings (`<id>.firings.jsonl`)."""
+    return fleet_home / "triggers"
+
+
 def workflows_db_path(fleet_home: Path) -> Path:
     """SQLite database for saved workflows and their runs."""
     return fleet_home / "workflows.db"

@@ -30,6 +30,7 @@ typed reader. The owners live in `state/`:
 | runtime.toml I/O | `state/config_file.py` | `RuntimeConfig` stays pure in `core/config.py` |
 | questions db | `integrations/ask_human/store.py::QuestionStore` only | injected, never a module global |
 | pid files, `.pause`, code fingerprint | `observability/process.py` | `ServiceRegistry`, `service_status(name)` |
+| `triggers/<id>.json`, `<id>.firings.jsonl` | `triggers/store.py` | `TriggerStore` |
 
 `beads/queue.py` only talks to `bd`. `serve` handlers call
 `state/task_actions.py` (`unblock`, `kill`, `remove_assignee`) instead of
@@ -73,6 +74,7 @@ a kind, add a row — do not add a call site.
 | `TRIAGE_RULES` | `core/triage_policy.py` | every blocked-task fix proposal |
 | `VISITORS` | `state/events.py` | every per-event accumulator for stats |
 | `WORKERS` | `workers/__init__.py` | every worker family (task, job, observer) |
+| `SOURCES` | `triggers/sources/__init__.py` | every event source kind |
 
 `cli/main.py` (typer command registration) is the model: commands are
 registered, not hand-wired.
@@ -90,22 +92,23 @@ ALLOWED: dict[str, set[str]] = {
     "state": {"core"},
     "beads": {"core", "state"},
     "schedules": {"core", "state", "beads", "workflows"},
+    "triggers": {"core", "state", "beads"},
     "workflows": {"core", "state", "beads"},
     "coders": {"core", "state"},
     "workers": {"core", "state", "beads", "coders"},
     "orchestrator": {
-        "core", "state", "beads", "schedules", "workflows",
+        "core", "state", "beads", "schedules", "triggers", "workflows",
         "coders", "workers", "observability", "integrations",
     },
     "observability": {"core", "state"},
     "integrations": {"core", "state", "beads", "observability"},
     "serve": {
-        "core", "state", "beads", "schedules", "workflows",
+        "core", "state", "beads", "schedules", "triggers", "workflows",
         "coders", "workers", "orchestrator", "observability",
         "integrations",
     },
     "cli": {
-        "core", "state", "beads", "schedules", "workflows",
+        "core", "state", "beads", "schedules", "triggers", "workflows",
         "coders", "workers", "orchestrator", "observability",
         "integrations", "serve",
     },
