@@ -260,7 +260,7 @@ class TestSummaryDefaultDays:
 
 
 class TestSummaryDaysParam:
-    """Test 2: days=1 excludes old completions; days=0 includes everything."""
+    """Test 2: days=1 excludes old completions; days=365 includes everything."""
 
     def test_days_1_excludes_old_completion(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -322,19 +322,19 @@ class TestSummaryDaysParam:
                 return r.json()
 
         d1 = asyncio.run(_run(1))
-        d0 = asyncio.run(_run(0))
+        d365 = asyncio.run(_run(365))
 
         # days=1: only task-recent is completed in window
         assert d1["kpis"]["completed"] == 1
         assert d1["kpis"]["total_output_tokens"] == 500
 
-        # days=0: all time — both task-old and task-recent are completed
-        assert d0["kpis"]["completed"] == 2
-        assert d0["kpis"]["total_output_tokens"] == 1500
+        # days=365: wide window — both task-old and task-recent are completed
+        assert d365["kpis"]["completed"] == 2
+        assert d365["kpis"]["total_output_tokens"] == 1500
 
         # active is never filtered
         assert d1["kpis"]["active_now"] == 1
-        assert d0["kpis"]["active_now"] == 1
+        assert d365["kpis"]["active_now"] == 1
 
 
 class TestSummaryModelAndProjectBreakdowns:
@@ -523,14 +523,11 @@ class TestSummaryThroughputBuckets:
         # For days=2 (<=3), buckets are hourly
         assert ":" in b2["bucket"]  # ISO hour format includes time
 
-        d0 = asyncio.run(_run(0))
-        assert d0["throughput"]["bucket_size"] == "day"
-
 
 class TestSummaryDaysClamping:
-    """Test 5: days clamping — 9999 → 365, window_days echoes."""
+    """Test 5: days bounds — out-of-range values are rejected with 422."""
 
-    def test_days_clamping(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_days_bounds(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("FLEET_HOME", str(tmp_path))
         tasks_root = tmp_path / "tasks"
 
@@ -546,27 +543,23 @@ class TestSummaryDaysClamping:
 
         app = create_app()
 
-        async def _run(d: int) -> dict:
+        async def _run(d: int) -> httpx.Response:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                r = await client.get(f"/api/analytics/summary?days={d}")
-                return r.json()
+                return await client.get(f"/api/analytics/summary?days={d}")
 
-        # days=9999 → clamped to 365
-        d9999 = asyncio.run(_run(9999))
-        assert d9999["window_days"] == 365
+        # days=9999 and days=366 exceed the 365-day max -> 422
+        assert asyncio.run(_run(9999)).status_code == 422
+        assert asyncio.run(_run(366)).status_code == 422
 
-        # days=366 → clamped to 365
-        d366 = asyncio.run(_run(366))
-        assert d366["window_days"] == 365
+        # days=0 is below the 1-day min -> 422
+        assert asyncio.run(_run(0)).status_code == 422
 
-        # days=7 → as-is
+        # days=7 -> as-is
         d7 = asyncio.run(_run(7))
-        assert d7["window_days"] == 7
-
-        # days=0 → all time, echoes 0
-        asyncio.run(_run(0))
+        assert d7.status_code == 200
+        assert d7.json()["window_days"] == 7
 
 
 class TestSummaryExtras:

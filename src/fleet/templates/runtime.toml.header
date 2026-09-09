@@ -86,3 +86,8 @@
 # gc_archive_days: Archived task dirs older than this many days are deleted
 #   permanently by the retention pass (and by `fleet gc --purge`).
 #   Defaults to 90. 0 disables purging.
+#
+# serve_cors_origins: Browser origins allowed to call the API cross-origin.
+#   Empty (default) means same-origin only — no CORS headers are sent.
+#   TOML array of origins, e.g. ["https://fleet.example.com"].
+#   Set via: fleet config set serve_cors_origins=https://fleet.example.com

@@ -1,17 +1,26 @@
 """Bearer-token auth for `fleet serve`, one owner.
 
-Called by serve/app.py (HTTP middleware, websocket checks). Token comes from
-$FLEET_API_TOKEN; empty means open. Only /api/* is guarded (/healthz stays
-public); websocket checks cover /ws/* (bead 23 hardens this further).
+Called by ``serve/app.py`` (router-level dependencies) and every ``serve/api/``
+router (``dependencies=[Depends(require_token)]``). The token comes from
+``$FLEET_API_TOKEN``; empty means the API is open. HTTP routes accept only
+headers (``Authorization: Bearer`` or ``X-Fleet-Token``) so tokens never land
+in access logs; websocket routes additionally accept ``?token=`` because
+browsers cannot set headers on websockets. Comparison is constant-time.
 """
 
 from __future__ import annotations
 
+import logging
 import os
-from collections.abc import Awaitable, Callable
+import secrets
 
-from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import JSONResponse, Response
+from fastapi import Depends, Request, WebSocket
+
+from fleet.serve.errors import unauthorized
+
+logger = logging.getLogger(__name__)
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def expected_token() -> str:
@@ -19,33 +28,57 @@ def expected_token() -> str:
     return os.environ.get("FLEET_API_TOKEN", "").strip()
 
 
-def guarded_path(path: str) -> bool:
-    """True when *path* requires a token (empty token still means open)."""
-    return path.startswith("/api/")
-
-
-def supplied_token(request: Request) -> str:
-    """Token from `Authorization: Bearer` header, else the `?token=` query."""
+def _header_token(request: Request | WebSocket) -> str:
+    """Token from `Authorization: Bearer` or `X-Fleet-Token` headers only."""
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
-        return auth[7:]
-    return request.query_params.get("token", "")
+        return auth[7:].strip()
+    return request.headers.get("x-fleet-token", "").strip()
 
 
-def websocket_authorized(websocket: WebSocket) -> bool:
-    """True when the websocket may connect (token matches or auth disabled)."""
-    token = expected_token()
-    return not token or websocket.query_params.get("token", "") == token
+def _tokens_match(supplied: str) -> bool:
+    """Constant-time token check; empty expected token means open."""
+    expected = expected_token()
+    if not expected:
+        return True
+    if not supplied:
+        return False
+    return secrets.compare_digest(supplied, expected)
 
 
-def install_auth(app: FastAPI) -> None:
-    """Guard /api/* with the bearer token; everything else passes through."""
+async def require_token(request: Request) -> None:
+    """HTTP dependency: reject with 401 unless a header token matches."""
+    if not _tokens_match(_header_token(request)):
+        raise unauthorized()
 
-    @app.middleware("http")
-    async def _bearer_auth(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        token = expected_token()
-        if token and guarded_path(request.url.path) and supplied_token(request) != token:
-            return JSONResponse({"detail": "unauthorized"}, status_code=401)
-        return await call_next(request)
+
+async def require_ws_token(websocket: WebSocket) -> bool:
+    """Websocket guard: True when headers or `?token=` match, else close 4401.
+
+    Returns a bool (instead of raising) because the endpoint must close the
+    handshake itself; a raised HTTPException here would surface as an
+    abnormal closure instead of the clean 4401 the UI expects. Endpoints
+    declare ``allowed: bool = Depends(require_ws_token)`` and return early
+    when it is False.
+    """
+    supplied = _header_token(websocket) or websocket.query_params.get("token", "").strip()
+    if _tokens_match(supplied):
+        return True
+    await websocket.close(code=4401)
+    return False
+
+
+def warn_if_exposed(host: str | None) -> None:
+    """Warn when the API has no token and the bind is not loopback-only."""
+    if expected_token():
+        return
+    if host is not None and host in _LOOPBACK_HOSTS:
+        return
+    logger.warning("api has no token and binds non-loopback")
+
+
+#: Router-level guard for every HTTP router: ``APIRouter(dependencies=[HTTP_AUTH])``.
+HTTP_AUTH = Depends(require_token)
+
+#: Router-level guard for websocket routers: ``APIRouter(dependencies=[WS_AUTH])``.
+WS_AUTH = Depends(require_ws_token)

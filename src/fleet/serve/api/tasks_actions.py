@@ -11,34 +11,34 @@ from fleet.beads.client import BdError
 from fleet.observability.process import service_status
 from fleet.serve.api.models import KillResponse, OkResponse
 from fleet.serve.api.task_summary import beads_assignee_clearer, body_note, resolve_status
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import not_found, unprocessable
 from fleet.serve.state import AppState, StateDep
 from fleet.state import task_actions
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
-def _missing(task_id: str, state: AppState) -> JSONResponse | None:
+def _check_exists(task_id: str, state: AppState) -> None:
+    """Raise 404 when the task dir is missing."""
     if TaskIndex(state.fleet_home).find(task_id) is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return None
+        raise not_found("task", task_id)
 
 
 async def _queue_call(task_id: str, state: AppState, method: str) -> JSONResponse:
-    if (missing := _missing(task_id, state)) is not None:
-        return missing
+    _check_exists(task_id, state)
     try:
         await asyncio.to_thread(getattr(state.queue, method), task_id)
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     return JSONResponse({"ok": True})
 
 
 @router.post("/tasks/{task_id}/kill", response_model=KillResponse)
 async def kill_task(task_id: str, state: StateDep) -> JSONResponse:
     """Signal a running task (.kill) or close a queued one via the queue."""
-    if (missing := _missing(task_id, state)) is not None:
-        return missing
+    _check_exists(task_id, state)
     status = await asyncio.to_thread(resolve_status, task_id, state.fleet_home)
     running = service_status("supervisor", state.fleet_home).alive
     try:
@@ -51,9 +51,9 @@ async def kill_task(task_id: str, state: StateDep) -> JSONResponse:
             supervisor_running=running,
         )
     except task_actions.TaskNotFound:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id) from None
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     return JSONResponse({"ok": True, "result": outcome})
 
 
@@ -63,7 +63,7 @@ async def requeue_task(task_id: str, state: StateDep) -> JSONResponse:
     try:
         await asyncio.to_thread(state.queue.release, task_id)
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     return JSONResponse({"ok": True})
 
 
@@ -74,9 +74,9 @@ async def unblock_task(task_id: str, request: Request, state: StateDep) -> JSONR
     try:
         await asyncio.to_thread(task_actions.unblock, state.fleet_home, state.queue, task_id, note)
     except task_actions.TaskNotFound:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id) from None
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     return JSONResponse({"ok": True})
 
 
@@ -109,7 +109,7 @@ async def remove_assignee(task_id: str, state: StateDep) -> JSONResponse:
             clear_assignee=beads_assignee_clearer(state.fleet_home),
         )
     except task_actions.TaskNotFound:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id) from None
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     return JSONResponse({"ok": True})

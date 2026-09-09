@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends
+from starlette.requests import HTTPConnection
 
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.config import RuntimeConfig
@@ -69,8 +70,8 @@ def refresh_config(state: AppState) -> AppState:
     return state
 
 
-def get_state(request: Request) -> AppState:
-    """FastAPI dependency returning the injected AppState."""
+def get_state(request: HTTPConnection) -> AppState:
+    """FastAPI dependency returning the injected AppState (HTTP and websocket)."""
     return request.app.state.fleet_state
 
 

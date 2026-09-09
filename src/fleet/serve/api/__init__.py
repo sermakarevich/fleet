@@ -24,6 +24,7 @@ from fleet.serve.api.config import router as config_router
 from fleet.serve.api.search import router as search_router
 from fleet.serve.api.supervisor import router as supervisor_router
 from fleet.serve.api.system import router as system_router
+from fleet.serve.api.system import ws_router as system_ws_router
 from fleet.serve.api.tasks_actions import router as tasks_actions_router
 from fleet.serve.api.tasks_artifacts import router as tasks_artifacts_router
 from fleet.serve.api.tasks_attempts import router as tasks_attempts_router
@@ -41,6 +42,7 @@ ROUTERS: list[APIRouter] = [
     beads_router,
     supervisor_router,
     system_router,
+    system_ws_router,
     config_router,
     analytics_router,
     search_router,

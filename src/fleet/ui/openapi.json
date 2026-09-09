@@ -17,6 +17,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 2000,
+              "minimum": 0,
               "default": 300,
               "title": "Closed Limit"
             }
@@ -259,11 +261,11 @@
         }
       }
     },
-    "/api/tasks/{task_id}/attempts/{attempt_no}/summary": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/{artifact}": {
       "get": {
-        "summary": "Get Attempt Summary",
-        "description": "Derived attempt summary, rendered on demand (never stored).",
-        "operationId": "get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get",
+        "summary": "Get Attempt Artifact",
+        "description": "One attempt artifact by name; 404 for unknown names or missing files.",
+        "operationId": "get_attempt_artifact_api_tasks__task_id__attempts__attempt_no___artifact__get",
         "parameters": [
           {
             "name": "task_id",
@@ -282,152 +284,14 @@
               "type": "integer",
               "title": "Attempt No"
             }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContentResponse"
-                }
-              }
-            }
           },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/tasks/{task_id}/attempts/{attempt_no}/state": {
-      "get": {
-        "summary": "Get Attempt State",
-        "description": "STATE.md snapshot taken at reap for one attempt.",
-        "operationId": "get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get",
-        "parameters": [
           {
-            "name": "task_id",
+            "name": "artifact",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Task Id"
-            }
-          },
-          {
-            "name": "attempt_no",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Attempt No"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/tasks/{task_id}/attempts/{attempt_no}/prompt": {
-      "get": {
-        "summary": "Get Attempt Prompt",
-        "description": "Recorded prompt.md for one attempt.",
-        "operationId": "get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Task Id"
-            }
-          },
-          {
-            "name": "attempt_no",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Attempt No"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ContentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/tasks/{task_id}/attempts/{attempt_no}/log": {
-      "get": {
-        "summary": "Get Attempt Log",
-        "description": "Raw log.jsonl for one attempt.",
-        "operationId": "get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get",
-        "parameters": [
-          {
-            "name": "task_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Task Id"
-            }
-          },
-          {
-            "name": "attempt_no",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Attempt No"
+              "title": "Artifact"
             }
           }
         ],
@@ -1093,7 +957,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "minimum": 0
                 },
                 {
                   "type": "null"
@@ -1108,6 +973,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
               "default": 100,
               "title": "Limit"
             }
@@ -1117,14 +984,11 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
               "title": "Kind"
             }
           }
@@ -1447,7 +1311,7 @@
       },
       "put": {
         "summary": "Put Config",
-        "description": "Update runtime.toml atomically; rejects unknown coders/values.",
+        "description": "Update runtime.toml atomically; rejects unknown keys and bad values.",
         "operationId": "put_config_api_config_put",
         "responses": {
           "200": {
@@ -1475,6 +1339,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
               "default": 7,
               "title": "Days"
             }
@@ -1517,6 +1383,18 @@
             "schema": {
               "type": "string",
               "title": "Query"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
             }
           }
         ],
@@ -2862,6 +2740,13 @@
           "job_max_phase_attempts": {
             "type": "integer",
             "title": "Job Max Phase Attempts"
+          },
+          "serve_cors_origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Serve Cors Origins"
           }
         },
         "type": "object",
@@ -2901,7 +2786,8 @@
           "job_child_coder",
           "job_child_model",
           "job_max_children",
-          "job_max_phase_attempts"
+          "job_max_phase_attempts",
+          "serve_cors_origins"
         ],
         "title": "ConfigView",
         "description": "Full RuntimeConfig as JSON (mirrors core.config.RuntimeConfig)."

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi.responses import JSONResponse
 
+from fleet.serve.errors import not_found
 from fleet.serve.state import AppState
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_summary import read_declared_result
@@ -52,7 +53,7 @@ def named_artifact(task_id: str, state: AppState, filename: str) -> JSONResponse
     task_path = resolve_task_dir(state.fleet_home, task_id) / "artifacts" / filename
     snapshot = read_named_artifact(task_path)
     if snapshot is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("artifact", filename)
     return file_response(*snapshot)
 
 

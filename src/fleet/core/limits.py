@@ -40,6 +40,19 @@ GIT_TIMEOUT_SEC: int = 120
 # `just ui-build`, `claude mcp ...`, the `bd` passthrough). A hung child
 # fails fast as a typed error, never hangs the caller forever.
 SUBPROCESS_TIMEOUT_SEC: int = 60
+# Serve query bounds (see serve/api/*): out-of-range values are rejected with
+# 422 instead of being silently clamped, so callers learn the real limits.
+# Whole-task event pages cap at 500 rows per request.
+MAX_EVENT_PAGE: int = 500
+# GET /api/tasks closed-task window: default 300 rows, at most 2000.
+CLOSED_TASKS_DEFAULT: int = 300
+CLOSED_TASKS_MAX: int = 2000
+# GET /api/search result cap: default 20 hits, at most 100 per request.
+SEARCH_LIMIT_DEFAULT: int = 20
+SEARCH_LIMIT_MAX: int = 100
+# GET /api/analytics/summary trailing window: default 7 days, at most 365.
+ANALYTICS_DAYS_DEFAULT: int = 7
+ANALYTICS_DAYS_MAX: int = 365
 # Serve event-stream watcher: how often the task dirs are re-scanned
 # (see serve/event_stream.py::FileWatcher).
 SERVE_WATCH_INTERVAL_SEC: float = 0.2

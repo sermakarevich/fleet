@@ -39,6 +39,7 @@ from fleet.observability.process import service_status
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import DEFAULT_CHECKS
 from fleet.orchestrator.rate_gauge import RateGauge
+from fleet.serve.auth import warn_if_exposed
 from fleet.state.journal import setup_supervisor_logger
 
 if TYPE_CHECKING:
@@ -226,6 +227,7 @@ def _register_serve_commands(app: typer.Typer) -> None:
     ) -> None:
         """Run the UI server in the foreground (blocks). This is what `start` execs."""
 
+        warn_if_exposed(host)
         uvicorn.run("fleet.serve.app:create_app", host=host, port=port, factory=True)
 
     @serve_app.command("start")

@@ -244,7 +244,7 @@ def test_response_shape_is_correct(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_clamped_limit_to_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """closed_limit > 2000 is clamped to 2000."""
+    """closed_limit > 2000 is rejected with 422 (no silent clamp)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
 
@@ -256,15 +256,12 @@ def test_clamped_limit_to_max(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     app = create_app()
 
-    # 9999 should be clamped to 2000, which is > 5 total, so all should appear
     resp = _get(app, "/api/tasks", params={"closed_limit": 9999})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["tasks"]) == 5
+    assert resp.status_code == 422
 
 
 def test_closed_limit_is_clamped_to_min(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Negative closed_limit is clamped to 0 (unlimited)."""
+    """Negative closed_limit is rejected with 422 (no silent clamp)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
 
@@ -277,6 +274,4 @@ def test_closed_limit_is_clamped_to_min(tmp_path: Path, monkeypatch: pytest.Monk
     app = create_app()
 
     resp = _get(app, "/api/tasks", params={"closed_limit": -1})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["tasks"]) == 5
+    assert resp.status_code == 422

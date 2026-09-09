@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from fleet.observability.daemon import code_fingerprint
 from fleet.observability.process import service_status
 from fleet.serve.api.models import HealthResponse
-from fleet.serve.auth import websocket_authorized
-from fleet.serve.state import StateDep
+from fleet.serve.auth import HTTP_AUTH, require_ws_token
+from fleet.serve.state import AppState, StateDep
 from fleet.state import paths as state_paths
 
-router = APIRouter()
+router = APIRouter(dependencies=[HTTP_AUTH])
+
+ws_router = APIRouter()
 
 
 @router.get("/healthz", response_model=HealthResponse)
@@ -31,31 +33,9 @@ async def healthz() -> JSONResponse:
     )
 
 
-@router.websocket("/ws/events")
-async def ws_events(websocket: WebSocket, state: StateDep) -> None:
-    """Global event stream for all tasks."""
-    if not websocket_authorized(websocket):
-        await websocket.close(code=4401)
-        return
-    mgr = state.connection_manager
-    await mgr.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except (WebSocketDisconnect, RuntimeError):
-        pass
-    finally:
-        await mgr.disconnect(websocket)
-
-
-@router.websocket("/ws/tasks/{task_id}/events")
-async def ws_task_events(websocket: WebSocket, task_id: str, state: StateDep) -> None:
-    """Event stream for one task; 4004 when the task does not exist."""
-    if not websocket_authorized(websocket):
-        await websocket.close(code=4401)
-        return
-    task_dir = state_paths.task_dir(state_paths.fleet_home(), task_id)
-    if not task_dir.is_dir():
+async def _ws_loop(websocket: WebSocket, task_id: str | None, state: AppState) -> None:
+    """Accept the socket and relay until disconnect; 4004 for an unknown task."""
+    if task_id is not None and not state_paths.task_dir(state.fleet_home, task_id).is_dir():
         await websocket.accept()
         await websocket.close(code=4004)
         return
@@ -68,3 +48,28 @@ async def ws_task_events(websocket: WebSocket, task_id: str, state: StateDep) ->
         pass
     finally:
         await mgr.disconnect(websocket)
+
+
+@ws_router.websocket("/ws/events")
+async def ws_events(
+    websocket: WebSocket,
+    state: StateDep,
+    allowed: bool = Depends(require_ws_token),
+) -> None:
+    """Global event stream for all tasks."""
+    if not allowed:
+        return
+    await _ws_loop(websocket, None, state)
+
+
+@ws_router.websocket("/ws/tasks/{task_id}/events")
+async def ws_task_events(
+    websocket: WebSocket,
+    task_id: str,
+    state: StateDep,
+    allowed: bool = Depends(require_ws_token),
+) -> None:
+    """Event stream for one task; 4004 when the task does not exist."""
+    if not allowed:
+        return
+    await _ws_loop(websocket, task_id, state)

@@ -173,7 +173,7 @@ def test_offset_and_limit_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert data["events"][1]["i"] == 3
     assert data["events"][2]["i"] == 4
 
-    # limit clamp to 500
+    # limit above MAX_EVENT_PAGE is rejected with 422 (no silent clamp)
     async def _big_limit() -> httpx.Response:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -181,9 +181,7 @@ def test_offset_and_limit_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             return await client.get("/api/tasks/task-ev2/events?limit=9999")
 
     resp2 = asyncio.run(_big_limit())
-    assert resp2.status_code == 200
-    # limit is clamped to 500, so all 7 events fit
-    assert len(resp2.json()["events"]) <= 7
+    assert resp2.status_code == 422
 
 
 def test_kind_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

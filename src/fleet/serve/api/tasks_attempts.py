@@ -1,21 +1,24 @@
-"""Per-attempt routes: derived summary, prompt, state snapshot, log."""
+"""Per-attempt routes: one artifact table, one handler (summary/prompt/state/log)."""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.serve.api.models import ContentResponse
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import not_found
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.legacy_task_dir import attempt_state_snapshot
 from fleet.state.paths import attempt_dir
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
 def _attempt_dir(task_id: str, attempt_no: int, state: AppState) -> Path | None:
@@ -29,67 +32,63 @@ def _attempt_dir(task_id: str, attempt_no: int, state: AppState) -> Path | None:
 
 def _read_text_or_none(path: Path) -> str | None:
     """File text, None when missing/unreadable (runs in a thread)."""
-    if not path.exists():
-        return None
     try:
         return path.read_text(encoding="utf-8")
     except OSError:
         return None
 
 
-def _render_attempt_summary(task_dir: Path, attempt_no: int) -> str:
-    """Derived attempt summary markdown (runs in a thread; reads files)."""
-    return render_markdown(summarize(task_dir, attempt_no))
-
-
-@router.get("/tasks/{task_id}/attempts/{attempt_no}/summary", response_model=ContentResponse)
-async def get_attempt_summary(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
-    """Derived attempt summary, rendered on demand (never stored)."""
-    task_dir = TaskIndex(state.fleet_home).find(task_id)
-    attempt_path = _attempt_dir(task_id, attempt_no, state)
-    if task_dir is None or attempt_path is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+def _summary_content(attempt_path: Path) -> str | None:
+    """Derived attempt summary markdown (never stored; runs in a thread)."""
     try:
-        content = await asyncio.to_thread(_render_attempt_summary, task_dir, attempt_no)
+        attempt_no = int(attempt_path.name)
+    except ValueError:
+        return None
+    try:
+        return render_markdown(summarize(attempt_path.parent.parent, attempt_no))
     except (OSError, ValueError):
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": content})
+        return None
 
 
-@router.get("/tasks/{task_id}/attempts/{attempt_no}/state", response_model=ContentResponse)
-async def get_attempt_state(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
-    """STATE.md snapshot taken at reap for one attempt."""
+def _prompt_content(attempt_path: Path) -> str | None:
+    """Recorded prompt.md for one attempt (runs in a thread)."""
+    return _read_text_or_none(attempt_path / "prompt.md")
+
+
+def _state_content(attempt_path: Path) -> str | None:
+    """STATE.md snapshot taken at reap for one attempt (runs in a thread)."""
+    snapshot = attempt_state_snapshot(attempt_path)
+    return _read_text_or_none(snapshot) if snapshot is not None else None
+
+
+def _log_content(attempt_path: Path) -> str | None:
+    """Raw log.jsonl for one attempt (runs in a thread)."""
+    return _read_text_or_none(attempt_path / "log.jsonl")
+
+
+#: Attempt artifact name → content reader (attempt dir → text or None when
+#: missing). One table, not an if-chain; summary is derived on demand while
+#: the rest are files, so the table reads content rather than paths.
+ARTIFACTS: dict[str, Callable[[Path], str | None]] = {
+    "summary": _summary_content,
+    "state": _state_content,
+    "prompt": _prompt_content,
+    "log": _log_content,
+}
+
+
+@router.get("/tasks/{task_id}/attempts/{attempt_no}/{artifact}", response_model=ContentResponse)
+async def get_attempt_artifact(
+    task_id: str, attempt_no: int, artifact: str, state: StateDep
+) -> JSONResponse:
+    """One attempt artifact by name; 404 for unknown names or missing files."""
+    reader = ARTIFACTS.get(artifact)
+    if reader is None:
+        raise not_found("artifact", artifact)
     attempt_path = _attempt_dir(task_id, attempt_no, state)
     if attempt_path is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    f = attempt_state_snapshot(attempt_path)
-    if f is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    content = await asyncio.to_thread(_read_text_or_none, f)
+        raise not_found("attempt", f"{task_id}#{attempt_no}")
+    content = await asyncio.to_thread(reader, attempt_path)
     if content is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": content})
-
-
-@router.get("/tasks/{task_id}/attempts/{attempt_no}/prompt", response_model=ContentResponse)
-async def get_attempt_prompt(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
-    """Recorded prompt.md for one attempt."""
-    attempt_path = _attempt_dir(task_id, attempt_no, state)
-    if attempt_path is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    content = await asyncio.to_thread(_read_text_or_none, attempt_path / "prompt.md")
-    if content is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"content": content})
-
-
-@router.get("/tasks/{task_id}/attempts/{attempt_no}/log", response_model=ContentResponse)
-async def get_attempt_log(task_id: str, attempt_no: int, state: StateDep) -> JSONResponse:
-    """Raw log.jsonl for one attempt."""
-    attempt_path = _attempt_dir(task_id, attempt_no, state)
-    if attempt_path is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    content = await asyncio.to_thread(_read_text_or_none, attempt_path / "log.jsonl")
-    if content is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("artifact", artifact)
     return JSONResponse({"content": content})

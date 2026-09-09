@@ -132,7 +132,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/attempts/{attempt_no}/summary": {
+    "/api/tasks/{task_id}/attempts/{attempt_no}/{artifact}": {
         parameters: {
             query?: never;
             header?: never;
@@ -140,70 +140,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Attempt Summary
-         * @description Derived attempt summary, rendered on demand (never stored).
+         * Get Attempt Artifact
+         * @description One attempt artifact by name; 404 for unknown names or missing files.
          */
-        get: operations["get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/attempts/{attempt_no}/state": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Attempt State
-         * @description STATE.md snapshot taken at reap for one attempt.
-         */
-        get: operations["get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/attempts/{attempt_no}/prompt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Attempt Prompt
-         * @description Recorded prompt.md for one attempt.
-         */
-        get: operations["get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/attempts/{attempt_no}/log": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Attempt Log
-         * @description Raw log.jsonl for one attempt.
-         */
-        get: operations["get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get"];
+        get: operations["get_attempt_artifact_api_tasks__task_id__attempts__attempt_no___artifact__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -746,7 +686,7 @@ export interface paths {
         get: operations["get_config_api_config_get"];
         /**
          * Put Config
-         * @description Update runtime.toml atomically; rejects unknown coders/values.
+         * @description Update runtime.toml atomically; rejects unknown keys and bad values.
          */
         put: operations["put_config_api_config_put"];
         post?: never;
@@ -1268,6 +1208,8 @@ export interface components {
             job_max_children: number;
             /** Job Max Phase Attempts */
             job_max_phase_attempts: number;
+            /** Serve Cors Origins */
+            serve_cors_origins: string[];
         };
         /**
          * ContentResponse
@@ -2068,109 +2010,14 @@ export interface operations {
             };
         };
     };
-    get_attempt_summary_api_tasks__task_id__attempts__attempt_no__summary_get: {
+    get_attempt_artifact_api_tasks__task_id__attempts__attempt_no___artifact__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 task_id: string;
                 attempt_no: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_attempt_state_api_tasks__task_id__attempts__attempt_no__state_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-                attempt_no: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_attempt_prompt_api_tasks__task_id__attempts__attempt_no__prompt_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-                attempt_no: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_attempt_log_api_tasks__task_id__attempts__attempt_no__log_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-                attempt_no: number;
+                artifact: string;
             };
             cookie?: never;
         };
@@ -2668,7 +2515,7 @@ export interface operations {
             query?: {
                 offset?: number | null;
                 limit?: number;
-                kind?: string | null;
+                kind?: string[];
             };
             header?: never;
             path: {
@@ -3017,6 +2864,7 @@ export interface operations {
         parameters: {
             query: {
                 query: string;
+                limit?: number;
             };
             header?: never;
             path?: never;

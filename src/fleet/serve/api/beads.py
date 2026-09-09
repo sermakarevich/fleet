@@ -21,10 +21,12 @@ from fleet.serve.api.models import (
     OkResponse,
 )
 from fleet.serve.api.task_summary import beads_assignee_clearer
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import bad_gateway, not_found, parse_json_body, unprocessable
 from fleet.state import task_actions
 from fleet.state.paths import fleet_home as get_fleet_home
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 # Statuses beads accepts via `bd update --status`. Used to reject arbitrary input.
 VALID_STATUSES = {"open", "in_progress", "blocked", "deferred", "closed", "pinned", "hooked"}
@@ -91,7 +93,7 @@ async def _update(bead_id: str, extra: list[str]) -> JSONResponse:
     try:
         await asyncio.to_thread(beads_client.run_bd, ["update", bead_id, *extra], cwd=fleet_home)
     except BdError as exc:
-        return JSONResponse({"error": str(exc) or "bd update failed"}, status_code=502)
+        raise bad_gateway(str(exc) or "bd update failed") from exc
     return JSONResponse({"ok": True})
 
 
@@ -102,7 +104,7 @@ async def list_beads() -> JSONResponse:
     try:
         items = await asyncio.to_thread(beads_client.list_all, fleet_home)
     except BdError as exc:
-        return JSONResponse({"error": str(exc) or "bd list failed"}, status_code=502)
+        raise bad_gateway(str(exc) or "bd list failed") from exc
     return JSONResponse({"beads": [_summary(it) for it in items if isinstance(it, dict)]})
 
 
@@ -113,19 +115,19 @@ async def get_bead(bead_id: str) -> JSONResponse:
     try:
         body = await asyncio.to_thread(beads_client.show, bead_id, fleet_home)
     except BdError as exc:
-        return JSONResponse({"error": str(exc) or "bd show failed"}, status_code=502)
+        raise bad_gateway(str(exc) or "bd show failed") from exc
     if not isinstance(body, dict):
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("bead", bead_id)
     return JSONResponse(_detail(body))
 
 
 @router.post("/beads/{bead_id}/status", response_model=OkResponse)
 async def set_status(bead_id: str, request: Request) -> JSONResponse:
     """Set a bead status; `closed` goes through `bd close` like queue.close."""
-    body = await request.json()
-    status = (body or {}).get("status", "")
+    body = await parse_json_body(request)
+    status = (body or {}).get("status", "") if isinstance(body, dict) else ""
     if status not in VALID_STATUSES:
-        return JSONResponse({"error": f"invalid status: {status!r}"}, status_code=422)
+        raise unprocessable(f"invalid status: {status!r}")
     if status == "closed":
         fleet_home = get_fleet_home()
         try:
@@ -135,7 +137,7 @@ async def set_status(bead_id: str, request: Request) -> JSONResponse:
                 cwd=fleet_home,
             )
         except BdError as exc:
-            return JSONResponse({"error": str(exc) or "bd close failed"}, status_code=502)
+            raise bad_gateway(str(exc) or "bd close failed") from exc
         return JSONResponse({"ok": True})
     return await _update(bead_id, ["--status", status])
 
@@ -160,5 +162,5 @@ async def remove_bead_assignee(bead_id: str) -> JSONResponse:
     except task_actions.TaskNotFound:
         return await _update(bead_id, ["--assignee", ""])
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=502)
+        raise bad_gateway(str(exc)) from exc
     return JSONResponse({"ok": True})

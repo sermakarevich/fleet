@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from fleet.core.limits import MAX_EVENT_PAGE
 from fleet.serve.api.artifact_files import read_text_or_empty
 from fleet.serve.api.models import (
     ContentResponse,
@@ -16,11 +17,13 @@ from fleet.serve.api.models import (
     TaskEventsResponse,
 )
 from fleet.serve.api.stream_reads import events_page, files_payload, read_log_entries
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import not_found
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.paths import task_dir as resolve_task_dir
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
 def _latest_log(task_id: str, state: AppState, filename: str) -> Path:
@@ -58,14 +61,14 @@ async def get_task_files(task_id: str, state: StateDep) -> JSONResponse:
 async def get_task_events(
     task_id: str,
     state: StateDep,
-    offset: int | None = None,
-    limit: int = 100,
-    kind: str | None = None,
+    offset: int | None = Query(default=None, ge=0),
+    limit: int = Query(default=100, ge=1, le=MAX_EVENT_PAGE),
+    kind: list[str] = Query(default=[]),  # noqa: B008 - FastAPI never mutates the default
 ) -> JSONResponse:
     """Whole-task event history across attempts, paged (tail by default)."""
     task_dir = resolve_task_dir(state.fleet_home, task_id)
     if not task_dir.is_dir():
-        return JSONResponse({"error": "not found"}, status_code=404)
-    allow_kinds = {k.strip() for k in kind.split(",") if k.strip()} if kind else None
-    page = await asyncio.to_thread(events_page, task_dir, offset, limit, allow_kinds)
+        raise not_found("task", task_id)
+    allow_kinds = {part.strip() for entry in kind for part in entry.split(",") if part.strip()}
+    page = await asyncio.to_thread(events_page, task_dir, offset, limit, allow_kinds or None)
     return JSONResponse(page)

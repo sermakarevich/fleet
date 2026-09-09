@@ -9,15 +9,15 @@ from pathlib import Path
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from fleet.core.limits import SEARCH_LIMIT_DEFAULT, SEARCH_LIMIT_MAX
 from fleet.serve.api.models import SearchResponse
+from fleet.serve.auth import HTTP_AUTH
 from fleet.state.legacy_task_dir import legacy_state_text
 from fleet.state.paths import STATE_MD
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api")
-
-_MAX_RESULTS = 20  # search stops collecting and truncates here
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,8 +47,10 @@ def _state_text(task_dir: Path) -> str:
     return legacy_state_text(task_dir) or ""
 
 
-def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
-    """Scan task directories for query matches; return up to _MAX_RESULTS results."""
+def search_tasks(
+    fleet_home: Path, query: str, limit: int = SEARCH_LIMIT_DEFAULT
+) -> list[SearchResult]:
+    """Scan task directories for query matches; return up to *limit* results."""
     results: list[SearchResult] = []
     if not query.strip():
         return results
@@ -86,18 +88,21 @@ def search_tasks(fleet_home: Path, query: str) -> list[SearchResult]:
                     match_context=_snippet(state_text, needle),
                 )
             )
-        if len(results) >= _MAX_RESULTS:
+        if len(results) >= limit:
             break
-    return results[:_MAX_RESULTS]
+    return results[:limit]
 
 
 @router.get("/search", response_model=SearchResponse)
-async def search(query: str = Query(...)) -> JSONResponse:
+async def search(
+    query: str = Query(...),
+    limit: int = Query(default=SEARCH_LIMIT_DEFAULT, ge=1, le=SEARCH_LIMIT_MAX),
+) -> JSONResponse:
     """Full-text search over task titles, descriptions and STATE.md."""
     if not query.strip():
         return JSONResponse({"results": []})
     fleet_home = get_fleet_home()
-    results = await asyncio.to_thread(search_tasks, fleet_home, query)
+    results = await asyncio.to_thread(search_tasks, fleet_home, query, limit)
     return JSONResponse(
         {
             "results": [

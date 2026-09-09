@@ -11,11 +11,12 @@ from fastapi.responses import JSONResponse
 from fleet.observability.daemon import read_pidfile, restart, supervisor_spec
 from fleet.observability.process import ServiceRegistry
 from fleet.serve.api.models import PauseResponse, RestartResponse, SupervisorResponse
+from fleet.serve.auth import HTTP_AUTH
 from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home as get_fleet_home
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api/supervisor")
+router = APIRouter(prefix="/api/supervisor", dependencies=[HTTP_AUTH])
 
 
 def _count_active(fleet_home: Path) -> int:

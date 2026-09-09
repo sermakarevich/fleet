@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
@@ -24,7 +25,7 @@ from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
 from fleet.integrations.telegram.listener import inbound_listener
 from fleet.integrations.telegram.messages import MessageStore, OffsetStore
 from fleet.serve.api import ROUTERS
-from fleet.serve.auth import install_auth
+from fleet.serve.errors import register_error_handlers
 from fleet.serve.state import AppState, build_state, refresh_config
 from fleet.state.paths import fleet_home
 
@@ -126,13 +127,29 @@ def _command_env(state: AppState) -> CommandEnv:
 class _SPAStaticFiles(StaticFiles):
     """StaticFiles subclass that serves index.html for any unmatched path (SPA fallback)."""
 
+    def __init__(self, directory: Path) -> None:
+        """Mount even when the UI is not built yet; each request re-checks."""
+        super().__init__(directory=directory, html=True, check_dir=False)
+        self._ui_dir = Path(directory)
+
     async def get_response(self, path: str, scope: Scope) -> Response:
+        if not self._ui_dir.exists():
+            return JSONResponse(
+                {"error": "UI not built — run just ui-build first"}, status_code=404
+            )
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code == HTTPStatus.NOT_FOUND:
                 return await super().get_response("index.html", scope)
             raise
+
+
+def _cors_origins(state: AppState) -> list[str]:
+    """Allowed CORS origins from config; [] means same-origin only."""
+    if state.config is None:
+        return []
+    return list(state.config.serve_cors_origins)
 
 
 def create_app(queue: Queue | None = None) -> FastAPI:
@@ -165,7 +182,14 @@ def create_app(queue: Queue | None = None) -> FastAPI:
 
     app = FastAPI(lifespan=_lifespan)
     refresh_config(state)
-    install_auth(app)
+    register_error_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(state),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["Authorization", "X-Fleet-Token", "Content-Type"],
+    )
 
     app.state.fleet_state = state
     app.state.connection_manager = mgr
@@ -173,9 +197,8 @@ def create_app(queue: Queue | None = None) -> FastAPI:
         app.include_router(router)
 
     ui_dist = fleet_home() / "ui_dist"
-    if ui_dist.exists():
-        app.mount("/", _SPAStaticFiles(directory=ui_dist, html=True), name="static")
-    else:
+    if not ui_dist.exists():
         logger.warning("UI not built — run `cd src/fleet/ui && npm run build` first")
+    app.mount("/", _SPAStaticFiles(directory=ui_dist), name="static")
 
     return app

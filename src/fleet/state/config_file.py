@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 from fleet.core.config import RuntimeConfig, defaults, merge, parse, render_toml
@@ -45,7 +46,7 @@ def reload_if_changed(
     return parse(data), stat.st_mtime
 
 
-def write(path: Path, updates: dict[str, str]) -> RuntimeConfig:
+def write(path: Path, updates: Mapping[str, object]) -> RuntimeConfig:
     """Merge updates into on-disk TOML atomically; return new RuntimeConfig."""
     path = Path(path)
     if path.exists():

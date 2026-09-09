@@ -16,10 +16,12 @@ from fleet.serve.api.models import (
     TaskDetail,
 )
 from fleet.serve.api.task_summary import build_summary, config_defaults, fetch_beads_info
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import not_found, unprocessable
 from fleet.serve.state import StateDep
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetail)
@@ -28,7 +30,7 @@ async def get_task(task_id: str, state: StateDep) -> JSONResponse:
     index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id)
     data = index.read_raw(task_id) or {}
     beads_info = await asyncio.to_thread(fetch_beads_info, task_id, state.fleet_home)
     if beads_info is not None:
@@ -51,7 +53,7 @@ async def list_task_attempts(task_id: str, state: StateDep) -> JSONResponse:
     index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id)
     default_coder, default_model = config_defaults(state.config)
     summary = await asyncio.to_thread(
         build_summary,
@@ -70,10 +72,10 @@ async def get_task_children(task_id: str, state: StateDep) -> JSONResponse:
     index = TaskIndex(state.fleet_home)
     task_dir = index.find(task_id)
     if task_dir is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id)
     try:
         deps = await asyncio.to_thread(beads_client.children_of, task_id, state.fleet_home)
     except BdError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        raise unprocessable(str(exc)) from exc
     payload = await asyncio.to_thread(children_payload, deps, state, task_dir)
     return JSONResponse(payload)

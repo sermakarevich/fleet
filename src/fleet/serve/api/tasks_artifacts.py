@@ -18,13 +18,15 @@ from fleet.serve.api.models import (
     DiffResponse,
     OutputsResponse,
 )
+from fleet.serve.auth import HTTP_AUTH
+from fleet.serve.errors import not_found
 from fleet.serve.state import StateDep
 from fleet.state.artifact_locator import locate
 from fleet.state.legacy_task_dir import legacy_state_text
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[HTTP_AUTH])
 
 
 @router.get("/tasks/{task_id}/artifacts/state", response_model=ArtifactResponse)
@@ -32,17 +34,17 @@ async def get_artifact_state(task_id: str, state: StateDep) -> JSONResponse:
     """STATE.md, or the legacy view for old task dirs without one."""
     task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id)
     f = locate(state.fleet_home, task_id, "state")
     if f.exists():
         try:
             content, mtime, resolved = await asyncio.to_thread(read_artifact, f)
         except OSError:
-            return JSONResponse({"error": "not found"}, status_code=404)
+            raise not_found("artifact", "state") from None
         return file_response(content, mtime, resolved)
     legacy = await asyncio.to_thread(legacy_state_text, task_dir)
     if legacy is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("artifact", "state")
     return JSONResponse({"content": legacy, "mtime": 0, "path": ""})
 
 
@@ -51,14 +53,14 @@ async def get_artifact_result(task_id: str, state: StateDep) -> JSONResponse:
     """Live RESULT.json, else the latest attempt snapshot, else legacy."""
     task_dir = TaskIndex(state.fleet_home).find(task_id)
     if task_dir is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("task", task_id)
     f = locate(state.fleet_home, task_id, "result")
     if not f.exists():
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("artifact", "result")
     try:
         content, mtime, resolved = await asyncio.to_thread(read_artifact, f)
     except OSError:
-        return JSONResponse({"error": "not found"}, status_code=404)
+        raise not_found("artifact", "result") from None
     return file_response(content, mtime, resolved)
 
 

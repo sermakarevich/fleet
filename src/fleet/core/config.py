@@ -7,7 +7,8 @@ write) lives in ``state/config_file.py``; this module owns the
 """
 
 import logging
-from dataclasses import dataclass, fields
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from fleet.core.errors import ConfigError
@@ -56,6 +57,10 @@ class RuntimeConfig:
     job_child_model: str = "sonnet"
     job_max_children: int = 30
     job_max_phase_attempts: int = 2
+    # Serve CORS: browser origins allowed to call the API cross-origin.
+    # Empty (default) means same-origin only (no CORS headers are sent).
+    # TOML array of origins, e.g. ["https://fleet.example.com"].
+    serve_cors_origins: list[str] = field(default_factory=list)
 
 
 _KEY_TYPES: dict[str, type] = {
@@ -71,20 +76,36 @@ def defaults() -> dict:
     return {f.name: getattr(config, f.name) for f in fields(config) if f.name in _KEY_TYPES}
 
 
-def _coerce(key: str, value: object) -> object:
-    """Coerce a TOML/cli value to the field's type; bool accepts strings."""
+def _coerce_bool(key: str, value: object) -> object:
+    """Bool field: bools pass through, strings accept true/false words."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+        raise ConfigError(f"Invalid bool for {key}: {value!r}")
+    return bool(value)
+
+
+def _coerce_list(key: str, value: object) -> list[str]:
+    """List field: TOML arrays pass through, cli strings split on commas."""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    raise ConfigError(f"Invalid list for {key}: {value!r}")
+
+
+def coerce(key: str, value: object) -> object:
+    """Coerce a TOML/cli value to the field's type; bool and lists accept strings."""
     typ = _KEY_TYPES[key]
     if typ is bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in ("true", "1", "yes", "on"):
-                return True
-            if lowered in ("false", "0", "no", "off"):
-                return False
-            raise ConfigError(f"Invalid bool for {key}: {value!r}")
-        return bool(value)
+        return _coerce_bool(key, value)
+    if typ is list or getattr(typ, "__origin__", None) is list:
+        return _coerce_list(key, value)
     return typ(value)
 
 
@@ -94,6 +115,9 @@ def render_toml(data: dict) -> str:
     for k, v in data.items():
         if isinstance(v, bool):
             lines.append(f"{k} = {'true' if v else 'false'}")
+        elif isinstance(v, (list, tuple)):
+            items = ", ".join(f'"{item}"' for item in v)
+            lines.append(f"{k} = [{items}]")
         elif isinstance(v, str):
             lines.append(f'{k} = "{v}"')
         else:
@@ -129,19 +153,19 @@ def parse(data: dict) -> RuntimeConfig:
     merged = defaults()
     for k, v in data.items():
         if k in _KEY_TYPES:
-            merged[k] = _coerce(k, v)
+            merged[k] = coerce(k, v)
     _validate_isolation(merged.get("isolation"))
     return RuntimeConfig(**merged)
 
 
-def merge(existing: dict, updates: dict) -> dict:
+def merge(existing: Mapping[str, object], updates: Mapping[str, object]) -> dict:
     """Merge on-disk TOML data and new updates onto defaults; all coerced."""
     unknown = set(updates) - set(_KEY_TYPES)
     if unknown:
         raise ConfigError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
     if "isolation" in updates:
-        _validate_isolation(_coerce("isolation", updates["isolation"]))
+        _validate_isolation(coerce("isolation", updates["isolation"]))
     merged = defaults()
-    merged.update({k: _coerce(k, v) for k, v in existing.items() if k in _KEY_TYPES})
-    merged.update({k: _coerce(k, v) for k, v in updates.items()})
+    merged.update({k: coerce(k, v) for k, v in existing.items() if k in _KEY_TYPES})
+    merged.update({k: coerce(k, v) for k, v in updates.items()})
     return merged
