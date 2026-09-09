@@ -46,6 +46,11 @@ export type Schedule = Schemas['ScheduleView'];
 export type ScheduleRun = Schemas['ScheduleRunView'];
 export type ScheduleDetail = Schemas['ScheduleDetail'];
 export type CronPreview = Schemas['CronPreviewResponse'];
+export type EventTrigger = Schemas['TriggerView'];
+export type TriggerDetail = Schemas['TriggerDetail'];
+export type Firing = Schemas['FiringView'];
+export type TriggerSource = Schemas['SourceKindView'];
+export type TriggerPreview = Schemas['TriggerPreviewResponse'];
 export type Workflow = Schemas['WorkflowView'];
 export type WorkflowRun = Schemas['WorkflowRunView'];
 export type WorkflowStepRun = Schemas['StepRunView'];
@@ -133,4 +138,23 @@ export interface WorkflowInput {
   };
   inputs?: WorkflowInputDecl[];
   stages: WorkflowStageInput[];
+}
+
+// Body for POST /api/triggers and PUT /api/triggers/{id} (ADR 0011).
+// Mirrors serve/api/models.py TriggerRequest: validated manually server-side.
+export interface TriggerInput {
+  name: string;
+  source: string;
+  source_params?: Record<string, string>;
+  enabled?: boolean;
+  title: string;
+  description?: string;
+  cwd?: string;
+  coder?: string;
+  model?: string;
+  priority?: number;
+  isolation?: string | null;
+  labels?: string[];
+  max_open?: number;
+  cooldown_sec?: number;
 }

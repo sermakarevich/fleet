@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { ToastProvider } from '../../shared/contexts/ToastContext';
 import { api } from '../../shared/api';
-import type { AnalyticsSummary, ChatQuestion, Schedule, TaskSummary } from '../../shared/types';
+import type { AnalyticsSummary, ChatQuestion, EventTrigger, Schedule, TaskSummary } from '../../shared/types';
 import { WorkersPage } from './WorkersPage';
 import { TaskIdRedirect, ScheduleIdRedirect } from '../../app/App';
 
@@ -209,6 +209,62 @@ describe('WorkersPage Scheduled tab', () => {
     expect(await screen.findByText('sched-s1')).toBeInTheDocument();
     expect(screen.queryByText('title-w1')).not.toBeInTheDocument();
     expect(listSpy).toHaveBeenCalledWith('task');
+  });
+});
+
+describe('WorkersPage Triggered tab', () => {
+  function makeTrigger(partial: Partial<EventTrigger> & { id: string }): EventTrigger {
+    return {
+      name: `trig-${partial.id}`,
+      source: 'blocked_task',
+      title: 'Investigate {{event.task_id}}',
+      description: '',
+      source_params: {},
+      enabled: true,
+      target: 'task',
+      cwd: null,
+      coder: null,
+      model: null,
+      priority: 2,
+      isolation: null,
+      labels: [],
+      max_open: 2,
+      cooldown_sec: 0,
+      created_at: '2026-09-09T09:00:00Z',
+      updated_at: '2026-09-09T09:00:00Z',
+      firing_count: 0,
+      last_fired_at: null,
+      ...partial,
+    } as EventTrigger;
+  }
+
+  it('shows the third tab and renders event triggers on ?tab=triggered', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' })] });
+    const listSpy = vi.spyOn(api, 'listTriggers').mockResolvedValue([
+      makeTrigger({ id: 't1' }),
+    ]);
+    render(<WorkersPage />, { wrapper: wrapper(['/workers?tab=triggered']) });
+
+    expect(screen.getByRole('tab', { name: 'Runs' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: 'Triggered' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('trig-t1')).toBeInTheDocument();
+    expect(screen.queryByText('title-w1')).not.toBeInTheDocument();
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches to the Triggered tab on click and back to Runs', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' })] });
+    vi.spyOn(api, 'listTriggers').mockResolvedValue([]);
+    render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Triggered' }));
+    expect(await screen.findByText(/No event triggers yet/)).toBeInTheDocument();
+    expect(screen.getByTestId('location').textContent).toContain('tab=triggered');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Runs' }));
+    expect(await screen.findByText('title-w1')).toBeInTheDocument();
+    expect(screen.getByTestId('location').textContent).not.toContain('tab=');
   });
 });
 

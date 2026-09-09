@@ -6,6 +6,7 @@ import type {
   ConfigConstant,
   CreateTaskInput,
   CronPreview,
+  EventTrigger,
   FileOp,
   HealthzStatus,
   LogLine,
@@ -21,6 +22,10 @@ import type {
   TaskDetail,
   TaskSummary,
   Template,
+  TriggerDetail,
+  TriggerInput,
+  TriggerPreview,
+  TriggerSource,
   Workflow,
   WorkflowInput,
   WorkflowRun,
@@ -355,6 +360,52 @@ export const api = {
 
   previewCron(cron: string, timezone = 'UTC', count = 5): Promise<CronPreview> {
     return request('/api/schedules/preview', json('POST', { cron, timezone, count }));
+  },
+
+  // --- Event triggers (start on a signal, ADR 0011) -------------------------
+
+  async listTriggers(): Promise<EventTrigger[]> {
+    const result = await request<{ triggers: EventTrigger[] }>('/api/triggers');
+    return result.triggers;
+  },
+
+  getTrigger(id: string): Promise<TriggerDetail> {
+    return request(`/api/triggers/${id}`);
+  },
+
+  createTrigger(payload: TriggerInput): Promise<EventTrigger> {
+    return request('/api/triggers', json('POST', payload));
+  },
+
+  updateTrigger(id: string, payload: TriggerInput): Promise<EventTrigger> {
+    return request(`/api/triggers/${id}`, json('PUT', payload));
+  },
+
+  deleteTrigger(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/triggers/${id}`, { method: 'DELETE' });
+  },
+
+  enableTrigger(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/triggers/${id}/enable`, { method: 'POST' });
+  },
+
+  disableTrigger(id: string): Promise<{ ok: boolean }> {
+    return request(`/api/triggers/${id}/disable`, { method: 'POST' });
+  },
+
+  setTriggerEnabled(id: string, enabled: boolean): Promise<{ ok: boolean }> {
+    return request(`/api/triggers/${id}/${enabled ? 'enable' : 'disable'}`, {
+      method: 'POST',
+    });
+  },
+
+  previewTrigger(id: string): Promise<TriggerPreview> {
+    return request(`/api/triggers/${id}/preview`, { method: 'POST' });
+  },
+
+  async listTriggerSources(): Promise<TriggerSource[]> {
+    const result = await request<{ sources: TriggerSource[] }>('/api/triggers/sources');
+    return result.sources;
   },
 
   // --- Workflows (ordered stages of workers) -------------------------------

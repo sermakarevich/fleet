@@ -7,7 +7,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../api';
 import { usePoll, usePollWithSocketFallback } from '../poll';
-import type { CreateTaskInput, RuntimeConfig, ScheduleInput, WorkflowInput } from '../types';
+import type { CreateTaskInput, RuntimeConfig, ScheduleInput, TriggerInput, WorkflowInput } from '../types';
 import { useTaskMutation } from './useTaskMutation';
 import { useDebounced } from './useDebounced';
 
@@ -338,6 +338,80 @@ export function useCronPreview(cron: string, timezone: string) {
     queryKey: ['cron-preview', debouncedCron, debouncedZone],
     queryFn: () => api.previewCron(debouncedCron, debouncedZone || 'UTC'),
     enabled: debouncedCron.trim().length > 0,
+  });
+}
+
+// --- Event triggers (start on a signal, ADR 0011) --------------------------
+
+export function useTriggers() {
+  return useQuery({
+    queryKey: ['triggers'],
+    queryFn: () => api.listTriggers(),
+    refetchInterval: 10000,
+  });
+}
+
+export function useTrigger(id: string | null) {
+  return useQuery({
+    queryKey: ['trigger', id],
+    queryFn: () => api.getTrigger(id as string),
+    enabled: !!id,
+    refetchInterval: 5000,
+  });
+}
+
+export function useTriggerSources() {
+  return useQuery({
+    queryKey: ['trigger-sources'],
+    queryFn: () => api.listTriggerSources(),
+  });
+}
+
+export function useCreateTrigger() {
+  return useTaskMutation('Create trigger', (payload: TriggerInput) => api.createTrigger(payload), {
+    invalidate: (data) => [['triggers'], ['trigger', data.id]],
+    success: (data) => `Trigger created: ${data.name}`,
+    failure: (_vars, err) => `Create failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useUpdateTrigger() {
+  return useTaskMutation(
+    'Update trigger',
+    ({ id, payload }: { id: string; payload: TriggerInput }) => api.updateTrigger(id, payload),
+    {
+      invalidate: (_data, vars) => [['triggers'], ['trigger', vars.id]],
+      success: 'Trigger updated',
+      failure: (_vars, err) => `Update failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+export function useDeleteTrigger() {
+  return useTaskMutation('Delete trigger', (id: string) => api.deleteTrigger(id), {
+    invalidate: (_data, id) => [['triggers'], ['trigger', id]],
+    success: 'Trigger deleted',
+    failure: (_vars, err) => `Delete failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useSetTriggerEnabled() {
+  return useTaskMutation(
+    'Set trigger enabled',
+    ({ id, enabled }: { id: string; enabled: boolean }) => api.setTriggerEnabled(id, enabled),
+    {
+      invalidate: (_data, vars) => [['triggers'], ['trigger', vars.id]],
+      success: (_data, vars) => (vars.enabled ? 'Trigger enabled' : 'Trigger disabled'),
+      failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+// Dry run: poll the source now and decide per event, opening nothing.
+// A plain mutation (no toast): empty results are normal, shown inline.
+export function usePreviewTrigger() {
+  return useMutation({
+    mutationFn: (id: string) => api.previewTrigger(id),
   });
 }
 

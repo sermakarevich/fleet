@@ -1,27 +1,34 @@
 // Workers page: the renamed tasks page (ADR 0009). Sub-tabs Runs (today's
-// worker list) and Scheduled (task-target schedules); the active sub-tab
-// lives in the URL (?tab=scheduled) so both are shareable. Rendered by
+// worker list), Scheduled (task-target schedules) and Triggered
+// (event triggers, ADR 0011); the active sub-tab lives in the URL
+// (?tab=scheduled, ?tab=triggered) so all are shareable. Rendered by
 // App's /workers route; /tasks redirects here.
 import { useSearchParams } from 'react-router-dom';
 import { useTasks } from '../../shared/hooks/useApi';
 import { PageShell } from '../../shared/ui/PageShell';
+import { EventTriggerTable } from '../triggers/EventTriggerTable';
 import { TriggerTable } from '../triggers/TriggerTable';
 import { RunsTab } from './RunsTab';
 
 const TABS = [
   { id: 'runs', label: 'Runs' },
   { id: 'scheduled', label: 'Scheduled' },
+  { id: 'triggered', label: 'Triggered' },
 ];
 
-// Sub-tab shell: Runs shows the worker count, Scheduled owns its list.
+type WorkersTab = 'runs' | 'scheduled' | 'triggered';
+
+// Sub-tab shell: Runs shows the worker count, Scheduled/Triggered own lists.
 export function WorkersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') === 'scheduled' ? 'scheduled' : 'runs';
+  const rawTab = searchParams.get('tab');
+  const tab: WorkersTab =
+    rawTab === 'scheduled' ? 'scheduled' : rawTab === 'triggered' ? 'triggered' : 'runs';
   const { data: polledTasks } = useTasks();
 
   function handleTabChange(next: string) {
     const params = new URLSearchParams(searchParams);
-    if (next === 'scheduled') params.set('tab', 'scheduled');
+    if (next === 'scheduled' || next === 'triggered') params.set('tab', next);
     else params.delete('tab');
     setSearchParams(params, { replace: true });
   }
@@ -34,7 +41,13 @@ export function WorkersPage() {
       activeTab={tab}
       onTabChange={handleTabChange}
     >
-      {tab === 'runs' ? <RunsTab /> : <TriggerTable target="task" />}
+      {tab === 'runs' ? (
+        <RunsTab />
+      ) : tab === 'scheduled' ? (
+        <TriggerTable target="task" />
+      ) : (
+        <EventTriggerTable />
+      )}
     </PageShell>
   );
 }
