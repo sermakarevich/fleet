@@ -5,7 +5,7 @@
  */
 import type { ChatQuestion } from '../../shared/types';
 import { colors } from '../../shared/styles/tokens';
-import { relTime } from './hooks/useNow';
+import { relTime } from '../../shared/format';
 
 interface Props {
   question: ChatQuestion;

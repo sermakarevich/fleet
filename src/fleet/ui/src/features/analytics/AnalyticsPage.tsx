@@ -11,6 +11,7 @@ import { ActivityHeatmap } from './charts/ActivityHeatmap';
 import { NeedsAttention } from './charts/NeedsAttention';
 import { RateLimitTimeline } from './charts/RateLimitTimeline';
 import { fillBuckets } from './timeBuckets';
+import { storageGet, storageSet } from '../../shared/storage';
 import type { AnalyticsKpis } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 import { merge, when } from '../../shared/styles/recipes';
@@ -40,11 +41,9 @@ const DEFAULT_KPIS: AnalyticsKpis = {
 };
 
 function readDefaultRange(): number {
-  try {
-    const raw = localStorage.getItem('fleet.analytics.range');
-    const n = raw ? Number(raw) : NaN;
-    if (RANGE_OPTIONS.some(o => o.days === n)) return n;
-  } catch { /* ignore */ }
+  const raw = storageGet('fleet.analytics.range');
+  const n = raw ? Number(raw) : NaN;
+  if (RANGE_OPTIONS.some(o => o.days === n)) return n;
   return 7;
 }
 
@@ -52,9 +51,7 @@ export function AnalyticsPage() {
   const [days, setDays] = useState(readDefaultRange);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('fleet.analytics.range', String(days));
-    } catch { /* ignore */ }
+    storageSet('fleet.analytics.range', String(days));
   }, [days]);
 
   const { data, isLoading, error } = useAnalyticsSummary(days);

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { api } from '../../../shared/api';
+import { errorMessage, isNotFound } from '../../../shared/api';
+import { useArtifactOutputs, useArtifactResult, useArtifactState } from '../../../shared/hooks/useApi';
 import type { TaskResult } from '../../../shared/types';
 import { merge } from '../../../shared/styles/recipes';
 
@@ -29,51 +29,25 @@ function ResultBadge({ result }: { result: TaskResult }) {
 // Artifacts tab: live STATE.md, latest RESULT.json (live file, else latest
 // attempt snapshot), and the outputs/ deliverables listing.
 export function StateTab({ taskId, result }: Props) {
-  const [state, setState] = useState<string | null>(null);
-  const [statePath, setStatePath] = useState<string | null>(null);
-  const [stateError, setStateError] = useState<string | null>(null);
-  const [resultJson, setResultJson] = useState<string | null>(null);
-  const [outputs, setOutputs] = useState<string[]>([]);
-  const mtimeRef = useRef<number | null>(null);
+  const stateQuery = useArtifactState(taskId);
+  const resultQuery = useArtifactResult(taskId);
+  const outputsQuery = useArtifactOutputs(taskId);
 
-  const load = useCallback(async (checkMtime = false) => {
-    try {
-      const data = await api.getArtifactState(taskId);
-      if (checkMtime && mtimeRef.current === data.mtime) return;
-      mtimeRef.current = data.mtime;
-      setState(data.content);
-      setStatePath(data.path || null);
-      setStateError(null);
-    } catch {
-      if (!checkMtime) setStateError('STATE.md not available');
-    }
-    try {
-      const data = await api.getArtifactResult(taskId);
-      setResultJson(data.content);
-    } catch {
-      if (!checkMtime) setResultJson(null);
-    }
-    try {
-      const data = await api.getArtifactOutputs(taskId);
-      setOutputs(data.files);
-    } catch {
-      if (!checkMtime) setOutputs([]);
-    }
-  }, [taskId]);
-
-  useEffect(() => {
-    load();
-    const timer = setInterval(() => load(true), 5000);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  if (stateError) {
-    return <p style={styles.empty}>{stateError}</p>;
-  }
-
-  if (state == null) {
+  if (stateQuery.isLoading) {
     return <p style={styles.loading}>Loading…</p>;
   }
+  const state = stateQuery.data?.content ?? null;
+  if (state == null) {
+    const text = stateQuery.isError
+      ? (isNotFound(stateQuery.error) ? 'STATE.md not available' : errorMessage(stateQuery.error))
+      : 'Loading…';
+    return <p style={stateQuery.isError ? styles.empty : styles.loading}>{text}</p>;
+  }
+
+  const statePath = stateQuery.data?.path || null;
+
+  const resultJson = resultQuery.isError ? null : (resultQuery.data?.content ?? null);
+  const outputs = outputsQuery.isError ? [] : (outputsQuery.data?.files ?? []);
 
   return (
     <div style={styles.container}>

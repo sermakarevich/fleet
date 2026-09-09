@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../../shared/api';
+import { usePoll } from '../../../shared/poll';
 import type { LogLine } from '../../../shared/types';
 import { merge, when } from '../../../shared/styles/recipes';
 
@@ -27,7 +28,7 @@ export function LogTab({ taskId, status }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ['task', taskId, 'logs', levelFilter],
     queryFn: () => api.getLogs(taskId, levelFilter === 'all' ? undefined : levelFilter),
-    refetchInterval: !status || status === 'in_progress' ? 5000 : false,
+    refetchInterval: usePoll('normal', !status || status === 'in_progress'),
   });
 
   const lines: LogLine[] = data?.lines ?? [];

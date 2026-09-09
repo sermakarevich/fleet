@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { useTask, useTasks, useConfig } from '../../shared/hooks/useApi';
-import { useTaskWebSocket } from '../../shared/hooks/useTaskWebSocket';
+import { useTask, useConfig } from '../../shared/hooks/useApi';
+import { useEventSocket } from '../../shared/hooks/useEventSocket';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { Header } from './Header';
 import { LiveTab } from './tabs/LiveTab';
@@ -40,14 +40,11 @@ export function TaskDetailPage() {
   const [activeTab, setActiveTab] = useState<TabId>('live');
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const { data: task, isLoading, error } = useTask(id!);
-  const { data: tasksList } = useTasks();
   const { data: config } = useConfig();
 
-  // /api/tasks/{id} reads stale task.json; overlay correct status from the
-  // beads-reconciled list (which polls /api/tasks every 5s).
-  const taskWithStatus = task
-    ? { ...task, status: tasksList?.find(t => t.id === id)?.status ?? task.status }
-    : undefined;
+  // GET /api/tasks/{id} already returns the beads-reconciled status, so no
+  // client-side overlay is needed here.
+  const taskWithStatus = task;
 
   const seenKeys = useRef(new Set<string>());
 
@@ -58,7 +55,9 @@ export function TaskDetailPage() {
     setEvents(prev => [...prev, event]);
   }, []);
 
-  useTaskWebSocket(id!, onEvent);
+  useEventSocket<{ event: FleetEvent }>(`/ws/tasks/${id}/events`, ({ event }) => {
+    onEvent(event);
+  }, { noReconnectCodes: [4004] });
 
   if (!id) return <Navigate to="/" replace />;
 

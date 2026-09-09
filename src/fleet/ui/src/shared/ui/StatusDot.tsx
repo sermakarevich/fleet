@@ -21,7 +21,20 @@ const DOT_COLORS: Record<string, string> = {
   green: '#22c55e',
   amber: '#f59e0b',
   red: '#ef4444',
+  gray: '#52525b',
 };
+
+export type DotColor = keyof typeof DOT_COLORS;
+
+/** Bare status circle; StatusDot and NavBar's connection dot build on it. */
+export function Dot({ color, title }: { color: DotColor; title?: string }) {
+  return (
+    <span
+      title={title}
+      style={merge(styles.dot, { background: DOT_COLORS[color] })}
+    />
+  );
+}
 
 interface Props {
   task: TaskSummary;
@@ -32,12 +45,7 @@ export function StatusDot({ task, thresholdPct = 90 }: Props) {
   const color = getStatusDotColor(task, thresholdPct);
   const idle = (task.idle_sec ?? 0).toFixed(0);
   const ctx = (task.context_pct ?? 0).toFixed(1);
-  return (
-    <span
-      title={`${color}: idle ${idle}s, ctx ${ctx}%`}
-      style={merge(styles.dot, { background: DOT_COLORS[color] })}
-    />
-  );
+  return <Dot color={color} title={`${color}: idle ${idle}s, ctx ${ctx}%`} />;
 }
 
 const styles = {

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Sparkline } from '../../../shared/ui/Sparkline';
 import type { FleetEvent, TaskDetail } from '../../../shared/types';
+import { fmtIdle, fmtInt } from '../../../shared/format';
+import { useNow } from '../../../shared/hooks/useNow';
 import { useKillTask } from '../../../shared/hooks/useApi';
 import { eventKindColor } from '../../../shared/status';
 import { merge } from '../../../shared/styles/recipes';
@@ -10,23 +12,11 @@ interface Props {
   events: FleetEvent[];
 }
 
-function fmtIdle(sec: number | null): string {
-  if (sec == null) return '—';
-  if (sec < 5) return 'just now';
-  if (sec < 60) return `${Math.floor(sec)}s ago`;
-  return `${Math.floor(sec / 60)}m ago`;
-}
-
 export function ActivityGutter({ task, events }: Props) {
   const { mutate: kill, isPending } = useKillTask();
-  const [now, setNow] = useState(() => Date.now());
+  const now = useNow();
   const [isStopping, setIsStopping] = useState(false);
   const [confirming, setConfirming] = useState(false);
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (task.status !== 'in_progress' && task.status !== 'blocked') {
@@ -71,7 +61,7 @@ export function ActivityGutter({ task, events }: Props) {
         <div style={styles.label}>tokens</div>
         <Sparkline value={tokenTotal ?? null} />
         {tokenTotal != null && (
-          <div style={styles.value}>{tokenTotal.toLocaleString()}</div>
+          <div style={styles.value}>{fmtInt(tokenTotal ?? null)}</div>
         )}
       </div>
 

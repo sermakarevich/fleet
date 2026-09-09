@@ -15,6 +15,9 @@ interface Toast {
   message: string;
 }
 
+/** How long a toast stays visible: the one auto-dismiss delay in the UI. */
+export const TOAST_MS = 6000;
+
 const styles: Record<string, React.CSSProperties> = {
   container: {
     position: 'fixed',
@@ -59,7 +62,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const addToast = (message: string) => {
     const id = String(Date.now());
     setToasts(prev => [...prev, { id, message }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), TOAST_MS);
   };
 
   const dismiss = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));

@@ -1,26 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api';
-import type { CreateTaskInput, RuntimeConfig, TaskSummary } from '../types';
-import { useToast } from '../contexts/ToastContext';
+/**
+ * One react-query hook per backend endpoint (queries) plus every action
+ * (mutations via useTaskMutation, so each failure toasts). Polling uses
+ * POLL cadences and pauses while the events socket streams. Called by
+ * every page, tab and palette in the UI.
+ */
+import { useQuery } from '@tanstack/react-query';
+import { api, errorMessage } from '../api';
+import { usePoll } from '../poll';
+import type { CreateTaskInput, RuntimeConfig } from '../types';
+import { useTaskMutation } from './useTaskMutation';
 
 export function useTasks() {
-  return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: 5000 });
+  return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: usePoll('normal') });
 }
 
 export function useTask(id: string) {
-  const qc = useQueryClient();
+  // GET /api/tasks/{id} already returns the beads-reconciled status, so no
+  // client-side overlay from the list cache is needed here.
   return useQuery({
     queryKey: ['task', id],
-    queryFn: async () => {
-      const task = await api.getTask(id);
-      // /api/tasks/{id} reads task.json directly (stale). Overlay with the
-      // beads-reconciled status from the list cache when available.
-      const list = qc.getQueryData<TaskSummary[]>(['tasks']);
-      const listed = list?.find(t => t.id === id);
-      if (listed) task.status = listed.status;
-      return task;
-    },
-    refetchInterval: 3000,
+    queryFn: () => api.getTask(id),
+    refetchInterval: usePoll('fast'),
   });
 }
 
@@ -28,7 +28,7 @@ export function useTaskChildren(id: string) {
   return useQuery({
     queryKey: ['task-children', id],
     queryFn: () => api.getTaskChildren(id),
-    refetchInterval: 5000,
+    refetchInterval: usePoll('normal'),
   });
 }
 
@@ -50,7 +50,7 @@ export function useAttemptPrompt(taskId: string, n: number, enabled: boolean) {
 }
 
 export function useBeads() {
-  return useQuery({ queryKey: ['beads'], queryFn: api.getBeads, refetchInterval: 5000 });
+  return useQuery({ queryKey: ['beads'], queryFn: api.getBeads, refetchInterval: usePoll('normal') });
 }
 
 export function useBead(id: string | null) {
@@ -58,40 +58,31 @@ export function useBead(id: string | null) {
     queryKey: ['bead', id],
     queryFn: () => api.getBead(id as string),
     enabled: !!id,
-    refetchInterval: 3000,
+    refetchInterval: usePoll('fast'),
   });
 }
 
 export function useSetBeadStatus() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => api.setBeadStatus(id, status),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: ['beads'] });
-      void qc.invalidateQueries({ queryKey: ['bead', vars.id] });
-    },
+  return useTaskMutation('Set bead status', ({ id, status }: { id: string; status: string }) =>
+    api.setBeadStatus(id, status),
+  {
+    invalidate: (_data, vars) => [['beads'], ['bead', vars.id]],
+    success: 'Saved',
+    failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
   });
 }
 
 export function useUnblockBead() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.unblockBead(id),
-    onSuccess: (_data, id) => {
-      void qc.invalidateQueries({ queryKey: ['beads'] });
-      void qc.invalidateQueries({ queryKey: ['bead', id] });
-    },
+  return useTaskMutation('Unblock bead', (id: string) => api.unblockBead(id), {
+    invalidate: (_data, id) => [['beads'], ['bead', id]],
+    success: 'Bead unblocked',
   });
 }
 
 export function useRemoveBeadAssignee() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.removeBeadAssignee(id),
-    onSuccess: (_data, id) => {
-      void qc.invalidateQueries({ queryKey: ['beads'] });
-      void qc.invalidateQueries({ queryKey: ['bead', id] });
-    },
+  return useTaskMutation('Remove bead assignee', (id: string) => api.removeBeadAssignee(id), {
+    invalidate: (_data, id) => [['beads'], ['bead', id]],
+    success: 'Assignee removed',
   });
 }
 
@@ -99,7 +90,7 @@ export function useChatQuestions() {
   return useQuery({
     queryKey: ['chat-questions'],
     queryFn: api.getChatQuestions,
-    refetchInterval: 3000,
+    refetchInterval: usePoll('fast'),
   });
 }
 
@@ -107,7 +98,7 @@ export function useSupervisor() {
   return useQuery({
     queryKey: ['supervisor'],
     queryFn: api.getSupervisor,
-    refetchInterval: 5000,
+    refetchInterval: usePoll('normal'),
   });
 }
 
@@ -115,7 +106,7 @@ export function useHealthz() {
   return useQuery({
     queryKey: ['healthz'],
     queryFn: api.getHealthz,
-    refetchInterval: 30000,
+    refetchInterval: usePoll('slow'),
   });
 }
 
@@ -124,116 +115,79 @@ export function useConfig() {
 }
 
 const KILL_MESSAGES: Record<string, string> = {
-  killing: 'Kill signal sent \u2014 task will stop shortly.',
+  killing: 'Kill signal sent — task will stop shortly.',
   'supervisor-not-running': 'Kill signal written, but the supervisor is not running.',
-  'task-not-running': 'Task is not currently running \u2014 nothing to kill.',
+  'task-not-running': 'Task is not currently running — nothing to kill.',
 };
 
 export function useKillTask() {
-  const qc = useQueryClient();
-  const { addToast } = useToast();
-  return useMutation({
-    mutationFn: (id: string) => api.killTask(id),
-    onSuccess: (data, id) => {
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      void qc.invalidateQueries({ queryKey: ['task', id] });
-      addToast(KILL_MESSAGES[data.result] ?? `Kill result: ${data.result}`);
-    },
-    onError: (err: unknown) => {
-      addToast(`Kill failed: ${err instanceof Error ? err.message : String(err)}`);
-    },
+  return useTaskMutation('Kill task', (id: string) => api.killTask(id), {
+    invalidate: (_data, id) => [['tasks'], ['task', id]],
+    success: (data) => KILL_MESSAGES[data.result] ?? `Kill result: ${data.result}`,
+    failure: (_vars, err) => `Kill failed: ${errorMessage(err)}`,
   });
 }
 
 export function useRequeueTask() {
-  const qc = useQueryClient();
-  const { addToast } = useToast();
-  return useMutation({
-    mutationFn: (id: string) => api.requeueTask(id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      addToast('Task re-queued.');
-    },
-    onError: (err: unknown) => {
-      addToast(`Re-queue failed: ${err instanceof Error ? err.message : String(err)}`);
-    },
+  return useTaskMutation('Re-queue task', (id: string) => api.requeueTask(id), {
+    invalidate: [['tasks']],
+    success: 'Task re-queued.',
+    failure: (_vars, err) => `Re-queue failed: ${errorMessage(err)}`,
   });
 }
 
 export function useUnblockTask() {
-  const qc = useQueryClient();
-  const { addToast } = useToast();
-  return useMutation({
-    mutationFn: ({ id, note }: { id: string; note?: string }) => api.unblockTask(id, note),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      if (qc.getQueryData(['task', vars.id]) !== undefined) {
-        void qc.invalidateQueries({ queryKey: ['task', vars.id] });
-      }
-      addToast('Task unblocked.');
+  return useTaskMutation(
+    'Unblock task',
+    ({ id, note }: { id: string; note?: string }) => api.unblockTask(id, note),
+    {
+      invalidate: (_data, vars) => [['tasks'], ['task', vars.id]],
+      success: 'Task unblocked.',
+      failure: (_vars, err) => `Unblock failed: ${errorMessage(err)}`,
     },
-    onError: (err: unknown) => {
-      addToast(`Unblock failed: ${err instanceof Error ? err.message : String(err)}`);
-    },
-  });
+  );
 }
 
 export function useUnignoreTask() {
-  const qc = useQueryClient();
-  const { addToast } = useToast();
-  return useMutation({
-    mutationFn: (id: string) => api.unignoreTask(id),
-    onSuccess: (_data, id) => {
-      void qc.invalidateQueries({ queryKey: ['tasks'] });
-      if (qc.getQueryData(['task', id]) !== undefined) {
-        void qc.invalidateQueries({ queryKey: ['task', id] });
-      }
-      addToast('Triage ignore lifted.');
-    },
-    onError: (err: unknown) => {
-      addToast(`Unignore failed: ${err instanceof Error ? err.message : String(err)}`);
-    },
+  return useTaskMutation('Lift triage ignore', (id: string) => api.unignoreTask(id), {
+    invalidate: (_data, id) => [['tasks'], ['task', id]],
+    success: 'Triage ignore lifted.',
+    failure: (_vars, err) => `Unignore failed: ${errorMessage(err)}`,
   });
 }
 
 export function useCloseTask() {
-
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.closeTask(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  return useTaskMutation('Close task', (id: string) => api.closeTask(id), {
+    invalidate: [['tasks']],
+    success: 'Task closed.',
   });
 }
 
 export function useDeleteTask() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.deleteTask(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  return useTaskMutation('Delete task', (id: string) => api.deleteTask(id), {
+    invalidate: [['tasks']],
+    success: 'Task deleted.',
   });
 }
 
 export function useRemoveAssignee() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.removeAssignee(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  return useTaskMutation('Remove assignee', (id: string) => api.removeAssignee(id), {
+    invalidate: [['tasks']],
+    success: 'Assignee removed.',
   });
 }
 
 export function useCreateTask() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: CreateTaskInput) => api.createTask(payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  // No success toast: NewTaskPanel already toasts the created id via onCreated.
+  return useTaskMutation('Create task', (payload: CreateTaskInput) => api.createTask(payload), {
+    invalidate: [['tasks']],
   });
 }
 
 export function usePutConfig() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (updates: Partial<RuntimeConfig>) => api.putConfig(updates),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['config'] }),
+  return useTaskMutation('Save config', (updates: Partial<RuntimeConfig>) => api.putConfig(updates), {
+    invalidate: [['config']],
+    success: 'Config saved',
   });
 }
 
@@ -246,26 +200,25 @@ export function useTemplates() {
 }
 
 export function usePauseSupervisor() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.pauseSupervisor(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  return useTaskMutation('Pause supervisor', () => api.pauseSupervisor(), {
+    invalidate: [['supervisor']],
+    success: 'Supervisor paused.',
   });
 }
 
 export function useResumeSupervisor() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.resumeSupervisor(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  return useTaskMutation('Resume supervisor', () => api.resumeSupervisor(), {
+    invalidate: [['supervisor']],
+    success: 'Supervisor resumed.',
   });
 }
 
 export function useRestartSupervisor() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.restartSupervisor(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['supervisor'] }),
+  return useTaskMutation('Restart supervisor', () => api.restartSupervisor(), {
+    invalidate: [['supervisor']],
+    success: (result) => result.alive
+      ? `Supervisor restarted — PID ${result.pid}`
+      : 'Restart failed (process exited immediately)',
   });
 }
 
@@ -273,6 +226,49 @@ export function useAnalyticsSummary(days: number) {
   return useQuery({
     queryKey: ['analytics', 'summary', days],
     queryFn: () => api.getAnalyticsSummary(days),
-    refetchInterval: 30000,
+    refetchInterval: usePoll('slow'),
+  });
+}
+
+// Artifact documents (STATE.md, RESULT.json, outputs/, RESEARCH.md,
+// DESIGN.md): polled while the socket is down so open tabs stay fresh.
+export function useArtifactState(taskId: string) {
+  return useQuery({
+    queryKey: ['task', taskId, 'artifacts', 'state'],
+    queryFn: () => api.getArtifactState(taskId),
+    refetchInterval: usePoll('normal'),
+  });
+}
+
+export function useArtifactResult(taskId: string) {
+  return useQuery({
+    queryKey: ['task', taskId, 'artifacts', 'result'],
+    queryFn: () => api.getArtifactResult(taskId),
+    refetchInterval: usePoll('normal'),
+  });
+}
+
+export function useArtifactOutputs(taskId: string) {
+  return useQuery({
+    queryKey: ['task', taskId, 'artifacts', 'outputs'],
+    queryFn: () => api.getArtifactOutputs(taskId),
+    refetchInterval: usePoll('normal'),
+  });
+}
+
+export function useArtifactDoc(taskId: string, kind: 'research' | 'design') {
+  return useQuery({
+    queryKey: ['task', taskId, 'artifacts', kind],
+    queryFn: () => kind === 'research' ? api.getArtifactResearch(taskId) : api.getArtifactDesign(taskId),
+    refetchInterval: usePoll('normal'),
+  });
+}
+
+// Full-text search for the command palette; disabled for short input.
+export function useSearch(query: string) {
+  return useQuery({
+    queryKey: ['search', query],
+    queryFn: () => api.search(query),
+    enabled: query.length >= 3,
   });
 }

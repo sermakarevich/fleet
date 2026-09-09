@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { fmtHourMinute, fmtMonthDay } from '../../../shared/format';
 import * as T from '../../../shared/styles/tokens';
 import * as P from '../chartTheme';
 import { merge } from '../../../shared/styles/recipes';
@@ -29,9 +30,7 @@ function fmtEnded(ts: string | null): string {
   if (!ts) return '';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${date} ${time}`;
+  return `${fmtMonthDay(d)} ${fmtHourMinute(d)}`;
 }
 
 export function NeedsAttention({ rows }: Props) {

@@ -1,10 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useMatch } from 'react-router-dom';
 import { useChatQuestions } from '../shared/hooks/useApi';
-import { useWebSocket } from '../shared/hooks/useWebSocket';
+import { useEventSocket } from '../shared/hooks/useEventSocket';
 import { useNativeNotifications } from '../shared/hooks/useNativeNotifications';
 import { useToast } from '../shared/contexts/ToastContext';
+import { fmtDuration } from '../shared/format';
+import type { FleetEvent } from '../shared/types';
 import { queryClient } from './queryClient';
+
+interface TaskSocketMessage {
+  task_id: string;
+  event: FleetEvent;
+}
 
 function useDocumentTitle() {
   const { data } = useChatQuestions();
@@ -19,15 +26,15 @@ function useDocumentTitle() {
 }
 
 // Wires the task websocket to toasts and native notifications, and keeps
-// the document title in sync. Renders nothing; reports connection state
-// via onConnectedChange so NavBar can show the connection dot.
-export function GlobalEvents({ onConnectedChange }: { onConnectedChange: (connected: boolean) => void }) {
+// the document title in sync. Renders nothing; NavBar reads the shared
+// socket status itself via useSocketStatus.
+export function GlobalEvents() {
   useDocumentTitle();
   const { notify } = useNativeNotifications();
   const { addToast } = useToast();
   const seenAskHumanIds = useRef<Set<string>>(new Set());
 
-  const { connected } = useWebSocket((taskId, event) => {
+  useEventSocket<TaskSocketMessage>('/ws/events', ({ task_id: taskId, event }) => {
     if (event.kind === 'ask_human') {
       const questionId = event.extra?.question_id as string | undefined;
       if (questionId && seenAskHumanIds.current.has(questionId)) return;
@@ -45,8 +52,7 @@ export function GlobalEvents({ onConnectedChange }: { onConnectedChange: (connec
         const filesTouched = event.extra?.files_touched as number | undefined;
         let summary = '';
         if (durationSec != null) {
-          const mins = Math.round(durationSec / 60);
-          summary += ` in ${mins > 0 ? `${mins}m` : '<1m'}`;
+          summary += ` in ${fmtDuration(durationSec)}`;
         }
         if (filesTouched != null && filesTouched > 0) {
           summary += ` - ${filesTouched} file${filesTouched === 1 ? '' : 's'}`;
@@ -57,10 +63,6 @@ export function GlobalEvents({ onConnectedChange }: { onConnectedChange: (connec
       }
     }
   });
-
-  useEffect(() => {
-    onConnectedChange(connected);
-  }, [connected, onConnectedChange]);
 
   return null;
 }

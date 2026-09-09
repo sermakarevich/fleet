@@ -1,3 +1,5 @@
+import { fmtMonthDay, fmtWeekdayMonthDay } from '../../shared/format';
+
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 const MAX_FILL = 400;
@@ -51,14 +53,14 @@ export function bucketTickLabel(bucketSize: 'hour' | 'day', iso: string): string
   if (bucketSize === 'hour') {
     return `${String(d.getHours()).padStart(2, '0')}:00`;
   }
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return fmtMonthDay(d);
 }
 
 /** Full tooltip label: "Mon, Jul 28, 14:00" for hours, "Mon, Jul 28" for days. */
 export function bucketTooltipLabel(bucketSize: 'hour' | 'day', iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const day = fmtWeekdayMonthDay(d);
   if (bucketSize === 'hour') {
     return `${day}, ${String(d.getHours()).padStart(2, '0')}:00`;
   }

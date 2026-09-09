@@ -6,7 +6,7 @@
  */
 import { colors } from '../../shared/styles/tokens';
 import { useChat } from './hooks/useChat';
-import { useNow } from './hooks/useNow';
+import { useNow } from '../../shared/hooks/useNow';
 import { QuestionList } from './QuestionList';
 import { AnswerForm } from './AnswerForm';
 

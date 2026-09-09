@@ -56,18 +56,18 @@ def format_started(started_at_iso: str | None) -> str:
 
 
 def format_elapsed(seconds: float | None) -> str:
-    """Short duration (12s, 3m04s, 2h05m), "-" when unknown."""
+    """Long duration (42s, 5m 3s, 2h 5m), "-" when unknown; matches UI fmtDuration."""
     if seconds is None:
         return "-"
     total = max(0, int(seconds))
     if total < _SEC_PER_MINUTE:
         return f"{total}s"
     if total < _SEC_PER_HOUR:
-        m, s = divmod(total, _SEC_PER_MINUTE)
-        return f"{m}m{s:02d}s"
-    h, rem = divmod(total, _SEC_PER_HOUR)
-    m, _ = divmod(rem, _SEC_PER_MINUTE)
-    return f"{h}h{m:02d}m"
+        minutes, rest = divmod(total, _SEC_PER_MINUTE)
+        return f"{minutes}m {rest}s" if rest else f"{minutes}m"
+    hours, rem = divmod(total, _SEC_PER_HOUR)
+    minutes = rem // _SEC_PER_MINUTE
+    return f"{hours}h {minutes}m" if minutes else f"{hours}h"
 
 
 def format_idle(seconds: float | None) -> str:

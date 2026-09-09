@@ -68,10 +68,69 @@ export function fmtPct(x: number | null): string {
   if (x == null) return '—';
   return `${Math.round(x * 100)}%`;
 }
-
 /** Compact integer count for chart labels: "1.2M", "3.4k", "42". */
 export function fmtCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+/** Whole-k context limit ("200k"); used for coder picker labels. */
+export function fmtKilo(n: number): string {
+  return `${Math.round(n / 1_000)}k`;
+}
+
+/** Grouped integer ("12,345"), or "—" for null. */
+export function fmtInt(n: number | null): string {
+  if (n == null) return '—';
+  return n.toLocaleString('en-US');
+}
+
+/** Full local date+time ("7/25/2026, 2:32:00 PM"), or "—" for null. */
+export function fmtDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
+
+/** "Jul 5" from a Date (chart ticks, end dates). */
+export function fmtMonthDay(d: Date): string {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** "Mon, Jul 28" from a Date (chart tooltips). */
+export function fmtWeekdayMonthDay(d: Date): string {
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** "14:32" (24-hour) from a Date. */
+export function fmtHourMinute(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/** "Jul 05 14:32" from an ISO string; returns the input when unparseable. */
+export function fmtShortDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mon} ${dd} ${fmtHourMinute(d)}`;
+}
+
+/** Idle age ("just now", "12s ago", "3m ago"), or "—" for null. */
+export function fmtIdle(sec: number | null): string {
+  if (sec == null) return '—';
+  if (sec < 5) return 'just now';
+  if (sec < 60) return `${Math.floor(sec)}s ago`;
+  return `${Math.floor(sec / 60)}m ago`;
+}
+
+/** Compact age ("5s", "3m", "2h", "4d") from a unix-epoch-seconds timestamp. */
+export function relTime(ts: number, serverOffset: number, nowMs = Date.now()): string {
+  const s = Math.max(0, Math.floor(nowMs / 1000 + serverOffset - ts));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }

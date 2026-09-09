@@ -1,8 +1,7 @@
 /**
  * Manage controls for one bead: status select, unblock, remove assignee.
- * Called by BeadDrawer; mutations toast inline feedback.
+ * Called by BeadDrawer; every outcome toasts via ToastContext.
  */
-import { useState } from 'react';
 import { useRemoveBeadAssignee, useSetBeadStatus, useUnblockBead } from '../../shared/hooks/useApi';
 import type { BeadDetail } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
@@ -16,68 +15,44 @@ export function BeadActions({ bead }: { bead: BeadDetail }) {
   const setStatus = useSetBeadStatus();
   const unblock = useUnblockBead();
   const removeAssignee = useRemoveBeadAssignee();
-  const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
   const busy = setStatus.isPending || unblock.isPending || removeAssignee.isPending;
 
-  function showFeedback(msg: string, ok: boolean) {
-    setFeedback({ msg, ok });
-    setTimeout(() => setFeedback(null), 2500);
-  }
-
   return (
-    <>
-      <div style={styles.controls}>
-        <label style={styles.controlLabel}>
-          Status
-          <select
-            style={styles.select}
-            value={bead.status}
-            disabled={busy}
-            onChange={(e) =>
-              setStatus.mutate(
-                { id: bead.id, status: e.target.value },
-                {
-                  onSuccess: () => showFeedback('Saved', true),
-                  onError: (err) => showFeedback(`Error: ${String(err)}`, false),
-                },
-              )
-            }
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-            {!STATUS_OPTIONS.includes(bead.status) && (
-              <option value={bead.status}>{bead.status}</option>
-            )}
-          </select>
-        </label>
-        {bead.status === 'blocked' && (
-          <button style={styles.unblockBtn} disabled={busy} onClick={() => unblock.mutate(bead.id)}>
-            Unblock
-          </button>
-        )}
-        {bead.assignee && (
-          <button
-            style={styles.unassignBtn}
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm(`Remove assignee "${bead.assignee}" from ${bead.id}?`)) return;
-              removeAssignee.mutate(bead.id, {
-                onSuccess: () => showFeedback('Assignee removed', true),
-                onError: (err) => showFeedback(`Error: ${String(err)}`, false),
-              });
-            }}
-          >
-            Remove assignee
-          </button>
-        )}
-      </div>
-      {feedback && (
-        <p style={styles.feedbackMsg(feedback.ok)}>
-          {feedback.msg}
-        </p>
+    <div style={styles.controls}>
+      <label style={styles.controlLabel}>
+        Status
+        <select
+          style={styles.select}
+          value={bead.status}
+          disabled={busy}
+          onChange={(e) => setStatus.mutate({ id: bead.id, status: e.target.value })}
+        >
+          {STATUS_OPTIONS.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+          {!STATUS_OPTIONS.includes(bead.status) && (
+            <option value={bead.status}>{bead.status}</option>
+          )}
+        </select>
+      </label>
+      {bead.status === 'blocked' && (
+        <button style={styles.unblockBtn} disabled={busy} onClick={() => unblock.mutate(bead.id)}>
+          Unblock
+        </button>
       )}
-    </>
+      {bead.assignee && (
+        <button
+          style={styles.unassignBtn}
+          disabled={busy}
+          onClick={() => {
+            if (!window.confirm(`Remove assignee "${bead.assignee}" from ${bead.id}?`)) return;
+            removeAssignee.mutate(bead.id);
+          }}
+        >
+          Remove assignee
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -106,8 +81,4 @@ const styles = {
     borderRadius: 4, color: '#a8a29e', cursor: 'pointer', fontSize: '0.8125rem',
     fontFamily: 'system-ui, sans-serif',
   } as React.CSSProperties,
-  feedbackMsg: (ok: boolean): React.CSSProperties => ({
-    margin: '0 0 0.75rem', fontSize: '0.8125rem',
-    fontFamily: 'system-ui, sans-serif', color: ok ? '#4ade80' : '#f87171',
-  }),
 };

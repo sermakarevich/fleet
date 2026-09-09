@@ -4,6 +4,7 @@
  * Called by NewTaskPanel; state comes from useNewTaskForm.
  */
 import * as R from '../../shared/styles/recipes';
+import { fmtKilo } from '../../shared/format';
 import type { Template } from '../../shared/types';
 import type { NewTaskForm } from './hooks/useNewTaskForm';
 import { styles } from './newTaskPanelStyles';
@@ -18,7 +19,7 @@ export function CoderModelPriority({ f }: { f: NewTaskForm }) {
           <option value="">— default —</option>
           {f.coders.map((c) => (
             <option key={c.name} value={c.name}>
-              {c.name} ({Math.round(c.context_limit / 1000)}k) — {c.default_model}
+              {c.name} ({fmtKilo(c.context_limit)}) — {c.default_model}
             </option>
           ))}
         </select>
