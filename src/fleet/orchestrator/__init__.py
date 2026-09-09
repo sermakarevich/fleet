@@ -23,6 +23,7 @@ from .state import SupervisorState
 from .status_log import make_status_log
 from .supervisor import Supervisor
 from .triage import Triage
+from .triggers import make_trigger_service
 from .workflow_refresh import make_workflow_refresh
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "SupervisorState",
     "Triage",
     "default_services",
+    "make_trigger_service",
 ]
 
 
@@ -49,6 +51,7 @@ def default_services(question_store: QuestionStore | None = None) -> list[Servic
         make_config_reload(),
         LeaseReconcile(),
         make_scheduler(),
+        make_trigger_service(),
         Claim(),
         MergeValidation(),
         Reap(),

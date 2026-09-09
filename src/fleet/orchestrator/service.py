@@ -27,6 +27,7 @@ class ServiceOrder(IntEnum):
     Config = 0
     Leases = 10
     Schedule = 15
+    Trigger = 17
     Claim = 20
     Reap = 30
     WorkflowRefresh = 35

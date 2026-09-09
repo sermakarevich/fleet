@@ -1,7 +1,8 @@
 """Import layering for the orchestrator package (ADR 0005, ADR 0006 bead 18).
 
 Every orchestrator/*.py module may import only lower layers (core, state,
-beads, schedules, workflows, workers, coders), sibling orchestrator modules, integrations (the
+beads, schedules, triggers, workflows, workers, coders), sibling
+orchestrator modules, integrations (the
 injected QuestionStore, per docs/ARCHITECTURE.md which allows
 orchestrator -> integrations), the stdlib, and third-party packages —
 never serve or cli. supervisor.py is the thin runner: it imports no
@@ -19,6 +20,7 @@ LOWER_LAYERS = {
     "state",
     "beads",
     "schedules",
+    "triggers",
     "workflows",
     "workers",
     "coders",
