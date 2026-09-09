@@ -1760,6 +1760,297 @@
         }
       }
     },
+    "/api/triggers": {
+      "get": {
+        "summary": "List Triggers",
+        "description": "Every trigger with firing counts.",
+        "operationId": "list_triggers_api_triggers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Trigger",
+        "description": "Validate and save a trigger; 201 with the view.",
+        "operationId": "create_trigger_api_triggers_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/triggers/sources": {
+      "get": {
+        "summary": "List Sources",
+        "description": "Every event-source kind with its param help text.",
+        "operationId": "list_sources_api_triggers_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/triggers/{trigger_id}": {
+      "get": {
+        "summary": "Get Trigger",
+        "description": "One trigger with its recent firing history.",
+        "operationId": "get_trigger_api_triggers__trigger_id__get",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Trigger",
+        "description": "Validate and rewrite a trigger, keeping id and created_at.",
+        "operationId": "update_trigger_api_triggers__trigger_id__put",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Trigger",
+        "description": "Remove a trigger and its firing history.",
+        "operationId": "delete_trigger_api_triggers__trigger_id__delete",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/triggers/{trigger_id}/enable": {
+      "post": {
+        "summary": "Enable Trigger",
+        "description": "Enable a trigger without resending the full body.",
+        "operationId": "enable_trigger_api_triggers__trigger_id__enable_post",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/triggers/{trigger_id}/disable": {
+      "post": {
+        "summary": "Disable Trigger",
+        "description": "Disable a trigger without resending the full body.",
+        "operationId": "disable_trigger_api_triggers__trigger_id__disable_post",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/triggers/{trigger_id}/preview": {
+      "post": {
+        "summary": "Preview Trigger",
+        "description": "Dry run: poll the source now, decide per event, open nothing.",
+        "operationId": "preview_trigger_api_triggers__trigger_id__preview_post",
+        "parameters": [
+          {
+            "name": "trigger_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Trigger Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workflows": {
       "get": {
         "summary": "List Workflows",
@@ -3835,6 +4126,57 @@
         "title": "FileOp",
         "description": "Per-file read/edit/write counts from the event scan."
       },
+      "FiringView": {
+        "properties": {
+          "trigger_id": {
+            "type": "string",
+            "title": "Trigger Id"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "event_key": {
+            "type": "string",
+            "title": "Event Key"
+          },
+          "fired_at": {
+            "type": "string",
+            "title": "Fired At"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trigger_id",
+          "n",
+          "event_key",
+          "fired_at",
+          "task_id",
+          "skipped",
+          "reason"
+        ],
+        "title": "FiringView",
+        "description": "One trigger firing row (append-only history)."
+      },
       "FollowupItem": {
         "properties": {
           "title": {
@@ -4861,6 +5203,45 @@
         ],
         "title": "SearchResponse",
         "description": "Envelope for GET /api/search."
+      },
+      "SourceKindView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Params"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "params"
+        ],
+        "title": "SourceKindView",
+        "description": "One event-source kind with its param help text."
+      },
+      "SourceListResponse": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceKindView"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources"
+        ],
+        "title": "SourceListResponse",
+        "description": "Envelope for GET /api/triggers/sources."
       },
       "StageRequest": {
         "properties": {
@@ -6109,6 +6490,216 @@
         ],
         "title": "TemplateListResponse",
         "description": "Envelope for GET /api/templates."
+      },
+      "TriggerDetail": {
+        "properties": {
+          "trigger": {
+            "$ref": "#/components/schemas/TriggerView"
+          },
+          "firings": {
+            "items": {
+              "$ref": "#/components/schemas/FiringView"
+            },
+            "type": "array",
+            "title": "Firings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trigger",
+          "firings"
+        ],
+        "title": "TriggerDetail",
+        "description": "One trigger with its recent firing history."
+      },
+      "TriggerListResponse": {
+        "properties": {
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerView"
+            },
+            "type": "array",
+            "title": "Triggers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "triggers"
+        ],
+        "title": "TriggerListResponse",
+        "description": "Envelope for GET /api/triggers."
+      },
+      "TriggerPreviewResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "decisions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "decisions"
+        ],
+        "title": "TriggerPreviewResponse",
+        "description": "Dry-run payload: current event payloads plus one decision string each."
+      },
+      "TriggerView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "source_params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Source Params"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": "task"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "coder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coder"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority",
+            "default": 2
+          },
+          "isolation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isolation"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "max_open": {
+            "type": "integer",
+            "title": "Max Open",
+            "default": 2
+          },
+          "cooldown_sec": {
+            "type": "integer",
+            "title": "Cooldown Sec",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "firing_count": {
+            "type": "integer",
+            "title": "Firing Count"
+          },
+          "last_fired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fired At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "source",
+          "title",
+          "created_at",
+          "updated_at",
+          "firing_count",
+          "last_fired_at"
+        ],
+        "title": "TriggerView",
+        "description": "One trigger with its firing count and latest firing time."
       },
       "ValidationError": {
         "properties": {

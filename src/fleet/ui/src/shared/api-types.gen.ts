@@ -892,6 +892,138 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Triggers
+         * @description Every trigger with firing counts.
+         */
+        get: operations["list_triggers_api_triggers_get"];
+        put?: never;
+        /**
+         * Create Trigger
+         * @description Validate and save a trigger; 201 with the view.
+         */
+        post: operations["create_trigger_api_triggers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/triggers/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sources
+         * @description Every event-source kind with its param help text.
+         */
+        get: operations["list_sources_api_triggers_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/triggers/{trigger_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trigger
+         * @description One trigger with its recent firing history.
+         */
+        get: operations["get_trigger_api_triggers__trigger_id__get"];
+        /**
+         * Update Trigger
+         * @description Validate and rewrite a trigger, keeping id and created_at.
+         */
+        put: operations["update_trigger_api_triggers__trigger_id__put"];
+        post?: never;
+        /**
+         * Delete Trigger
+         * @description Remove a trigger and its firing history.
+         */
+        delete: operations["delete_trigger_api_triggers__trigger_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/triggers/{trigger_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable Trigger
+         * @description Enable a trigger without resending the full body.
+         */
+        post: operations["enable_trigger_api_triggers__trigger_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/triggers/{trigger_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable Trigger
+         * @description Disable a trigger without resending the full body.
+         */
+        post: operations["disable_trigger_api_triggers__trigger_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/triggers/{trigger_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Trigger
+         * @description Dry run: poll the source now, decide per event, open nothing.
+         */
+        post: operations["preview_trigger_api_triggers__trigger_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workflows": {
         parameters: {
             query?: never;
@@ -1670,6 +1802,26 @@ export interface components {
             write: number;
         };
         /**
+         * FiringView
+         * @description One trigger firing row (append-only history).
+         */
+        FiringView: {
+            /** Trigger Id */
+            trigger_id: string;
+            /** N */
+            n: number;
+            /** Event Key */
+            event_key: string;
+            /** Fired At */
+            fired_at: string;
+            /** Task Id */
+            task_id: string | null;
+            /** Skipped */
+            skipped: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
          * FollowupItem
          * @description One observer-declared follow-up bead inside a partial result.
          */
@@ -2033,6 +2185,26 @@ export interface components {
         SearchResponse: {
             /** Results */
             results: components["schemas"]["SearchHit"][];
+        };
+        /**
+         * SourceKindView
+         * @description One event-source kind with its param help text.
+         */
+        SourceKindView: {
+            /** Kind */
+            kind: string;
+            /** Params */
+            params: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * SourceListResponse
+         * @description Envelope for GET /api/triggers/sources.
+         */
+        SourceListResponse: {
+            /** Sources */
+            sources: components["schemas"]["SourceKindView"][];
         };
         /**
          * StageRequest
@@ -2427,6 +2599,101 @@ export interface components {
         TemplateListResponse: {
             /** Templates */
             templates: components["schemas"]["Template"][];
+        };
+        /**
+         * TriggerDetail
+         * @description One trigger with its recent firing history.
+         */
+        TriggerDetail: {
+            trigger: components["schemas"]["TriggerView"];
+            /** Firings */
+            firings: components["schemas"]["FiringView"][];
+        };
+        /**
+         * TriggerListResponse
+         * @description Envelope for GET /api/triggers.
+         */
+        TriggerListResponse: {
+            /** Triggers */
+            triggers: components["schemas"]["TriggerView"][];
+        };
+        /**
+         * TriggerPreviewResponse
+         * @description Dry-run payload: current event payloads plus one decision string each.
+         */
+        TriggerPreviewResponse: {
+            /** Events */
+            events: {
+                [key: string]: string;
+            }[];
+            /** Decisions */
+            decisions: string[];
+        };
+        /**
+         * TriggerView
+         * @description One trigger with its firing count and latest firing time.
+         */
+        TriggerView: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /** Title */
+            title: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Source Params */
+            source_params?: {
+                [key: string]: string;
+            };
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Target
+             * @default task
+             */
+            target: string;
+            /** Cwd */
+            cwd?: string | null;
+            /** Coder */
+            coder?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * Priority
+             * @default 2
+             */
+            priority: number;
+            /** Isolation */
+            isolation?: string | null;
+            /** Labels */
+            labels?: string[];
+            /**
+             * Max Open
+             * @default 2
+             */
+            max_open: number;
+            /**
+             * Cooldown Sec
+             * @default 0
+             */
+            cooldown_sec: number;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Firing Count */
+            firing_count: number;
+            /** Last Fired At */
+            last_fired_at: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -3949,6 +4216,252 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_triggers_api_triggers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerListResponse"];
+                };
+            };
+        };
+    };
+    create_trigger_api_triggers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerView"];
+                };
+            };
+        };
+    };
+    list_sources_api_triggers_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceListResponse"];
+                };
+            };
+        };
+    };
+    get_trigger_api_triggers__trigger_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_trigger_api_triggers__trigger_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_trigger_api_triggers__trigger_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_trigger_api_triggers__trigger_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_trigger_api_triggers__trigger_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_trigger_api_triggers__trigger_id__preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trigger_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerPreviewResponse"];
                 };
             };
             /** @description Validation Error */

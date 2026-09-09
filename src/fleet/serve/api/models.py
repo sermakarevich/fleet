@@ -931,3 +931,92 @@ class StartRunRequest(BaseModel):
     """Body for POST /api/workflows/{id}/run (all fields optional)."""
 
     inputs: dict[str, str] = Field(default_factory=dict)
+
+
+class TriggerRequest(BaseModel):
+    """Body for POST /api/triggers and PUT /api/triggers/{id} (validated manually)."""
+
+    name: str = ""
+    source: str = ""
+    source_params: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+    title: str = ""
+    description: str = ""
+    cwd: str | None = None
+    coder: str | None = None
+    model: str | None = None
+    priority: int = 2
+    isolation: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    max_open: int = 2
+    cooldown_sec: int = 0
+
+
+class TriggerView(BaseModel):
+    """One trigger with its firing count and latest firing time."""
+
+    id: str
+    name: str
+    source: str
+    title: str
+    description: str = ""
+    source_params: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+    target: str = "task"
+    cwd: str | None = None
+    coder: str | None = None
+    model: str | None = None
+    priority: int = 2
+    isolation: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    max_open: int = 2
+    cooldown_sec: int = 0
+    created_at: str
+    updated_at: str
+    firing_count: int
+    last_fired_at: str | None
+
+
+class FiringView(BaseModel):
+    """One trigger firing row (append-only history)."""
+
+    trigger_id: str
+    n: int
+    event_key: str
+    fired_at: str
+    task_id: str | None
+    skipped: bool
+    reason: str
+
+
+class TriggerDetail(BaseModel):
+    """One trigger with its recent firing history."""
+
+    trigger: TriggerView
+    firings: list[FiringView]
+
+
+class TriggerListResponse(BaseModel):
+    """Envelope for GET /api/triggers."""
+
+    triggers: list[TriggerView]
+
+
+class SourceKindView(BaseModel):
+    """One event-source kind with its param help text."""
+
+    kind: str
+    params: dict[str, str]
+
+
+class SourceListResponse(BaseModel):
+    """Envelope for GET /api/triggers/sources."""
+
+    sources: list[SourceKindView]
+
+
+class TriggerPreviewResponse(BaseModel):
+    """Dry-run payload: current event payloads plus one decision string each."""
+
+    events: list[dict[str, str]]
+    decisions: list[str]
