@@ -4809,6 +4809,10 @@
               }
             ],
             "title": "Task Title"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
           }
         },
         "type": "object",
@@ -4818,7 +4822,8 @@
           "task_id",
           "task_status",
           "state",
-          "task_title"
+          "task_title",
+          "updated_at"
         ],
         "title": "StepRunView",
         "description": "One step inside one run, with its display state and task title."

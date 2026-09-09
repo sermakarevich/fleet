@@ -5,12 +5,15 @@
  * /workflows/:id routes; the edited id lives in the URL so it is shareable.
  */
 import { useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../shared/api';
 import {
+  useAllWorkflowRuns,
   useDeleteWorkflow,
   useImportWorkflow,
   useRunWorkflow,
+  useWorkflow,
+  useWorkflowRuns,
   useWorkflows,
 } from '../../shared/hooks/useApi';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
@@ -19,6 +22,7 @@ import * as R from '../../shared/styles/recipes';
 import type { Workflow } from '../../shared/types';
 import { WorkflowEditor } from './WorkflowEditor';
 import { WorkflowsTable } from './WorkflowsTable';
+import { RunsTable } from './RunsTable';
 
 // Pending import that hit a name clash, waiting on replace confirmation.
 interface ImportConflict {
@@ -30,6 +34,88 @@ interface ImportConflict {
 function parseWorkflowName(yaml: string): string | null {
   const match = yaml.match(/^name:\s*["']?(.+?)["']?\s*$/m);
   return match?.[1]?.trim() || null;
+}
+
+// Runs of every workflow: status filter, table, paging (limit 50).
+function AllRunsView({ isMobile, onOpen }: { isMobile: boolean; onOpen: (runId: string) => void }) {
+  const [status, setStatus] = useState('all');
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const { data, isLoading, error } = useAllWorkflowRuns(
+    status === 'all' ? undefined : status,
+    { limit, offset },
+  );
+  if (isLoading) return <p style={R.msgStyle()}>Loading…</p>;
+  if (error) return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
+  const runs = data?.runs ?? [];
+  const total = data?.total ?? 0;
+  return (
+    <div>
+      <div style={R.filterRowStyle()}>
+        {['all', 'running', 'attention', 'succeeded', 'cancelled'].map((key) => (
+          <button
+            key={key}
+            style={R.filterBtnStyle(status === key)}
+            onClick={() => { setStatus(key); setOffset(0); }}
+          >
+            {key === 'all' ? 'All' : key[0].toUpperCase() + key.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div style={styles.runsGap} />
+      <RunsTable runs={runs} onOpen={onOpen} isMobile={isMobile} />
+      <Pagination offset={offset} limit={limit} total={total} onPage={setOffset} />
+    </div>
+  );
+}
+
+// Runs of one workflow (/workflows/:id/runs): back link, table, paging.
+function WorkflowRunsView({ workflowId, isMobile, onOpen }: {
+  workflowId: string; isMobile: boolean; onOpen: (runId: string) => void;
+}) {
+  const { data: workflow } = useWorkflow(workflowId);
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const { data, isLoading, error } = useWorkflowRuns(workflowId, { limit, offset });
+  if (isLoading) return <p style={R.msgStyle()}>Loading…</p>;
+  if (error) return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
+  const runs = data?.runs ?? [];
+  const total = data?.total ?? 0;
+  return (
+    <div>
+      <p style={styles.backLine}>
+        <Link to="/workflows?view=runs">← All runs</Link>
+        {' · '}
+        {workflow?.name ?? workflowId} <span style={R.countStyle()}>({total})</span>
+      </p>
+      <RunsTable runs={runs} onOpen={onOpen} isMobile={isMobile} />
+      <Pagination offset={offset} limit={limit} total={total} onPage={setOffset} />
+    </div>
+  );
+}
+
+// Prev/Next pager shared by both runs views.
+function Pagination({ offset, limit, total, onPage }: {
+  offset: number; limit: number; total: number; onPage: (offset: number) => void;
+}) {
+  if (total <= limit) return null;
+  const page = Math.floor(offset / limit) + 1;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  return (
+    <div style={R.paginationStyle()}>
+      <button style={R.pageBtnStyle(offset === 0)} disabled={offset === 0} onClick={() => onPage(Math.max(0, offset - limit))}>
+        ← Prev
+      </button>
+      <span style={R.pageInfoStyle()}>{page} / {pages}</span>
+      <button
+        style={R.pageBtnStyle(offset + limit >= total)}
+        disabled={offset + limit >= total}
+        onClick={() => onPage(offset + limit)}
+      >
+        Next →
+      </button>
+    </div>
+  );
 }
 
 // Workflows page: heading, import/export entry points, table or editor.
@@ -47,7 +133,10 @@ export function WorkflowsPage() {
 
   const items = workflows ?? [];
   const isNew = location.pathname.endsWith('/new');
-  const editingId = isNew ? null : (selectedId ?? null);
+  const runsOfId = location.pathname.endsWith('/runs') ? (selectedId ?? null) : null;
+  const editingId = isNew || runsOfId ? null : (selectedId ?? null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('view') === 'runs' ? 'runs' : 'definitions';
 
   async function importYaml(yaml: string, replace_id?: string) {
     try {
@@ -99,12 +188,40 @@ export function WorkflowsPage() {
     return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   }
 
+  // Runs of one workflow live under /workflows/:id/runs.
+  if (runsOfId) {
+    return (
+      <div style={R.pageStyle(isMobile)}>
+        <div style={R.topBarStyle()}>
+          <h2 style={R.headingStyle()}>Runs</h2>
+        </div>
+        <WorkflowRunsView
+          workflowId={runsOfId}
+          isMobile={isMobile}
+          onOpen={(runId) => navigate(`/workflow-runs/${runId}`)}
+        />
+      </div>
+    );
+  }
+
+  function setView(next: 'definitions' | 'runs') {
+    setSearchParams(next === 'runs' ? { view: 'runs' } : {});
+  }
+
   return (
     <div style={R.pageStyle(isMobile)}>
       <div style={R.topBarStyle()}>
         <h2 style={R.headingStyle()}>
-          Workflows <span style={R.countStyle()}>({items.length})</span>
+          {view === 'runs' ? 'Runs' : <>Workflows <span style={R.countStyle()}>({items.length})</span></>}
         </h2>
+        <span style={R.filterRowStyle()}>
+          <button style={R.filterBtnStyle(view === 'definitions')} onClick={() => setView('definitions')}>
+            Definitions
+          </button>
+          <button style={R.filterBtnStyle(view === 'runs')} onClick={() => setView('runs')}>
+            Runs
+          </button>
+        </span>
         <span style={styles.topActions}>
           <input
             ref={fileRef}
@@ -143,6 +260,11 @@ export function WorkflowsPage() {
           onClose={() => navigate('/workflows')}
           onSaved={onSaved}
         />
+      ) : view === 'runs' ? (
+        <AllRunsView
+          isMobile={isMobile}
+          onOpen={(runId) => navigate(`/workflow-runs/${runId}`)}
+        />
       ) : (
         <WorkflowsTable
           items={items}
@@ -158,6 +280,10 @@ export function WorkflowsPage() {
 }
 
 const styles = {
+  runsGap: { height: '0.75rem' } as React.CSSProperties,
+  backLine: {
+    fontSize: '0.875rem', color: T.colors.textSecondary, margin: '0 0 0.75rem',
+  } as React.CSSProperties,
   topActions: {
     marginLeft: 'auto', display: 'inline-flex', gap: '0.5rem', alignItems: 'center',
   } as React.CSSProperties,

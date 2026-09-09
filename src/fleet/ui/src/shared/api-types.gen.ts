@@ -2026,6 +2026,8 @@ export interface components {
             state: string;
             /** Task Title */
             task_title: string | null;
+            /** Updated At */
+            updated_at: string;
         };
         /**
          * StreamEvent

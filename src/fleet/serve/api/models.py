@@ -808,6 +808,7 @@ class StepRunView(BaseModel):
     task_status: str
     state: str
     task_title: str | None
+    updated_at: str
 
 
 class WorkflowRunView(BaseModel):

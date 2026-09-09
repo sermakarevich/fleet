@@ -4,6 +4,7 @@
  * Called by WorkflowsTable; navigation and mutations live in WorkflowsPage.
  */
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { Workflow } from '../../shared/types';
 import { formatShortDateTime as fmtTs } from '../../shared/format';
 import { runStatusColor, statusLabel } from '../../shared/status';
@@ -45,19 +46,24 @@ export function ShapeCell({ workflow }: { workflow: Workflow }) {
   );
 }
 
-// Last-run cell: colored run-status chip, or "never".
+// Last-run cell: colored run-status chip linking to the run, or "never".
 export function LastRunCell({ workflow }: { workflow: Workflow }) {
   const last = workflow.last_run;
   if (!last) return <span style={R.dimStyle()}>never</span>;
   const { bg, fg } = runStatusColor(last.status);
   return (
-    <span style={R.merge(T.badge, { width: '6rem', flexShrink: 0, background: bg, color: fg })}>
+    <Link
+      to={`/workflow-runs/${last.id}`}
+      onClick={(e) => e.stopPropagation()}
+      style={R.merge(T.badge, { width: '6rem', flexShrink: 0, background: bg, color: fg, textDecoration: 'none' })}
+    >
       {statusLabel(last.status)}
-    </span>
+    </Link>
   );
 }
 
-// Row actions: Run, Edit, Export (plain download link), two-step Delete.
+// Row actions: Run, Edit, Runs (history), Export (plain download link),
+// two-step Delete.
 function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
   const [confirming, setConfirming] = useState(false);
   // The row itself navigates to the editor; actions must not bubble up.
@@ -81,6 +87,14 @@ function RowActions({ workflow, onRun, onEdit, onDelete, running }: Props) {
       >
         Edit
       </button>
+      <Link
+        style={R.merge(T.btnGhost, styles.exportLink)}
+        title="Past runs of this workflow"
+        to={`/workflows/${workflow.id}/runs`}
+        onClick={stop}
+      >
+        Runs
+      </Link>
       <a
         style={R.merge(T.btnGhost, styles.exportLink)}
         title="Download as YAML"

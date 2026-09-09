@@ -3,10 +3,16 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import type { Workflow } from '../../shared/types';
 import { WorkflowsTable } from './WorkflowsTable';
 
 afterEach(cleanup);
+
+function tableWrapper({ children }: { children: ReactNode }) {
+  return <MemoryRouter>{children}</MemoryRouter>;
+}
 
 // Minimal workflow; tests override what they need.
 function makeWorkflow(overrides: Partial<Workflow> = {}): Workflow {
@@ -44,6 +50,7 @@ describe('WorkflowsTable', () => {
         isMobile={false}
         {...handlers}
       />,
+      { wrapper: tableWrapper },
     );
     expect(screen.getByText('nightly-quality')).toBeInTheDocument();
     expect(screen.getByText('release')).toBeInTheDocument();
@@ -51,7 +58,9 @@ describe('WorkflowsTable', () => {
   });
 
   it('renders the empty state when there are no workflows', () => {
-    render(<WorkflowsTable items={[]} runningId={null} isMobile={false} {...handlers} />);
+    render(<WorkflowsTable items={[]} runningId={null} isMobile={false} {...handlers} />, {
+      wrapper: tableWrapper,
+    });
     expect(screen.getByText(/No workflows yet/)).toBeInTheDocument();
   });
 
@@ -79,6 +88,7 @@ describe('WorkflowsTable', () => {
         isMobile={false}
         {...handlers}
       />,
+      { wrapper: tableWrapper },
     );
     expect(screen.getByText('Succeeded')).toBeInTheDocument();
   });

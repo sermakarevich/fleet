@@ -419,3 +419,46 @@ export function useValidateWorkflow() {
     mutationFn: (payload: WorkflowInput) => api.validateWorkflow(payload),
   });
 }
+
+// --- Workflow runs (run monitor, ADR 0008) -------------------------------
+
+export function useWorkflowRuns(
+  workflowId: string | null,
+  opts?: { limit?: number; offset?: number },
+) {
+  return useQuery({
+    queryKey: ['workflow-runs', workflowId, opts?.limit, opts?.offset],
+    queryFn: () => api.listWorkflowRuns(workflowId as string, opts),
+    enabled: !!workflowId,
+    refetchInterval: 5000,
+  });
+}
+
+export function useAllWorkflowRuns(
+  status?: string,
+  opts?: { limit?: number; offset?: number },
+) {
+  return useQuery({
+    queryKey: ['workflow-runs', 'all', status ?? 'all', opts?.limit, opts?.offset],
+    queryFn: () => api.listAllWorkflowRuns({ status, ...opts }),
+    refetchInterval: 5000,
+  });
+}
+
+export function useWorkflowRun(runId: string | null) {
+  return useQuery({
+    queryKey: ['workflow-run', runId],
+    queryFn: () => api.getWorkflowRun(runId as string),
+    enabled: !!runId,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'running' ? 3000 : false,
+  });
+}
+
+export function useCancelWorkflowRun() {
+  return useTaskMutation('Cancel run', (runId: string) => api.cancelWorkflowRun(runId), {
+    invalidate: (_data, runId) => [['workflow-run', runId], ['workflow-runs'], ['workflows']],
+    success: 'Run cancelled',
+    failure: (_vars, err) => `Cancel failed: ${errorMessage(err)}`,
+  });
+}
