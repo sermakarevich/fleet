@@ -25,6 +25,8 @@ many projects — and across multiple agent backends — spawning many concurren
 
 Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire agent lifecycle — create and configure tasks, monitor live progress and logs, and answer questions from blocked agents, all from a single dashboard with four tabs: **Workers** (runs, schedules and a needs-attention strip), **Workflows** (definitions, runs, schedules), **Inbox** (questions waiting for a human) and **Settings** (every runtime knob).
 
+- **Event triggers** — start a task on a signal (e.g. auto-investigate a blocked task); see [Triggers (start a task on a signal)](docs/OVERVIEW.md#triggers-start-a-task-on-a-signal).
+
 <p align="center">
   <img src="assets/fleet_ui.png" alt="fleet web UI">
 </p>

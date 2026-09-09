@@ -106,6 +106,30 @@ policy compares against the previous run's status. Manage workflows from
 the UI's **workflows** tab (runs, run detail, recurring workflow
 schedules) or with `fleet workflow ...` (see `README.md`).
 
+## Triggers (start a task on a signal)
+
+A **trigger** is a saved definition that starts a task on a signal instead
+of on a timer: it names an event **source** (a kind of signal fleet watches,
+for example "a bead entered the blocked status"), a task template to open
+(title, description, working directory (cwd)), and a policy (how many open
+tasks at most, how long to wait between firings). Each time the signal is
+true, one firing opens one ordinary bead — from then on it is a normal task.
+The command-line interface (CLI) manages triggers with `fleet trigger ...`.
+
+The bundled **blocked-task investigator** watches beads (task rows) in
+`blocked` status and opens an analysis-only investigation task for each one:
+the worker reads the failed attempts, writes a root-cause report with a
+recommended action, and attaches a short summary to the blocked bead, so a
+human decides with evidence instead of digging. It never changes code
+(isolation off, read-only analysis).
+
+```bash
+fleet trigger sources                                             # list event sources
+fleet trigger import docs/triggers/blocked-task-investigator.json # install the investigator
+fleet trigger test blocked-task-investigator                      # dry run: prints blocked beads + decision, opens nothing
+fleet trigger firings blocked-task-investigator                   # firing history for the investigator
+```
+
 ## What "stale" means and what fleet does about it
 
 Every number below is a default from `src/fleet/core/config.py` (a

@@ -1,0 +1,19 @@
+{
+  "cooldown_sec": 0,
+  "cwd": "{{event.cwd}}",
+  "description": "You are investigating why fleet task {{event.task_id}} (\"{{event.title}}\") got blocked.\nBlocked at: {{event.blocked_at}}\nFleet's reason: {{event.blocked_reason}}\nAttempt rounds so far: {{event.rounds}}. Worker-declared result status: {{event.result_status}}\nTask folder (read-only for you): {{event.task_dir}}\nRepository the task worked in: {{event.cwd}}\n\nRead, in this order:\n1. {{event.task_dir}}/task.json (routing, blocked_reason, attempts)\n2. {{event.task_dir}}/attempts.jsonl and the newest {{event.task_dir}}/attempts/<n>/ folder:\n   run.json, log.stderr, the tail of events.jsonl, prompt.md\n3. {{event.task_dir}}/STATE.md and RESULT.json when present\n4. The task's own description: run `cd ~/.fleet && bd show {{event.task_id}}`\n5. Only then look at the repository at {{event.cwd}} (git log -5, git status, the files the task touched).\n\nLast stderr/summary tail fleet saw:\n{{event.stderr_tail}}\n\nWrite $FLEET_TASK_DIR/artifacts/INVESTIGATION.md (max 8 KB) with these sections:\n- Root cause: one paragraph, plain language.\n- Evidence: the exact log lines / files / commands that prove it.\n- Category: one of  environment | prompt-or-spec | code-bug | flaky-or-rate-limit | merge-conflict | needs-human-decision\n- Recommended action: exactly one of  unblock-as-is | unblock-after: <what to change in the spec or repo> | close: <why the task is obsolete or done> | needs-human: <the question>\n- Confidence: high | medium | low, with one sentence why.\n\nThen attach a short summary to the blocked task so the human sees it there:\n  cd ~/.fleet && bd comment {{event.task_id}} \"Investigation: <category>; recommended: <action>. Full report: $FLEET_TASK_DIR/artifacts/INVESTIGATION.md\"\n\nRules:\n- Do NOT change any file in the repository and do NOT commit. This is analysis only.\n- Do NOT unblock, close, reopen or edit task {{event.task_id}}; do NOT write inside {{event.task_dir}}.\n- Do not run `fleet run`, `fleet serve` or kill processes.\n- Finish by writing $FLEET_TASK_DIR/RESULT.json with status \"done\" and a one-line summary, then `bd close $FLEET_TASK_ID --reason \"investigated {{event.task_id}}: <category>\"`.",
+  "enabled": true,
+  "id": "blocked-task-investigator",
+  "isolation": "none",
+  "labels": [
+    "investigation"
+  ],
+  "max_open": 2,
+  "name": "Blocked task investigator",
+  "priority": 2,
+  "source": "blocked_task",
+  "source_params": {
+    "fleet_blocked_only": "true"
+  },
+  "title": "Investigate blocked task {{event.task_id}}: {{event.title}}"
+}

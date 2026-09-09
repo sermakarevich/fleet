@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Accepted
+
+Implemented by Triggers 1/8–7/8 (2026-09).
 
 ## Date
 
