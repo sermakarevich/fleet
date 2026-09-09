@@ -13,7 +13,7 @@ from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import StepContext
+from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.session.classify import error_text_of, is_context_error_text
 
@@ -69,7 +69,7 @@ def _ctx(tmp_path: Path, task_id: str = "t-ctx") -> StepContext:
 
 def _run(session: LlmSession, ctx: StepContext):
     step_result = asyncio.run(session.run(ctx))
-    assert step_result.status == "outcome"
+    assert step_result.status == StepStatus.OUTCOME
     assert step_result.outcome is not None
     return step_result.outcome
 

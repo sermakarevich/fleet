@@ -28,8 +28,11 @@ import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from fleet.core.errors import Json, QuestionNotFound
 
 
 def _default_db_path() -> Path:
@@ -70,10 +73,12 @@ _RESOLVED = ("answered", "expired", "cancelled")
 
 
 def _dumps(value: Any) -> str | None:
+    """Encode a structured value as JSON text, or None when absent."""
     return None if value is None else json.dumps(value)
 
 
-def _loads(value: Any) -> Any:
+def _loads(value: Any) -> Json:
+    """Decode a stored JSON text value, passing through plain text."""
     if value is None:
         return None
     try:
@@ -82,13 +87,72 @@ def _loads(value: Any) -> Any:
         return value
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
+@dataclass(frozen=True, slots=True)
+class Question:
+    """One ask_human question row, decoded from the SQLite store."""
+
+    id: str
+    prompt: str = ""
+    status: str = "pending"
+    agent_id: str | None = None
+    session_id: str | None = None
+    options: Json = None
+    multi_select: bool = False
+    priority: int = 0
+    answer: Json = None
+    note: str | None = None
+    default_answer: Json = None
+    timeout_s: float | None = None
+    answered_by: str | None = None
+    created_at: float = 0.0
+    answered_at: float | None = None
+    task_id: str | None = None
+    context: str | None = None
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-style read so existing callers keep working."""
+        return getattr(self, key, default) if hasattr(self, key) else default
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style index so existing callers keep working."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+    def to_dict(self) -> dict:
+        """Plain dict for JSON API edges."""
+        return asdict(self)
+
+
+def _row_to_question(row: sqlite3.Row) -> Question:
     d = dict(row)
     for key in ("options", "answer", "default_answer"):
         if key in d:
             d[key] = _loads(d[key])
-    d["multi_select"] = bool(d.get("multi_select", 0))
-    return d
+    return Question(
+        id=str(d.get("id", "")),
+        prompt=str(d.get("prompt") or ""),
+        status=str(d.get("status") or "pending"),
+        agent_id=d.get("agent_id"),
+        session_id=d.get("session_id"),
+        options=d.get("options"),
+        multi_select=bool(d.get("multi_select", 0)),
+        priority=int(d.get("priority") or 0),
+        answer=d.get("answer"),
+        note=d.get("note"),
+        default_answer=d.get("default_answer"),
+        timeout_s=d.get("timeout_s"),
+        answered_by=d.get("answered_by"),
+        created_at=float(d.get("created_at") or 0.0),
+        answered_at=d.get("answered_at"),
+        task_id=d.get("task_id"),
+        context=d.get("context"),
+    )
+
+
+def _row_to_dict(row: sqlite3.Row) -> dict:
+    return _row_to_question(row).to_dict()
 
 
 class QuestionStore:
@@ -191,7 +255,7 @@ class QuestionStore:
         agent_id: str | None = None,
         session_id: str | None = None,
         timeout_s: float | None = None,
-        default_answer: Any = None,
+        default_answer: Json = None,
         priority: int = 0,
         task_id: str | None = None,
         context: str | None = None,
@@ -229,7 +293,7 @@ class QuestionStore:
         agent_id: str | None = None,
         session_id: str | None = None,
         timeout_s: float | None = None,
-        default_answer: Any = None,
+        default_answer: Json = None,
         priority: int = 0,
     ) -> str:
         """Insert a new pending question and return its id."""
@@ -255,7 +319,7 @@ class QuestionStore:
             )
         return qid
 
-    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[dict]:
+    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[Question]:
         """Pending questions about one bead, optionally for one context.
 
         Triage passes the bead's ``blocked_at`` as context so a re-blocked
@@ -275,9 +339,9 @@ class QuestionStore:
                     "AND context=? ORDER BY created_at ASC",
                     (task_id, context),
                 ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
-    def fetch_answered_triage(self, limit: int = 100) -> list[dict]:
+    def fetch_answered_triage(self, limit: int = 100) -> list[Question]:
         """Answered triage questions (agent_id='triage'), oldest first.
 
         The triage loop applies each answer once: applying changes the bead
@@ -290,9 +354,9 @@ class QuestionStore:
                 "ORDER BY answered_at ASC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
-    def fetch_answered_for_task(self, task_id: str, context: str | None = None) -> list[dict]:
+    def fetch_answered_for_task(self, task_id: str, context: str | None = None) -> list[Question]:
         """Answered questions about one bead, oldest first (job gate lookup).
 
         The job worker's gate step asks with ``context="job_gate"`` and
@@ -314,12 +378,12 @@ class QuestionStore:
                     "AND context=? ORDER BY answered_at ASC",
                     (task_id, context),
                 ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
     def answer(
         self,
         qid: str,
-        answer: Any,
+        answer: Json,
         note: str | None = None,
         answered_by: str = "operator",
     ) -> bool:
@@ -360,21 +424,21 @@ class QuestionStore:
 
     # -- reads ----------------------------------------------------------------
 
-    def get(self, qid: str) -> dict | None:
+    def get(self, qid: str) -> Question | None:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM questions WHERE id=?", (qid,)).fetchone()
-        return _row_to_dict(row) if row is not None else None
+        return _row_to_question(row) if row is not None else None
 
-    def list_pending(self, limit: int = 100) -> list[dict]:
+    def list_pending(self, limit: int = 100) -> list[Question]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM questions WHERE status='pending' "
                 "ORDER BY priority DESC, created_at ASC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
-    def fetch_pending(self, limit: int = 200) -> list[dict]:
+    def fetch_pending(self, limit: int = 200) -> list[Question]:
         """Pending questions, highest priority first (chat tab + telegram)."""
         with self._conn() as conn:
             rows = conn.execute(
@@ -382,9 +446,9 @@ class QuestionStore:
                 "ORDER BY priority DESC, created_at ASC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
-    def fetch_new(self, since: float, limit: int = 100) -> list[dict]:
+    def fetch_new(self, since: float, limit: int = 100) -> list[Question]:
         """Pending questions created after ``since`` (poll for new arrivals)."""
         with self._conn() as conn:
             rows = conn.execute(
@@ -392,7 +456,7 @@ class QuestionStore:
                 "ORDER BY created_at ASC LIMIT ?",
                 (since, limit),
             ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_question(r) for r in rows]
 
     def max_created_at(self) -> float:
         """Newest question timestamp, 0.0 on an empty store (poll watermark)."""
@@ -409,7 +473,7 @@ class QuestionStore:
     def answer_result(
         self,
         qid: str,
-        answer: Any,
+        answer: Json,
         *,
         answered_by: str,
         note: str | None = None,
@@ -447,7 +511,7 @@ class QuestionStore:
 
     # -- blocking wait --------------------------------------------------------
 
-    def wait(self, qid: str, poll_interval: float = 0.5) -> dict:
+    def wait(self, qid: str, poll_interval: float = 0.5) -> Question:
         """Block until the question is resolved, then return its final row.
 
         Honors the question's ``timeout_s`` (measured from creation). On timeout
@@ -456,17 +520,17 @@ class QuestionStore:
         """
         q = self.get(qid)
         if q is None:
-            raise KeyError(qid)
+            raise QuestionNotFound(qid, self.db_path)
         deadline = (q["created_at"] + q["timeout_s"]) if q["timeout_s"] else None
         while q["status"] == "pending":
             if deadline is not None and time.time() >= deadline:
                 self._expire_if_pending(qid)
                 q = self.get(qid)
                 if q is None:
-                    raise KeyError(qid)
+                    raise QuestionNotFound(qid, self.db_path)
                 return q
             time.sleep(poll_interval)
             q = self.get(qid)
             if q is None:
-                raise KeyError(qid)
+                raise QuestionNotFound(qid, self.db_path)
         return q

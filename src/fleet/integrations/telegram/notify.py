@@ -8,13 +8,16 @@ MessageStore so operator replies route back (commands.answer_question).
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .api import TelegramApi
 from .messages import MessageStore
 
+if TYPE_CHECKING:
+    from fleet.integrations.ask_human.store import Question
 
-def format_question_message(question: dict) -> str:
+
+def format_question_message(question: Question | dict) -> str:
     """Render one question as '[agent] prompt' plus a numbered option list."""
     text = f"[{question.get('agent_id') or 'unknown'}] {question.get('prompt') or ''}"
     options = question.get("options")

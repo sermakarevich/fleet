@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fleet.core.result import parse_result
+from fleet.core.result import ResultStatus, parse_result
 
 
 def test_parse_result_done() -> None:
     result = parse_result('{"schema": 1, "status": "done", "summary": "shipped it"}')
     assert result is not None
-    assert result.status == "done"
+    assert result.status == ResultStatus.DONE
     assert result.summary == "shipped it"
     assert result.commits == []
     assert result.tests is None
@@ -16,7 +16,7 @@ def test_parse_result_partial_with_next_step() -> None:
     text = '{"schema": 1, "status": "partial", "summary": "half done", "next_step": "run tests"}'
     result = parse_result(text)
     assert result is not None
-    assert result.status == "partial"
+    assert result.status == ResultStatus.PARTIAL
     assert result.next_step == "run tests"
 
 
@@ -24,7 +24,7 @@ def test_parse_result_blocked_with_reason() -> None:
     text = '{"schema": 1, "status": "blocked", "blocked_reason": "need creds"}'
     result = parse_result(text)
     assert result is not None
-    assert result.status == "blocked"
+    assert result.status == ResultStatus.BLOCKED
     assert result.blocked_reason == "need creds"
 
 

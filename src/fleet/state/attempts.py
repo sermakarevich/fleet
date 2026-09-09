@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fleet.core.retry_policy import Action
+from fleet.core.task import AttemptKind, TaskOutcome
 from fleet.state.attempt_journal import AttemptJournal
 from fleet.state.paths import attempt_dir_path
 
@@ -36,7 +38,7 @@ def record_start(
     coder: str | None,
     model: str | None,
     worker: str | None = None,
-    kind: str = "work",
+    kind: AttemptKind | str = AttemptKind.WORK,
 ) -> int:
     """Append a start line and return its attempt number."""
     return AttemptJournal.load(task_dir).append_start(
@@ -47,15 +49,16 @@ def record_start(
 def record_end(
     task_dir: Path,
     *,
-    outcome: str,
+    outcome: TaskOutcome | str,
     exit_code: int | None,
     reason: str,
-    action: str,
+    action: Action | str,
     n: int | None = None,
 ) -> None:
     """Append an end line for attempt *n* (default: the current one)."""
+    outcome_value = outcome.value if isinstance(outcome, TaskOutcome) else outcome
     AttemptJournal.load(task_dir).append_end(
-        outcome=outcome, exit_code=exit_code, reason=reason, action=action, n=n
+        outcome=outcome_value, exit_code=exit_code, reason=reason, action=action, n=n
     )
 
 

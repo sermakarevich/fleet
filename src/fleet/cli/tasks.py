@@ -24,7 +24,7 @@ from fleet.cli.render import ChildRow, JobView
 from fleet.core.effective import effective_coder_model
 from fleet.core.job_phase import phase
 from fleet.core.job_snapshot import JobSnapshot
-from fleet.integrations.ask_human.store import QuestionStore
+from fleet.integrations.ask_human.store import Question, QuestionStore
 from fleet.observability import tailview
 from fleet.state import runtime_stats as _runtime_stats
 from fleet.state.archive import gc_tasks, purge_archive
@@ -90,7 +90,7 @@ def _fetch_children(q: BeadsQueue, job_id: str) -> list[Any]:
         return []
 
 
-def _pending_gate(job_id: str) -> list[dict]:
+def _pending_gate(job_id: str) -> list[Question]:
     """Pending job-gate questions, best-effort (empty when the store is unreadable)."""
     try:
         return QuestionStore().fetch_pending_for_task(job_id, "job_gate")
@@ -105,14 +105,16 @@ def _child_row(child: Any) -> ChildRow:
     return ChildRow(id=str(getattr(child, "id", "")), status=getattr(child, "status", None))
 
 
-def _gate_row(question: dict) -> tuple[str, str]:
+def _gate_row(question: Question) -> tuple[str, str]:
     """(id, first prompt line) for one pending gate question."""
     prompt = question.get("prompt") or ""
     first_line = prompt.splitlines()[0] if prompt else ""
     return (str(question.get("id")), first_line)
 
 
-def _build_job_view(home: Path, task: Task, children: list[Any], pending: list[dict]) -> JobView:
+def _build_job_view(
+    home: Path, task: Task, children: list[Any], pending: list[Question]
+) -> JobView:
     """Assemble the JobSnapshot-backed view one `fleet job view` prints."""
     artifacts = _task_dir(home, task.id) / "artifacts"
     snapshot = JobSnapshot(

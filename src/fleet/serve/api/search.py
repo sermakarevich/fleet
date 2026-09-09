@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api")
 _MAX_RESULTS = 20  # search stops collecting and truncates here
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SearchResult:
     """One match: which task, which field, and a snippet around the hit."""
 

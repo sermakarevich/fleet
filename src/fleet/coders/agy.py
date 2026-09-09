@@ -8,7 +8,7 @@ from typing import ClassVar
 from fleet.coders.base import CoderSpec, lookup_handler, prompt_context
 from fleet.coders.env import fleet_env
 from fleet.core.launch import LaunchPlan
-from fleet.core.task import Event, Task
+from fleet.core.task import Event, EventKind, Task
 from fleet.prompts import render
 
 
@@ -17,7 +17,7 @@ def _assistant_text(data: dict) -> Event | None:
     message = data.get("message")
     usage = message.get("usage") if isinstance(message, dict) else None
     return Event(
-        kind="assistant_text",
+        kind=EventKind.ASSISTANT_TEXT,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("session_id"),
@@ -28,7 +28,7 @@ def _assistant_text(data: dict) -> Event | None:
 def _tool_use(data: dict) -> Event | None:
     """A tool invocation."""
     return Event(
-        kind="tool_use",
+        kind=EventKind.TOOL_USE,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=data.get("name"),
@@ -38,7 +38,7 @@ def _tool_use(data: dict) -> Event | None:
 def _tool_result(data: dict) -> Event | None:
     """A tool result."""
     return Event(
-        kind="tool_result",
+        kind=EventKind.TOOL_RESULT,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=data.get("name"),
@@ -48,7 +48,7 @@ def _tool_result(data: dict) -> Event | None:
 def _session_ended(data: dict) -> Event | None:
     """A terminal result envelope."""
     return Event(
-        kind="session_ended",
+        kind=EventKind.SESSION_ENDED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("session_id"),
@@ -67,7 +67,7 @@ EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
 def _raw_text_event(raw_line: str) -> Event:
     """A non-JSON stdout line: agy emits raw text/markdown, streamed live."""
     return Event(
-        kind="assistant_text",
+        kind=EventKind.ASSISTANT_TEXT,
         raw={"text": raw_line},
         ts=datetime.now(tz=UTC),
     )
@@ -126,5 +126,5 @@ class AgyCoder:
             return _raw_text_event(raw_line)
         handler = lookup_handler(EVENT_MAP, (data.get("type", ""), data.get("subtype")))
         if handler is None:
-            return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC))
+            return Event(kind=EventKind.ASSISTANT_TEXT, raw=data, ts=datetime.now(tz=UTC))
         return handler(data)

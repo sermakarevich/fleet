@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/chat")
 async def list_questions(state: StateDep) -> JSONResponse:
     """Pending ask_human questions for the chat tab."""
     pending = await asyncio.to_thread(state.question_store.fetch_pending)
-    return JSONResponse({"now": time.time(), "pending": pending})
+    return JSONResponse({"now": time.time(), "pending": [q.to_dict() for q in pending]})
 
 
 @router.post("/questions/{qid}/answer", response_model=AnswerResponse)

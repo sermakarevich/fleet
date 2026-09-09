@@ -7,26 +7,27 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from fleet.core.task import TaskStatus
 from fleet.state.paths import tasks_root
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_meta import TaskMeta
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GcResult:
     archived: list[str]
     skipped: int
     bytes_moved: int
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PurgeResult:
     deleted: list[str]
     skipped: int
     bytes_freed: int
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class StaleWorktree:
     task_id: str
     path: Path
@@ -38,29 +39,32 @@ def _dir_size(p: Path) -> int:
 
 
 def gc_tasks(home: Path, days: int = 30, dry_run: bool = False) -> GcResult:
+    """Move closed task dirs older than *days* into the archive."""
     tasks_dir = tasks_root(home)
     archive_dir = home / "archive" / "tasks"
-    result = GcResult(archived=[], skipped=0, bytes_moved=0)
+    archived: list[str] = []
+    skipped = 0
+    bytes_moved = 0
     if days <= 0:
-        return result
+        return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
     cutoff = time.time() - days * 86400
     if not tasks_dir.is_dir():
-        return result
+        return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
     for task_dir, _raw in TaskIndex(home).iter_meta():
         meta = TaskMeta.load(task_dir)
         if meta is None:
-            result.skipped += 1
+            skipped += 1
             continue
-        if meta.status != "closed" or task_dir.stat().st_mtime > cutoff:
-            result.skipped += 1
+        if meta.status != TaskStatus.CLOSED.value or task_dir.stat().st_mtime > cutoff:
+            skipped += 1
             continue
         size = _dir_size(task_dir)
-        result.archived.append(task_dir.name)
-        result.bytes_moved += size
+        archived.append(task_dir.name)
+        bytes_moved += size
         if not dry_run:
             archive_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(task_dir), str(archive_dir / task_dir.name))
-    return result
+    return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
 
 
 def purge_archive(home: Path, days: int = 90, dry_run: bool = False) -> PurgeResult:
@@ -69,21 +73,23 @@ def purge_archive(home: Path, days: int = 90, dry_run: bool = False) -> PurgeRes
     Only directories under ``<home>/archive/tasks/`` are considered.
     *days* <= 0 disables purging (returns everything as skipped).
     """
-    result = PurgeResult(deleted=[], skipped=0, bytes_freed=0)
+    deleted: list[str] = []
+    skipped = 0
+    bytes_freed = 0
     archive_dir = home / "archive" / "tasks"
     if days <= 0 or not archive_dir.is_dir():
-        return result
+        return PurgeResult(deleted=deleted, skipped=skipped, bytes_freed=bytes_freed)
     cutoff = time.time() - days * 86400
     for entry in sorted(archive_dir.iterdir()):
         if not entry.is_dir() or entry.stat().st_mtime > cutoff:
-            result.skipped += 1
+            skipped += 1
             continue
         size = _dir_size(entry)
-        result.deleted.append(entry.name)
-        result.bytes_freed += size
+        deleted.append(entry.name)
+        bytes_freed += size
         if not dry_run:
             shutil.rmtree(entry, ignore_errors=True)
-    return result
+    return PurgeResult(deleted=deleted, skipped=skipped, bytes_freed=bytes_freed)
 
 
 def _task_meta(task_dir: Path) -> TaskMeta | None:
@@ -97,7 +103,7 @@ def _closed_and_old(task_dir: Path, cutoff: float) -> bool:
     except OSError:
         return False
     meta = _task_meta(task_dir)
-    return old_mtime and meta is not None and meta.status == "closed"
+    return old_mtime and meta is not None and meta.status == TaskStatus.CLOSED.value
 
 
 def find_stale_worktrees(home: Path, days: int = 30) -> list[StaleWorktree]:

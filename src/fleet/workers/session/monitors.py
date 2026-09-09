@@ -30,7 +30,7 @@ from fleet.core.limits import (
     PROBE_SILENCE_SEC,
     RATE_LIMIT_PROBE_SILENCE_SEC,
 )
-from fleet.core.task import Event, Task, TaskOutcome
+from fleet.core.task import Event, EventKind, Task, TaskOutcome
 from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER
 from fleet.state.run_file import RunRecord
 
@@ -101,16 +101,16 @@ class SessionEventLogger(Monitor):
     order = 5
 
     def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind == "session_started":
+        if evt.kind == EventKind.SESSION_STARTED:
             if not ctx.session_started_logged:
                 ctx.session_started_logged = True
                 ctx.ctx_log.info("agent_session_started")
-        elif evt.kind == "tool_use":
+        elif evt.kind == EventKind.TOOL_USE:
             ctx.ctx_log.info(
                 "agent_tool_use",
                 tool=evt.tool_name or evt.raw.get("tool_name") or evt.raw.get("name"),
             )
-        elif evt.kind == "session_ended":
+        elif evt.kind == EventKind.SESSION_ENDED:
             ctx.ctx_log.info("agent_session_ended")
         return None
 
@@ -121,7 +121,7 @@ class RateGaugeFeeder(Monitor):
     order = 10
 
     def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind == "rate_limit_info":
+        if evt.kind == EventKind.RATE_LIMIT_INFO:
             ctx.rate_gauge.update(evt)
         return None
 
@@ -157,7 +157,11 @@ class ContextGauge(Monitor):
     order = 20
 
     def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind == "rate_limit_info" or evt.usage is None or evt.kind == "session_ended":
+        if (
+            evt.kind == EventKind.RATE_LIMIT_INFO
+            or evt.usage is None
+            or evt.kind == EventKind.SESSION_ENDED
+        ):
             return None
         prompt = _input_tokens(evt.usage)
         if prompt <= 0:
@@ -197,7 +201,7 @@ class ContextErrorScanner(Monitor):
     order = 30
 
     def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
-        if evt.kind not in ("error", "session_ended"):
+        if evt.kind not in (EventKind.ERROR, EventKind.SESSION_ENDED):
             return None
         searchable = error_text_of(evt)
         if searchable and is_context_error_text(searchable):
@@ -217,7 +221,7 @@ class HealthProbe(Monitor):
 
     def on_event(self, evt: Event, ctx: MonitorContext) -> Verdict | None:
         if (
-            evt.kind != "rate_limit"
+            evt.kind != EventKind.RATE_LIMIT
             or evt.rate_info is None
             or evt.rate_info.get("status") != "rejected"
         ):
@@ -297,9 +301,10 @@ def context_limit_of(coder: Coder, overrides: dict[str, int] | None = None) -> i
     """
     spec = getattr(coder, "spec", None)
     if spec is None:
+        limit = getattr(coder, "context_limit", None)
         try:
-            return int(coder.context_limit)  # type: ignore[attr-defined]
-        except (AttributeError, TypeError, ValueError):
+            return int(limit) if limit is not None else FALLBACK_CONTEXT_LIMIT
+        except (TypeError, ValueError):
             return FALLBACK_CONTEXT_LIMIT
     try:
         return context_limit_for(spec, getattr(coder, "model", None), overrides)

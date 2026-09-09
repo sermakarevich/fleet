@@ -1,11 +1,61 @@
+"""Core task types: Task, Event, outcomes. Called from every layer.
+
+``EventKind`` names every event kind a coder actually emits; ``TaskStatus``
+names every bead status; ``AttemptKind`` names attempt journal kinds;
+``Json`` is the unvalidated-JSON alias used at parse boundaries.
+"""
+
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Literal
+from enum import StrEnum
+
+from fleet.core.errors import Json
 
 
-@dataclass
+class EventKind(StrEnum):
+    """One event kind a coder stream actually emits.
+
+    ``RATE_LIMIT`` is the quota-exhausted signal; ``RATE_LIMIT_INFO`` is the
+    informational usage snapshot some coders send alongside it. ``RESULT``
+    and ``CONTEXT_PRESSURE`` are intentionally absent: result lives in
+    RESULT.json (see ``core/result.py``) and context pressure is a task
+    outcome (see ``TaskOutcome``), neither is ever emitted as an event.
+    """
+
+    ASSISTANT_TEXT = "assistant_text"
+    TOOL_USE = "tool_use"
+    TOOL_RESULT = "tool_result"
+    THINKING = "thinking"
+    RATE_LIMIT = "rate_limit"
+    RATE_LIMIT_INFO = "rate_limit_info"
+    SESSION_STARTED = "session_started"
+    SESSION_ENDED = "session_ended"
+    ERROR = "error"
+
+
+class TaskStatus(StrEnum):
+    """Bead status as reported by ``bd``."""
+
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    CLOSED = "closed"
+    FAILED = "failed"
+
+
+class AttemptKind(StrEnum):
+    """Attempt journal kind: real work vs. the compaction job's own row."""
+
+    WORK = "work"
+    COMPACT = "compact"
+
+
+@dataclass(frozen=True, slots=True)
 class Task:
+    """One bead plus its fleet routing metadata."""
+
     id: str
     title: str
     description: str | None
@@ -39,24 +89,11 @@ class Task:
     worktree_path: str | None = None
 
 
-EventKind = Literal[
-    "assistant_text",
-    "tool_use",
-    "tool_result",
-    "thinking",
-    "rate_limit",
-    "rate_limit_info",
-    "context_pressure",
-    "session_started",
-    "session_ended",
-    "error",
-    "result",
-]
-
-
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Event:
-    kind: EventKind
+    """One normalized coder-stream event."""
+
+    kind: EventKind | str
     raw: dict
     ts: datetime
     session_id: str | None = None
@@ -67,8 +104,15 @@ class Event:
     rate_info: dict | None = None
     extra: dict = field(default_factory=dict)
 
+    @property
+    def kind_value(self) -> str:
+        """The event kind as plain text for JSON edges."""
+        return self.kind.value if isinstance(self.kind, EventKind) else str(self.kind)
 
-class TaskOutcome(Enum):
+
+class TaskOutcome(StrEnum):
+    """How one worker attempt ended."""
+
     SUCCESS = "success"
     FAILURE = "failure"
     RATE_LIMIT = "rate_limit"
@@ -82,8 +126,10 @@ class TaskOutcome(Enum):
     WAITING = "waiting"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TaskOutcomeRecord:
+    """One attempt's outcome plus the detail the policy needs."""
+
     outcome: TaskOutcome
     exit_code: int | None = None
     reason: str = ""
@@ -93,3 +139,15 @@ class TaskOutcomeRecord:
     # telling retry_policy to close the bead itself rather than count
     # towards the no-close rounds.
     close_reason: str | None = None
+
+
+__all__ = [
+    "AttemptKind",
+    "Event",
+    "EventKind",
+    "Json",
+    "Task",
+    "TaskOutcome",
+    "TaskOutcomeRecord",
+    "TaskStatus",
+]

@@ -11,7 +11,7 @@ from fleet.coders.claude import ClaudeCoder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import StepContext
+from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -99,7 +99,7 @@ def _make_session(
 
 def _run(session: LlmSession, ctx: StepContext) -> TaskOutcomeRecord:
     step_result = asyncio.run(session.run(ctx))
-    assert step_result.status == "outcome"
+    assert step_result.status == StepStatus.OUTCOME
     assert step_result.outcome is not None
     return step_result.outcome
 

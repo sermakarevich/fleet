@@ -12,12 +12,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from .api import MAX_TEXT, TelegramApi
 from .messages import MessageStore
+
+if TYPE_CHECKING:
+    from fleet.integrations.ask_human.store import Question
 
 _log = structlog.get_logger(__name__)
 
@@ -125,11 +128,12 @@ async def answer_question(
 ) -> None:
     """Apply a numeric option shortcut, answer the store, confirm by reply."""
     answer: object = raw_text.strip()
-    question: dict | None = None
+    question: Question | None = None
     try:
         idx = int(str(answer))
         question = await asyncio.to_thread(store.get, qid)
-        options = (question or {}).get("options") or []
+        options = question.get("options") if question is not None else None
+        options = options or []
         if options and 1 <= idx <= len(options):
             answer = options[idx - 1]
     except ValueError:
@@ -138,7 +142,7 @@ async def answer_question(
     if result["ok"]:
         if question is None:
             question = await asyncio.to_thread(store.get, qid)
-        label = (question or {}).get("agent_id") or qid
+        label = (question.get("agent_id") if question is not None else None) or qid
         await api.send(chat_id, f"Answered [{label}]")
     elif result["status"] in ("answered", "conflict"):
         await api.send(chat_id, "Question already answered")

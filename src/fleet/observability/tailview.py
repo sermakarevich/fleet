@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from fleet.core.task import EventKind
+
 from .event_render import render
 
 
@@ -42,7 +44,7 @@ def render_event(evt: dict, state: dict) -> str | None:
             raw = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             raw = {}
-    if kind == "session_started":
+    if kind == EventKind.SESSION_STARTED:
         sid = evt.get("session_id") or (raw.get("sessionID") if isinstance(raw, dict) else None)
         if sid is None or state.get("last_session") == sid:
             return None

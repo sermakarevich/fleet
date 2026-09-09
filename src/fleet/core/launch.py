@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class LaunchLimits:
     continue_pack_max_bytes: int = 8192
     state_max_bytes: int = 6144
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ArtifactSnapshot:
     state_text: str
     state_is_stub: bool
@@ -27,7 +27,7 @@ class ArtifactSnapshot:
     latest_result_is_missing: bool  # True if the previous attempt has no RESULT.json at all
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class LaunchPlan:
     mode: Literal["fresh", "continue", "validate"]
     pack: str

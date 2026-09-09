@@ -12,7 +12,15 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import FnStep, StepContext, StepResult, Worker, WorkerRun, run_worker
+from fleet.workers.base import (
+    FnStep,
+    StepContext,
+    StepResult,
+    StepStatus,
+    Worker,
+    WorkerRun,
+    run_worker,
+)
 
 
 def _ctx(tmp_path: Path, task_id: str = "t-fn") -> StepContext:
@@ -30,7 +38,7 @@ def _ctx(tmp_path: Path, task_id: str = "t-fn") -> StepContext:
 
 
 async def _ok(ctx: StepContext) -> StepResult:
-    return StepResult(status="ok", reason=f"saw {ctx.task.id}")
+    return StepResult(status=StepStatus.OK, reason=f"saw {ctx.task.id}")
 
 
 def test_fn_step_runs_its_function(tmp_path: Path) -> None:
@@ -38,7 +46,7 @@ def test_fn_step_runs_its_function(tmp_path: Path) -> None:
     step = FnStep("probe", _ok)
     assert step.name == "probe"
     result = asyncio.run(step.run(_ctx(tmp_path)))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert result.reason == "saw t-fn"
 
 
@@ -69,7 +77,7 @@ def test_kill_on_step_without_cancel_is_noop(tmp_path: Path) -> None:
 
     async def _hang(ctx: StepContext) -> StepResult:
         await gate.wait()
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
     run = WorkerRun(Worker("w.fn", (FnStep("hang", _hang),)), ctx)
 

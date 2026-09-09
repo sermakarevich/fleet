@@ -17,13 +17,17 @@ import asyncio
 import json
 import time
 from dataclasses import asdict
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from fleet.beads.queue import Queue
 from fleet.core import triage_policy
+from fleet.core.errors import FleetError
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
+from fleet.core.task import TaskOutcome, TaskStatus
 from fleet.core.triage_policy import (
     CLOSE,
     DIGEST_IGNORE_ALL,
@@ -43,7 +47,21 @@ from fleet.state.paths import RESULT_JSON
 from fleet.state.paths import task_dir as _task_dir
 
 if TYPE_CHECKING:
+    from fleet.integrations.ask_human.store import Question, QuestionStore
+
     from .state import SupervisorState
+
+
+class TriageApplyOutcome(StrEnum):
+    """What applying one answered triage question did."""
+
+    SKIPPED = "skipped"
+    CLOSED = "closed"
+    IGNORED = "ignored"
+    RELEASED_OPUS = "released-opus"
+    RELEASED = "released"
+    IGNORED_ALL = "ignored-all"
+
 
 # How many of the newest attempts count for "rate-limit history".
 _RATE_LIMIT_WINDOW = 5
@@ -105,7 +123,9 @@ def _read_result(task_dir: Path) -> dict | None:
     return asdict(result) if result is not None else None
 
 
-def collect_candidates(queue: Any, project_root: Path, store: Any, limit: int = 100) -> list[dict]:
+def collect_candidates(
+    queue: Queue, project_root: Path, store: QuestionStore, limit: int = 100
+) -> list[dict]:
     """Blocked beads that need a triage question.
 
     Skipped: beads without task.json ``blocked_reason`` (human-blocked, not
@@ -118,7 +138,7 @@ def collect_candidates(queue: Any, project_root: Path, store: Any, limit: int = 
     except Exception:
         return []
     for bead in blocked:
-        task_id = bead.id if hasattr(bead, "id") else bead.get("id")
+        task_id = bead.id
         meta = _read_meta(project_root, task_id)
         blocked_reason = meta.get("blocked_reason")
         if not blocked_reason:
@@ -131,11 +151,13 @@ def collect_candidates(queue: Any, project_root: Path, store: Any, limit: int = 
         task_dir = _task_dir(project_root, task_id)
         history = attempts_mod.load_attempts(task_dir)
         rounds = rounds_for_history(history)
-        rate_limited = any(h.get("outcome") == "rate_limit" for h in history[-_RATE_LIMIT_WINDOW:])
+        rate_limited = any(
+            h.get("outcome") == TaskOutcome.RATE_LIMIT.value for h in history[-_RATE_LIMIT_WINDOW:]
+        )
         candidates.append(
             {
                 "id": task_id,
-                "title": meta.get("title", getattr(bead, "title", "")),
+                "title": meta.get("title", bead.title),
                 "description": meta.get("description"),
                 "blocked_reason": blocked_reason,
                 "blocked_at": blocked_at,
@@ -150,14 +172,16 @@ def collect_candidates(queue: Any, project_root: Path, store: Any, limit: int = 
     return candidates
 
 
-def _append_note_to_description(queue: Any, project_root: Path, task_id: str, note: str) -> None:
+def _append_note_to_description(queue: Queue, project_root: Path, task_id: str, note: str) -> None:
     """Append the operator's note as a paragraph to the bead description."""
     current = _read_meta(project_root, task_id).get("description") or ""
     updated = f"{current}\n\nOperator note: {note}" if current else f"Operator note: {note}"
     queue.set_bd_fields(task_id, {"description": updated})
 
 
-def apply_answer(queue: Any, project_root: Path, question: dict) -> str:  # noqa: PLR0911  # ADR 0006 bead 20
+def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
+    queue: Queue, project_root: Path, question: Question
+) -> TriageApplyOutcome:
     """Apply one answered triage question; return what was done.
 
     The free-text ``note`` always wins over the selected option: it is
@@ -176,37 +200,39 @@ def apply_answer(queue: Any, project_root: Path, question: dict) -> str:  # noqa
         return _apply_digest(queue, question, answer)
 
     meta = _read_meta(project_root, task_id)
-    if meta.get("status") != "blocked" or meta.get("blocked_at") != question.get("context"):
-        return "skipped"
+    if meta.get("status") != TaskStatus.BLOCKED.value or meta.get("blocked_at") != question.get(
+        "context"
+    ):
+        return TriageApplyOutcome.SKIPPED
 
     if answer == CLOSE:
         reason = f"won't do: {note}" if note else "won't do (triage)"
         queue.close(task_id, reason)
-        return "closed"
+        return TriageApplyOutcome.CLOSED
     if answer in (IGNORE_24H, IGNORE_FOREVER):
         queue.set_ignore(
             task_id,
             triage_policy.ignore_until_24h() if answer == IGNORE_24H else "forever",
         )
-        return "ignored"
+        return TriageApplyOutcome.IGNORED
     if answer == RETRY_OPUS:
         queue.set_overrides(task_id, coder="claude", model="opus")
         if note:
             _append_note_to_description(queue, project_root, task_id, note)
         queue.release(task_id, "triage: retry with claude/opus")
-        return "released-opus"
+        return TriageApplyOutcome.RELEASED_OPUS
     if answer in (RETRY_SAME, EDIT_RETRY) or (answer is None and note):
         if note:
             _append_note_to_description(queue, project_root, task_id, note)
         queue.release(task_id, "triage: retry")
-        return "released"
-    return "skipped"
+        return TriageApplyOutcome.RELEASED
+    return TriageApplyOutcome.SKIPPED
 
 
-def _apply_digest(queue: Any, question: dict, answer: str | None) -> str:
+def _apply_digest(queue: Queue, question: Question, answer: str | None) -> TriageApplyOutcome:
     """Apply a digest answer; only "ignore all 24h" acts, the rest is a no-op."""
     if answer != DIGEST_IGNORE_ALL:
-        return "skipped"
+        return TriageApplyOutcome.SKIPPED
     context = question.get("context") or ""
     ids = [i for i in context.removeprefix("digest:").split(",") if i]
     ignore_until = triage_policy.ignore_until_24h()
@@ -215,10 +241,10 @@ def _apply_digest(queue: Any, question: dict, answer: str | None) -> str:
             queue.set_ignore(task_id, ignore_until)
         except Exception:
             continue
-    return "ignored-all"
+    return TriageApplyOutcome.IGNORED_ALL
 
 
-def triage_tick(st: SupervisorState, store: Any) -> dict:
+def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
     """Run one triage pass: apply answered questions, then ask new ones."""
     applied = 0
     for question in store.fetch_answered_triage():
@@ -231,7 +257,7 @@ def triage_tick(st: SupervisorState, store: Any) -> dict:
                 error=str(exc),
             )
             continue
-        if outcome != "skipped":
+        if outcome != TriageApplyOutcome.SKIPPED:
             applied += 1
 
     candidates = collect_candidates(st.queue, st.project_root, store)
@@ -270,14 +296,14 @@ class Triage:
     order = ServiceOrder.Triage
     name = "triage"
 
-    def __init__(self, store: Any = None) -> None:
+    def __init__(self, store: QuestionStore | None = None) -> None:
         self._store = store
         self._last_tick: float | None = None
 
-    def _question_store(self) -> Any:
+    def _question_store(self) -> QuestionStore:
         """Return the injected ask_human question store."""
         if self._store is None:
-            raise RuntimeError("Triage service needs a question store; pass store=...")
+            raise FleetError("Triage service needs a question store; pass store=...")
         return self._store
 
     async def tick(self, st: SupervisorState) -> None:

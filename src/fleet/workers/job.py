@@ -23,15 +23,25 @@ from pathlib import Path
 from typing import Any
 
 from fleet.beads.queue import BeadsQueue, Queue
+from fleet.core.errors import Json, PlanError
 from fleet.core.job_phase import phase, phase_failures
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.launch import LaunchPlan
+from fleet.core.result import ResultStatus
 from fleet.core.task import TaskOutcome, TaskOutcomeRecord
 from fleet.state import attempts as state_attempts
 from fleet.state.paths import RESULT_JSON
 
-from .base import StepContext, StepResult, Worker, merge_run_json
+from .base import (
+    QuestionLike,
+    QuestionStoreLike,
+    StepContext,
+    StepResult,
+    StepStatus,
+    Worker,
+    merge_run_json,
+)
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
 from .task import _ensure_state as _seed
@@ -63,14 +73,18 @@ def _ensure_artifact_stubs(task_dir: Path, task_id: str) -> None:
 def _write_result(
     task_dir: Path,
     *,
-    status: str,
+    status: ResultStatus,
     summary: str,
     next_step: str = "",
     blocked_reason: str = "",
 ) -> None:
     """Write task-level RESULT.json for a Python-decided gate/spawn outcome."""
     task_dir.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {"schema": 1, "status": status, "summary": summary}
+    payload: dict[str, Any] = {
+        "schema": 1,
+        "status": status.value,
+        "summary": summary,
+    }
     if next_step:
         payload["next_step"] = next_step
     if blocked_reason:
@@ -85,7 +99,7 @@ def _read_text_capped(path: Path, cap: int) -> str | None:
         return None
 
 
-def _load_tasks_doc(task_dir: Path) -> tuple[Any, str | None]:
+def _load_tasks_doc(task_dir: Path) -> tuple[Json, str | None]:
     """Return (parsed tasks.json, error); error is None on success."""
     try:
         text = (task_dir / "artifacts" / "tasks.json").read_text(encoding="utf-8")
@@ -97,7 +111,7 @@ def _load_tasks_doc(task_dir: Path) -> tuple[Any, str | None]:
         return None, f"tasks.json is not valid JSON: {exc}"
 
 
-def _task_titles(doc: Any) -> list[str]:
+def _task_titles(doc: Json) -> list[str]:
     tasks = doc.get("tasks") if isinstance(doc, dict) else None
     if not isinstance(tasks, list):
         return []
@@ -136,7 +150,7 @@ class JobPrepare:
             pack_bytes=len(pack.encode("utf-8")),
             needs_compaction=False,
         )
-        ctx.scratch["launch_plan"] = plan
+        ctx.launch_plan = plan
         ctx.plan = plan
         merge_run_json(
             ctx,
@@ -146,13 +160,13 @@ class JobPrepare:
         hook = getattr(ctx.coder, "write_runtime_config", None)
         if hook is not None:
             hook(ctx.project_root, ctx.task)
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
 
 def _waiting(reason: str) -> StepResult:
     """An outcome step result that re-releases the bead to wait on a human."""
     return StepResult(
-        status="outcome",
+        status=StepStatus.OUTCOME,
         outcome=TaskOutcomeRecord(outcome=TaskOutcome.WAITING, reason=reason),
     )
 
@@ -162,10 +176,10 @@ class AskApproval:
 
     name = "ask_approval"
 
-    def __init__(self, store: Any = None) -> None:
+    def __init__(self, store: QuestionStoreLike | None = None) -> None:
         self._store = store
 
-    def _store_for(self, ctx: StepContext) -> Any:
+    def _store_for(self, ctx: StepContext) -> QuestionStoreLike | None:
         """Explicit store first, else the store orchestrator/spawn.py injected."""
         if self._store is not None:
             return self._store
@@ -180,11 +194,11 @@ class AskApproval:
         )
         _write_result(
             ctx.task_dir,
-            status="partial",
+            status=ResultStatus.PARTIAL,
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
     async def run(self, ctx: StepContext) -> StepResult:
         doc, early = self._load_validated(ctx)
@@ -193,7 +207,7 @@ class AskApproval:
         assert doc is not None
         return self._gate(ctx, doc)
 
-    def _load_validated(self, ctx: StepContext) -> tuple[Any | None, StepResult | None]:
+    def _load_validated(self, ctx: StepContext) -> tuple[Json | None, StepResult | None]:
         """Load tasks.json and validate it; invalid plans go back to design."""
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
@@ -203,11 +217,11 @@ class AskApproval:
             return None, self._invalid_plan(ctx, errors)
         return doc, None
 
-    def _gate(self, ctx: StepContext, doc: Any) -> StepResult:
+    def _gate(self, ctx: StepContext, doc: Json) -> StepResult:
         """Apply an existing gate answer, or ask and wait for a new one."""
         store = self._store_for(ctx)
         if store is None:
-            return StepResult(status="fail", reason="no question store injected")
+            return StepResult(status=StepStatus.FAIL, reason="no question store injected")
         answered = self._store_read(
             store, "answers", lambda: store.fetch_answered_for_task(ctx.task.id, JOB_GATE_CONTEXT)
         )
@@ -225,14 +239,14 @@ class AskApproval:
         return self._ask(ctx, store, doc)
 
     @staticmethod
-    def _store_read(store: Any, label: str, thunk: Callable[[], Any]) -> Any:
+    def _store_read(store: QuestionStoreLike, label: str, thunk: Callable[[], Any]) -> Any:
         """Run a gate store read; store failures become a fail result."""
         try:
             return thunk()
         except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
-            return StepResult(status="fail", reason=f"cannot read gate {label}: {exc}")
+            return StepResult(status=StepStatus.FAIL, reason=f"cannot read gate {label}: {exc}")
 
-    def _ask(self, ctx: StepContext, store: Any, doc: Any) -> StepResult:
+    def _ask(self, ctx: StepContext, store: QuestionStoreLike, doc: Json) -> StepResult:
         """Post the approval question, then wait for the operator."""
         titles = _task_titles(doc)
         prompt = f"Job {ctx.task.id}: approve {len(titles)} tasks?\n" + "\n".join(
@@ -247,10 +261,10 @@ class AskApproval:
                 agent_id="job",
             )
         except Exception as exc:  # noqa: BLE001 - step contract
-            return StepResult(status="fail", reason=f"cannot ask gate question: {exc}")
+            return StepResult(status=StepStatus.FAIL, reason=f"cannot ask gate question: {exc}")
         return _waiting("waiting for job gate approval")
 
-    def _apply_answer(self, ctx: StepContext, question: dict) -> StepResult:
+    def _apply_answer(self, ctx: StepContext, question: QuestionLike) -> StepResult:
         """Apply the operator's gate answer: approve, revise, or cancel."""
         task_dir = ctx.task_dir
         artifacts_dir = task_dir / "artifacts"
@@ -261,20 +275,20 @@ class AskApproval:
         if answer == GATE_OPTION_CANCEL:
             _write_result(
                 task_dir,
-                status="blocked",
+                status=ResultStatus.BLOCKED,
                 summary="job cancelled by operator",
                 blocked_reason="cancelled by operator",
             )
-            return StepResult(status="ok")
+            return StepResult(status=StepStatus.OK)
         if answer == GATE_OPTION_APPROVE and not note:
             (artifacts_dir / "APPROVED").write_text("approved\n", encoding="utf-8")
             _write_result(
                 task_dir,
-                status="partial",
+                status=ResultStatus.PARTIAL,
                 summary="job plan approved; spawning children",
                 next_step="spawn",
             )
-            return StepResult(status="ok")
+            return StepResult(status=StepStatus.OK)
         return self._apply_revise(task_dir, artifacts_dir, note)
 
     def _apply_revise(self, task_dir: Path, artifacts_dir: Path, note: str | None) -> StepResult:
@@ -294,11 +308,11 @@ class AskApproval:
             (artifacts_dir / "tasks.json").unlink(missing_ok=True)
         _write_result(
             task_dir,
-            status="partial",
+            status=ResultStatus.PARTIAL,
             summary="job plan needs revision; see DESIGN_NOTES.md",
             next_step="design",
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
 
 def _topo_order(tasks: list[dict]) -> list[dict]:
@@ -367,31 +381,37 @@ class SpawnChildren:
                 f"[fleet] job spawned {len(created)} children: {', '.join(created.values())}",
             )
         except Exception as exc:  # noqa: BLE001 - step contract
-            return StepResult(status="fail", reason=f"cannot spawn children: {exc}")
+            return StepResult(status=StepStatus.FAIL, reason=f"cannot spawn children: {exc}")
         with contextlib.suppress(OSError):
             (artifacts_dir / "DESIGN_ERRORS.md").unlink(missing_ok=True)
         _write_result(
             ctx.task_dir,
-            status="partial",
+            status=ResultStatus.PARTIAL,
             summary=f"spawned {len(created)} children",
             next_step="observe",
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
     def _load_ordered(self, ctx: StepContext) -> tuple[list[dict] | None, StepResult | None]:
         """Load tasks.json, validate it, and order entries dependencies-first."""
         doc, load_error = _load_tasks_doc(ctx.task_dir)
         if load_error is not None:
             return None, self._invalid(ctx, [load_error])
+        assert doc is not None and isinstance(doc, dict)
         errors = validate_tasks(doc, max_children=ctx.config.job_max_children)
         if errors:
             return None, self._invalid(ctx, errors)
-        return _topo_order([_normalize_task(t) for t in doc["tasks"]]), None
+        tasks = doc.get("tasks")
+        assert isinstance(tasks, list)
+        return (
+            _topo_order([_normalize_task(t) for t in tasks if isinstance(t, dict)]),
+            None,
+        )
 
     def _spawn_missing(
         self,
         ctx: StepContext,
-        queue: Any,
+        queue: Queue,
         ordered: list[dict],
         created: dict[str, str],
         children_file: Path,
@@ -405,7 +425,7 @@ class SpawnChildren:
             try:
                 deps = [created[d] for d in task["depends_on"]]
             except KeyError as exc:
-                raise ValueError(f"task {task['key']!r} depends on uncreated {exc}") from exc
+                raise PlanError(f"task {task['key']!r} depends on uncreated {exc}") from exc
             body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
             child = queue.create_child(
                 ctx.task.id,
@@ -432,11 +452,11 @@ class SpawnChildren:
         )
         _write_result(
             ctx.task_dir,
-            status="partial",
+            status=ResultStatus.PARTIAL,
             summary="tasks.json invalid; see DESIGN_ERRORS.md",
             next_step="design",
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
 
 class BlockJob:
@@ -450,11 +470,11 @@ class BlockJob:
     async def run(self, ctx: StepContext) -> StepResult:
         _write_result(
             ctx.task_dir,
-            status="blocked",
+            status=ResultStatus.BLOCKED,
             summary=self._reason,
             blocked_reason=self._reason,
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
 
 def _snapshot_for(ctx: StepContext, queue: Queue | None = None) -> JobSnapshot:

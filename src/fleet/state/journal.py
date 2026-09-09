@@ -13,7 +13,7 @@ from typing import IO
 import structlog
 
 from fleet.core.redact import redact
-from fleet.core.task import Event
+from fleet.core.task import Event, EventKind
 
 EVENTS_MAX_BYTES: int = 50 * 1024 * 1024
 EVENTS_KEEP_ROTATED: int = 1
@@ -144,7 +144,7 @@ def append_event(attempt_dir: Path, evt: Event) -> None:
     serialising.
     """
     payload: dict = {
-        "kind": evt.kind,
+        "kind": evt.kind.value if isinstance(evt.kind, EventKind) else evt.kind,
         "ts": evt.ts.isoformat(),
         "session_id": evt.session_id,
         "tool_name": evt.tool_name,

@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING
 from fleet.core.iso import parse_iso
 from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
 from fleet.core.process import pid_alive
+from fleet.core.retry_policy import Action
+from fleet.core.task import TaskOutcome
 from fleet.state.attempts import latest_attempt_dir, load_attempts, record_end
 from fleet.state.paths import task_dir as _task_dir
 from fleet.state.paths import tasks_root as _tasks_root
@@ -254,10 +256,10 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
     try:
         record_end(
             task_dir,
-            outcome="killed",
+            outcome=TaskOutcome.KILLED,
             exit_code=None,
             reason=LEASE_EXPIRED_REASON,
-            action="release",
+            action=Action.RELEASE,
         )
     except OSError as exc:
         st.log.warning("lease_record_failed", task_id=task.id, error=str(exc))

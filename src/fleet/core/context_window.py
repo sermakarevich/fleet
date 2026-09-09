@@ -10,6 +10,8 @@ window is 1,048,576 tokens. Every caller — ``workers/llm_session.py``
 
 from __future__ import annotations
 
+from fleet.core.errors import ConfigError
+
 DEFAULT_WINDOWS: dict[str, int] = {
     # Muse Spark via opencode-go (models.dev): 1M window.
     "muse-spark-1.3-contributor": 1_048_576,
@@ -40,7 +42,7 @@ def parse_context_windows(raw: str) -> dict[str, int]:
     """Parse ``"model:tokens,model:tokens"`` into ``{model: tokens}``.
 
     Splits each entry on the LAST colon, so model tags with colons
-    (``"qwen3.6:latest:100000"``) parse correctly. Raises ``ValueError``
+    (``"qwen3.6:latest:100000"``) parse correctly. Raises ``ConfigError``
     on any malformed entry (missing colon, empty model, non-integer or
     non-positive token count). Blank input yields {}.
     """
@@ -52,20 +54,20 @@ def parse_context_windows(raw: str) -> dict[str, int]:
         if not part:
             continue
         if ":" not in part:
-            raise ValueError(f"Invalid context_windows entry (missing ':'): {part!r}")
+            raise ConfigError(f"Invalid context_windows entry (missing ':'): {part!r}")
         name, _, value = part.rpartition(":")
         name = name.strip()
         value = value.strip()
         if not name:
-            raise ValueError(f"Invalid context_windows entry (empty model): {part!r}")
+            raise ConfigError(f"Invalid context_windows entry (empty model): {part!r}")
         try:
             tokens = int(value)
         except ValueError:
-            raise ValueError(
+            raise ConfigError(
                 f"Invalid context_windows entry (tokens not an int): {part!r}"
             ) from None
         if tokens <= 0:
-            raise ValueError(f"Invalid context_windows entry (tokens must be > 0): {part!r}")
+            raise ConfigError(f"Invalid context_windows entry (tokens must be > 0): {part!r}")
         result[name] = tokens
     return result
 

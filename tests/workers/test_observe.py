@@ -15,7 +15,7 @@ from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.orchestrator.reap import handle_outcome
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
-from fleet.workers.base import StepContext
+from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.observe import (
     CHILDREN_MD_MAX_BYTES,
     CollectChildren,
@@ -114,8 +114,8 @@ def test_wait_children_ok_when_all_terminal(tmp_path: Path) -> None:
     queue = FakeQueue([BeadSummary("c-1", "closed"), BeadSummary("c-2", "blocked")])
     ctx, _ = _ctx(tmp_path, queue=queue)
     result = asyncio.run(WaitChildren(queue).run(ctx))
-    assert result.status == "ok"
-    assert ctx.scratch["children"] == [
+    assert result.status == StepStatus.OK
+    assert ctx.children == [
         {"id": "c-1", "status": "closed"},
         {"id": "c-2", "status": "blocked"},
     ]
@@ -125,7 +125,7 @@ def test_wait_children_returns_waiting_while_running(tmp_path: Path) -> None:
     queue = FakeQueue([BeadSummary("c-1", "closed"), BeadSummary("c-2", "open")])
     ctx, _ = _ctx(tmp_path, queue=queue)
     result = asyncio.run(WaitChildren(queue).run(ctx))
-    assert result.status == "outcome"
+    assert result.status == StepStatus.OUTCOME
     assert result.outcome is not None
     assert result.outcome.outcome == TaskOutcome.WAITING
     assert result.outcome.reason == "1 of 2 children still running"
@@ -137,7 +137,7 @@ def test_wait_children_leaves_live_result_alone(tmp_path: Path) -> None:
     ctx, _ = _ctx(tmp_path, queue=queue)
     (ctx.task_dir / "RESULT.json").write_text('{"schema": 1, "status": "done"}')
     result = asyncio.run(WaitChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert (ctx.task_dir / "RESULT.json").exists()
 
 
@@ -164,14 +164,14 @@ def test_collect_children_writes_bounded_digest(tmp_path: Path) -> None:
     ctx.attempt_dir = attempts.attempt_dir(ctx.task_dir, 1)
     ctx.attempt_n = 1
     result = asyncio.run(CollectChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     body = (ctx.task_dir / "artifacts" / "CHILDREN.md").read_text(encoding="utf-8")
     assert len(body.encode("utf-8")) <= CHILDREN_MD_MAX_BYTES
     assert "c-1" in body and "shipped feature" in body and "files touched: 1" in body
     assert "needs creds" in body
-    assert ctx.scratch["child_ids"] == ["c-1", "c-2"]
-    assert ctx.scratch["blocked_children"] == 1
-    assert ctx.scratch["launch_plan"].mode == "validate"
+    assert ctx.child_ids == ["c-1", "c-2"]
+    assert ctx.blocked_children == 1
+    assert ctx.launch_plan is not None and ctx.launch_plan.mode == "validate"
     run = json.loads((ctx.attempt_dir / "run.json").read_text(encoding="utf-8"))
     assert run["launch"]["mode"] == "validate"
 
@@ -187,7 +187,7 @@ def test_collect_children_truncates_oldest_first(tmp_path: Path) -> None:
     queue = FakeQueue(children)
     ctx, _ = _ctx(tmp_path, queue=queue)
     result = asyncio.run(CollectChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     body = (ctx.task_dir / "artifacts" / "CHILDREN.md").read_text(encoding="utf-8")
     assert len(body.encode("utf-8")) <= CHILDREN_MD_MAX_BYTES
     # Oldest dropped first: the newest child survives.
@@ -218,7 +218,7 @@ def test_spawn_followups_creates_children_with_deps(tmp_path: Path) -> None:
         ],
     )
     result = asyncio.run(SpawnFollowups(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert [spec["title"] for _, spec in queue.created] == ["a", "b"]
     assert queue.created[0][1]["depends_on"] == []
     assert queue.created[1][1]["depends_on"] == ["kid-1"]
@@ -230,7 +230,7 @@ def test_spawn_followups_noop_without_followups(tmp_path: Path) -> None:
     queue = FakeQueue()
     ctx, _ = _ctx(tmp_path, queue=queue)
     result = asyncio.run(SpawnFollowups(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert queue.created == []
     assert queue.comments == []
 
@@ -240,7 +240,7 @@ def test_spawn_followups_invalid_list_commented_not_created(tmp_path: Path) -> N
     ctx, _ = _ctx(tmp_path, queue=queue)
     _write_partial_result(ctx, [{"title": "a", "depends_on": ["ghost"]}])
     result = asyncio.run(SpawnFollowups(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert queue.created == []
     assert len(queue.comments) == 1
     assert "invalid follow-ups" in queue.comments[0][1]
@@ -265,7 +265,7 @@ def test_blocked_child_digest_feeds_blocked_result(tmp_path: Path) -> None:
     )
     queue = FakeQueue([BeadSummary("c-1", "blocked")])
     ctx, _ = _ctx(tmp_path, queue=queue)
-    assert asyncio.run(CollectChildren(queue).run(ctx)).status == "ok"
+    assert asyncio.run(CollectChildren(queue).run(ctx)).status == StepStatus.OK
     body = (ctx.task_dir / "artifacts" / "CHILDREN.md").read_text(encoding="utf-8")
     assert "needs creds" in body
 

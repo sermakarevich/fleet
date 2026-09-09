@@ -31,7 +31,9 @@ from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
-from .store import QuestionStore
+from fleet.core.errors import QuestionNotFound
+
+from .store import Question, QuestionStore
 
 store = QuestionStore()
 
@@ -60,7 +62,7 @@ mcp = FastMCP(
 )
 
 
-def _result(q: dict) -> dict[str, Any]:
+def _result(q: Question) -> dict[str, Any]:
     """Project a stored question down to what the calling agent needs."""
     return {
         "id": q["id"],
@@ -88,7 +90,7 @@ async def _await_answer(
     ctx: Context | None = None,
     poll_interval: float = _POLL_INTERVAL_S,
     keepalive_s: float = _KEEPALIVE_S,
-) -> dict:
+) -> Question:
     """Wait until ``qid`` resolves, without ever blocking the event loop.
 
     Unlike ``QuestionStore.wait`` (synchronous — fine for the standalone CLI),
@@ -100,7 +102,7 @@ async def _await_answer(
     """
     q = store.get(qid)
     if q is None:
-        raise KeyError(qid)
+        raise QuestionNotFound(qid)
     deadline = (q["created_at"] + q["timeout_s"]) if q["timeout_s"] else None
     waited = 0.0
     since_keepalive = 0.0
@@ -109,7 +111,7 @@ async def _await_answer(
             store._expire_if_pending(qid)
             q = store.get(qid)
             if q is None:
-                raise KeyError(qid)
+                raise QuestionNotFound(qid)
             return q
         await asyncio.sleep(poll_interval)
         waited += poll_interval
@@ -125,7 +127,7 @@ async def _await_answer(
                 )
         q = store.get(qid)
         if q is None:
-            raise KeyError(qid)
+            raise QuestionNotFound(qid)
     return q
 
 

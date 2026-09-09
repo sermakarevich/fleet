@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fleet.core.job_snapshot import JobSnapshot
+from fleet.core.task import AttemptKind
 
 JobPhase = Literal["research", "design", "gate", "spawn", "observe"]
 
@@ -50,7 +51,7 @@ def phase_attempts(history: list[dict], phase_name: str) -> int:
     for entry in history:
         if not isinstance(entry, dict):
             continue
-        if entry.get("kind") == "compact":
+        if entry.get("kind") == AttemptKind.COMPACT.value:
             continue
         if entry.get("outcome") == "waiting":
             continue

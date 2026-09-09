@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from fleet.core.iso import parse_iso as _parse_iso_clock
+from fleet.core.task import EventKind, TaskOutcome
 
 _TOUCH_TOOLS = {"Read": "read", "Edit": "edit", "Write": "write", "NotebookEdit": "edit"}
 
@@ -100,14 +101,14 @@ def iter_attempt_events(task_dir: Path, n: int) -> Iterator[dict]:
     yield from _iter_events_file(task_dir / "attempts" / str(n) / "events.jsonl")
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class FileCounts:
     read: int = 0
     edit: int = 0
     write: int = 0
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class EventStats:
     event_count: int = 0
     first_ts: datetime | None = None
@@ -240,7 +241,7 @@ class SessionVisitor(EventVisitor):
 
     def visit(self, row: dict) -> None:
         """Fold one row's session fields into the session counts."""
-        if row.get("kind") == "session_started":
+        if row.get("kind") == EventKind.SESSION_STARTED:
             self._steps += 1
         sid = row.get("session_id")
         if sid is not None:
@@ -259,7 +260,7 @@ class ErrorVisitor(EventVisitor):
 
     def visit(self, row: dict) -> None:
         """Count one row when it is an error."""
-        if row.get("kind") == "error":
+        if row.get("kind") == EventKind.ERROR:
             self._errors += 1
 
     def result(self) -> int:
@@ -284,11 +285,11 @@ class ToolCallVisitor(EventVisitor):
     def visit(self, row: dict) -> None:
         """Fold one row's tool usage and file touches into the counts."""
         kind = row.get("kind")
-        if kind == "tool_result":
+        if kind == EventKind.TOOL_RESULT:
             tn = row.get("tool_name")
             if tn is not None:
                 self._tool_result_counts[tn] = self._tool_result_counts.get(tn, 0) + 1
-        elif kind == "tool_use":
+        elif kind == EventKind.TOOL_USE:
             tn = row.get("tool_name")
             if tn is not None:
                 self._tool_use_counts[tn] = self._tool_use_counts.get(tn, 0) + 1
@@ -299,13 +300,21 @@ class ToolCallVisitor(EventVisitor):
                 fpath = inp.get("file_path") or inp.get("path")
                 if fpath:
                     fpath = str(fpath)
-                    counts = self._files_touched.setdefault(fpath, FileCounts())
+                    prev = self._files_touched.get(fpath)
+                    if prev is None:
+                        prev = FileCounts()
                     if op == "read":
-                        counts.read += 1
+                        self._files_touched[fpath] = FileCounts(
+                            read=prev.read + 1, edit=prev.edit, write=prev.write
+                        )
                     elif op == "edit":
-                        counts.edit += 1
+                        self._files_touched[fpath] = FileCounts(
+                            read=prev.read, edit=prev.edit + 1, write=prev.write
+                        )
                     elif op == "write":
-                        counts.write += 1
+                        self._files_touched[fpath] = FileCounts(
+                            read=prev.read, edit=prev.edit, write=prev.write + 1
+                        )
 
     def result(self) -> ToolCallResult:
         """Return tool counts (results win over uses) and files touched."""
@@ -336,7 +345,7 @@ class UsageVisitor(EventVisitor):
 
     def visit(self, row: dict) -> None:
         """Fold one row's usage block into the token totals."""
-        if row.get("kind") == "session_ended":
+        if row.get("kind") == EventKind.SESSION_ENDED:
             return
         usage = row.get("usage")
         if not isinstance(usage, dict):
@@ -382,7 +391,7 @@ class RateLimitVisitor(EventVisitor):
     def visit(self, row: dict) -> None:
         """Fold one row's rejected rate-limit info into the event list."""
         rate_info = row.get("rate_info")
-        if row.get("kind") not in ("rate_limit", "rate_limit_info"):
+        if row.get("kind") not in (EventKind.RATE_LIMIT, EventKind.RATE_LIMIT_INFO):
             return
         if not isinstance(rate_info, dict) or rate_info.get("status") != "rejected":
             return
@@ -419,7 +428,7 @@ class ContextPressureVisitor(EventVisitor):
 
     def visit(self, row: dict) -> None:
         """Latch once a context_pressure row is seen."""
-        if row.get("kind") == "context_pressure":
+        if row.get("kind") == TaskOutcome.CONTEXT_PRESSURE.value:
             self._pressure = True
 
     def result(self) -> bool:

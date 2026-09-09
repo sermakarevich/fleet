@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+from fleet.core.errors import ConfigError
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,7 +83,7 @@ def _coerce(key: str, value: object) -> object:
                 return True
             if lowered in ("false", "0", "no", "off"):
                 return False
-            raise ValueError(f"Invalid bool for {key}: {value!r}")
+            raise ConfigError(f"Invalid bool for {key}: {value!r}")
         return bool(value)
     return typ(value)
 
@@ -116,9 +118,9 @@ def _warn_deprecated(data: dict) -> None:
 
 
 def _validate_isolation(value: object) -> None:
-    """Raise ValueError when `isolation` is not a known mode."""
+    """Raise ConfigError when `isolation` is not a known mode."""
     if value not in ("worktree", "none"):
-        raise ValueError(f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'")
+        raise ConfigError(f"Invalid isolation mode {value!r}: expected 'worktree' or 'none'")
 
 
 def parse(data: dict) -> RuntimeConfig:
@@ -136,7 +138,7 @@ def merge(existing: dict, updates: dict) -> dict:
     """Merge on-disk TOML data and new updates onto defaults; all coerced."""
     unknown = set(updates) - set(_KEY_TYPES)
     if unknown:
-        raise ValueError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
+        raise ConfigError(f"Unknown config key(s): {', '.join(sorted(unknown))}")
     if "isolation" in updates:
         _validate_isolation(_coerce("isolation", updates["isolation"]))
     merged = _defaults()

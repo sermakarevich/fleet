@@ -8,16 +8,28 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from enum import StrEnum
 
-SCHEMA_VERSION = 1
-
-_VALID_STATUSES = {"done", "partial", "blocked"}
+from fleet.core.errors import Json
 
 
-@dataclass
+class ResultStatus(StrEnum):
+    """Declared worker outcome in RESULT.json."""
+
+    DONE = "done"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+
+
+_VALID_STATUSES = {s.value for s in ResultStatus}
+
+
+@dataclass(frozen=True, slots=True)
 class Result:
+    """Parsed RESULT.json: the worker's declared outcome."""
+
     schema: int
-    status: str
+    status: ResultStatus
     summary: str = ""
     commits: list[str] = field(default_factory=list)
     tests: dict | None = None
@@ -26,7 +38,10 @@ class Result:
     blocked_reason: str = ""
     # Observer-declared follow-up beads (status=partial only):
     # [{title, body, cwd, depends_on}] — validated by core/job_plan.
-    followups: list[dict] = field(default_factory=list)
+    followups: list[Json] = field(default_factory=list)
+
+
+SCHEMA_VERSION = 1
 
 
 def parse_result(text: str) -> Result | None:
@@ -51,7 +66,7 @@ def parse_result(text: str) -> Result | None:
     followups = data.get("followups") or []
     return Result(
         schema=data.get("schema", SCHEMA_VERSION),
-        status=status,
+        status=ResultStatus(status),
         summary=str(data.get("summary") or ""),
         commits=[str(c) for c in commits] if isinstance(commits, list) else [],
         tests=tests if isinstance(tests, dict) else None,

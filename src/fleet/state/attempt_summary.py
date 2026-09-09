@@ -12,9 +12,11 @@ when they need it.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import Any
 
+from fleet.core.task import AttemptKind, EventKind
 from fleet.state import attempts as state_attempts
 from fleet.state.events import iter_attempt_events, scan_rows
 from fleet.state.run_file import RunRecord
@@ -25,7 +27,43 @@ _LAST_TEXT_EVENTS = 5
 _LAST_TEXT_MAX_CHARS = 400
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
+class AttemptRow:
+    """One merged attempts.jsonl row, typed at the read edge."""
+
+    n: int = 0
+    kind: str = "work"
+    mode: str = "unknown"
+    coder: str | None = None
+    model: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    duration_sec: float | None = None
+    outcome: str | None = None
+    reason: str | None = None
+    exit_code: int | None = None
+    action: str | None = None
+    worker: str | None = None
+
+    @classmethod
+    def from_dict(cls, row: dict) -> AttemptRow:
+        """Build a row from a raw journal dict, ignoring unknown keys."""
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in row.items() if k in known})
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-style read so existing callers keep working."""
+        return getattr(self, key, default) if hasattr(self, key) else default
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style index so existing callers keep working."""
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+
+@dataclass(frozen=True, slots=True)
 class AttemptSummary:
     """Derived facts about one attempt (never stored on disk)."""
 
@@ -59,11 +97,12 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _attempt_row(task_dir: Path, n: int) -> dict:
+def _attempt_row(task_dir: Path, n: int) -> AttemptRow:
+    """The journal row for attempt *n* as a typed record."""
     for row in state_attempts.load_attempts(task_dir):
         if row.get("n") == n:
-            return row
-    return {"n": n}
+            return AttemptRow.from_dict(row)
+    return AttemptRow(n=n)
 
 
 def _extract_text(row: dict) -> str:
@@ -115,8 +154,8 @@ def summarize(task_dir: Path, n: int) -> AttemptSummary:
     stats = scan_rows(iter_attempt_events(task_dir, n))
 
     events = list(iter_attempt_events(task_dir, n))
-    last_error = next((e for e in reversed(events) if e.get("kind") == "error"), None)
-    last_texts = [_extract_text(e) for e in events if e.get("kind") == "assistant_text"][
+    last_error = next((e for e in reversed(events) if e.get("kind") == EventKind.ERROR), None)
+    last_texts = [_extract_text(e) for e in events if e.get("kind") == EventKind.ASSISTANT_TEXT][
         -_LAST_TEXT_EVENTS:
     ]
 
@@ -128,7 +167,7 @@ def summarize(task_dir: Path, n: int) -> AttemptSummary:
 
     return AttemptSummary(
         n=n,
-        kind=str(launch.get("kind") or row.get("kind") or "work"),
+        kind=str(launch.get("kind") or row.get("kind") or AttemptKind.WORK.value),
         mode=str(launch.get("mode") or "unknown"),
         coder=row.get("coder"),
         model=row.get("model"),

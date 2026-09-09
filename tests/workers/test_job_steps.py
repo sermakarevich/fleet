@@ -19,7 +19,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state.paths import task_dir as _task_dir
-from fleet.workers.base import StepContext
+from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren
 
 
@@ -117,9 +117,9 @@ def _valid_tasks(*keys: str) -> dict:
 def test_job_prepare_sets_typed_plan(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     result = asyncio.run(JobPrepare("research").run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert ctx.plan is not None and ctx.plan.mode == "research"
-    assert ctx.scratch["launch_plan"] is ctx.plan
+    assert ctx.launch_plan is ctx.plan
     run = json.loads((ctx.attempt_dir / "run.json").read_text(encoding="utf-8"))
     assert run["launch"]["mode"] == "research"
 
@@ -130,7 +130,7 @@ def test_job_prepare_design_packs_research_notes(tmp_path: Path) -> None:
     artifacts.mkdir(parents=True, exist_ok=True)
     (artifacts / "RESEARCH.md").write_text("findings")
     result = asyncio.run(JobPrepare("design").run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert ctx.plan is not None and "findings" in ctx.plan.pack
 
 
@@ -139,7 +139,7 @@ def test_ask_approval_uses_declared_config(tmp_path: Path) -> None:
     ctx.config = RuntimeConfig(job_max_children=1)
     _write_tasks(ctx, _valid_tasks("a", "b"))  # 2 tasks > cap of 1
     result = asyncio.run(AskApproval(FakeStore()).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"
 
@@ -148,7 +148,7 @@ def test_ask_approval_waits_for_gate(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     _write_tasks(ctx, _valid_tasks("a"))
     result = asyncio.run(AskApproval(FakeStore()).run(ctx))
-    assert result.status == "outcome"
+    assert result.status == StepStatus.OUTCOME
     assert result.outcome is not None
     assert result.outcome.outcome == TaskOutcome.WAITING
 
@@ -158,7 +158,7 @@ def test_spawn_children_isolated(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("a"))
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert [spec["title"] for _, spec in queue.created] == ["title a"]
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "observe"
@@ -167,7 +167,7 @@ def test_spawn_children_isolated(tmp_path: Path) -> None:
 def test_block_job_isolated(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     result = asyncio.run(BlockJob("too many failures").run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "blocked"
     assert declared["blocked_reason"] == "too many failures"

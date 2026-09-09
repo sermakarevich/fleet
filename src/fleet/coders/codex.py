@@ -24,7 +24,7 @@ from typing import ClassVar
 from fleet.coders.base import CoderSpec, Workspace, lookup_handler, prompt_context
 from fleet.coders.env import fleet_env
 from fleet.core.launch import LaunchPlan
-from fleet.core.task import Event, Task
+from fleet.core.task import Event, EventKind, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
@@ -94,7 +94,7 @@ def _write_codex_config(codex_home: Path, home: Path) -> Path:
 def _session_started(data: dict) -> Event | None:
     """A thread started."""
     return Event(
-        kind="session_started",
+        kind=EventKind.SESSION_STARTED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("thread_id"),
@@ -104,7 +104,7 @@ def _session_started(data: dict) -> Event | None:
 def _session_ended(data: dict) -> Event | None:
     """A turn completed."""
     return Event(
-        kind="session_ended",
+        kind=EventKind.SESSION_ENDED,
         raw=data,
         ts=datetime.now(tz=UTC),
         usage=data.get("usage"),
@@ -113,17 +113,17 @@ def _session_ended(data: dict) -> Event | None:
 
 def _error(data: dict) -> Event | None:
     """A failed turn or error envelope."""
-    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC))
 
 
 def _assistant_text(data: dict) -> Event | None:
     """A completed agent message."""
-    return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.ASSISTANT_TEXT, raw=data, ts=datetime.now(tz=UTC))
 
 
 def _thinking(data: dict) -> Event | None:
     """A completed reasoning block."""
-    return Event(kind="thinking", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.THINKING, raw=data, ts=datetime.now(tz=UTC))
 
 
 def _tool_use(data: dict) -> Event | None:
@@ -131,7 +131,7 @@ def _tool_use(data: dict) -> Event | None:
     item = data.get("item", {})
     tool_name = item.get("type") if isinstance(item, dict) else None
     return Event(
-        kind="tool_use",
+        kind=EventKind.TOOL_USE,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=tool_name,
@@ -143,7 +143,7 @@ def _tool_result(data: dict) -> Event | None:
     item = data.get("item", {})
     tool_name = item.get("type") if isinstance(item, dict) else None
     return Event(
-        kind="tool_result",
+        kind=EventKind.TOOL_RESULT,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=tool_name,

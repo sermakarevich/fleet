@@ -13,10 +13,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from fleet.core.launch import LaunchLimits, LaunchPlan, plan_launch
+from fleet.core.task import AttemptKind
 from fleet.state.artifacts import StateFile, read_artifacts
 from fleet.state.attempts import load_attempts
 
-from .base import FnStep, Step, StepContext, StepResult, Worker, merge_run_json
+from .base import FnStep, Step, StepContext, StepResult, StepStatus, Worker, merge_run_json
 from .compact import COMPACT_STEP
 from .llm_session import LlmSession
 
@@ -38,7 +39,11 @@ def _record_launch(ctx: StepContext, plan) -> None:
     """
     merge_run_json(
         ctx,
-        launch={"mode": plan.mode, "pack_bytes": plan.pack_bytes, "kind": "work"},
+        launch={
+            "mode": plan.mode,
+            "pack_bytes": plan.pack_bytes,
+            "kind": AttemptKind.WORK.value,
+        },
     )
 
 
@@ -66,20 +71,20 @@ async def prepare_artifacts(ctx: StepContext) -> StepResult:
     hook = getattr(ctx.coder, "write_runtime_config", None)
     if hook is not None:
         hook(ctx.project_root, ctx.task)
-    return StepResult(status="ok")
+    return StepResult(status=StepStatus.OK)
 
 
 async def prepare_continue(ctx: StepContext) -> StepResult:
     """Plan the continue launch pack, store it for LlmSession, record it in run.json."""
     plan = _plan_launch_for(ctx)
     ctx.plan = plan
-    ctx.scratch["launch_plan"] = plan
+    ctx.launch_plan = plan
     _record_launch(ctx, plan)
     assert ctx.coder is not None
     hook = getattr(ctx.coder, "write_runtime_config", None)
     if hook is not None:
         hook(ctx.project_root, ctx.task)
-    return StepResult(status="ok")
+    return StepResult(status=StepStatus.OK)
 
 
 PREPARE_ARTIFACTS = FnStep("prepare_artifacts", prepare_artifacts)

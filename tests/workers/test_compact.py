@@ -11,12 +11,13 @@ from pathlib import Path
 import structlog
 
 import fleet.workers.compact as compact_mod
+from fleet.coders.base import CoderSpec
 from fleet.core.config import RuntimeConfig
 from fleet.core.retry_policy import _trailing_streak
-from fleet.core.task import Event, Task
+from fleet.core.task import Event, EventKind, Task
 from fleet.state import attempts as state_attempts
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import FnStep, StepContext
+from fleet.workers.base import FnStep, StepContext, StepStatus
 from fleet.workers.compact import (
     COMPACT_STEP,
     collect_material,
@@ -55,6 +56,7 @@ class FakeCompactionCoder:
 
     name = "fake"
     context_limit = 200_000
+    spec = CoderSpec(name="fake", default_model="fake", context_limit=200_000)
 
     lines: list[str] = _SUCCESS_LINES
 
@@ -77,7 +79,7 @@ class FakeCompactionCoder:
         except ValueError:
             return None
         if isinstance(data, dict) and isinstance(data.get("text"), str):
-            return Event(kind="assistant_text", raw=data, ts=datetime.now())
+            return Event(kind=EventKind.ASSISTANT_TEXT, raw=data, ts=datetime.now())
         return None
 
 
@@ -114,10 +116,10 @@ def _ctx(
 def _patch_coder(monkeypatch, lines: list[str]) -> None:
     FakeCompactionCoder.lines = lines
 
-    def _get_coder(name: str):
-        return FakeCompactionCoder
+    def _resolve_coder(name: str, **kwargs):
+        return FakeCompactionCoder(**kwargs)
 
-    monkeypatch.setattr("fleet.workers.compact.get_coder", _get_coder)
+    monkeypatch.setattr("fleet.workers.compact.resolve_coder", _resolve_coder)
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ def test_compact_writes_state_and_compact_row(tmp_path: Path, monkeypatch) -> No
 
     result = asyncio.run(COMPACT_STEP.run(ctx))
 
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert result.reason == "compacted"
     assert (task_dir / "STATE.md").read_text() == _STATE_BODY.strip()
 
@@ -175,7 +177,7 @@ def test_oversize_output_falls_back(tmp_path: Path, monkeypatch) -> None:
 
     result = asyncio.run(COMPACT_STEP.run(ctx))
 
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert result.reason.startswith("compaction_fallback")
     state = (task_dir / "STATE.md").read_text()
     assert len(state.encode("utf-8")) <= ctx.config.state_max_bytes
@@ -200,7 +202,7 @@ def test_timeout_falls_back(tmp_path: Path, monkeypatch) -> None:
 
     result = asyncio.run(COMPACT_STEP.run(ctx))
 
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert result.reason.startswith("compaction_fallback")
     assert (task_dir / "STATE.md").exists()
 

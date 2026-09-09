@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -14,6 +14,7 @@ from fleet.beads.queue import Queue
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcomeRecord
+from fleet.integrations.ask_human.store import QuestionStore
 from fleet.state import paths as state_paths
 from fleet.workers.base import WorkerRun
 
@@ -53,9 +54,8 @@ class SupervisorState:
     # (e.g. ConfigReload) can emit events to each other via emit().
     services: list[Service] = field(default_factory=list)
     # Writer: the CLI entry point injects the shared ask_human store once;
-    # spawn.py forwards it to StepContext (Any: this package never imports
-    # integrations, same as default_services(question_store=...)).
-    question_store: Any = None
+    # spawn.py forwards it to StepContext.
+    question_store: QuestionStore | None = None
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""

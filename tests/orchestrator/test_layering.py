@@ -1,9 +1,11 @@
-"""Import layering for the orchestrator package (ADR 0005).
+"""Import layering for the orchestrator package (ADR 0005, ADR 0006 bead 18).
 
 Every orchestrator/*.py module may import only lower layers (core, state,
-beads, workers, coders), sibling orchestrator modules, the stdlib, and
-third-party packages — never serve, cli, or integrations. supervisor.py is
-the thin runner: it imports no sibling except service, state, and checks.
+beads, workers, coders), sibling orchestrator modules, integrations (the
+injected QuestionStore, per docs/ARCHITECTURE.md which allows
+orchestrator -> integrations), the stdlib, and third-party packages —
+never serve or cli. supervisor.py is the thin runner: it imports no
+sibling except service, state, and checks.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import ast
 from pathlib import Path
 
 ORCHESTRATOR_DIR = Path(__file__).resolve().parents[2] / "src" / "fleet" / "orchestrator"
-LOWER_LAYERS = {"core", "state", "beads", "workers", "coders"}
+LOWER_LAYERS = {"core", "state", "beads", "workers", "coders", "integrations"}
 SUPERVISOR_SIBLINGS = {"service", "state", "checks"}
 
 
@@ -50,7 +52,7 @@ def _orchestrator_modules() -> list[Path]:
 
 
 def test_orchestrator_imports_only_lower_layers_and_siblings() -> None:
-    """No orchestrator module imports serve, cli, integrations, or observability."""
+    """No orchestrator module imports serve or cli."""
     allowed = LOWER_LAYERS | {"orchestrator"}
     offenders: dict[str, set[str]] = {}
     for path in _orchestrator_modules():

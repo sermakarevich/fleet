@@ -7,13 +7,15 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import StepContext, StepResult, Worker, WorkerRun, run_worker
+from fleet.workers.base import StepContext, StepResult, StepStatus, Worker, WorkerRun, run_worker
 
 
 class _RecordingStep:
     """A step that records calls, returns a fixed StepResult, and can hang."""
 
-    def __init__(self, name: str, status: str = "ok", reason: str = "", hang: bool = False):
+    def __init__(
+        self, name: str, status: StepStatus = StepStatus.OK, reason: str = "", hang: bool = False
+    ):
         self.name = name
         self._status = status
         self._reason = reason
@@ -28,13 +30,13 @@ class _RecordingStep:
             assert self._cancel_event is not None
             await self._cancel_event.wait()
             return StepResult(
-                status="outcome",
+                status=StepStatus.OUTCOME,
                 outcome=TaskOutcomeRecord(
                     outcome=TaskOutcome.KILLED, reason=self.cancel_reason or ""
                 ),
             )
         outcome = None
-        if self._status == "outcome":
+        if self._status == StepStatus.OUTCOME:
             outcome = TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0)
         return StepResult(status=self._status, reason=self._reason, outcome=outcome)
 
@@ -86,7 +88,7 @@ def test_all_ok_steps_run_in_order_and_return_success(tmp_path: Path) -> None:
 
 def test_stops_at_first_fail(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    a = _RecordingStep("a", status="fail", reason="bad input")
+    a = _RecordingStep("a", status=StepStatus.FAIL, reason="bad input")
     b = _RecordingStep("b")
     worker = Worker("w.test", (a, b))
 
@@ -100,7 +102,7 @@ def test_stops_at_first_fail(tmp_path: Path) -> None:
 
 def test_stops_at_first_outcome(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    a = _RecordingStep("a", status="outcome")
+    a = _RecordingStep("a", status=StepStatus.OUTCOME)
     b = _RecordingStep("b")
     worker = Worker("w.test", (a, b))
 
@@ -123,7 +125,7 @@ def test_unexpected_exception_becomes_failure(tmp_path: Path) -> None:
 
 def test_steps_recorded_in_run_json(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
-    a, b = _RecordingStep("a"), _RecordingStep("b", status="outcome")
+    a, b = _RecordingStep("a"), _RecordingStep("b", status=StepStatus.OUTCOME)
     worker = Worker("w.test", (a, b))
 
     asyncio.run(run_worker(worker, ctx))

@@ -14,7 +14,7 @@ from fleet.coders.model_ref import resolve_model
 from fleet.coders.settings import OpencodeSettings
 from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
-from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import Event, EventKind, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 
@@ -100,7 +100,7 @@ def _model_ref(model: str, default: str):
 def _session_started(data: dict) -> Event | None:
     """A step_start fires at the beginning of every LLM step (repeats per step)."""
     return Event(
-        kind="session_started",
+        kind=EventKind.SESSION_STARTED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("sessionID"),
@@ -110,7 +110,7 @@ def _session_started(data: dict) -> Event | None:
 def _assistant_text(data: dict) -> Event | None:
     """A streamed text part."""
     return Event(
-        kind="assistant_text",
+        kind=EventKind.ASSISTANT_TEXT,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("sessionID"),
@@ -126,10 +126,12 @@ def _tool_event(data: dict) -> Event | None:
     status = state.get("status") if isinstance(state, dict) else None
     tool_name = part.get("tool")
     if status == "completed":
-        return Event(kind="tool_result", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+        return Event(
+            kind=EventKind.TOOL_RESULT, raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name
+        )
     if status == "error":
-        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
-    return Event(kind="tool_use", raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+        return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
+    return Event(kind=EventKind.TOOL_USE, raw=data, ts=datetime.now(tz=UTC), tool_name=tool_name)
 
 
 def _usage_of(tokens: object) -> dict:
@@ -153,20 +155,20 @@ def _step_finish(data: dict) -> Event | None:
         return None
     session_id = data.get("sessionID")
     if part.get("reason") == "length":
-        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), session_id=session_id)
+        return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC), session_id=session_id)
     if part.get("reason") != "stop":
         tokens = part.get("tokens", {})
         if not tokens:
             return None
         return Event(
-            kind="assistant_text",
+            kind=EventKind.ASSISTANT_TEXT,
             raw=data,
             ts=datetime.now(tz=UTC),
             session_id=session_id,
             usage=_usage_of(tokens),
         )
     return Event(
-        kind="session_ended",
+        kind=EventKind.SESSION_ENDED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=session_id,
@@ -176,7 +178,7 @@ def _step_finish(data: dict) -> Event | None:
 
 def _error(data: dict) -> Event | None:
     """A top-level error envelope."""
-    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC))
 
 
 EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {

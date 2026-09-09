@@ -15,6 +15,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from fleet.core.errors import WorktreeError
+
 
 def _fleet_home(fleet_home: Path | None = None) -> Path:
     """Resolve the fleet home for worktree placement."""
@@ -172,7 +174,7 @@ def remove_worktree(
         and "does not exist" not in result.stderr
         and "is not a working tree" not in result.stderr
     ):
-        raise RuntimeError(f"git worktree remove failed: {result.stderr}")
+        raise WorktreeError(f"git worktree remove failed: {result.stderr}")
 
 
 def delete_branch(repo_root: Path | str, task_id: str) -> None:
@@ -260,8 +262,10 @@ def is_committed_clean(  # noqa: PLR0911  # ADR 0006 bead 20
         return False
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MergeResult:
+    """Outcome of merging a task worktree branch back to base."""
+
     ok: bool
     conflict: bool
     message: str

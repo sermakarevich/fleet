@@ -7,7 +7,7 @@ each module in this package owns one concern with its own cadence, and
 
 from __future__ import annotations
 
-from typing import Any
+from fleet.integrations.ask_human.store import QuestionStore
 
 from .claim import Claim
 from .config_reload import make_config_reload
@@ -37,11 +37,11 @@ __all__ = [
 ]
 
 
-def default_services(question_store: Any | None = None) -> list[Service]:
+def default_services(question_store: QuestionStore | None = None) -> list[Service]:
     """Build the production service list in hook order.
 
     The triage question store is injected by the caller (the CLI passes the
-    real ask_human store) so this package never imports integrations.
+    real ask_human store).
     """
     return [
         make_config_reload(),

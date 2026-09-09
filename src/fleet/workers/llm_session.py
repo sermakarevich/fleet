@@ -33,7 +33,7 @@ from fleet.state.atomic import write_text_atomic
 from fleet.state.journal import TaskLogRecord, open_task_log
 from fleet.state.paths import PROMPT_MD, RUN_JSON
 
-from .base import StepContext, StepResult, write_run_json
+from .base import StepContext, StepResult, StepStatus, write_run_json
 from .session import monitors as monitors_mod
 from .session.classify import classify_exit
 from .session.monitors import (
@@ -158,7 +158,7 @@ class LlmSession:
         task_dir.mkdir(parents=True, exist_ok=True)
         attempt_dir = ctx.attempt_dir or task_dir
         attempt_dir.mkdir(parents=True, exist_ok=True)
-        plan = ctx.plan if ctx.plan is not None else ctx.scratch.get("launch_plan")
+        plan = ctx.plan if ctx.plan is not None else ctx.launch_plan
         launch_mode = plan.mode if plan is not None else "fresh"
         with open_task_log(attempt_dir, task.id) as task_log:
             await self._spawn(ctx, task_dir, attempt_dir, task_log, plan, launch_mode)
@@ -187,7 +187,7 @@ class LlmSession:
                 stderr_tail=stream.stderr_tail,
             )
             self._finish(ctx, task_log, attempt_dir, state, exit_code, outcome)
-            return StepResult(status="outcome", outcome=outcome)
+            return StepResult(status=StepStatus.OUTCOME, outcome=outcome)
 
     async def _spawn(
         self,

@@ -9,8 +9,9 @@ from fleet.coders.base import CoderSpec, context_limit_for, lookup_handler, prom
 from fleet.coders.env import bedrock_env, fleet_env
 from fleet.coders.model_ref import resolve_model
 from fleet.coders.settings import PiSettings
+from fleet.core.errors import Json
 from fleet.core.launch import LaunchPlan
-from fleet.core.task import Event, Task
+from fleet.core.task import Event, EventKind, Task
 from fleet.prompts import render
 
 # pi reads provider config from <agent-dir>/models.json. The provider id is the
@@ -27,7 +28,7 @@ def _model_ref(model: str, default: str):
     return resolve_model(model, default, default_provider=_PROVIDER_ID)
 
 
-def _map_usage(usage: object) -> dict | None:
+def _map_usage(usage: Json) -> dict | None:
     """Map pi's per-message usage block to fleet's usage dict, or None."""
     if not isinstance(usage, dict):
         return None
@@ -42,7 +43,7 @@ def _map_usage(usage: object) -> dict | None:
 def _session_started(data: dict) -> Event | None:
     """Session header: {"type":"session","id":<uuid>,"cwd":...}."""
     return Event(
-        kind="session_started",
+        kind=EventKind.SESSION_STARTED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("id"),
@@ -56,34 +57,39 @@ def _message_end(data: dict) -> Event | None:
         return None
     usage = _map_usage(msg.get("usage"))
     if msg.get("stopReason") == "length":
-        return Event(kind="error", raw=data, ts=datetime.now(tz=UTC), usage=usage)
-    return Event(kind="assistant_text", raw=data, ts=datetime.now(tz=UTC), usage=usage)
+        return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC), usage=usage)
+    return Event(kind=EventKind.ASSISTANT_TEXT, raw=data, ts=datetime.now(tz=UTC), usage=usage)
 
 
 def _tool_start(data: dict) -> Event | None:
     """A tool invocation started."""
-    return Event(kind="tool_use", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName"))
+    return Event(
+        kind=EventKind.TOOL_USE, raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
+    )
 
 
 def _tool_end(data: dict) -> Event | None:
     """A tool invocation finished; errors surface as error events."""
     if data.get("isError"):
         return Event(
-            kind="error", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
+            kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
         )
     return Event(
-        kind="tool_result", raw=data, ts=datetime.now(tz=UTC), tool_name=data.get("toolName")
+        kind=EventKind.TOOL_RESULT,
+        raw=data,
+        ts=datetime.now(tz=UTC),
+        tool_name=data.get("toolName"),
     )
 
 
 def _agent_end(data: dict) -> Event | None:
     """Final event of a run; per-message usage already flowed via message_end."""
-    return Event(kind="session_ended", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.SESSION_ENDED, raw=data, ts=datetime.now(tz=UTC))
 
 
 def _error(data: dict) -> Event | None:
     """A top-level error envelope."""
-    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC))
 
 
 EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,10 +22,12 @@ from fleet.beads.cache import get_beads_status_map
 from fleet.coders import context_limit_for
 from fleet.core.config import RuntimeConfig
 from fleet.core.effective import effective_coder_model
+from fleet.core.task import TaskStatus
 from fleet.observability.tailview import event_summary as _event_summary
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_summary import (
+    TaskSummary,
     build_task_summary,
     context_overrides_for_home,
 )
@@ -33,7 +35,7 @@ from fleet.state.task_summary import (
 logger = logging.getLogger(__name__)
 
 
-def recency_key(data: dict) -> str:
+def recency_key(data: Mapping[str, Any]) -> str:
     """ISO string sorting by recency descending (latest first)."""
     for key in ("ended_at", "started_at", "created_at"):
         val = data.get(key)
@@ -56,7 +58,7 @@ def build_summary(
     beads_map: dict[str, dict] | None = None,
     default_coder: str | None = None,
     default_model: str | None = None,
-) -> dict:
+) -> TaskSummary:
     """One task summary with caller-resolved context limit and notes."""
     overrides = context_overrides_for_home(home)
     coder, model = effective_coder_model(
@@ -64,7 +66,7 @@ def build_summary(
     )
     limit = context_limit_for(coder, model, overrides)
     notes: str | None = None
-    if data.get("blocked_reason") is None and data.get("status") == "blocked":
+    if data.get("blocked_reason") is None and data.get("status") == TaskStatus.BLOCKED.value:
         resolved = beads_map if beads_map is not None else get_beads_status_map(home)
         notes = (resolved or {}).get(data.get("id", ""), {}).get("notes")
     return build_task_summary(task_dir, data, home, context_limit=limit, blocked_notes=notes)
@@ -76,7 +78,7 @@ def build_all_summaries(
     beads_map: dict[str, dict] | None = None,
     default_coder: str | None = None,
     default_model: str | None = None,
-) -> list[dict]:
+) -> list[TaskSummary]:
     """Summaries for raw task.json dicts (dir resolved from the id)."""
     return [
         build_summary(

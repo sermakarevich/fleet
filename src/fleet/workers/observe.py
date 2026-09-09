@@ -21,15 +21,15 @@ from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.job_plan import validate_followups
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.launch import LaunchPlan
-from fleet.core.result import parse_result
-from fleet.core.task import TaskOutcome, TaskOutcomeRecord
+from fleet.core.result import ResultStatus, parse_result
+from fleet.core.task import AttemptKind, TaskOutcome, TaskOutcomeRecord, TaskStatus
 from fleet.state import attempts as state_attempts
 from fleet.state.attempt_summary import summarize
 from fleet.state.legacy import legacy_result
 from fleet.state.paths import RESULT_JSON, fleet_home
 from fleet.state.paths import task_dir as task_dir_path
 
-from .base import StepContext, StepResult, Worker, merge_run_json
+from .base import StepContext, StepResult, StepStatus, Worker, merge_run_json
 from .llm_session import LlmSession
 
 # artifacts/CHILDREN.md is bounded by construction: each child section is
@@ -66,13 +66,13 @@ class WaitChildren:
         try:
             children = _as_summaries(self._queue.list_children(ctx.task.id))
         except Exception as exc:  # noqa: BLE001 - step contract: return fail, never raise
-            return StepResult(status="fail", reason=f"cannot list children: {exc}")
-        ctx.scratch["children"] = [{"id": c.id, "status": c.status} for c in children]
+            return StepResult(status=StepStatus.FAIL, reason=f"cannot list children: {exc}")
+        ctx.children = [{"id": c.id, "status": c.status} for c in children]
         if children_terminal(children):
-            return StepResult(status="ok")
+            return StepResult(status=StepStatus.OK)
         running = [c for c in children if c.status not in ("closed", "blocked")]
         return StepResult(
-            status="outcome",
+            status=StepStatus.OUTCOME,
             outcome=TaskOutcomeRecord(
                 outcome=TaskOutcome.WAITING,
                 reason=f"{len(running)} of {len(children)} children still running",
@@ -95,7 +95,7 @@ def _latest_result(task_dir: Path) -> tuple[str, str]:
             except (ValueError, TypeError):
                 result = None
     if result is not None:
-        return result.status, result.summary
+        return result.status.value, result.summary
     return "unknown", ""
 
 
@@ -184,24 +184,28 @@ class CollectChildren:
             return early
         assert raw is not None
         body = _write_digest(ctx, raw)
-        blocked = sum(1 for c in raw if isinstance(c, dict) and c.get("status") == "blocked")
-        ctx.scratch["child_ids"] = [
-            str(c["id"]) for c in raw if isinstance(c, dict) and c.get("id")
-        ]
-        ctx.scratch["blocked_children"] = blocked
+        blocked = sum(
+            1 for c in raw if isinstance(c, dict) and c.get("status") == TaskStatus.BLOCKED.value
+        )
+        ctx.child_ids = [str(c["id"]) for c in raw if isinstance(c, dict) and c.get("id")]
+        ctx.blocked_children = blocked
         pack_bytes = len(body.encode("utf-8"))
         plan = LaunchPlan(mode="validate", pack=body, pack_bytes=pack_bytes, needs_compaction=False)
         ctx.plan = plan
-        ctx.scratch["launch_plan"] = plan
+        ctx.launch_plan = plan
         merge_run_json(
             ctx,
-            launch={"mode": "validate", "pack_bytes": pack_bytes, "kind": "work"},
+            launch={
+                "mode": "validate",
+                "pack_bytes": pack_bytes,
+                "kind": AttemptKind.WORK.value,
+            },
         )
-        return StepResult(status="ok")
+        return StepResult(status=StepStatus.OK)
 
     def _load_rows(self, ctx: StepContext) -> tuple[list | None, StepResult | None]:
         """Child rows from the previous step, or listed fresh from the queue."""
-        raw = ctx.scratch.get("children")
+        raw = ctx.children
         if raw is not None:
             return raw, None
         try:
@@ -210,7 +214,7 @@ class CollectChildren:
                 for c in _as_summaries(self._queue.list_children(ctx.task.id))
             ]
         except Exception as exc:  # noqa: BLE001 - step contract
-            return None, StepResult(status="fail", reason=f"cannot list children: {exc}")
+            return None, StepResult(status=StepStatus.FAIL, reason=f"cannot list children: {exc}")
         return rows, None
 
 
@@ -226,17 +230,17 @@ class SpawnFollowups:
         try:
             text = (ctx.task_dir / RESULT_JSON).read_text(encoding="utf-8")
         except OSError:
-            return StepResult(status="ok")
+            return StepResult(status=StepStatus.OK)
         result = parse_result(text)
-        if result is None or result.status != "partial" or not result.followups:
-            return StepResult(status="ok")
+        if result is None or result.status != ResultStatus.PARTIAL or not result.followups:
+            return StepResult(status=StepStatus.OK)
         max_followups = ctx.config.observer_max_followups
         try:
             specs = validate_followups(result.followups, max_followups=max_followups)
         except ValueError as exc:
             with suppress(Exception):  # noqa: BLE001 - commenting is best effort
                 self._queue.comment(ctx.task.id, f"[fleet] ignoring invalid follow-ups: {exc}")
-            return StepResult(status="ok")
+            return StepResult(status=StepStatus.OK)
         queue = self._queue
         created: dict[str, str] = {}
         try:
@@ -258,8 +262,8 @@ class SpawnFollowups:
                 f"[fleet] opened {len(created)} follow-ups: {', '.join(created.values())}",
             )
         except Exception as exc:  # noqa: BLE001 - step contract
-            return StepResult(status="fail", reason=f"cannot spawn follow-ups: {exc}")
-        return StepResult(status="ok")
+            return StepResult(status=StepStatus.FAIL, reason=f"cannot spawn follow-ups: {exc}")
+        return StepResult(status=StepStatus.OK)
 
 
 def _observer_steps(

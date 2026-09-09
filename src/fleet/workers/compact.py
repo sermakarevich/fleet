@@ -19,17 +19,19 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
-from fleet.coders import get_coder
-from fleet.coders.base import Workspace
+from fleet.coders import resolve_coder
+from fleet.coders.base import Coder, Workspace
 from fleet.core.compaction_fallback import compact_fallback
+from fleet.core.errors import Json
+from fleet.core.retry_policy import Action
+from fleet.core.task import AttemptKind, EventKind, Task, TaskOutcome
 from fleet.state import attempts as state_attempts
 from fleet.state.artifacts import StateFile
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.paths import RUN_JSON
 
-from .base import FnStep, StepContext, StepResult, write_run_json
+from .base import FnStep, StepContext, StepResult, StepStatus, write_run_json
 from .session.process import KILL_GRACE_SEC, CoderProcess
 from .session.stream import EventStream
 
@@ -155,19 +157,17 @@ def render_compaction_prompt(material: CompactionMaterial) -> str:
     return "\n\n".join(parts)
 
 
-def _compaction_argv(coder: object, task: object, task_dir: Path, prompt: str) -> list[str]:
+def _compaction_argv(coder: Coder, task: Task, task_dir: Path, prompt: str) -> list[str]:
     """Build the cheap-model argv through the coder's own argv shape.
 
     Reuses ``coder.build_argv`` (prompt is always the last element) and swaps
     in the compaction prompt; for claude adds a hard ``--max-turns 2`` cap.
     """
-    build = coder.build_argv  # type: ignore[attr-defined]  # duck-typed Coder; bead 6 gives Compact the shared process wrapper
-    argv = list(build(task, task_dir, None))
+    argv = list(coder.build_argv(task, task_dir, None))
     if not argv:
         raise ValueError("coder.build_argv returned empty argv")
     argv[-1] = prompt
-    spec = getattr(coder, "spec", None)
-    coder_name = spec.name if spec is not None else getattr(coder, "name", "")
+    coder_name = coder.spec.name
     if coder_name == "claude":
         argv.insert(-1, "--max-turns")
         argv.insert(-1, "2")
@@ -183,7 +183,8 @@ def parse_compaction_output(text: str) -> str | None:
     return state or None
 
 
-def _extract_text(raw: object) -> str:
+def _extract_text(raw: Json) -> str:
+    """Best-effort plain text from one assistant event payload."""
     if not isinstance(raw, dict):
         return ""
     msg = raw.get("message")
@@ -191,11 +192,13 @@ def _extract_text(raw: object) -> str:
         content = msg.get("content")
         if isinstance(content, list):
             texts = [
-                b.get("text", "")
+                text
                 for b in content
                 if isinstance(b, dict) and b.get("type") == "text"
+                for text in [b.get("text")]
+                if isinstance(text, str) and text
             ]
-            joined = "\n".join(t for t in texts if t)
+            joined = "\n".join(texts)
             if joined:
                 return joined
     for key in ("text", "message"):
@@ -206,8 +209,8 @@ def _extract_text(raw: object) -> str:
 
 
 async def _run_compaction_model(
-    coder: object,
-    task: object,
+    coder: Coder,
+    task: Task,
     argv: list[str],
     task_dir: Path,
     compact_dir: Path,
@@ -218,11 +221,11 @@ async def _run_compaction_model(
     Returns the concatenated assistant_text output. Raises ``TimeoutError``
     on timeout, ``OSError`` when the CLI binary is missing.
     """
-    env = {**os.environ, **coder.env(task, task_dir)}  # type: ignore[attr-defined]  # duck-typed Coder double
+    env = {**os.environ, **coder.env(task, task_dir)}
     proc = await CoderProcess.start(list(argv), env, None)
     stream = EventStream(
         proc,
-        coder,  # type: ignore[arg-type]  # duck-typed Coder double
+        coder,
         attempt_dir=compact_dir,
         started_at=datetime.now(tz=UTC),
     )
@@ -230,7 +233,7 @@ async def _run_compaction_model(
     try:
         async with asyncio.timeout(timeout_sec):
             async for evt in stream:
-                if evt.kind == "assistant_text":
+                if evt.kind == EventKind.ASSISTANT_TEXT:
                     text = _extract_text(evt.raw)
                     if text:
                         texts.append(text)
@@ -252,15 +255,18 @@ async def compact(ctx: StepContext) -> StepResult:
     task_dir = ctx.task_dir
     state_cap = ctx.config.state_max_bytes
     if not ctx.config.compaction_enabled:
-        return StepResult(status="ok", reason="compaction disabled")
+        return StepResult(status=StepStatus.OK, reason="compaction disabled")
 
     try:
-        coder_cls: Any = get_coder(ctx.config.compaction_coder)
+        coder = resolve_coder(
+            ctx.config.compaction_coder,
+            model=ctx.config.compaction_model,
+            fleet_home=ctx.fleet_home,
+        )
     except ValueError as exc:
         ctx.log.warning("compaction_fallback", reason=f"unknown coder: {exc}")
         return _compact_fallback(ctx, f"unknown coder: {exc}")
 
-    coder = coder_cls(model=ctx.config.compaction_model, fleet_home=ctx.fleet_home)
     material = collect_material(task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
     prompt = render_compaction_prompt(material)
     try:
@@ -274,13 +280,13 @@ async def compact(ctx: StepContext) -> StepResult:
         coder=ctx.config.compaction_coder,
         model=ctx.config.compaction_model,
         worker="task.continue_large",
-        kind="compact",
+        kind=AttemptKind.COMPACT.value,
     )
     compact_dir = state_attempts.attempt_dir(task_dir, compact_n)
     compact_dir.mkdir(parents=True, exist_ok=True)
     write_run_json(
         compact_dir / RUN_JSON,
-        launch={"mode": "compact", "pack_bytes": 0, "kind": "compact"},
+        launch={"mode": "compact", "pack_bytes": 0, "kind": AttemptKind.COMPACT.value},
     )
     fallback_reason: str | None = None
     try:
@@ -311,10 +317,10 @@ async def compact(ctx: StepContext) -> StepResult:
     try:
         StateFile.write(task_dir, state)
     except OSError as exc:
-        _finish_compact_row(ctx, compact_n, "failure", str(exc))
-        return StepResult(status="fail", reason=f"compaction write failed: {exc}")
-    _finish_compact_row(ctx, compact_n, "success", outcome_reason)
-    return StepResult(status="ok", reason=outcome_reason)
+        _finish_compact_row(ctx, compact_n, TaskOutcome.FAILURE, str(exc))
+        return StepResult(status=StepStatus.FAIL, reason=f"compaction write failed: {exc}")
+    _finish_compact_row(ctx, compact_n, TaskOutcome.SUCCESS, outcome_reason)
+    return StepResult(status=StepStatus.OK, reason=outcome_reason)
 
 
 def _compact_fallback(ctx: StepContext, reason: str) -> StepResult:
@@ -331,16 +337,21 @@ def _compact_fallback(ctx: StepContext, reason: str) -> StepResult:
     try:
         StateFile.write(ctx.task_dir, state)
     except OSError as exc:
-        return StepResult(status="fail", reason=f"compaction write failed: {exc}")
+        return StepResult(status=StepStatus.FAIL, reason=f"compaction write failed: {exc}")
     ctx.log.warning("compaction_fallback", reason=reason)
-    return StepResult(status="ok", reason=f"compaction_fallback: {reason}")
+    return StepResult(status=StepStatus.OK, reason=f"compaction_fallback: {reason}")
 
 
-def _finish_compact_row(ctx: StepContext, n: int, outcome: str, reason: str) -> None:
+def _finish_compact_row(ctx: StepContext, n: int, outcome: TaskOutcome, reason: str) -> None:
     """Close the compact attempt row, warning (never raising) on failure."""
     try:
         state_attempts.record_end(
-            ctx.task_dir, outcome=outcome, exit_code=0, reason=reason, action="close", n=n
+            ctx.task_dir,
+            outcome=outcome,
+            exit_code=0,
+            reason=reason,
+            action=Action.CLOSE,
+            n=n,
         )
     except OSError as exc:
         ctx.log.warning("attempt_record_failed", error=str(exc))

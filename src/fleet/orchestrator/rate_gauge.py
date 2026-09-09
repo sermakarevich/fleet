@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import structlog
 
-from fleet.core.task import Event
+from fleet.core.task import Event, EventKind
 
 _RESET_GRACE_SEC = 5
 # Safety-net: if the rate_limit_info event carried no resetsAt, fall back to the
@@ -20,7 +20,7 @@ class RateGauge:
         self.last_updated: datetime | None = None
 
     def update(self, evt: Event) -> None:
-        if evt.kind not in ("rate_limit_info", "rate_limit"):
+        if evt.kind not in (EventKind.RATE_LIMIT_INFO, EventKind.RATE_LIMIT):
             return
         if evt.rate_info is None:
             return

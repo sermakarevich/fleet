@@ -20,6 +20,7 @@ from fleet.coders import resolve_coder as build_coder
 from fleet.coders.base import Coder
 from fleet.coders.settings import settings_from_env
 from fleet.core.effective import effective_coder_model
+from fleet.core.retry_policy import Action
 from fleet.core.task import Task, TaskOutcome
 from fleet.orchestrator.state import RunningWorker
 from fleet.state import attempts
@@ -81,10 +82,10 @@ def block_terminal(st: SupervisorState, task: Task, reason: str) -> None:
     with contextlib.suppress(OSError):
         attempts.record_end(
             task_dir,
-            outcome=TaskOutcome.TERMINAL.value,
+            outcome=TaskOutcome.TERMINAL,
             exit_code=None,
             reason=reason,
-            action="block",
+            action=Action.BLOCK,
         )
     st.log.error("task_terminal", task_id=task.id, reason=reason)
     st.queue.set_blocked(task.id, reason)

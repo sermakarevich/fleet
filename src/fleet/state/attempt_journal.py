@@ -20,6 +20,8 @@ from typing import Any
 import structlog
 
 from fleet.core.iso import now_iso, parse_iso
+from fleet.core.retry_policy import Action
+from fleet.core.task import AttemptKind
 from fleet.state.atomic import write_text_atomic
 from fleet.state.paths import ATTEMPTS_JSONL, attempt_dir_path
 
@@ -177,10 +179,11 @@ class AttemptJournal:
         coder: str | None,
         model: str | None,
         worker: str | None = None,
-        kind: str = "work",
+        kind: AttemptKind | str = AttemptKind.WORK,
     ) -> int:
         """Journal a start line and return its attempt number."""
         n = self.max_n + 1
+        kind_value = kind.value if isinstance(kind, AttemptKind) else kind
         entry = {
             "event": "start",
             "n": n,
@@ -188,7 +191,7 @@ class AttemptJournal:
             "coder": coder,
             "model": model,
             "worker": worker,
-            "kind": kind,
+            "kind": kind_value,
         }
         _append_line(self.task_dir, entry)
         self.raw.append(dict(entry))
@@ -201,12 +204,13 @@ class AttemptJournal:
         outcome: str,
         exit_code: int | None,
         reason: str,
-        action: str,
+        action: Action | str,
         n: int | None = None,
     ) -> int:
         """Journal an end line for attempt *n* (default: the current one)."""
         if n is None:
             n = self.current_n or self.max_n + 1
+        action_value = action.value if isinstance(action, Action) else action
         entry = {
             "event": "end",
             "n": n,
@@ -214,7 +218,7 @@ class AttemptJournal:
             "outcome": outcome,
             "exit_code": exit_code,
             "reason": reason,
-            "action": action,
+            "action": action_value,
         }
         _append_line(self.task_dir, entry)
         self.raw.append(dict(entry))

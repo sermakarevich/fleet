@@ -8,12 +8,12 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from http import HTTPStatus
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 import fleet.integrations.telegram.notify as tg_notify
 from fleet.beads.queue import Queue
@@ -76,7 +76,7 @@ def _command_env(state: AppState) -> CommandEnv:
 class _SPAStaticFiles(StaticFiles):
     """StaticFiles subclass that serves index.html for any unmatched path (SPA fallback)."""
 
-    async def get_response(self, path: str, scope: Any) -> Response:
+    async def get_response(self, path: str, scope: Scope) -> Response:
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:

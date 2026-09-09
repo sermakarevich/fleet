@@ -7,7 +7,7 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task
 from fleet.state.paths import task_dir as _task_dir_path
-from fleet.workers.base import FnStep, StepContext
+from fleet.workers.base import FnStep, StepContext, StepStatus
 from fleet.workers.llm_session import LlmSession
 from fleet.workers.task import PREPARE_ARTIFACTS, FreshTask, plan_task
 
@@ -45,7 +45,7 @@ def test_prepare_artifacts_creates_stubs(tmp_path: Path) -> None:
 
     result = asyncio.run(PREPARE_ARTIFACTS.run(ctx))
 
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     state = ctx.task_dir / "STATE.md"
     assert state.exists()
     assert (ctx.task_dir / "outputs").is_dir()

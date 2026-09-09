@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 from fleet.core.iso import parse_iso
 from fleet.core.limits import CONTEXT_MAX_ROUNDS, FAILURE_MAX_ROUNDS, STALL_MAX_ROUNDS
+from fleet.core.result import ResultStatus
 
 # Canonical answer options. The apply step (orchestrator/triage.py) matches
 # the operator's selected answer against these strings verbatim.
@@ -123,7 +124,7 @@ def _context_proposal(triage: TriageInput) -> Proposal:
 
 def _is_worker_blocked(triage: TriageInput) -> bool:
     """True when the worker's own RESULT.json declares it blocked."""
-    return triage.result is not None and triage.result.get("status") == "blocked"
+    return triage.result is not None and triage.result.get("status") == ResultStatus.BLOCKED.value
 
 
 def _worker_blocked_proposal(triage: TriageInput) -> Proposal:

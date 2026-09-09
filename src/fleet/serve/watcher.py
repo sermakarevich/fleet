@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import WebSocket
 
 from fleet.core.redact import redact
+from fleet.core.task import EventKind
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.runtime_stats import task_files_touched_from_dir, task_runtime_stats_from_dir
 from fleet.state.tail import read_new_bytes
@@ -149,7 +150,7 @@ class FileWatcher:
                 event_dict = json.loads(stripped)
             except json.JSONDecodeError:
                 continue
-            if event_dict.get("kind") == "session_ended":
+            if event_dict.get("kind") == EventKind.SESSION_ENDED:
                 event_dict = self._enrich_session_ended(task_id, task_dir, event_dict)
             await self.mgr.broadcast(task_id, redact(event_dict))
 

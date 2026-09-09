@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from fleet.core.retry_policy import Action
+from fleet.core.task import TaskOutcome
 from fleet.state.attempt_journal import AttemptJournal
 from fleet.state.events import EventScanCache, scan_cached
 from fleet.state.task_index import TaskIndex
@@ -26,7 +28,7 @@ from fleet.state.task_meta import TaskMeta
 _events_cache = EventScanCache()
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AttemptRecord:
     """One task's analytics inputs: meta + event scan + attempt signals."""
 
@@ -75,16 +77,24 @@ def _attempt_signals(task_dir: Path) -> tuple[bool, bool]:
     """
     history = AttemptJournal.load(task_dir).rows
     pressure = any(
-        entry.get("outcome") == "context_pressure" for entry in history if isinstance(entry, dict)
+        entry.get("outcome") == TaskOutcome.CONTEXT_PRESSURE.value
+        for entry in history
+        if isinstance(entry, dict)
     )
     last = history[-1] if history else {}
-    noclose = last.get("outcome") in ("success", "partial") and last.get("action") in (
-        "release",
+    noclose = last.get("outcome") in (
+        TaskOutcome.SUCCESS.value,
+        TaskOutcome.PARTIAL.value,
+    ) and last.get("action") in (
+        Action.RELEASE.value,
         "released",
         None,
     )
     if last.get("outcome") is None:
-        noclose = any(entry.get("outcome") in ("success", "partial") for entry in history[-3:])
+        noclose = any(
+            entry.get("outcome") in (TaskOutcome.SUCCESS.value, TaskOutcome.PARTIAL.value)
+            for entry in history[-3:]
+        )
     return pressure, noclose
 
 

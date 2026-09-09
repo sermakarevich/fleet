@@ -16,34 +16,36 @@ Three rules live here:
 
 from __future__ import annotations
 
+from fleet.core.errors import Json, PlanError
+
 _TITLE_MAX_LEN = 120  # follow-up titles longer than this are rejected
 
 
-def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
+def validate_followups(followups: Json, *, max_followups: int) -> list[dict]:
     """Check an observer RESULT.json `followups` list; return normalized specs.
 
     Each spec keeps ``{title, body, cwd, depends_on}`` (missing keys become
     "" / [] and are defaulted from the epic by the caller). ``depends_on``
     names *sibling follow-up titles* (their bead ids don't exist yet).
 
-    Raises ValueError when the list is not a list, exceeds *max_followups*,
+    Raises PlanError when the list is not a list, exceeds *max_followups*,
     has blank/duplicate titles, has a non-list ``depends_on``, references an
     unknown sibling, depends on itself, or contains a dependency cycle.
     """
     if not isinstance(followups, list):
-        raise ValueError("followups must be a list")
+        raise PlanError("followups must be a list")
     if len(followups) > max_followups:
-        raise ValueError(f"too many follow-ups ({len(followups)} > {max_followups})")
+        raise PlanError(f"too many follow-ups ({len(followups)} > {max_followups})")
     specs: list[dict] = []
     for i, item in enumerate(followups):
         if not isinstance(item, dict):
-            raise ValueError(f"follow-up #{i} must be an object")
+            raise PlanError(f"follow-up #{i} must be an object")
         title = str(item.get("title") or "").strip()
         if not title:
-            raise ValueError(f"follow-up #{i} has a blank title")
+            raise PlanError(f"follow-up #{i} has a blank title")
         depends_on = item.get("depends_on") or []
         if not isinstance(depends_on, list) or not all(isinstance(d, str) for d in depends_on):
-            raise ValueError(f"follow-up {title!r}: depends_on must be a list of titles")
+            raise PlanError(f"follow-up {title!r}: depends_on must be a list of titles")
         specs.append(
             {
                 "title": title,
@@ -54,20 +56,20 @@ def validate_followups(followups: object, *, max_followups: int) -> list[dict]:
         )
     titles = [s["title"] for s in specs]
     if len(set(titles)) != len(titles):
-        raise ValueError("follow-up titles must be unique")
+        raise PlanError("follow-up titles must be unique")
     by_title = {s["title"]: s for s in specs}
     for spec in specs:
         for dep in spec["depends_on"]:
             if dep not in by_title:
-                raise ValueError(f"follow-up {spec['title']!r} depends on unknown {dep!r}")
+                raise PlanError(f"follow-up {spec['title']!r} depends on unknown {dep!r}")
             if dep == spec["title"]:
-                raise ValueError(f"follow-up {spec['title']!r} cannot depend on itself")
+                raise PlanError(f"follow-up {spec['title']!r} cannot depend on itself")
     _check_acyclic(specs)
     return specs
 
 
 def _check_acyclic(specs: list[dict]) -> None:
-    """Raise ValueError when sibling depends_on edges contain a cycle."""
+    """Raise PlanError when sibling depends_on edges contain a cycle."""
     by_title = {s["title"]: s for s in specs}
     visiting: set[str] = set()
     done: set[str] = set()
@@ -76,7 +78,7 @@ def _check_acyclic(specs: list[dict]) -> None:
         if title in done:
             return
         if title in visiting:
-            raise ValueError(f"follow-up dependency cycle: {' -> '.join([*chain, title])}")
+            raise PlanError(f"follow-up dependency cycle: {' -> '.join([*chain, title])}")
         visiting.add(title)
         for dep in by_title[title]["depends_on"]:
             visit(dep, [*chain, title])
@@ -108,7 +110,7 @@ def observer_rounds(history: list[dict]) -> int:
     return count
 
 
-def validate_tasks(doc: object, max_children: int = 30) -> list[str]:  # noqa: PLR0912  # ADR 0006 bead 5
+def validate_tasks(doc: Json, max_children: int = 30) -> list[str]:  # noqa: PLR0912  # ADR 0006 bead 5
     """Check a parsed tasks.json doc; return error strings (empty when valid).
 
     Expected shape: ``{"tasks": [{key, title, body, cwd, coder, model,
@@ -162,13 +164,13 @@ def validate_tasks(doc: object, max_children: int = 30) -> list[str]:  # noqa: P
     if not errors:
         try:
             _check_tasks_acyclic(specs)
-        except ValueError as exc:
+        except PlanError as exc:
             errors.append(str(exc))
     return errors
 
 
 def _check_tasks_acyclic(specs: list[dict]) -> None:
-    """Raise ValueError when sibling key depends_on edges contain a cycle."""
+    """Raise PlanError when sibling key depends_on edges contain a cycle."""
     by_key = {s["key"]: s for s in specs}
     visiting: set[str] = set()
     done: set[str] = set()
@@ -177,7 +179,7 @@ def _check_tasks_acyclic(specs: list[dict]) -> None:
         if key in done:
             return
         if key in visiting:
-            raise ValueError(f"task dependency cycle: {' -> '.join([*chain, key])}")
+            raise PlanError(f"task dependency cycle: {' -> '.join([*chain, key])}")
         visiting.add(key)
         for dep in by_key[key]["depends_on"]:
             visit(dep, [*chain, key])

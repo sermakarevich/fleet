@@ -14,7 +14,7 @@ import json as _json
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fleet.core.task import Event, TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import Event, EventKind, TaskOutcome, TaskOutcomeRecord
 
 # Substrings (case-insensitive) of the CLIs' own "context is full" errors.
 # When stderr or an event carries one, the session is over even if usage
@@ -47,9 +47,9 @@ def error_text_of(evt: Event) -> str:
     worker that *talks about* "context windows" is not overflowing one.
     """
     raw = evt.raw if isinstance(evt.raw, dict) else {}
-    if evt.kind == "error":
+    if evt.kind == EventKind.ERROR:
         candidate = raw
-    elif evt.kind == "session_ended":
+    elif evt.kind == EventKind.SESSION_ENDED:
         candidate = {k: raw[k] for k in ("error", "errors", "message") if raw.get(k)}
         if raw.get("is_error") and raw.get("result"):
             candidate["result"] = raw["result"]

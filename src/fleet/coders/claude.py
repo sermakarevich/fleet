@@ -11,7 +11,7 @@ from fleet.coders.base import CoderSpec, lookup_handler, prompt_context
 from fleet.coders.env import fleet_env
 from fleet.coders.mcp import write_mcp_config
 from fleet.core.launch import LaunchPlan
-from fleet.core.task import Event, Task
+from fleet.core.task import Event, EventKind, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
@@ -49,7 +49,7 @@ def _hard_rate_limit(data: dict) -> Event | None:
         data.get("error") == "rate_limit"
     ):
         return Event(
-            kind="rate_limit",
+            kind=EventKind.RATE_LIMIT,
             raw=data,
             ts=datetime.now(tz=UTC),
             rate_info={
@@ -74,7 +74,7 @@ def _rate_limit_info(data: dict) -> Event | None:
     if not isinstance(info, dict) or info.get("rateLimitType") != "five_hour":
         return None
     return Event(
-        kind="rate_limit_info",
+        kind=EventKind.RATE_LIMIT_INFO,
         raw=data,
         ts=datetime.now(tz=UTC),
         rate_info={
@@ -88,7 +88,7 @@ def _rate_limit_info(data: dict) -> Event | None:
 def _session_started(data: dict) -> Event | None:
     """Session start (system init)."""
     return Event(
-        kind="session_started",
+        kind=EventKind.SESSION_STARTED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("session_id"),
@@ -97,7 +97,7 @@ def _session_started(data: dict) -> Event | None:
 
 def _system_error(data: dict) -> Event | None:
     """System error."""
-    return Event(kind="error", raw=data, ts=datetime.now(tz=UTC))
+    return Event(kind=EventKind.ERROR, raw=data, ts=datetime.now(tz=UTC))
 
 
 def _assistant(data: dict) -> Event | None:
@@ -115,7 +115,7 @@ def _assistant(data: dict) -> Event | None:
     for block in content:
         if isinstance(block, dict) and block.get("type") == "thinking":
             return Event(
-                kind="thinking",
+                kind=EventKind.THINKING,
                 raw=data,
                 ts=datetime.now(tz=UTC),
                 session_id=session_id,
@@ -124,7 +124,7 @@ def _assistant(data: dict) -> Event | None:
     for block in content:
         if isinstance(block, dict) and block.get("type") == "tool_use":
             return Event(
-                kind="tool_use",
+                kind=EventKind.TOOL_USE,
                 raw=block,
                 ts=datetime.now(tz=UTC),
                 session_id=session_id,
@@ -132,7 +132,7 @@ def _assistant(data: dict) -> Event | None:
                 usage=usage,
             )
     return Event(
-        kind="assistant_text",
+        kind=EventKind.ASSISTANT_TEXT,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=session_id,
@@ -143,7 +143,7 @@ def _assistant(data: dict) -> Event | None:
 def _tool_use(data: dict) -> Event | None:
     """A tool invocation."""
     return Event(
-        kind="tool_use",
+        kind=EventKind.TOOL_USE,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=data.get("name"),
@@ -153,7 +153,7 @@ def _tool_use(data: dict) -> Event | None:
 def _tool_result(data: dict) -> Event | None:
     """A tool result."""
     return Event(
-        kind="tool_result",
+        kind=EventKind.TOOL_RESULT,
         raw=data,
         ts=datetime.now(tz=UTC),
         tool_name=data.get("name"),
@@ -163,7 +163,7 @@ def _tool_result(data: dict) -> Event | None:
 def _session_ended(data: dict) -> Event | None:
     """Terminal result envelope: the session ended."""
     return Event(
-        kind="session_ended",
+        kind=EventKind.SESSION_ENDED,
         raw=data,
         ts=datetime.now(tz=UTC),
         session_id=data.get("session_id"),
@@ -238,7 +238,7 @@ class ClaudeCoder:
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         return fleet_env(task, task_dir)
 
-    def write_runtime_config(self, project: Path, task: object) -> None:
+    def write_runtime_config(self, project: Path, task: Task) -> None:
         """Write fleet-managed .claude/settings.json and hook scripts into project root.
 
         Also writes this task's Claude ``--mcp-config`` file (ask_human +

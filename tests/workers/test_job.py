@@ -13,7 +13,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import attempts
 from fleet.state.paths import task_dir as _task_dir
-from fleet.workers.base import StepContext
+from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.job import (
     JOB_GATE_CONTEXT,
     AskApproval,
@@ -243,7 +243,7 @@ def test_gate_posts_question_and_waits(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1", "t2"))
     store = FakeStore()
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "outcome"
+    assert result.status == StepStatus.OUTCOME
     assert result.outcome is not None
     assert result.outcome.outcome == TaskOutcome.WAITING
     assert len(store.asked) == 1
@@ -258,7 +258,7 @@ def test_gate_waits_on_pending_question(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(pending=[{"id": "q1"}])
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "outcome"
+    assert result.status == StepStatus.OUTCOME
     assert result.outcome.outcome == TaskOutcome.WAITING
     assert store.asked == []
 
@@ -268,7 +268,7 @@ def test_gate_approve_writes_marker(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "approve", "note": None}])
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert (ctx.task_dir / "artifacts" / "APPROVED").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "partial" and declared["next_step"] == "spawn"
@@ -279,7 +279,7 @@ def test_gate_revise_appends_note_and_deletes_tasks(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "revise (write note)", "note": "split t1"}])
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert not (ctx.task_dir / "artifacts" / "tasks.json").exists()
     notes = (ctx.task_dir / "artifacts" / "DESIGN_NOTES.md").read_text(encoding="utf-8")
     assert "split t1" in notes
@@ -292,7 +292,7 @@ def test_gate_cancel_blocks(tmp_path: Path) -> None:
     _write_tasks(ctx, _valid_tasks("t1"))
     store = FakeStore(answered=[{"id": "q1", "answer": "cancel job", "note": None}])
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "blocked"
     assert declared["blocked_reason"] == "cancelled by operator"
@@ -303,7 +303,7 @@ def test_gate_invalid_tasks_skips_question(tmp_path: Path) -> None:
     _write_tasks(ctx, {"tasks": [{"key": "a", "title": "", "body": ""}]})
     store = FakeStore()
     result = asyncio.run(AskApproval(store).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert store.asked == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
@@ -330,7 +330,7 @@ def test_spawn_creates_children_with_deps_and_footer(tmp_path: Path) -> None:
     )
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert [spec["title"] for _, spec in queue.created] == ["one", "two"]
     assert queue.created[0][1]["depends_on"] == []
     assert queue.created[1][1]["depends_on"] == ["kid-1"]
@@ -348,7 +348,7 @@ def test_spawn_resumes_without_duplicates(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "children.json").write_text(json.dumps({"t1": "kid-old"}))
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     # Only t2 is created; t1 keeps its earlier id.
     assert [spec["title"] for _, spec in queue.created] == ["title t2"]
     journal = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8"))
@@ -360,7 +360,7 @@ def test_spawn_invalid_tasks_writes_errors(tmp_path: Path) -> None:
     _write_tasks(ctx, {"tasks": "nope"})
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(queue).run(ctx))
-    assert result.status == "ok"
+    assert result.status == StepStatus.OK
     assert queue.created == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))

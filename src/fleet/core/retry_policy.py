@@ -28,7 +28,7 @@ from fleet.core.limits import (
     RATE_LIMIT_DEFAULT_SLEEP_SEC,
     STALL_MAX_ROUNDS,
 )
-from fleet.core.task import TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import AttemptKind, TaskOutcome, TaskOutcomeRecord, TaskStatus
 
 # A FAILURE carrying this reason is not the worker's fault: the supervisor
 # stopped (restart, deploy). It is re-queued at once and never counts as a
@@ -300,7 +300,7 @@ def _trailing_streak(history: list[dict], category: str) -> int:
     for entry in reversed(history):
         if not isinstance(entry, dict):
             break
-        if entry.get("kind") == "compact":
+        if entry.get("kind") == AttemptKind.COMPACT.value:
             continue
         if entry.get("reason") == SHUTDOWN_REASON:
             # Supervisor restart, not a worker outcome: neither counts nor breaks.
@@ -370,9 +370,9 @@ def _rule_matches(rule: RetryRule, record: TaskOutcomeRecord, bead_status: str |
     """True when *rule* is a candidate for *record* on a bead with *bead_status*."""
     if rule.outcome is not None and record.outcome != rule.outcome:
         return False
-    if rule.bead_open is True and bead_status != "in_progress":
+    if rule.bead_open is True and bead_status != TaskStatus.IN_PROGRESS.value:
         return False
-    if rule.bead_open is False and bead_status == "in_progress":
+    if rule.bead_open is False and bead_status == TaskStatus.IN_PROGRESS.value:
         return False
     return _reason_matches(rule.reason_match, record)
 

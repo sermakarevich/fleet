@@ -9,9 +9,10 @@ steps; ``WorkerRun`` is the handle the orchestrator keeps per in-flight task.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 import structlog
 
@@ -24,14 +25,49 @@ from fleet.state.paths import RUN_JSON
 from fleet.state.run_file import RunRecord
 
 
+class StepStatus(StrEnum):
+    """How one step ended: ok, fail, or outcome (session step decides)."""
+
+    OK = "ok"
+    FAIL = "fail"
+    OUTCOME = "outcome"
+
+
 class RateGaugeLike(Protocol):
     """Anything that drains rate-limit events (the orchestrator's RateGauge)."""
 
     def update(self, evt: Event) -> None: ...
 
 
+class QuestionLike(Protocol):
+    """The answered-question read surface a gate step needs (never built here)."""
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+    def __getitem__(self, key: str) -> Any: ...
+
+
+class QuestionStoreLike(Protocol):
+    """The ask_human reads a gate/observer step needs (never built here)."""
+
+    def fetch_answered_for_task(self, task_id: str, context: str | None = None) -> list[Any]: ...
+    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[Any]: ...
+    def ask(
+        self,
+        prompt: str,
+        options: list[str] | None = None,
+        *,
+        task_id: str | None = None,
+        context: str | None = None,
+        agent_id: str = "triage",
+        priority: int = 0,
+        multi_select: bool = False,
+    ) -> str: ...
+
+
 @dataclass
 class StepContext:
+    """Inputs one worker run threads through every step."""
+
     task: Task
     task_dir: Path  # tasks/<id>
     project_root: Path  # where the coder runs (cwd or worktree)
@@ -51,19 +87,25 @@ class StepContext:
     # continue/validate pack). Prepare steps set it; LlmSession reads it.
     # None until a prepare step runs (e.g. tests that skip preparation).
     plan: LaunchPlan | None = None
-    # Small values passed forward between steps (e.g. prompt text). Never
-    # file contents > 16 KB.
-    scratch: dict[str, Any] = field(default_factory=dict)
+    # Inter-step channel, formerly an untyped ``scratch`` dict:
+    # observer's child rows for the digest, and the prepare-step launch plan
+    # mirror (same object as ``plan``).
+    launch_plan: LaunchPlan | None = None
+    children: list[dict[str, str]] | None = None
+    child_ids: list[str] | None = None
+    blocked_children: int | None = None
     # ask_human question store, injected by orchestrator/spawn.py. Steps use
     # it (never build one: workers must not import integrations).
-    question_store: Any = None
+    question_store: QuestionStoreLike | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class StepResult:
-    status: Literal["ok", "fail", "outcome"]
+    """One step's verdict: ok, fail, or an outcome the session decided."""
+
+    status: StepStatus
     reason: str = ""
-    # Only set for status == "outcome" (the session step).
+    # Only set for status == OUTCOME (the session step).
     outcome: TaskOutcomeRecord | None = None
 
 
@@ -97,6 +139,8 @@ class FnStep:
 
 @dataclass(frozen=True)
 class Worker:
+    """A named, ordered tuple of steps (one worker family run)."""
+
     name: str  # "task.fresh" — recorded in attempts.jsonl and run.json
     steps: tuple[Step, ...]
 
@@ -132,7 +176,7 @@ async def run_worker(
     *,
     on_step: Callable[[Step | None], None] | None = None,
 ) -> TaskOutcomeRecord:
-    """Run *worker*'s steps in order against *ctx*.
+    """Run *worker's* steps in order against *ctx*.
 
     Stops at the first ``fail`` (-> FAILURE) or ``outcome`` (-> that
     outcome); an all-``ok`` run is SUCCESS. Each step's timing and status is
@@ -155,7 +199,7 @@ async def run_worker(
                     "name": step.name,
                     "started_at": started_at,
                     "ended_at": ended_at,
-                    "status": "fail",
+                    "status": StepStatus.FAIL.value,
                     "reason": f"unexpected exception: {exc}",
                 },
             )
@@ -166,6 +210,9 @@ async def run_worker(
                 reason=f"unexpected exception: {exc}",
             )
         ended_at = now_iso()
+        status_value = (
+            result.status.value if isinstance(result.status, StepStatus) else str(result.status)
+        )
         _record_step(
             run_file,
             worker.name,
@@ -173,18 +220,18 @@ async def run_worker(
                 "name": step.name,
                 "started_at": started_at,
                 "ended_at": ended_at,
-                "status": result.status,
+                "status": status_value,
                 "reason": result.reason,
             },
         )
         if on_step is not None:
             on_step(None)
-        if result.status == "fail":
+        if result.status == StepStatus.FAIL:
             return TaskOutcomeRecord(
                 outcome=TaskOutcome.FAILURE,
                 reason=f"step {step.name}: {result.reason}",
             )
-        if result.status == "outcome":
+        if result.status == StepStatus.OUTCOME:
             assert result.outcome is not None
             return result.outcome
     return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS, exit_code=0)
@@ -202,6 +249,7 @@ class WorkerRun:
         self._current_step = step
 
     async def run(self) -> TaskOutcomeRecord:
+        """Drive this run's worker to completion."""
         return await run_worker(self.worker, self.ctx, on_step=self._set_current)
 
     def merge_run_json(self, **updates: Any) -> None:

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from fleet.core import retry_policy
 from fleet.core.job_plan import observer_rounds
-from fleet.core.result import Result, parse_result
+from fleet.core.result import Result, ResultStatus, parse_result
 from fleet.core.retry_policy import (
     CONTEXT_MAX_ROUNDS,
     NOCLOSE_MAX_ROUNDS,
@@ -24,7 +24,7 @@ from fleet.core.retry_policy import (
     Action,
     Decision,
 )
-from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord, TaskStatus
 from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.validation_marker import set_needs_validation
@@ -85,14 +85,14 @@ def read_declared_result(task_dir: Path) -> Result | None:
 
 def fold_declared_result(record: TaskOutcomeRecord, result: Result) -> TaskOutcomeRecord:
     """Fold a declared RESULT.json into an rc=0 outcome record."""
-    if result.status == "done":
+    if result.status == ResultStatus.DONE:
         return TaskOutcomeRecord(
             outcome=TaskOutcome.SUCCESS,
             exit_code=record.exit_code,
             reason=result.summary,
             close_reason=result.summary or "completed",
         )
-    if result.status == "partial":
+    if result.status == ResultStatus.PARTIAL:
         return TaskOutcomeRecord(
             outcome=TaskOutcome.PARTIAL,
             exit_code=record.exit_code,
@@ -114,12 +114,12 @@ def maybe_handle_isolated_success(  # noqa: PLR0911  # ADR 0006 bead 20
     result: Result | None = None,
 ) -> Decision | None:
     """Decide an isolated (worktree) SUCCESS exit, or None when it is not one."""
-    if record.outcome != TaskOutcome.SUCCESS or status != "in_progress":
+    if record.outcome != TaskOutcome.SUCCESS or status != TaskStatus.IN_PROGRESS.value:
         return None
     info = read_isolation_info(task_dir)
     if info is None:
         return None
-    if result is None or result.status != "done":
+    if result is None or result.status != ResultStatus.DONE:
         return None
 
     wt_path = Path(info["worktree_path"])
@@ -250,7 +250,7 @@ def apply_block(
 ) -> None:
     """Block the bead, unless the agent already blocked it itself."""
     _ = task_dir
-    if record.outcome == TaskOutcome.BLOCKED_BY_AGENT and status == "blocked":
+    if record.outcome == TaskOutcome.BLOCKED_BY_AGENT and status == TaskStatus.BLOCKED.value:
         st.log.info("task_blocked_by_agent", task_id=task.id, **fleet_ctx)
         return
     st.queue.set_blocked(task.id, decision.reason)
@@ -465,7 +465,7 @@ def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutc
 
     decision = maybe_handle_isolated_success(st, task, task_dir, record, status, result)
     if decision is None:
-        if record.outcome == TaskOutcome.SUCCESS and status == "blocked":
+        if record.outcome == TaskOutcome.SUCCESS and status == TaskStatus.BLOCKED.value:
             record = TaskOutcomeRecord(
                 outcome=TaskOutcome.BLOCKED_BY_AGENT,
                 exit_code=record.exit_code,
@@ -482,10 +482,10 @@ def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutc
     try:
         attempts.record_end(
             task_dir,
-            outcome=record.outcome.value,
+            outcome=record.outcome,
             exit_code=record.exit_code,
             reason=record.reason,
-            action=decision.action.value,
+            action=decision.action,
             n=worker.attempt_n,
         )
     except OSError as exc:

@@ -14,6 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from fleet.core.task import TaskStatus
 from fleet.state.attempts import record_unblock
 from fleet.state.paths import KILL_MARKER
 from fleet.state.paths import task_dir as task_dir_for
@@ -79,7 +80,7 @@ def kill(
 ) -> str:
     """Stop or close *task_id*; returns one of the KILL_* outcome strings."""
     task_dir = _require_task_dir(home, task_id)
-    if status == "in_progress":
+    if status == TaskStatus.IN_PROGRESS.value:
         (task_dir / KILL_MARKER).touch()
         return KILLING if supervisor_running else KILL_NO_SUPERVISOR
     if status in _CLOSEABLE:
