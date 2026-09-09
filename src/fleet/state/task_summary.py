@@ -142,14 +142,14 @@ def _parse_result_text(text: str) -> dict | None:
 def read_declared_result(task_dir: Path) -> dict | None:
     """The task's latest declared result as a plain dict, or None.
 
-    Reads the live task-level RESULT.json first (present between worker
-    exit and reap), then the latest attempt's RESULT.json snapshot, then
-    the legacy artifacts/RESULT.json for old task dirs.
+    Reads the live task-level RESULT.json first (through
+    ``ResultFile.read_declared``, the ONE live reader shared with reap),
+    then the latest attempt's RESULT.json snapshot, then the legacy
+    artifacts/RESULT.json for old task dirs.
     """
-    try:
-        return _parse_result_text(ResultFile.path(task_dir).read_text(encoding="utf-8"))
-    except OSError:
-        pass
+    declared = ResultFile.read_declared(task_dir)
+    if declared is not None:
+        return asdict(declared)
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is not None:
         try:

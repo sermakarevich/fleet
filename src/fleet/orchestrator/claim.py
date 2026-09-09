@@ -8,10 +8,7 @@ now the separate `merge_validation` module.
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
@@ -62,41 +59,6 @@ def running_by_coder(tasks, default_coder: str) -> dict[str, int]:
     return counts
 
 
-def read_isolation_info(task_dir: Path) -> dict | None:
-    """Read repo_root/base_ref/worktree_path from task.json, or None.
-
-    Falls back to the legacy `.worktree` marker for old task dirs.
-    """
-    try:
-        meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        meta = {}
-    if isinstance(meta, dict):
-        repo_root = meta.get("repo_root")
-        base_ref = meta.get("base_ref")
-        worktree_path = meta.get("worktree_path")
-        if repo_root and base_ref and worktree_path:
-            return {
-                "repo_root": repo_root,
-                "base_ref": base_ref,
-                "worktree_path": worktree_path,
-            }
-    try:
-        marker = task_dir / ".worktree"
-        if marker.exists():
-            text = marker.read_text(encoding="utf-8").strip()
-            if text:
-                return {
-                    "repo_root": meta.get("repo_root") if isinstance(meta, dict) else "",
-                    "base_ref": (meta.get("base_ref") if isinstance(meta, dict) else None)
-                    or "main",
-                    "worktree_path": text,
-                }
-    except OSError:
-        pass
-    return None
-
-
 def can_claim(st: SupervisorState, coder: str | None) -> bool:
     """True when another worker under `coder` fits below its cap."""
     running = running_by_coder((rw.task for rw in st.running.values()), st.config.coder)
@@ -132,7 +94,7 @@ class Claim:
         """
         if st.paused_until is None:
             return False
-        if datetime.now(tz=UTC) < st.paused_until:
+        if st.clock.now() < st.paused_until:
             return True
         st.paused_until = None
         return False

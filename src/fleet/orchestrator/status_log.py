@@ -15,7 +15,13 @@ from fleet.orchestrator.service import PeriodicService, ServiceOrder
 from fleet.state.events import event_stats
 
 if TYPE_CHECKING:
+    from fleet.core.task import Task
     from fleet.orchestrator.state import SupervisorState
+
+
+def task_log_fields(task: Task) -> dict:
+    """Per-task log context bound once per reap (replaces threaded fleet_ctx)."""
+    return {"task_id": task.id}
 
 
 def fleet_log_context(st: SupervisorState) -> dict:

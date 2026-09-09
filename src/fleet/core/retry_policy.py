@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from enum import Enum
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.job_plan import observer_rounds
 from fleet.core.limits import (
     CONTEXT_MAX_ROUNDS,
     FAILURE_MAX_ROUNDS,
@@ -28,7 +29,7 @@ from fleet.core.limits import (
     RATE_LIMIT_DEFAULT_SLEEP_SEC,
     STALL_MAX_ROUNDS,
 )
-from fleet.core.task import AttemptKind, TaskOutcome, TaskOutcomeRecord, TaskStatus
+from fleet.core.task import AttemptKind, Task, TaskOutcome, TaskOutcomeRecord, TaskStatus
 
 # A FAILURE carrying this reason is not the worker's fault: the supervisor
 # stopped (restart, deploy). It is re-queued at once and never counts as a
@@ -76,11 +77,11 @@ class RetryRule:
     block_reason_tmpl: str = ""
     # Extra knobs the five core fields cannot express:
     # release_reason_tmpl renders the RELEASE/NOOP/CLOSE reason, wait_for
-    # computes RELEASE wait_sec from (record, rounds), bead_open restricts
+    # computes RELEASE wait_sec from (record, rounds, now), bead_open restricts
     # the row to open (True) or already-closed (False) beads, and
     # default_reason fills {reason} when the record carries none.
     release_reason_tmpl: str = ""
-    wait_for: Callable[[TaskOutcomeRecord, int], int | None] | None = None
+    wait_for: Callable[[TaskOutcomeRecord, int, datetime], int | None] | None = None
     bead_open: bool | None = None
     default_reason: str = ""
 
@@ -125,9 +126,9 @@ def _no_resets_at(record: TaskOutcomeRecord) -> bool:
     return record.resets_at is None
 
 
-def _wait_const(delay_secs: int) -> Callable[[TaskOutcomeRecord, int], int | None]:
+def _wait_const(delay_secs: int) -> Callable[[TaskOutcomeRecord, int, datetime], int | None]:
     """Build a wait_for returning a fixed delay."""
-    return lambda _record, _rounds: delay_secs
+    return lambda _record, _rounds, _now: delay_secs
 
 
 # Evaluation order is the policy: terminal states first, then the
@@ -160,14 +161,14 @@ RETRY_TABLE: list[RetryRule] = [
         reason_match=_has_resets_at,
         action=Action.RELEASE,
         release_reason_tmpl="rate_limit, sleep until {resets_at}",
-        wait_for=lambda record, _rounds: _rate_limit_wait(record.resets_at),
+        wait_for=lambda record, _rounds, now: _rate_limit_wait(record.resets_at, now),
     ),
     RetryRule(
         TaskOutcome.RATE_LIMIT,
         reason_match=_no_resets_at,
         action=Action.RELEASE,
         release_reason_tmpl="rate_limit",
-        wait_for=lambda record, _rounds: _rate_limit_wait(record.resets_at),
+        wait_for=lambda record, _rounds, now: _rate_limit_wait(record.resets_at, now),
     ),
     RetryRule(
         TaskOutcome.WAITING,
@@ -250,7 +251,7 @@ RETRY_TABLE: list[RetryRule] = [
         action=Action.RELEASE,
         block_reason_tmpl="retry limit ({max}) exhausted; last failure: {reason}",
         release_reason_tmpl="subprocess failure rc={exit_code}; will retry",
-        wait_for=lambda _record, rounds: _failure_wait(rounds),
+        wait_for=lambda _record, rounds, _now: _failure_wait(rounds),
     ),
 ]
 
@@ -343,8 +344,14 @@ def _failure_wait(rounds: int) -> int:
     return base + random.randint(0, FAILURE_JITTER_SEC)
 
 
-def _rate_limit_wait(resets_at: int | None) -> int:
-    now_ts = datetime.now(tz=UTC).timestamp()
+def _rate_limit_wait(resets_at: int | None, now: datetime | None = None) -> int:
+    """Seconds until the quota reset, at least the default sleep.
+
+    *now* is the injected clock time (defaults to real time); the caller
+    re-anchors the delta to a fresh now(), so the result rounds up.
+    """
+    at = now if now is not None else datetime.now(tz=UTC)
+    now_ts = at.timestamp()
     sleep_until_ts = max(
         float(resets_at) if resets_at is not None else 0.0,
         now_ts + RATE_LIMIT_DEFAULT_SLEEP_SEC,
@@ -389,13 +396,15 @@ def _render(tmpl: str, rule: RetryRule, record: TaskOutcomeRecord, rounds: int) 
     )
 
 
-def _apply_rule(rule: RetryRule, record: TaskOutcomeRecord, history: list[dict]) -> RetryDecision:
+def _apply_rule(
+    rule: RetryRule, record: TaskOutcomeRecord, history: list[dict], now: datetime
+) -> RetryDecision:
     """Turn the first matching rule into a RetryDecision, counting rounds once."""
     if rule.max_rounds is None:
         if rule.action is Action.BLOCK:
             reason = _render(rule.block_reason_tmpl, rule, record, 0)
             return RetryDecision(Action.BLOCK, reason=reason)
-        wait = rule.wait_for(record, 0) if rule.wait_for is not None else None
+        wait = rule.wait_for(record, 0, now) if rule.wait_for is not None else None
         return RetryDecision(
             rule.action, reason=_render(rule.release_reason_tmpl, rule, record, 0), wait_sec=wait
         )
@@ -403,7 +412,7 @@ def _apply_rule(rule: RetryRule, record: TaskOutcomeRecord, history: list[dict])
     if rounds >= rule.max_rounds:
         reason = _render(rule.block_reason_tmpl, rule, record, rounds)
         return RetryDecision(Action.BLOCK, reason=reason)
-    wait = rule.wait_for(record, rounds) if rule.wait_for is not None else None
+    wait = rule.wait_for(record, rounds, now) if rule.wait_for is not None else None
     return RetryDecision(
         Action.RELEASE,
         reason=_render(rule.release_reason_tmpl, rule, record, rounds),
@@ -416,9 +425,44 @@ def decide(
     history: list[dict],
     bead_status: str | None,
     config: RuntimeConfig,
+    now: datetime | None = None,
 ) -> RetryDecision:
-    """Apply the first matching RETRY_TABLE row to *record* given *history*."""
+    """Apply the first matching RETRY_TABLE row to *record* given *history*.
+
+    *now* is the injected clock time for rate-limit math (defaults to real
+    time); callers pass ``st.clock.now()``. *config* is accepted for
+    forward compatibility with config-gated rows and is currently unused.
+    """
+    _ = config
+    at = now if now is not None else datetime.now(tz=UTC)
     for rule in RETRY_TABLE:
         if _rule_matches(rule, record, bead_status):
-            return _apply_rule(rule, record, history)
+            return _apply_rule(rule, record, history, at)
     raise ValueError(f"unhandled outcome: {record.outcome!r}")
+
+
+def is_observer_run(task: Task, history: list[dict]) -> bool:
+    """True when this attempt ran the observer worker (epic validation)."""
+    if (task.type or "") == "epic":
+        return True
+    return bool(history and str(history[-1].get("worker") or "").startswith("observer"))
+
+
+def observer_cap_decision(
+    task: Task,
+    record: TaskOutcomeRecord,
+    history: list[dict],
+    max_rounds: int = 3,
+) -> RetryDecision | None:
+    """BLOCK an epic past its observer follow-up rounds, else None.
+
+    Pure policy (moved here from orchestrator/reap.py): *max_rounds* is the
+    configured observer cap, passed by the caller instead of read from it.
+    """
+    if record.outcome != TaskOutcome.PARTIAL:
+        return None
+    if not is_observer_run(task, history):
+        return None
+    if observer_rounds(history) + 1 >= max_rounds:
+        return RetryDecision(Action.BLOCK, reason="observer exhausted; needs human review")
+    return None

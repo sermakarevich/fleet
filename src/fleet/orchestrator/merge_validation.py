@@ -12,13 +12,13 @@ import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fleet.core.isolation import read as read_isolation_info
 from fleet.core.limits import CLAIM_POLL_INTERVAL_SEC
 from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import paths as state_paths
 from fleet.state.validation_marker import clear_needs_validation, needs_validation
 
 from . import worktree
-from .claim import read_isolation_info
 
 if TYPE_CHECKING:
     from fleet.orchestrator.state import SupervisorState
@@ -39,7 +39,7 @@ def finish_validation(st: SupervisorState, task_dir: Path, task_id: str) -> None
 async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> None:
     """Merge one validated worktree into its base ref, generically."""
     info = read_isolation_info(task_dir)
-    if info is None or not info.get("repo_root"):
+    if info is None or not info.repo_root:
         await asyncio.to_thread(
             st.queue.set_blocked,
             task_id,
@@ -48,9 +48,9 @@ async def validate_one(st: SupervisorState, task_dir: Path, task_id: str) -> Non
         st.log.warning("task.validation_no_info", task_id=task_id)
         clear_needs_validation(task_dir)
         return
-    repo_root = Path(info["repo_root"])
-    base_ref = info.get("base_ref") or "main"
-    wt_path = Path(info["worktree_path"])
+    repo_root = Path(info.repo_root)
+    base_ref = info.base_ref or "main"
+    wt_path = Path(info.worktree_path)
 
     if not repo_root.is_dir():
         await asyncio.to_thread(

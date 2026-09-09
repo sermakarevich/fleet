@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -214,7 +213,7 @@ def _start_worker_run(st: SupervisorState, task: Task, ctx: StepContext) -> Runn
         run=run,
         future=future,
         attempt_n=ctx.attempt_n,
-        started_at=datetime.now(tz=UTC),
+        started_at=st.clock.now(),
     )
 
 

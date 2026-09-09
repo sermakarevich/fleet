@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 from fleet.core.launch_policy import ArtifactSnapshot
+from fleet.core.result import WorkerResult, parse_result
 from fleet.state.atomic import write_text_atomic
 from fleet.state.attempts import latest_attempt_dir
 from fleet.state.legacy_task_dir import legacy_result, legacy_state_text
@@ -99,6 +100,20 @@ class ResultFile:
     def snapshot_path(attempt_dir: Path) -> Path:
         """The reaped RESULT.json snapshot inside one attempt dir."""
         return attempt_dir / RESULT_JSON
+
+    @classmethod
+    def read_declared(cls, task_dir: Path) -> WorkerResult | None:
+        """The ONE RESULT.json reader: parsed live file, or None.
+
+        Used by ``orchestrator/reap.py`` and ``orchestrator/triage.py``
+        (via ``state/task_summary.read_declared_result``, which adds
+        snapshot and legacy fallbacks for display). Never raises.
+        """
+        try:
+            text = cls.path(task_dir).read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return parse_result(text)
 
     @classmethod
     def read(cls, task_dir: Path) -> dict | None:

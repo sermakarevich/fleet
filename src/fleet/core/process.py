@@ -10,6 +10,15 @@ serve routes that report supervisor liveness.
 from __future__ import annotations
 
 import os
+import socket
+
+
+def host_name() -> str:
+    """This machine's hostname for lease ownership checks (best effort)."""
+    try:
+        return socket.gethostname()
+    except OSError:
+        return "unknown"
 
 
 def pid_alive(pid: object) -> bool:

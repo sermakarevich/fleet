@@ -21,13 +21,13 @@ import asyncio
 import inspect
 import os
 import signal
-import socket
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.core.iso import now_iso
 from fleet.core.launch_policy import LaunchPlan
 from fleet.core.limits import SHUTDOWN_GRACE_SEC
+from fleet.core.process import host_name
 from fleet.core.task import Event, TaskOutcomeRecord
 from fleet.state.atomic import write_text_atomic
 from fleet.state.journal import TaskLogRecord, open_task_log
@@ -45,14 +45,6 @@ from .session.monitors import (
 )
 from .session.process import KILL_GRACE_SEC, CoderProcess
 from .session.stream import EventStream
-
-
-def _host_name() -> str:
-    """This machine's hostname for the run.json lease (best effort)."""
-    try:
-        return socket.gethostname()
-    except OSError:
-        return "unknown"
 
 
 def _record_of(verdict: Verdict, exit_code: int | None) -> TaskOutcomeRecord:
@@ -226,7 +218,7 @@ class LlmSession:
                 pgid=proc.pgid,
                 started_at=started_at.isoformat(),
                 coder=coder.__class__.__name__,
-                host=_host_name(),
+                host=host_name(),
                 supervisor_pid=os.getpid(),
                 heartbeat_at=started_at.isoformat(),
                 lease_until=lease_times(started_at)[1],

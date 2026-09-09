@@ -223,7 +223,7 @@ def test_status_log_loop_exits_on_shutdown(tmp_path: Path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
+def test_task_completed_success_log_binds_task_fields(tmp_path: Path) -> None:
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
@@ -245,12 +245,15 @@ def test_task_completed_success_log_includes_usage_pct(tmp_path: Path) -> None:
     records = _read_fleet_log(log_root)
     noop = [r for r in records if r.get("event") == "task_noop_on_exit"]
     assert len(noop) == 1
-    assert noop[0]["usage_pct"] == 55.0
-    assert noop[0]["in_flight"] == 0
+    # Per-task lines bind task fields once; fleet telemetry (usage_pct,
+    # in_flight) stays on the supervisor_status heartbeat only.
+    assert noop[0]["task_id"] == "t-001"
+    assert "usage_pct" not in noop[0]
+    assert "in_flight" not in noop[0]
     structlog.reset_defaults()
 
 
-def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
+def test_task_rate_limit_release_log_binds_task_fields(tmp_path: Path) -> None:
     log_root = tmp_path / "logs"
     log = setup_supervisor_logger(log_root)
     s = _make_supervisor(tmp_path, log=log)
@@ -264,9 +267,11 @@ def test_task_rate_limit_release_log_includes_in_flight(tmp_path: Path) -> None:
     records = _read_fleet_log(log_root)
     rl = [r for r in records if r.get("event") == "task_rate_limit_release"]
     assert len(rl) == 1
-    # fleet_ctx fields present
-    assert "in_flight" in rl[0]
-    assert "usage_pct" in rl[0]
+    # Per-task lines bind task fields once; fleet telemetry stays on the
+    # supervisor_status heartbeat.
+    assert rl[0]["task_id"] == "t-001"
+    assert "in_flight" not in rl[0]
+    assert "usage_pct" not in rl[0]
     # task_rate_limit_release still uses its own paused_until (str(datetime))
     assert isinstance(rl[0]["paused_until"], str)
     structlog.reset_defaults()

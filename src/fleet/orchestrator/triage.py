@@ -13,9 +13,7 @@ and is skipped naturally — no consumed-markers needed.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import time
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,7 +34,7 @@ from fleet.core.triage_policy import (
     RETRY_OPUS,
     RETRY_SAME,
 )
-from fleet.orchestrator.service import ServiceOrder
+from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import attempts as attempts_mod
 from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize
@@ -280,7 +278,7 @@ class Triage:
         interval_min = st.config.triage_interval_minutes
         if not interval_min or interval_min <= 0:
             return
-        now = time.monotonic()
+        now = st.clock.monotonic()
         if self._last_tick is not None and now - self._last_tick < interval_min * 60:
             return
         self._last_tick = now
@@ -293,11 +291,4 @@ class Triage:
 
     async def serve(self, st: SupervisorState) -> None:
         """Check the triage cadence every STATUS_LOG_INTERVAL_SEC until shutdown."""
-        while not st.shutting_down:
-            await asyncio.sleep(STATUS_LOG_INTERVAL_SEC)
-            if st.shutting_down:
-                break
-            try:
-                await self.tick(st)
-            except Exception as exc:  # noqa: BLE001 - triage must not kill the loop
-                st.log.warning("triage_tick_failed", error=str(exc))
+        await run_periodic(self.name, STATUS_LOG_INTERVAL_SEC, self.tick, st)

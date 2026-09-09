@@ -10,7 +10,7 @@ ever outlives its worker.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
@@ -21,6 +21,21 @@ from .service import ServiceOrder, run_periodic
 
 if TYPE_CHECKING:
     from .state import RunningWorker, SupervisorState
+
+
+def _discard_background(st: SupervisorState, kill: asyncio.Task) -> Callable[[asyncio.Task], None]:
+    """Done-callback that drops a finished kill task and logs its failure."""
+
+    def _done(done: asyncio.Task) -> None:
+        st.background.discard(kill)
+        try:
+            exc = done.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            st.log.warning("stall_kill_failed", error=str(exc))
+
+    return _done
 
 
 class StallWatch:
@@ -50,7 +65,7 @@ class StallWatch:
         """Warn about (and maybe kill) workers quiet past the stall threshold."""
         if st.config.stall_warning_minutes <= 0:
             return
-        now = datetime.now(tz=UTC).timestamp()
+        now = st.clock.now().timestamp()
         for task_id in list(st.running):
             attempt_dir = latest_attempt_dir(st.task_dir_for(task_id))
             if attempt_dir is None:
@@ -92,4 +107,6 @@ class StallWatch:
         except RuntimeError:
             loop = None
         if loop is not None:
-            loop.create_task(runner.kill(reason="stalled"))
+            kill = loop.create_task(runner.kill(reason="stalled"))
+            st.background.add(kill)
+            kill.add_done_callback(_discard_background(st, kill))

@@ -12,6 +12,7 @@ import structlog
 
 from fleet.beads.queue import Queue
 from fleet.coders.base import Coder
+from fleet.core.clock import Clock, SystemClock
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcomeRecord
 from fleet.integrations.ask_human.store import QuestionStore
@@ -56,6 +57,12 @@ class SupervisorState:
     # Writer: the CLI entry point injects the shared ask_human store once;
     # spawn.py forwards it to StepContext.
     question_store: QuestionStore | None = None
+    # Reader: every service. The injected clock (FakeClock in tests) for
+    # now()/monotonic() — no direct datetime.now/time.monotonic in services.
+    clock: Clock = field(default_factory=SystemClock)
+    # Owner: StallWatch adds supervised kill tasks; the supervisor drains
+    # them on shutdown so no kill is garbage-collected mid-flight.
+    background: set[asyncio.Task] = field(default_factory=set)
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""

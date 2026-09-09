@@ -7,6 +7,8 @@ covered, and decide() really is first-match-wins over RETRY_TABLE.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fleet.core.config import RuntimeConfig
 from fleet.core.retry_policy import (
     RETRY_TABLE,
@@ -90,8 +92,9 @@ def test_retry_table_first_match_wins() -> None:
     for record, bead_status in cases:
         winners = [r for r in RETRY_TABLE if _rule_matches(r, record, bead_status)]
         assert winners, (record, bead_status)
-        expected = _apply_rule(winners[0], record, [])
-        got = decide(record, [], bead_status, config)
+        now = datetime.now(tz=UTC)
+        expected = _apply_rule(winners[0], record, [], now)
+        got = decide(record, [], bead_status, config, now=now)
         assert (got.action, got.reason) == (expected.action, expected.reason), (
             record,
             bead_status,

@@ -33,3 +33,6 @@ RATE_LIMIT_PROBE_SILENCE_SEC: int = 300
 # Subprocess ceiling for every `bd` CLI call (see beads/client.py::BdClient).
 # A hung `bd` must fail fast as BdError, never hang the supervisor.
 BD_TIMEOUT_SEC: int = 60
+# Subprocess ceiling for every `git` call (see orchestrator/git.py::GitRepo).
+# One place owns the timeout so no git invocation can hang a service loop.
+GIT_TIMEOUT_SEC: int = 120

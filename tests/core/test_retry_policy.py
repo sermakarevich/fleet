@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
 import pytest
 
@@ -15,9 +16,11 @@ from fleet.core.retry_policy import (
     STALL_MAX_ROUNDS,
     Action,
     decide,
+    is_observer_run,
+    observer_cap_decision,
     rounds_for_history,
 )
-from fleet.core.task import TaskOutcome, TaskOutcomeRecord
+from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 
 
 def _record(outcome: TaskOutcome, **kwargs) -> TaskOutcomeRecord:
@@ -218,3 +221,52 @@ def test_unblock_row_resets_failure_streak() -> None:
     d = decide(real, history, "in_progress", config)
     assert d.action == Action.RELEASE
     assert 60 <= (d.wait_sec or 0) <= 90
+
+
+def _epic(task_id: str = "e-1") -> Task:
+    return Task(id=task_id, title="Epic", description=None, status="in_progress", type="epic")
+
+
+def _observer_history(n: int) -> list[dict]:
+    return [
+        {
+            "n": i + 1,
+            "outcome": "partial",
+            "reason": "more",
+            "worker": "observer",
+            "action": "release",
+        }
+        for i in range(n)
+    ]
+
+
+def test_observer_cap_blocks_past_max_rounds() -> None:
+    """An epic past its observer follow-up rounds blocks for human review."""
+    rec = _record(TaskOutcome.PARTIAL, reason="more")
+    assert observer_cap_decision(_epic(), rec, _observer_history(2), max_rounds=3) is not None
+    capped = observer_cap_decision(_epic(), rec, _observer_history(2), max_rounds=3)
+    assert capped is not None and capped.action == Action.BLOCK
+
+
+def test_observer_cap_allows_earlier_rounds() -> None:
+    """Earlier observer rounds pass through to the normal retry table."""
+    rec = _record(TaskOutcome.PARTIAL, reason="more")
+    assert observer_cap_decision(_epic(), rec, _observer_history(1), max_rounds=3) is None
+
+
+def test_observer_cap_ignores_non_observer_runs() -> None:
+    """Non-observer partials and non-partial outcomes never hit the cap."""
+    plain = Task(id="t-1", title="T", description=None, status="in_progress")
+    history = [{"n": 1, "outcome": "partial", "reason": "x", "worker": "task.fresh"}]
+    assert observer_cap_decision(plain, _record(TaskOutcome.PARTIAL, reason="x"), history) is None
+    assert observer_cap_decision(_epic(), _record(TaskOutcome.FAILURE, reason="x"), history) is None
+    assert not is_observer_run(plain, history)
+    assert is_observer_run(_epic(), history)
+
+
+def test_decide_takes_injected_now_for_rate_limit() -> None:
+    """Rate-limit waits anchor to the passed now, not the wall clock."""
+    config = RuntimeConfig()
+    at = datetime(2026, 1, 1, tzinfo=UTC)
+    rec = _record(TaskOutcome.RATE_LIMIT, resets_at=None)
+    assert decide(rec, [], "in_progress", config, now=at).wait_sec == 300

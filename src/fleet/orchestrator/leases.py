@@ -20,6 +20,9 @@ own. Beads with no attempt dir / no run.json (human-claimed via
 Reclaim journals `record_end(outcome="killed", reason="lease expired")`
 and releases through the normal queue path; the claim loop picks the
 bead up later. Nothing here re-spawns work directly.
+
+The policy is pure in ``core/leases.py`` (``classify_lease``,
+``orphan_dirs``); this module only reads, classifies, and acts.
 """
 
 from __future__ import annotations
@@ -27,15 +30,17 @@ from __future__ import annotations
 import contextlib
 import json
 import shutil
-import socket
-import subprocess
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fleet.core.clock import SystemClock
 from fleet.core.iso import parse_iso
+from fleet.core.leases import LeaseVerdict, classify_lease, orphan_dirs
 from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
-from fleet.core.process import pid_alive
+from fleet.core.process import host_name, pid_alive
 from fleet.core.retry_policy import Action
 from fleet.core.task import TaskOutcome
 from fleet.state import paths as state_paths
@@ -44,6 +49,7 @@ from fleet.state.run_file import RunRecord
 from fleet.state.validation_marker import needs_validation
 
 from . import worktree
+from .git import GitRepo
 from .service import ServiceOrder, run_periodic
 
 if TYPE_CHECKING:
@@ -54,12 +60,27 @@ if TYPE_CHECKING:
 LEASE_EXPIRED_REASON = "lease expired"
 
 
-def _host_name() -> str:
-    """This machine's hostname for lease ownership checks (best effort)."""
-    try:
-        return socket.gethostname()
-    except OSError:
-        return "unknown"
+class _LeaseGap(StrEnum):
+    """Why a lease cannot be proven: what the read step failed to find."""
+
+    NONE = "none"
+    NO_ATTEMPT_DIR = "lease_no_attempt_dir"
+    NO_RUN = "lease_no_run_json"
+    NO_HEARTBEAT = "lease_no_heartbeat"
+    NO_PID = "lease_no_pid"
+
+
+@dataclass(frozen=True, slots=True)
+class _LeaseFacts:
+    """Pre-read facts for one lease; ``classify_lease`` turns them into a verdict."""
+
+    gap: _LeaseGap
+    stale: bool
+    pid_valid: bool
+    pid_dead: bool
+    attempt_ended: bool
+    lease_until_iso: str
+    pid: int
 
 
 def lease_is_stale(lease_until: datetime | None, now: datetime | None = None) -> bool:
@@ -71,104 +92,90 @@ def lease_is_stale(lease_until: datetime | None, now: datetime | None = None) ->
     """
     if lease_until is None:
         return False
-    at = now or datetime.now(tz=UTC)
+    at = now if now is not None else SystemClock().now()
     return (at - lease_until).total_seconds() > HEARTBEAT_SEC
 
 
-def _remove_orphan_dir(path) -> None:
+def _remove_orphan_dir(path: Path) -> None:
     """Remove one orphan worktree dir, git-aware when possible.
 
     Prefers `git worktree remove` via the worktree's own common dir so the
     admin metadata is cleaned; falls back to a plain recursive delete when
     the repo is gone (best effort, never raises).
     """
-
     target = Path(path)
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            common = Path(result.stdout.strip())
-            repo = common if common.is_absolute() else (target / common)
-            rm = subprocess.run(
-                ["git", "-C", str(repo), "worktree", "remove", "--force", str(target)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if rm.returncode == 0:
-                return
-    except (OSError, subprocess.SubprocessError):
-        pass
+    repo = GitRepo(target)
+    common = repo.run("rev-parse", "--git-common-dir")
+    if common.returncode == 0 and common.stdout.strip():
+        admin = Path(common.stdout.strip())
+        base = admin if admin.is_absolute() else (target / admin)
+        if GitRepo(base).run("worktree", "remove", "--force", str(target)).returncode == 0:
+            return
     with contextlib.suppress(Exception):
         shutil.rmtree(target, ignore_errors=True)
 
 
-def _task_names(tasks_root) -> list[str]:
-    """Task dir names under *tasks_root* (best effort, never raises)."""
-    try:
-        if tasks_root.is_dir():
-            return [p.name for p in tasks_root.iterdir() if p.is_dir()]
-    except OSError:
-        pass
-    return []
-
-
-def sweep_orphan_worktrees(st: SupervisorState) -> None:
-    """Remove worktrees with no corresponding active task (startup sweep)."""
-
-    worktrees_dir = worktree.worktrees_root(st.fleet_home)
-    if not worktrees_dir.is_dir():
-        return
-    tasks_root = state_paths.tasks_root(st.fleet_home)
-    names = _task_names(tasks_root)
-
-    # Worktree dirs still in use: every task.json worktree_path. Tasks
-    # awaiting validation keep their dirs via the same rule (their
-    # task.json still points at the worktree until the merge lands).
+def _live_worktree_paths(tasks_root: Path) -> set[str]:
+    """Resolved task.json worktree_path values still referencing a worktree."""
     live: set[str] = set()
+    try:
+        names = [p.name for p in tasks_root.iterdir() if p.is_dir()]
+    except OSError:
+        return live
     for task_dir in [tasks_root / n for n in names]:
         try:
             meta = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            meta = {}
+            continue
         wt = meta.get("worktree_path") if isinstance(meta, dict) else None
         if wt:
             with contextlib.suppress(OSError):
                 live.add(str(Path(wt).resolve()))
+    return live
 
-    for worktree_dir in worktrees_dir.iterdir():
-        if not worktree_dir.is_dir():
+
+def _validating_ids(tasks_root: Path) -> set[str]:
+    """Task ids whose merge is still awaiting validation (their dirs stay)."""
+    ids: set[str] = set()
+    try:
+        candidates = [p for p in tasks_root.iterdir() if p.is_dir()]
+    except OSError:
+        return ids
+    for task_dir in candidates:
+        with contextlib.suppress(OSError):
+            if needs_validation(task_dir):
+                ids.add(task_dir.name)
+    return ids
+
+
+def sweep_orphan_worktrees(st: SupervisorState) -> None:
+    """Remove worktrees with no corresponding active task (startup sweep)."""
+    worktrees_dir = worktree.worktrees_root(st.fleet_home)
+    if not worktrees_dir.is_dir():
+        return
+    tasks_root = state_paths.tasks_root(st.fleet_home)
+    live_ids = set(st.running) | _validating_ids(tasks_root)
+    resolved = _resolved_worktree_dirs(worktrees_dir)
+    for name in orphan_dirs(resolved, _live_worktree_paths(tasks_root), live_ids):
+        st.log.info("worktree.sweep.removed", task_id=name)
+        _remove_orphan_dir(worktrees_dir / name)
+
+
+def _resolved_worktree_dirs(worktrees_dir: Path) -> list[tuple[str, str]]:
+    """(name, resolved_path) pairs for every dir in the worktrees root."""
+    pairs: list[tuple[str, str]] = []
+    try:
+        entries = list(worktrees_dir.iterdir())
+    except OSError:
+        return pairs
+    for entry in entries:
+        if not entry.is_dir():
             continue
         try:
-            resolved = str(worktree_dir.resolve())
+            pairs.append((entry.name, str(entry.resolve())))
         except OSError:
             continue
-        if resolved in live:
-            continue
-        # Name-based keep: legacy dirs named exactly <task_id>, and new
-        # <repo>-<task_id> dirs, survive while validating or in flight.
-        # The repo prefix is unknown here, so a "<repo>-<task>" dir
-        # matches task "<task>" by suffix.
-        task_id = worktree_dir.name
-        matched = [n for n in names if task_id == n or task_id.endswith(f"-{n}")]
-        keep = any(task_id == tid or task_id.endswith(f"-{tid}") for tid in st.running)
-        if not keep:
-            for cand in [task_id, *matched]:
-                try:
-                    if needs_validation(state_paths.task_dir(st.fleet_home, cand)):
-                        keep = True
-                        break
-                except OSError:
-                    continue
-        if keep:
-            continue
-        st.log.info("worktree.sweep.removed", task_id=task_id)
-        _remove_orphan_dir(worktree_dir)
+    return pairs
 
 
 def _log_lease_once(
@@ -204,54 +211,76 @@ def reconcile_leases(st: SupervisorState, seen: set[str] | None = None) -> None:
             st.log.warning("lease_reconcile_failed", task_id=task.id, error=str(exc))
 
 
-def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
-    st: SupervisorState, task: Task, seen: set[str]
-) -> None:
-    """Reclaim *task* iff its lease is stale on a provably dead attempt."""
+def _read_lease_facts(st: SupervisorState, task: Task) -> _LeaseFacts:
+    """Read one lease's facts from disk and the process table (I/O)."""
     task_dir = st.task_dir_for(task.id)
-    attempt_dir = latest_attempt_dir(task_dir)
-    if attempt_dir is None:
-        # Claimed by a human (`bd update --claim`) or never spawned:
-        # there is no attempt to own, so there is nothing to reclaim.
-        _log_lease_once(seen, st, "lease_no_attempt_dir", task.id)
-        return
-    run = RunRecord.load(attempt_dir)
+    attempt = latest_attempt_dir(task_dir)
+    if attempt is None:
+        return _LeaseFacts(_LeaseGap.NO_ATTEMPT_DIR, False, False, False, False, "", 0)
+    run = RunRecord.load(attempt)
     if run is None:
-        _log_lease_once(seen, st, "lease_no_run_json", task.id)
-        return
+        return _LeaseFacts(_LeaseGap.NO_RUN, False, False, False, False, "", 0)
     lease_until = parse_iso(run.lease_until)
     if lease_until is None:
-        # No heartbeat was ever written (old attempt format): without
-        # lease keys we cannot prove anything, so never touch it.
-        _log_lease_once(seen, st, "lease_no_heartbeat", task.id)
-        return
-    if not lease_is_stale(lease_until):
-        return
+        return _LeaseFacts(_LeaseGap.NO_HEARTBEAT, False, False, False, False, "", 0)
     pid = run.pid
     if not isinstance(pid, int) or isinstance(pid, bool):
-        st.log.warning("lease_no_pid", task_id=task.id)
-        return
+        return _LeaseFacts(_LeaseGap.NO_PID, True, False, False, False, lease_until.isoformat(), 0)
     host = run.host
-    if isinstance(host, str) and host and host != _host_name():
-        pid_dead = True
-    else:
-        pid_dead = not pid_alive(pid)
-    if not pid_dead:
-        # Stale lease but the process is alive: it may be a slow host
-        # or a pid another supervisor owns. Never kill; just warn.
+    dead = True if (isinstance(host, str) and host and host != host_name()) else not pid_alive(pid)
+    history = load_attempts(task_dir)
+    ended = bool(history) and history[-1].get("ended_at") is not None
+    return _LeaseFacts(
+        _LeaseGap.NONE,
+        lease_is_stale(lease_until, st.clock.now()),
+        True,
+        dead,
+        ended,
+        lease_until.isoformat(),
+        pid,
+    )
+
+
+def _reconcile_one_lease(st: SupervisorState, task: Task, seen: set[str]) -> None:
+    """Reclaim *task* iff its lease is stale on a provably dead attempt."""
+    facts = _read_lease_facts(st, task)
+    verdict = classify_lease(
+        has_attempt_dir=facts.gap is not _LeaseGap.NO_ATTEMPT_DIR,
+        has_run=facts.gap in (_LeaseGap.NONE, _LeaseGap.NO_PID),
+        lease_stale=facts.stale,
+        pid_valid=facts.pid_valid,
+        pid_dead=facts.pid_dead,
+        attempt_ended=facts.attempt_ended,
+    )
+    _act_on_lease(st, task, seen, verdict, facts)
+
+
+def _act_on_lease(
+    st: SupervisorState, task: Task, seen: set[str], verdict: LeaseVerdict, facts: _LeaseFacts
+) -> None:
+    """Log or reclaim one classified lease (the act half of reconcile)."""
+    if verdict is LeaseVerdict.LIVE:
+        return
+    if verdict is LeaseVerdict.STALE_PID_ALIVE:
         st.log.warning(
             "lease_stale_pid_alive",
             task_id=task.id,
-            pid=pid,
-            lease_until=lease_until.isoformat(),
+            pid=facts.pid,
+            lease_until=facts.lease_until_iso,
         )
         return
-    history = load_attempts(task_dir)
-    if history and history[-1].get("ended_at") is not None:
-        # The attempt already journaled its end (reap ran and the queue
-        # path owns the bead now): reclaiming again would corrupt the
-        # recorded outcome and double-release.
+    if verdict is LeaseVerdict.RECLAIM:
+        _reclaim_lease(st, task)
         return
+    if facts.gap is _LeaseGap.NO_PID:
+        st.log.warning("lease_no_pid", task_id=task.id)
+    else:
+        _log_lease_once(seen, st, facts.gap.value, task.id)
+
+
+def _reclaim_lease(st: SupervisorState, task: Task) -> None:
+    """Journal a lease-expired end and release the bead for re-queueing."""
+    task_dir = st.task_dir_for(task.id)
     try:
         record_end(
             task_dir,
@@ -265,7 +294,7 @@ def _reconcile_one_lease(  # noqa: PLR0911  # ADR 0006 bead 20
         return
     try:
         st.queue.release(task.id, reason="lease expired; re-queued")
-        st.log.warning("lease_expired_released", task_id=task.id, pid=pid)
+        st.log.warning("lease_expired_released", task_id=task.id)
     except Exception as exc:
         st.log.warning("lease_release_failed", task_id=task.id, error=str(exc))
 
