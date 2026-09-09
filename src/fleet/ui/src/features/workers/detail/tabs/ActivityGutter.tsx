@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Sparkline } from '../../../shared/ui/Sparkline';
-import type { FleetEvent, TaskDetail } from '../../../shared/types';
-import { formatIdle, formatInteger } from '../../../shared/format';
-import { useNow } from '../../../shared/hooks/useNow';
-import { useKillTask } from '../../../shared/hooks/useApi';
-import { eventKindColor } from '../../../shared/colors';
-import { merge } from '../../../shared/styles/recipes';
-import * as T from '../../../shared/styles/tokens';
+import { Sparkline } from '../../../../shared/ui/Sparkline';
+import type { FleetEvent, TaskDetail } from '../../../../shared/types';
+import { formatIdle, formatInteger } from '../../../../shared/format';
+import { useNow } from '../../../../shared/hooks/useNow';
+import { useKillTask } from '../../../../shared/hooks/useApi';
+import { eventKindColor } from '../../../../shared/colors';
+import { merge } from '../../../../shared/styles/recipes';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   task: TaskDetail;

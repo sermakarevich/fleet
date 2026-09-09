@@ -1,6 +1,5 @@
 import type {
   AnalyticsSummary,
-  Bead,
   BeadDetail,
   ChatQuestion,
   CoderInfo,
@@ -144,8 +143,10 @@ function json(method: string, body: unknown): RequestInit {
 }
 
 export const api = {
-  async getTasks(): Promise<TaskSummary[]> {
-    const result = await request<{ tasks: TaskSummary[] }>('/api/tasks');
+  // closedLimit maps to GET /api/tasks ?closed_limit=: the closed-task
+  // window (core/limits.py CLOSED_TASKS_DEFAULT/MAX). Omitted → server default.
+  async getTasks(closedLimit?: number): Promise<TaskSummary[]> {
+    const result = await request<{ tasks: TaskSummary[] }>(`/api/tasks${qs({ closed_limit: closedLimit })}`);
     return result.tasks;
   },
 
@@ -189,26 +190,15 @@ export const api = {
     return request('/api/tasks', json('POST', payload));
   },
 
-  // --- Beads portal (BD tab) ---------------------------------------------
-  async getBeads(): Promise<Bead[]> {
-    const result = await request<{ beads: Bead[] }>('/api/beads');
-    return result.beads;
-  },
-
+  // --- Bead detail (worker detail page) ---------------------------------
+  // The /api/beads routes stay: the CLI and tests use them. Only the
+  // detail/status endpoints have UI callers now that the BD tab is gone.
   getBead(id: string): Promise<BeadDetail> {
     return request(`/api/beads/${id}`);
   },
 
   setBeadStatus(id: string, status: string): Promise<{ ok: boolean }> {
     return request(`/api/beads/${id}/status`, json('POST', { status }));
-  },
-
-  unblockBead(id: string): Promise<{ ok: boolean }> {
-    return request(`/api/beads/${id}/unblock`, { method: 'POST' });
-  },
-
-  removeBeadAssignee(id: string): Promise<{ ok: boolean }> {
-    return request(`/api/beads/${id}/remove-assignee`, { method: 'POST' });
   },
 
   getSupervisor(): Promise<SupervisorStatus> {

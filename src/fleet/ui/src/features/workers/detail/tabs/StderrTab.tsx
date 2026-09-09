@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../../shared/api';
-import { usePoll } from '../../../shared/poll';
-import * as T from '../../../shared/styles/tokens';
+import { api } from '../../../../shared/api';
+import { usePoll } from '../../../../shared/poll';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

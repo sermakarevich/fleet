@@ -3,7 +3,7 @@
  * through. Gives role="dialog" + aria-modal + labelled-by heading, moves
  * focus to the first focusable element on open (and restores it on close),
  * traps Tab inside the panel, closes on Escape and on overlay click.
- * Called by NewWorkerPanel, CommandPalette, BeadDrawer and TokenGate.
+ * Called by NewWorkerPanel, CommandPalette and TokenGate.
  */
 import { useEffect, useRef } from 'react';
 

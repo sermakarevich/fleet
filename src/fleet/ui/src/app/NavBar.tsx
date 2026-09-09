@@ -78,7 +78,6 @@ export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
   const navLinks = (
     <>
       <NavLink style={navLinkStyle} to="/workers">Workers</NavLink>
-      <NavLink style={navLinkStyle} to="/bd">bd</NavLink>
       <NavLink style={navLinkStyle} to="/workflows">workflows</NavLink>
       <NavLink style={navLinkStyle} to="/recurring">recurring</NavLink>
       <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>

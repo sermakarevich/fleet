@@ -1,8 +1,7 @@
 /**
  * The one status chip used by every table and card.
- * Replaces the former copies in features/workers/statusChip.ts and
- * features/beads/BeadsPage.tsx. Called by TaskRow, TaskCard,
- * BeadRow and anywhere else a status needs a colored label.
+ * Called by TaskCard, worker columns and anywhere else a status needs
+ * a colored label.
  */
 import { chipLabel, chipStyle } from '../styles/recipes';
 

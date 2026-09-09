@@ -21,6 +21,14 @@ interface TasksSocketMessage {
   event: FleetEvent;
 }
 
+// Closed-task window behind GET /api/tasks ?closed_limit=: the done and
+// failed filters only see this many recently-closed beads, so the tab
+// offers Load more up to the server max. Mirrors core/limits.py
+// (CLOSED_TASKS_DEFAULT / CLOSED_TASKS_MAX).
+const CLOSED_WINDOW_DEFAULT = 300;
+const CLOSED_WINDOW_MAX = 2000;
+const CLOSED_WINDOW_STEP = 300;
+
 // Runs list: filters, strip, table/cards, pagination and the shared
 // kill/retry/close confirm flow (mutations fire in the row cells).
 export function RunsTab() {
@@ -29,7 +37,8 @@ export function RunsTab() {
   const [confirming, setConfirming] = useState<{ id: string; verb: WorkerActionVerb } | null>(null);
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
 
-  const { data: polledTasks, isLoading, error } = useTasks();
+  const [closedLimit, setClosedLimit] = useState<number | undefined>(undefined);
+  const { data: polledTasks, isLoading, error } = useTasks(closedLimit);
   const { overlays, updateFromEvent } = useTasksState();
   const killTask = useKillTask();
 
@@ -85,6 +94,10 @@ export function RunsTab() {
   };
   const columns = taskColumns(cb);
 
+  const windowSize = closedLimit ?? CLOSED_WINDOW_DEFAULT;
+  const canLoadMore =
+    (filter === 'done' || filter === 'failed') && windowSize < CLOSED_WINDOW_MAX;
+
   if (error && tasks.length === 0) {
     return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
   }
@@ -122,6 +135,20 @@ export function RunsTab() {
           renderCard={(task) => <TaskCard task={task} cb={cb} />}
           empty="No workers match this filter."
         />
+      )}
+
+      {canLoadMore && (
+        <div style={R.paginationStyle()}>
+          <span style={R.pageInfoStyle()}>
+            Showing up to {windowSize} closed workers
+          </span>
+          <button
+            style={R.pageBtnStyle(false)}
+            onClick={() => setClosedLimit(Math.min(CLOSED_WINDOW_MAX, windowSize + CLOSED_WINDOW_STEP))}
+          >
+            Load more
+          </button>
+        </div>
       )}
 
       {totalPages > 1 && (

@@ -1,14 +1,19 @@
+// Worker detail header: id, status, bead priority/issue-type pills,
+// blocked banner, description and run metadata, plus the Close/Reopen
+// and remove-assignee controls. Rendered by TaskDetailPage.
 import { useState } from 'react';
-import type { RuntimeConfig, TaskDetail } from '../../shared/types';
-import * as T from '../../shared/styles/tokens';
-import { useUnblockTask } from '../../shared/hooks/useApi';
-import { statusColor, statusLabel } from '../../shared/status';
-import { formatTimestamp, formatTokens, formatContextTitle } from '../../shared/format';
-import { merge } from '../../shared/styles/recipes';
+import type { BeadDetail, RuntimeConfig, TaskDetail } from '../../../shared/types';
+import * as T from '../../../shared/styles/tokens';
+import { useUnblockTask } from '../../../shared/hooks/useApi';
+import { statusColor, statusLabel } from '../../../shared/status';
+import { formatTimestamp, formatTokens, formatContextTitle } from '../../../shared/format';
+import { merge } from '../../../shared/styles/recipes';
+import { WorkerStatusControls } from './WorkerStatusControls';
 
 interface Props {
   task: TaskDetail;
   config: RuntimeConfig | undefined;
+  bead: BeadDetail | undefined;
 }
 
 function CoderModel({ task, config }: { task: TaskDetail; config: RuntimeConfig | undefined }) {
@@ -30,7 +35,7 @@ function CoderModel({ task, config }: { task: TaskDetail; config: RuntimeConfig 
   );
 }
 
-export function TaskDetailHeader({ task, config }: Props) {
+export function TaskDetailHeader({ task, config, bead }: Props) {
   const [descExpanded, setDescExpanded] = useState(false);
   const desc = task.description;
   const descLong = typeof desc === 'string' && desc.length > 400;
@@ -56,6 +61,12 @@ export function TaskDetailHeader({ task, config }: Props) {
         >
           {statusLabel(task.status)}
         </span>
+        {bead?.priority != null && (
+          <span style={styles.metaPill}>priority {bead.priority}</span>
+        )}
+        {bead?.issue_type && (
+          <span style={styles.metaPill}>{bead.issue_type}</span>
+        )}
         <span style={styles.title}>{task.title}</span>
         {task.job_phase && (
           <span style={styles.jobPill} title={`job phase (worker: job.${task.job_phase})`}>
@@ -102,6 +113,12 @@ export function TaskDetailHeader({ task, config }: Props) {
       )}
       <div style={styles.meta}>
         <CoderModel task={task} config={config} />
+        {bead?.assignee && (
+          <>
+            <span style={styles.metaSep}>·</span>
+            <span style={styles.metaItem}>assignee: {bead.assignee}</span>
+          </>
+        )}
         <span style={styles.metaSep}>·</span>
         <span style={styles.metaItem} title={formatContextTitle(task.context_tokens, task.context_limit)}>
           ctx: {formatTokens(task.context_tokens, task.context_pct)}
@@ -127,6 +144,7 @@ export function TaskDetailHeader({ task, config }: Props) {
           </>
         )}
       </div>
+      <WorkerStatusControls taskId={task.id} bead={bead} />
     </div>
   );
 }
@@ -158,6 +176,16 @@ const styles: Record<string, React.CSSProperties> = {
     color: T.colors.white,
     flexShrink: 0,
   },
+  metaPill: {
+    display: 'inline-block',
+    padding: '0.1rem 0.45rem',
+    borderRadius: '10rem',
+    fontSize: '0.7rem',
+    fontWeight: 400,
+    color: T.colors.textSecondary,
+    border: `1px solid ${T.colors.border}`,
+    flexShrink: 0,
+  },
   jobPill: {
     display: 'inline-block',
     padding: '0.1rem 0.45rem',
@@ -182,6 +210,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.25rem',
     fontSize: '0.75rem',
     color: T.colors.textDim,
+    flexWrap: 'wrap',
   },
   coderModel: {
     fontFamily: 'monospace',

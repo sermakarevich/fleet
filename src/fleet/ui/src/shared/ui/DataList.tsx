@@ -1,5 +1,5 @@
 // Shared list: table on desktop, cards on mobile (via useIsMobile).
-// Rendered by every list page (workers, beads, schedules, workflows,
+// Rendered by every list page (workers, schedules, workflows,
 // runs, inbox); per-feature cell renderers plug in as column `render`
 // functions, and rows needing actions pass a custom `renderCard`.
 // Replaces the per-feature Table/Row/Card shells.

@@ -51,6 +51,11 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
     t.id.toLowerCase().includes(inputValue.toLowerCase()),
   );
 
+  // Jump to a worker/bead id that is not in the list cache (e.g. a closed
+  // bead beyond the Runs history window): the detail page loads any id.
+  const trimmedInput = inputValue.trim();
+  const exactMatch = cachedTasks.some(t => t.id === trimmedInput);
+
   const go = (path: string) => {
     navigate(path);
     setOpen(false);
@@ -112,6 +117,20 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
                     <span style={s.itemMeta}>{t.id}</span>
                   </Command.Item>
                 ))}
+              </Command.Group>
+            )}
+            {trimmedInput && !exactMatch && (
+              <Command.Group>
+                <div style={s.groupHeading}>Jump to worker by id</div>
+                <Command.Item
+                  key={`jump-${trimmedInput}`}
+                  value={`jump-${trimmedInput}`}
+                  style={s.item}
+                  onSelect={() => go(`/workers/${trimmedInput}`)}
+                  className="cmd-item"
+                >
+                  <span style={s.itemLabel}>Go to worker {trimmedInput}</span>
+                </Command.Item>
               </Command.Group>
             )}
             <Command.Group>

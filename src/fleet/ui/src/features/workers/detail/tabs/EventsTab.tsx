@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../../shared/api';
-import { usePoll } from '../../../shared/poll';
-import type { StreamEvent } from '../../../shared/types';
-import { formatClockTime } from '../../../shared/format';
-import { eventKindColor } from '../../../shared/colors';
-import { useClickableProps } from '../../../shared/ui/Clickable';
-import { merge, when } from '../../../shared/styles/recipes';
-import * as T from '../../../shared/styles/tokens';
+import { api } from '../../../../shared/api';
+import { usePoll } from '../../../../shared/poll';
+import type { StreamEvent } from '../../../../shared/types';
+import { formatClockTime } from '../../../../shared/format';
+import { eventKindColor } from '../../../../shared/colors';
+import { useClickableProps } from '../../../../shared/ui/Clickable';
+import { merge, when } from '../../../../shared/styles/recipes';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

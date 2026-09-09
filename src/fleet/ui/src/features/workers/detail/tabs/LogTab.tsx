@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../../shared/api';
-import { usePoll } from '../../../shared/poll';
-import type { LogLine } from '../../../shared/types';
-import { merge, when } from '../../../shared/styles/recipes';
-import * as Tok from '../../../shared/styles/tokens';
+import { api } from '../../../../shared/api';
+import { usePoll } from '../../../../shared/poll';
+import type { LogLine } from '../../../../shared/types';
+import { merge, when } from '../../../../shared/styles/recipes';
+import * as Tok from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

@@ -4,7 +4,7 @@
  * Built on the tokens in `./tokens` plus the status colors in
  * `../status`. Pages compose these instead of inlining `style={{...}}`
  * blobs; anything page-specific stays in that feature's own styles record.
- * Called by BeadsPage, WorkersPage, ChatPage, NewWorkerPanel, LiveTab and
+ * Called by WorkersPage, ChatPage, NewWorkerPanel, LiveTab and
  * the table/chart components.
  */
 import type { CSSProperties } from 'react';

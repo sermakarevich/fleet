@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { api } from '../../../shared/api';
-import { usePoll } from '../../../shared/poll';
-import * as T from '../../../shared/styles/tokens';
+import { api } from '../../../../shared/api';
+import { usePoll } from '../../../../shared/poll';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

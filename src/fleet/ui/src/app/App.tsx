@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import { ChatPage } from '../features/chat/ChatPage';
 import { WorkersPage } from '../features/workers/WorkersPage';
-import { BeadsPage } from '../features/beads/BeadsPage';
 import { RecurringPage } from '../features/recurring/RecurringPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
-import { TaskDetailPage } from '../features/task-detail/TaskDetailPage';
+import { TaskDetailPage } from '../features/workers/detail/TaskDetailPage';
 import { ConfigPage } from '../features/config/ConfigPage';
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage';
 import { NewWorkerPanel } from '../features/workers/NewWorkerPanel';
@@ -42,6 +41,23 @@ export function ScheduleIdRedirect() {
   return <Navigate to={`/workers?tab=scheduled&schedule=${id}`} replace />;
 }
 
+// Legacy /bd URLs redirect to the workers list. The bd tab filtered by
+// bead status; map each value onto the workers filter vocabulary
+// (open→queued, in_progress→running, blocked→blocked, closed→done;
+// anything else lands on the default filter).
+const BD_STATUS_MAP: Record<string, string> = {
+  open: 'queued',
+  in_progress: 'running',
+  blocked: 'blocked',
+  closed: 'done',
+};
+
+export function BdRedirect() {
+  const [params] = useSearchParams();
+  const mapped = BD_STATUS_MAP[params.get('status') ?? ''] ?? '';
+  return <Navigate to={{ pathname: '/workers', search: mapped ? `?status=${mapped}` : '' }} replace />;
+}
+
 function AppInner() {
   const [showNewWorker, setShowNewWorker] = useState(false);
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette();
@@ -59,7 +75,7 @@ function AppInner() {
           <Route path="/workers/:id" element={<TaskDetailPage />} />
           <Route path="/tasks" element={<Navigate to="/workers" replace />} />
           <Route path="/tasks/:id" element={<TaskIdRedirect />} />
-          <Route path="/bd" element={<BeadsPage />} />
+          <Route path="/bd" element={<BdRedirect />} />
           <Route path="/schedules" element={<Navigate to={{ pathname: '/workers', search: '?tab=scheduled' }} replace />} />
           <Route path="/schedules/:id" element={<ScheduleIdRedirect />} />
           <Route path="/workflows" element={<WorkflowsPage />} />

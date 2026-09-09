@@ -2,7 +2,7 @@
  * URL-synced list filter state: search query (`q`), status filter
  * (`status`) and page (`page`) read/written through useSearchParams so
  * every list URL is shareable. Generic over the status union; feature
- * hooks (tasks, beads) wrap it with their own filter vocabulary and
+ * hooks (workers) wrap it with their own filter vocabulary and
  * derived lists. Rendered by FilterBar.
  */
 import { useSearchParams } from 'react-router-dom';

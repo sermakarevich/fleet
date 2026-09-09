@@ -1,6 +1,6 @@
 /**
  * Line diff between two text snapshots.
- * Moved out of features/task-detail/tabs/LiveTab.tsx so it can be unit
+ * Moved out of features/workers/detail/tabs/LiveTab.tsx so it can be unit
  * tested. Called by LiveTab's DiffView; tested by diff.test.ts.
  */
 

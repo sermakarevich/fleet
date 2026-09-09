@@ -1,11 +1,15 @@
+// Worker detail page (/workers/:id): header plus the full tab set —
+// live views, attempts, artifacts and the absorbed bead tabs
+// (Dependencies, Comments, Bead). Rendered by App's /workers/:id route;
+// legacy /tasks/:id URLs redirect here.
 import { useState, useCallback, useRef } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
-import { useTask, useConfig } from '../../shared/hooks/useApi';
-import { useEventSocket } from '../../shared/hooks/useEventSocket';
-import { useIsMobile } from '../../shared/hooks/useIsMobile';
+import { useTask, useBead, useConfig } from '../../../shared/hooks/useApi';
+import { useEventSocket } from '../../../shared/hooks/useEventSocket';
+import { useIsMobile } from '../../../shared/hooks/useIsMobile';
 import { TaskDetailHeader } from './TaskDetailHeader';
-import { LoadingState } from '../../shared/ui/LoadingState';
-import { Tabs } from '../../shared/ui/Tabs';
+import { LoadingState } from '../../../shared/ui/LoadingState';
+import { Tabs } from '../../../shared/ui/Tabs';
 import { LiveTab } from './tabs/LiveTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
 import { ChildrenTab } from './tabs/ChildrenTab';
@@ -16,12 +20,15 @@ import { StderrTab } from './tabs/StderrTab';
 import { DiffTab } from './tabs/DiffTab';
 import { FilesTab } from './tabs/FilesTab';
 import { EventsTab } from './tabs/EventsTab';
+import { DependenciesTab } from './tabs/DependenciesTab';
+import { CommentsTab } from './tabs/CommentsTab';
+import { BeadJsonTab } from './tabs/BeadJsonTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
-import type { FleetEvent } from '../../shared/types';
-import { merge, when } from '../../shared/styles/recipes';
-import * as T from '../../shared/styles/tokens';
+import type { FleetEvent } from '../../../shared/types';
+import { merge, when } from '../../../shared/styles/recipes';
+import * as T from '../../../shared/styles/tokens';
 
-type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files';
+type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files' | 'dependencies' | 'comments' | 'bead';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
@@ -35,6 +42,9 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'stderr', label: 'Stderr' },
   { id: 'diff', label: 'Diff' },
   { id: 'files', label: 'Files' },
+  { id: 'dependencies', label: 'Dependencies' },
+  { id: 'comments', label: 'Comments' },
+  { id: 'bead', label: 'Bead' },
 ];
 
 export function TaskDetailPage() {
@@ -43,6 +53,7 @@ export function TaskDetailPage() {
   const [activeTab, setActiveTab] = useState<TabId>('live');
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const { data: task, isLoading, error } = useTask(id!);
+  const { data: bead, isLoading: beadLoading, error: beadError } = useBead(id ?? null);
   const { data: config } = useConfig();
 
   // GET /api/tasks/{id} already returns the beads-reconciled status, so no
@@ -85,12 +96,15 @@ export function TaskDetailPage() {
       case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'diff': return <DiffTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'files': return <FilesTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
+      case 'dependencies': return <DependenciesTab bead={bead} isLoading={beadLoading} error={beadError} />;
+      case 'comments': return <CommentsTab bead={bead} isLoading={beadLoading} error={beadError} />;
+      case 'bead': return <BeadJsonTab bead={bead} isLoading={beadLoading} error={beadError} />;
     }
   }
 
   return (
     <div style={styles.page}>
-      <TaskDetailHeader task={taskWithStatus ?? task} config={config} />
+      <TaskDetailHeader task={taskWithStatus ?? task} config={config} bead={bead} />
       <div style={styles.body}>
         <div style={styles.main}>
           <Tabs

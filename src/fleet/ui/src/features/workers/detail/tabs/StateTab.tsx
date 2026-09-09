@@ -1,10 +1,10 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { errorMessage, isNotFound } from '../../../shared/api';
-import { useArtifactOutputs, useArtifactResult, useArtifactState } from '../../../shared/hooks/useApi';
-import type { TaskResult } from '../../../shared/types';
-import { merge } from '../../../shared/styles/recipes';
-import * as T from '../../../shared/styles/tokens';
+import { errorMessage, isNotFound } from '../../../../shared/api';
+import { useArtifactOutputs, useArtifactResult, useArtifactState } from '../../../../shared/hooks/useApi';
+import type { TaskResult } from '../../../../shared/types';
+import { merge } from '../../../../shared/styles/recipes';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

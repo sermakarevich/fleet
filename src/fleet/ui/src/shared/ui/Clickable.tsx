@@ -3,7 +3,7 @@
  * (row, card, table row, event line) activatable by mouse and keyboard.
  * useClickableProps gives role="button" + tabIndex + Enter/Space handling
  * to spread onto any element; Clickable is the same contract as a div.
- * Called by TaskRow, TaskCard, BeadRow, QuestionCard, EventsTab and
+ * Called by TaskCard, QuestionCard, EventsTab and
  * NeedsAttention instead of bare div onClick.
  */
 interface ClickableProps {

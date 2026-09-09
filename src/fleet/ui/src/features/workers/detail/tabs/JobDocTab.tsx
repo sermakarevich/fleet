@@ -1,8 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { errorMessage, isNotFound } from '../../../shared/api';
-import { useArtifactDoc } from '../../../shared/hooks/useApi';
-import * as T from '../../../shared/styles/tokens';
+import { errorMessage, isNotFound } from '../../../../shared/api';
+import { useArtifactDoc } from '../../../../shared/hooks/useApi';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

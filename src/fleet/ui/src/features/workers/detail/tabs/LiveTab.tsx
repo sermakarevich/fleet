@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FleetEvent } from '../../../shared/types';
-import { computeLineDiff } from '../../../shared/diff';
-import { formatInteger } from '../../../shared/format';
-import * as T from '../../../shared/styles/tokens';
-import { DIFF_LINE_STYLE, merge } from '../../../shared/styles/recipes';
-import { eventKindColor } from '../../../shared/colors';
+import type { FleetEvent } from '../../../../shared/types';
+import { computeLineDiff } from '../../../../shared/diff';
+import { formatInteger } from '../../../../shared/format';
+import * as T from '../../../../shared/styles/tokens';
+import { DIFF_LINE_STYLE, merge } from '../../../../shared/styles/recipes';
+import { eventKindColor } from '../../../../shared/colors';
 
 function DiffView({ oldStr, newStr }: { oldStr: string; newStr: string }) {
   const lines = computeLineDiff(oldStr, newStr);
@@ -52,7 +52,8 @@ export function LiveTab({ events }: Props) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Optional call: jsdom (and very old browsers) have no scrollIntoView.
+    bottomRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
   }, [events.length]);
 
   const kinds = [ALL_FILTER, ...Array.from(new Set(events.map(e => e.kind))).sort()];

@@ -11,8 +11,14 @@ import type { CreateTaskInput, RuntimeConfig, ScheduleInput, WorkflowInput } fro
 import { useTaskMutation } from './useTaskMutation';
 import { useDebounced } from './useDebounced';
 
-export function useTasks() {
-  return useQuery({ queryKey: ['tasks'], queryFn: api.getTasks, refetchInterval: usePoll('normal') });
+export function useTasks(closedLimit?: number) {
+  return useQuery({
+    // Default window keeps the plain ['tasks'] key so cache readers (the
+    // command palette) keep working; wider windows get their own key.
+    queryKey: closedLimit == null ? ['tasks'] : ['tasks', closedLimit],
+    queryFn: () => api.getTasks(closedLimit),
+    refetchInterval: usePoll('normal'),
+  });
 }
 
 export function useTask(id: string) {
@@ -50,10 +56,6 @@ export function useAttemptPrompt(taskId: string, n: number, enabled: boolean) {
   });
 }
 
-export function useBeads() {
-  return useQuery({ queryKey: ['beads'], queryFn: api.getBeads, refetchInterval: usePoll('normal') });
-}
-
 export function useBead(id: string | null) {
   return useQuery({
     queryKey: ['bead', id],
@@ -67,23 +69,9 @@ export function useSetBeadStatus() {
   return useTaskMutation('Set bead status', ({ id, status }: { id: string; status: string }) =>
     api.setBeadStatus(id, status),
   {
-    invalidate: (_data, vars) => [['beads'], ['bead', vars.id]],
+    invalidate: (_data, vars) => [['bead', vars.id], ['task', vars.id], ['tasks']],
     success: 'Saved',
     failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
-  });
-}
-
-export function useUnblockBead() {
-  return useTaskMutation('Unblock bead', (id: string) => api.unblockBead(id), {
-    invalidate: (_data, id) => [['beads'], ['bead', id]],
-    success: 'Bead unblocked',
-  });
-}
-
-export function useRemoveBeadAssignee() {
-  return useTaskMutation('Remove bead assignee', (id: string) => api.removeBeadAssignee(id), {
-    invalidate: (_data, id) => [['beads'], ['bead', id]],
-    success: 'Assignee removed',
   });
 }
 
@@ -159,14 +147,14 @@ export function useUnignoreTask() {
 
 export function useCloseTask() {
   return useTaskMutation('Close task', (id: string) => api.closeTask(id), {
-    invalidate: [['tasks']],
+    invalidate: (_data, id) => [['tasks'], ['task', id], ['bead', id]],
     success: 'Task closed.',
   });
 }
 
 export function useRemoveAssignee() {
   return useTaskMutation('Remove assignee', (id: string) => api.removeAssignee(id), {
-    invalidate: [['tasks']],
+    invalidate: (_data, id) => [['tasks'], ['task', id], ['bead', id]],
     success: 'Assignee removed.',
   });
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { TaskAttempt } from '../../../shared/types';
-import { formatClockTime, formatDuration } from '../../../shared/format';
+import type { TaskAttempt } from '../../../../shared/types';
+import { formatClockTime, formatDuration } from '../../../../shared/format';
 
 // peak_context_pct from the API is already on the 0-100 scale (see
 // state/task_summary.py::_build_attempts_summary), unlike shared/format.ts's
@@ -9,9 +9,9 @@ function formatAttemptContextPercent(percent: number | null): string {
   if (percent == null) return '—';
   return `${Math.round(percent)}%`;
 }
-import { useAttemptSummary, useAttemptPrompt } from '../../../shared/hooks/useApi';
-import { merge, when } from '../../../shared/styles/recipes';
-import * as T from '../../../shared/styles/tokens';
+import { useAttemptSummary, useAttemptPrompt } from '../../../../shared/hooks/useApi';
+import { merge, when } from '../../../../shared/styles/recipes';
+import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   taskId: string;

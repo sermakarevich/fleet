@@ -345,3 +345,33 @@ describe('legacy redirects', () => {
     expect(await screen.findByText('search?tab=scheduled&schedule=sched-1')).toBeInTheDocument();
   });
 });
+
+describe('Runs history Load more', () => {
+  function mockHistory(tasks: TaskSummary[]) {
+    const tasksSpy = vi.spyOn(api, 'getTasks').mockResolvedValue(tasks);
+    vi.spyOn(api, 'getSchedules').mockResolvedValue([]);
+    vi.spyOn(api, 'getAnalyticsSummary').mockResolvedValue(mockSummary());
+    vi.spyOn(api, 'getChatQuestions').mockResolvedValue(mockQuestions(0));
+    return tasksSpy;
+  }
+
+  it('widens the closed-task window through ?closed_limit=', async () => {
+    const tasksSpy = mockHistory([makeTask({ id: 'd1', status: 'closed' })]);
+    render(<WorkersPage />, { wrapper: wrapper(['/workers?status=done']) });
+
+    expect(await screen.findByText('title-d1')).toBeInTheDocument();
+    expect(screen.getByText('Showing up to 300 closed workers')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(tasksSpy).toHaveBeenCalledWith(600));
+    expect(await screen.findByText('Showing up to 600 closed workers')).toBeInTheDocument();
+  });
+
+  it('hides Load more on the running filter', async () => {
+    mockHistory([makeTask({ id: 'w1', status: 'in_progress' })]);
+    render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
+
+    expect(await screen.findByText('title-w1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+});
