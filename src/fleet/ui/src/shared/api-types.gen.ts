@@ -700,6 +700,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/config/constants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Config Constants
+         * @description Read-only code-level tunables with docs (ADR 0009 Settings).
+         */
+        get: operations["get_config_constants_api_config_constants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/analytics/summary": {
         parameters: {
             query?: never;
@@ -1480,6 +1500,30 @@ export interface components {
             coders: components["schemas"]["CoderInfo"][];
         };
         /**
+         * ConfigConstant
+         * @description One read-only code-level tunable for GET /api/config/constants.
+         */
+        ConfigConstant: {
+            /** Name */
+            name: string;
+            /** Value */
+            value: string;
+            /** Unit */
+            unit: string;
+            /** Doc */
+            doc: string;
+            /** Module */
+            module: string;
+        };
+        /**
+         * ConfigConstantsResponse
+         * @description Envelope for GET /api/config/constants.
+         */
+        ConfigConstantsResponse: {
+            /** Constants */
+            constants: components["schemas"]["ConfigConstant"][];
+        };
+        /**
          * ConfigView
          * @description Full RuntimeConfig as JSON (mirrors core.config.RuntimeConfig).
          */
@@ -1564,6 +1608,8 @@ export interface components {
             serve_host: string;
             /** Serve Port */
             serve_port: number;
+            /** Restart Required */
+            restart_required?: string[];
         };
         /**
          * ContentResponse
@@ -3515,6 +3561,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigView"];
+                };
+            };
+        };
+    };
+    get_config_constants_api_config_constants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigConstantsResponse"];
                 };
             };
         };

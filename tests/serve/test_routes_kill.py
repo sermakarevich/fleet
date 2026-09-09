@@ -126,11 +126,28 @@ def test_supervisor_dead_with_stale_tasks_reports_zero_active(
 def test_supervisor_running_counts_active_tasks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/supervisor returns active_count from task files when supervisor is alive (FR-42)."""
+    """GET /api/supervisor counts only in_progress tasks with a live attempt (ADR 0009)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
-    _make_task_dir(tasks_root, "active-1", "in_progress")
+    live_dir = _make_task_dir(tasks_root, "active-1", "in_progress")
     _make_task_dir(tasks_root, "done-1", "completed")
+    # A live latest attempt: start line plus run.json with no ended_at and a live pid.
+    (live_dir / "attempts.jsonl").write_text(
+        json.dumps(
+            {
+                "event": "start",
+                "n": 1,
+                "ts": "2026-01-01T00:00:00+00:00",
+                "coder": "claude",
+                "model": "sonnet",
+                "worker": "task",
+            }
+        )
+        + "\n"
+    )
+    attempt_dir = live_dir / "attempts" / "1"
+    attempt_dir.mkdir(parents=True)
+    (attempt_dir / "run.json").write_text(json.dumps({"pid": os.getpid()}))
 
     pid = os.getpid()
     (tmp_path / ".supervisor.pid").write_text(

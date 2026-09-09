@@ -1,6 +1,11 @@
+// Supervisor status card for the settings page: liveness, slot counts,
+// pause / resume and restart (restart asks through the shared Confirm,
+// never window.confirm). Rendered by SupervisorSection.
+import { useState } from 'react';
 import type { SupervisorStatus } from '../../shared/types';
 import { formatDateTime } from '../../shared/format';
 import * as T from '../../shared/styles/tokens';
+import { Confirm } from '../../shared/ui/Confirm';
 
 interface Props {
   status: SupervisorStatus;
@@ -12,11 +17,7 @@ interface Props {
 
 export function SupervisorPanel({ status, onPause, onResume, onRestart, loading }: Props) {
   const startedAt = formatDateTime(status.started_at);
-
-  const handleRestart = async () => {
-    if (!window.confirm('Restart the supervisor daemon?')) return;
-    await onRestart();
-  };
+  const [confirmRestart, setConfirmRestart] = useState(false);
 
   return (
     <div style={styles.panel}>
@@ -55,13 +56,24 @@ export function SupervisorPanel({ status, onPause, onResume, onRestart, loading 
             Pause
           </button>
         )}
-        <button
-          style={status.stale ? styles.restartBtnStale : styles.restartBtn}
-          onClick={handleRestart}
-          disabled={loading}
-        >
-          Restart
-        </button>
+        {confirmRestart ? (
+          <Confirm
+            verb="Restart"
+            onConfirm={() => {
+              setConfirmRestart(false);
+              void onRestart();
+            }}
+            onCancel={() => setConfirmRestart(false)}
+          />
+        ) : (
+          <button
+            style={status.stale ? styles.restartBtnStale : styles.restartBtn}
+            onClick={() => setConfirmRestart(true)}
+            disabled={loading}
+          >
+            Restart
+          </button>
+        )}
       </div>
     </div>
   );
@@ -87,15 +99,15 @@ const styles = {
     color: T.colors.textPrimary,
   } as React.CSSProperties,
   dotRunning: {
-    width: 8,
-    height: 8,
+    width: '0.5rem',
+    height: '0.5rem',
     borderRadius: '50%',
     background: T.colors.success,
     flexShrink: 0,
   } as React.CSSProperties,
   dotStopped: {
-    width: 8,
-    height: 8,
+    width: '0.5rem',
+    height: '0.5rem',
     borderRadius: '50%',
     background: T.colors.gray,
     flexShrink: 0,
@@ -174,12 +186,12 @@ const styles = {
   } as React.CSSProperties,
   staleBadge: {
     padding: '0.15rem 0.5rem',
-    background: 'rgba(245,158,11,0.15)',
+    background: T.colors.warningBg,
     border: `1px solid ${T.colors.amber}`,
     borderRadius: '10rem',
     fontSize: '0.7rem',
     fontWeight: 600,
-    color: T.colors.amberLight,
+    color: T.colors.warningFg,
     letterSpacing: '0.02em',
   } as React.CSSProperties,
 };

@@ -8,22 +8,40 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from fleet.core.process import pid_alive
 from fleet.observability.daemon import restart, supervisor_spec
 from fleet.observability.pidfile import read as read_pid_record
 from fleet.observability.process import ServiceRegistry
 from fleet.serve.api.models import PauseResponse, RestartResponse, SupervisorResponse
 from fleet.serve.auth import HTTP_AUTH
+from fleet.state.attempt_journal import AttemptJournal
 from fleet.state.config_file import load as load_config
 from fleet.state.paths import fleet_home as get_fleet_home
+from fleet.state.run_file import RunRecord
 from fleet.state.task_index import TaskIndex
 
 router = APIRouter(prefix="/api/supervisor", dependencies=[HTTP_AUTH])
 
 
+def _attempt_running(task_dir: Path) -> bool:
+    """True when the latest attempt is unfinished and its pid is alive."""
+    attempt_dir = AttemptJournal.load(task_dir).latest_attempt_dir()
+    if attempt_dir is None:
+        return False
+    record = RunRecord.load(attempt_dir)
+    if record is None or record.ended_at is not None:
+        return False
+    return pid_alive(record.pid)
+
+
 def _count_active(fleet_home: Path) -> int:
-    """In-progress tasks, counted only when the supervisor is alive."""
+    """In-progress tasks whose latest attempt is live (not stale)."""
     rows = TaskIndex(fleet_home).iter_meta()
-    return sum(1 for _, raw in rows if raw.get("status") == "in_progress")
+    return sum(
+        1
+        for task_dir, raw in rows
+        if raw.get("status") == "in_progress" and _attempt_running(task_dir)
+    )
 
 
 def _supervisor_snapshot() -> dict:

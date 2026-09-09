@@ -3,6 +3,7 @@ import type {
   BeadDetail,
   ChatQuestion,
   CoderInfo,
+  ConfigConstant,
   CreateTaskInput,
   CronPreview,
   FileOp,
@@ -223,6 +224,10 @@ export const api = {
 
   getConfig(): Promise<RuntimeConfig> {
     return request('/api/config');
+  },
+
+  getConfigConstants(): Promise<{ constants: ConfigConstant[] }> {
+    return request('/api/config/constants');
   },
 
   putConfig(updates: Partial<RuntimeConfig>): Promise<RuntimeConfig> {
