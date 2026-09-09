@@ -45,6 +45,7 @@ Fleet ships with a full-featured web UI (`fleet serve`) that covers the entire a
   - [`fleet tasks`](#fleet-tasks)
   - [`fleet task <id> {log|plan|knowledge}`](#fleet-task-id-logplanknowledge)
   - [`fleet log [N]`](#fleet-log-n)
+  - [`fleet schedule ...` (recurring workers)](#fleet-schedule--recurring-workers)
   - [`fleet bd <args...>`](#fleet-bd-args)
   - [`fleet run`](#fleet-run)
   - [`fleet serve`](#fleet-serve)
@@ -406,6 +407,25 @@ retention pass once at startup (after lease reconciliation) and then every
 
 Each step logs counts and bytes (`retention_gc_tasks`,
 `retention_purge_archive`, `retention_worktrees` in the supervisor log).
+
+### `fleet schedule ...` (recurring workers)
+
+A schedule is a saved task template plus a cron expression and a time
+zone. Each time it fires, the supervisor opens one ordinary bead from
+the template — after that it is a normal task like any other.
+
+```bash
+fleet schedule create --name triage --cron "0 9 * * 1-5" --title "Triage {date}"
+fleet schedule list                  # id, on/off, cron, next run, last run, runs
+fleet schedule show sch-abc123       # definition, next 5 firings, last 20 runs
+fleet schedule run sch-abc123        # fire one manual run now
+```
+
+The same schedules are visible in the web UI under the **schedules** tab
+(`fleet serve`, `/schedules`). Definitions live in
+`~/.fleet/schedules/<id>.json`, run history in
+`~/.fleet/schedules/<id>.runs.jsonl`. See ADR 0007 and
+`docs/ARCHITECTURE.md` (section "Schedules").
 
 ### `fleet bd <args...>`
 

@@ -64,6 +64,20 @@ root (`STATE.md`, `RESULT.json`, `outputs/` — owned by
 `state/artifacts.py`). The full field-by-field layout is in
 `docs/ARCHITECTURE.md`, section "Task directory contract".
 
+## Recurring work
+
+A **schedule** is a saved task template plus a cron expression and a time
+zone ("every weekday at 09:00 triage the inbox"). The `Scheduler` service
+(`orchestrator/scheduler.py`) ticks every `SCHEDULER_TICK_SEC` seconds
+(30 by default) and, when a schedule is due, opens one ordinary bead from
+its template — from then on it is a normal task. Each firing is recorded
+as a **run** (cron or manual), with the task it opened or the reason it
+was skipped. The `schedules` package (`src/fleet/schedules/`) owns the
+cron math, the firing policy, and the on-disk files
+(`~/.fleet/schedules/<id>.json` plus an append-only
+`<id>.runs.jsonl`). Manage schedules from the UI's **schedules** tab or
+with `fleet schedule ...` (see `README.md`).
+
 ## What "stale" means and what fleet does about it
 
 Every number below is a default from `src/fleet/core/config.py` (a

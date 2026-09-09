@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -118,6 +118,20 @@ New package `fleet/schedules/` beside `beads` (imports `core`, `state`,
   history, not as skipped rows).
 - Run history is append-only per schedule, so per-schedule history never
   needs migration; cross-schedule queries scan files (fine at this scale).
+- Run-to-task enrichment (status/title beside each run in `show` and the
+  UI drawer) goes through one `bd list --metadata-field
+  fleet_schedule_id=<id>` query; when `bd` is down the history still
+  renders with nulls instead of failing.
+- Manual runs ("Run now" in the UI/API, `fleet schedule run`) always open
+  with `scheduled_for = now`, bypassing the overlap check; the CLI and the
+  API share `firing.fire`, so both record the same run shape.
+- Cron preview (`upcoming`, capped at 50) is shared by the UI form, the
+  API preview endpoint, and `fleet schedule preview`; an invalid
+  expression surfaces the `CronError` text (API: `valid=false`, CLI: exit
+  2), never an empty success.
+- The supervisor gained a `Scheduler` periodic service ticking every
+  `SCHEDULER_TICK_SEC` (30 s); cron resolution stays one minute, so a
+  faster tick only shortens firing latency, never double-fires.
 
 ## Not now
 
@@ -127,12 +141,12 @@ cron, and schedules stored in beads/Dolt.
 
 ## Bead plan
 
-1. Sched 1/6: ADR 0007 and `fleet/schedules` package — cron parser, Schedule model, JSON store (this bead; no supervisor or API behaviour changes).
-2. Sched 2/6: firing policy in `fleet/schedules/firing.py` — pure due/overlap/catch-up decisions plus the one run writer (`decide`, `open_task`, `fire`, `fire_due`) shared by the supervisor tick and manual Run now (done).
-3. Sched 3/6: `serve` API for schedules — create/edit/delete/enable/run-now plus run history endpoints.
-4. Sched 4/6: CLI commands for schedules — create/edit/delete/list/runs/run-now.
-5. Sched 5/6: UI schedules page with run history.
-6. Sched 6/6: acceptance pass — docs, end-to-end test of a nightly schedule, flip this ADR to Accepted.
+- [x] 1. Sched 1/6: ADR 0007 and `fleet/schedules` package — cron parser, Schedule model, JSON store.
+- [x] 2. Sched 2/6: firing policy in `fleet/schedules/firing.py` — pure due/overlap/catch-up decisions plus the one run writer (`decide`, `open_task`, `fire`, `fire_due`).
+- [x] 3. Sched 3/6: supervisor scheduler service that fires due schedules on tick.
+- [x] 4. Sched 4/6: serve API for schedules — create/edit/delete/enable/run-now plus run history endpoints.
+- [x] 5. Sched 5/6: UI schedules tab (`/schedules`) with list, form with cron preview, runs and upcoming.
+- [x] 6. Sched 6/6: `fleet schedule` CLI, docs, and this ADR accepted.
 
 ## Affects
 

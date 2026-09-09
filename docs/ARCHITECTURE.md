@@ -404,6 +404,13 @@ Signals (not artifacts): `.kill`, `.needs_validation`,
 `.checkpoint_requested`, `.checkpoint_sent`, `.compacted` coordinate the
 supervisor and hooks; the UI never reads them.
 
+Beyond per-task dirs, the fleet home holds top-level state with one owner
+per directory: `schedules/` holds recurring-worker definitions
+(`<id>.json`) and their append-only run history (`<id>.runs.jsonl`),
+owned by `schedules/store.py` (see "Schedules" above); `tasks/`,
+`archive/tasks/`, `worktrees/`, and `logging/` hold task dirs, retained
+archives, isolated worktrees, and supervisor logs.
+
 `run.json`, `events.jsonl`, `log.jsonl`, `log.stderr` moved from the task
 root into each attempt's own folder so that per-attempt slicing (tailing,
 stall detection, the attempts timeline) doesn't have to guess where one

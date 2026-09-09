@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from rich.console import Console
@@ -30,6 +31,10 @@ from fleet.observability.process import ServiceStatus
 from fleet.state import runtime_stats
 from fleet.state.paths import task_dir
 from fleet.state.task_summary import build_task_summary, context_overrides_for_home
+
+if TYPE_CHECKING:
+    from fleet.cli.schedule import RunLine, ScheduleRow
+    from fleet.schedules.model import Schedule
 
 _SEC_PER_MINUTE = 60
 _SEC_PER_HOUR = 3600
@@ -451,3 +456,80 @@ def print_setup_summary(path: Path, written_keys: dict[str, str]) -> None:
             typer.echo(f"  {k} = {v}")
     else:
         typer.echo("  (nothing written — all values were provided via flags)")
+
+
+def print_schedule_list(rows: list[ScheduleRow]) -> None:
+    """Print the schedules table, or the empty message when there are none."""
+    if not rows:
+        typer.echo("No schedules.")
+        return
+    table = Table(
+        title="Fleet — schedules",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("ID", style="bold cyan", no_wrap=True)
+    table.add_column("On", no_wrap=True)
+    table.add_column("Name", no_wrap=True)
+    table.add_column("Cron", no_wrap=True)
+    table.add_column("TZ", no_wrap=True)
+    table.add_column("Next run", no_wrap=True)
+    table.add_column("Last run", no_wrap=True)
+    table.add_column("Runs", justify="right", no_wrap=True)
+    for row in rows:
+        item = row.schedule
+        table.add_row(
+            item.id,
+            "yes" if item.enabled else "no",
+            item.name,
+            item.cron,
+            item.timezone,
+            row.next_run or "-",
+            row.last_run or "-",
+            str(row.run_count),
+        )
+    Console(soft_wrap=False).print(table)
+
+
+def _format_run_line(line: RunLine) -> str:
+    """One `fleet schedule show` run line: number, trigger, task, outcome."""
+    task = line.task_id or "-"
+    if line.task_status:
+        task = f"{task} [{line.task_status}]"
+    if line.skipped:
+        return f"  #{line.n} {line.trigger} scheduled={line.scheduled_for} skipped ({line.reason})"
+    return f"  #{line.n} {line.trigger} scheduled={line.scheduled_for} task={task}"
+
+
+def print_schedule_show(schedule: Schedule, upcoming: list[str], lines: list[RunLine]) -> None:
+    """Print one schedule's definition, next firings, and recent runs."""
+    typer.echo(f"id:       {schedule.id}")
+    typer.echo(f"name:     {schedule.name}")
+    typer.echo(f"enabled:  {'yes' if schedule.enabled else 'no'}")
+    typer.echo(f"cron:     {schedule.cron}")
+    typer.echo(f"tz:       {schedule.timezone}")
+    typer.echo(f"title:    {schedule.title}")
+    if schedule.description:
+        typer.echo(f"desc:     {schedule.description}")
+    if schedule.cwd:
+        typer.echo(f"cwd:      {schedule.cwd}")
+    if schedule.coder:
+        typer.echo(f"coder:    {schedule.coder}")
+    if schedule.model:
+        typer.echo(f"model:    {schedule.model}")
+    typer.echo(f"priority: {schedule.priority}")
+    typer.echo(f"overlap:  {schedule.overlap.value}")
+    typer.echo(f"created:  {schedule.created_at}")
+    typer.echo(f"updated:  {schedule.updated_at}")
+    typer.echo("upcoming:")
+    for fire in upcoming:
+        typer.echo(f"  {fire}")
+    if not lines:
+        typer.echo("runs: (none)")
+        return
+    typer.echo(f"runs: {len(lines)}")
+    for line in lines:
+        typer.echo(_format_run_line(line))
