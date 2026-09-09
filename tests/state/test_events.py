@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fleet.state.events import EventScanCache, iter_events, parse_iso, safe_int, scan, scan_cached
+from fleet.state.events import (
+    EventScanCache,
+    event_stats,
+    event_stats_cached,
+    iter_events,
+    parse_iso,
+    safe_int,
+)
 
 
 def _event(**kw) -> str:
@@ -81,7 +88,7 @@ def test_scan_counts_and_last_kind(tmp_path: Path) -> None:
             "GARBAGE",
         ],
     )
-    stats = scan(d)
+    stats = event_stats(d)
     assert stats.event_count == 3
     assert stats.last_kind == "tool_use"
     assert stats.last_detail == "Edit"
@@ -119,7 +126,7 @@ def test_scan_rate_limit_events(tmp_path: Path) -> None:
             ),
         ],
     )
-    stats = scan(d)
+    stats = event_stats(d)
     assert stats.rate_limited == 1
     assert len(stats.rate_limit_events) == 1
     assert stats.rate_limit_events[0]["provider"] == "anthropic"
@@ -127,35 +134,35 @@ def test_scan_rate_limit_events(tmp_path: Path) -> None:
 
 
 def test_scan_empty_dir(tmp_path: Path) -> None:
-    stats = scan(tmp_path / "no-such-task")
+    stats = event_stats(tmp_path / "no-such-task")
     assert stats.event_count == 0
     assert stats.first_ts is None
     assert stats.tool_counts == {}
     assert stats.files_touched == {}
 
 
-def test_scan_cached_reuses_until_file_changes(tmp_path: Path) -> None:
+def test_event_stats_cached_reuses_until_file_changes(tmp_path: Path) -> None:
     d = tmp_path / "task-4"
     _write_events(d, [_event(ts="2025-01-01T00:00:00Z", kind="session_started")])
     cache = EventScanCache()
 
-    s1 = scan_cached(d, cache)
-    s2 = scan_cached(d, cache)
+    s1 = event_stats_cached(d, cache)
+    s2 = event_stats_cached(d, cache)
     assert s1 is s2
 
     with (d / "attempts" / "1" / "events.jsonl").open("a") as fh:
         fh.write(_event(ts="2025-01-01T00:00:01Z", kind="session_started") + "\n")
 
-    s3 = scan_cached(d, cache)
+    s3 = event_stats_cached(d, cache)
     assert s3 is not s1
     assert s3.event_count == 2
 
 
-def test_scan_cached_without_cache_always_rescans(tmp_path: Path) -> None:
+def test_event_stats_cached_without_cache_always_rescans(tmp_path: Path) -> None:
     d = tmp_path / "task-5"
     _write_events(d, [_event(ts="2025-01-01T00:00:00Z", kind="session_started")])
 
-    s1 = scan_cached(d)
-    s2 = scan_cached(d)
+    s1 = event_stats_cached(d)
+    s2 = event_stats_cached(d)
     assert s1 is not s2
     assert s1.event_count == s2.event_count == 1

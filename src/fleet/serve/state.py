@@ -18,7 +18,7 @@ from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.config import RuntimeConfig
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.mcp_servers import ask_human_db_path
-from fleet.serve.watcher import ConnectionManager, FileWatcher
+from fleet.serve.watcher import FileWatcher, WebSocketBroadcaster
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
 
@@ -32,7 +32,7 @@ class AppState:
     question_store: QuestionStore
     config_path: Path
     watcher: FileWatcher
-    connection_manager: ConnectionManager = field(repr=False)
+    connection_manager: WebSocketBroadcaster = field(repr=False)
     config: RuntimeConfig | None = None
     config_mtime: float | None = None
 
@@ -40,7 +40,7 @@ class AppState:
 def build_state(queue: Queue | None = None) -> AppState:
     """Build the state for create_app; refreshes config in the lifespan."""
     fleet_home = state_paths.fleet_home()
-    mgr = ConnectionManager()
+    mgr = WebSocketBroadcaster()
     return AppState(
         fleet_home=fleet_home,
         queue=queue if queue is not None else BeadsQueue(fleet_home),

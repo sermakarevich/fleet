@@ -15,7 +15,7 @@ from fleet.state.events import (
     TimingVisitor,
     ToolCallVisitor,
     UsageVisitor,
-    scan_rows,
+    stats_from_rows,
 )
 
 
@@ -115,9 +115,9 @@ def test_context_pressure_visitor_latches() -> None:
     assert _run(ContextPressureVisitor(), rows) is True
 
 
-def test_visitors_cover_scan_rows() -> None:
+def test_visitors_cover_stats_from_rows() -> None:
     """Every VISITORS entry is a visitor, and an empty scan is all defaults."""
     assert VISITORS
     for visitor_cls in VISITORS:
         assert issubclass(visitor_cls, EventVisitor)
-    assert scan_rows(iter([])) == EventStats()
+    assert stats_from_rows(iter([])) == EventStats()

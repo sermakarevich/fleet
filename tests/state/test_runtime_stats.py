@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from fleet.state.runtime_stats import (
-    task_files_touched_from_dir,
-    task_runtime_info_cached,
+    task_files_touched,
+    task_runtime_info,
     task_runtime_stats,
-    task_runtime_stats_from_dir,
+    task_runtime_stats_for,
 )
 from tests.helpers.task_dir import make_attempt
 
@@ -53,7 +53,7 @@ def test_stats_from_dir_reads_events_and_start(tmp_path: Path) -> None:
     attempt_dir = make_attempt(task_dir, 1)
     _seed_events(attempt_dir)
 
-    stats = task_runtime_stats_from_dir(task_dir)
+    stats = task_runtime_stats(task_dir)
 
     assert stats.events == 2
     assert stats.context_tokens == 1000
@@ -66,7 +66,7 @@ def test_info_cached_includes_last_event_fields(tmp_path: Path) -> None:
     attempt_dir = make_attempt(task_dir, 1)
     _seed_events(attempt_dir)
 
-    info = task_runtime_info_cached(task_dir)
+    info = task_runtime_info(task_dir)
 
     assert info.events == 2
     assert info.last_event_kind == "tool_use"
@@ -77,7 +77,7 @@ def test_stats_missing_dir_is_empty(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "t-missing"
     task_dir.mkdir(parents=True)
 
-    stats = task_runtime_stats_from_dir(task_dir)
+    stats = task_runtime_stats(task_dir)
 
     assert stats.events == 0
     assert stats.started_at is None
@@ -89,7 +89,7 @@ def test_files_touched_counts_unique_paths(tmp_path: Path) -> None:
     attempt_dir = make_attempt(task_dir, 1)
     _seed_events(attempt_dir)
 
-    assert task_files_touched_from_dir(task_dir) == 1
+    assert task_files_touched(task_dir) == 1
 
 
 def test_stats_by_id_uses_fleet_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,6 +98,6 @@ def test_stats_by_id_uses_fleet_home(tmp_path: Path, monkeypatch: pytest.MonkeyP
     attempt_dir = make_attempt(task_dir, 1)
     _seed_events(attempt_dir)
 
-    stats = task_runtime_stats("t-byid")
+    stats = task_runtime_stats_for("t-byid")
 
     assert stats.events == 2

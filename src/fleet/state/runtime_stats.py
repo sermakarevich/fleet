@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.events import EventScanCache, parse_iso, scan_cached
+from fleet.state.events import EventScanCache, event_stats_cached, parse_iso
 from fleet.state.paths import fleet_home, task_dir
 
 # Owner of cached event scans for the state stats helpers below.
@@ -68,9 +68,9 @@ def _read_started_at(task_dir: Path) -> datetime | None:
         return None
 
 
-def task_runtime_info_cached(task_dir: Path) -> TaskRuntimeInfo:
+def task_runtime_info(task_dir: Path) -> TaskRuntimeInfo:
     """Return TaskRuntimeInfo for task_dir; re-scans events.jsonl only on change."""
-    stats = scan_cached(task_dir, _events_cache)
+    stats = event_stats_cached(task_dir, _events_cache)
     return TaskRuntimeInfo(
         started_at=_read_started_at(task_dir),
         last_event_at=stats.last_ts,
@@ -81,9 +81,9 @@ def task_runtime_info_cached(task_dir: Path) -> TaskRuntimeInfo:
     )
 
 
-def task_runtime_stats_from_dir(task_dir: Path) -> TaskRuntimeStats:
+def task_runtime_stats(task_dir: Path) -> TaskRuntimeStats:
     """Same fields as TaskRuntimeInfo, minus the last-event-kind/detail pair."""
-    stats = scan_cached(task_dir, _events_cache)
+    stats = event_stats_cached(task_dir, _events_cache)
     return TaskRuntimeStats(
         started_at=_read_started_at(task_dir),
         last_event_at=stats.last_ts,
@@ -92,11 +92,11 @@ def task_runtime_stats_from_dir(task_dir: Path) -> TaskRuntimeStats:
     )
 
 
-def task_runtime_stats(task_id: str) -> TaskRuntimeStats:
+def task_runtime_stats_for(task_id: str) -> TaskRuntimeStats:
     """Best-effort scan of a task's directory for runtime signals."""
-    return task_runtime_stats_from_dir(task_dir(fleet_home(), task_id))
+    return task_runtime_stats(task_dir(fleet_home(), task_id))
 
 
-def task_files_touched_from_dir(task_dir: Path) -> int:
+def task_files_touched(task_dir: Path) -> int:
     """Count unique files touched (read/edited/written) across a task's events."""
-    return scan_cached(task_dir, _events_cache).files_touched_count
+    return event_stats_cached(task_dir, _events_cache).files_touched_count

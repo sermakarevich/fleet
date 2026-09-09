@@ -96,7 +96,7 @@ def _task_meta(task_dir: Path) -> TaskMeta | None:
     return TaskMeta.load(task_dir)
 
 
-def _closed_and_old(task_dir: Path, cutoff: float) -> bool:
+def is_gc_eligible(task_dir: Path, cutoff: float) -> bool:
     """True when task.json says closed and the dir predates *cutoff*."""
     try:
         old_mtime = task_dir.stat().st_mtime <= cutoff
@@ -124,7 +124,7 @@ def find_stale_worktrees(fleet_home: Path, days: int = 30) -> list[StaleWorktree
     stale_tasks: dict[str, TaskMeta] = {}
     if tasks_dir.is_dir():
         for task_dir, _raw in TaskIndex(fleet_home).iter_meta():
-            if _closed_and_old(task_dir, cutoff):
+            if is_gc_eligible(task_dir, cutoff):
                 meta = _task_meta(task_dir)
                 if meta is not None:
                     stale_tasks[task_dir.name] = meta

@@ -1,9 +1,9 @@
 """The one events.jsonl reader, plus the derived stats every caller needs.
 
-``iter_events`` is the single tolerant line-by-line reader. ``scan_rows``
+``iter_events`` is the single tolerant line-by-line reader. ``stats_from_rows``
 feeds every row through one small visitor per concern (see ``VISITORS``)
 and assembles their fragments into an ``EventStats``. ``scan`` runs that
-over all attempts; ``scan_cached`` reuses an ``EventScanCache`` owned and
+over all attempts; ``event_stats_cached`` reuses an ``EventScanCache`` owned and
 passed in by the caller, so this module holds no shared state.
 """
 
@@ -137,7 +137,7 @@ class EventStats:
 
 
 class EventVisitor(ABC):
-    """One per-row accumulator behind scan_rows; subclass per concern."""
+    """One per-row accumulator behind stats_from_rows; subclass per concern."""
 
     @abstractmethod
     def visit(self, row: dict) -> None:
@@ -436,7 +436,7 @@ class ContextPressureVisitor(EventVisitor):
         return self._pressure
 
 
-# Every concern scan_rows covers, in visit order. scan_rows instantiates
+# Every concern stats_from_rows covers, in visit order. scan_rows instantiates
 # one of each per call, so visitors never share state between scans.
 VISITORS: tuple[type[EventVisitor], ...] = (
     CountVisitor,
@@ -451,10 +451,10 @@ VISITORS: tuple[type[EventVisitor], ...] = (
 )
 
 
-def scan_rows(rows: Iterator[dict]) -> EventStats:
+def stats_from_rows(rows: Iterator[dict]) -> EventStats:
     """Single-pass scan of any row iterator into an EventStats.
 
-    The shared core behind `scan` (all attempts) and `attempt_summary.py`
+    The shared core behind `event_stats` (all attempts) and `attempt_summary.py`
     (one attempt via `iter_attempt_events`), so the FileCounts/tool-count
     logic exists exactly once.
     """
@@ -493,9 +493,9 @@ def scan_rows(rows: Iterator[dict]) -> EventStats:
     )
 
 
-def scan(task_dir: Path) -> EventStats:
+def event_stats(task_dir: Path) -> EventStats:
     """Single-pass scan of every attempt's events.jsonl into an EventStats."""
-    return scan_rows(iter_events(task_dir))
+    return stats_from_rows(iter_events(task_dir))
 
 
 def _latest_events_file(task_dir: Path) -> Path:
@@ -511,7 +511,7 @@ class EventScanCache:
     """Named owner of cached EventStats, keyed by task directory.
 
     Created by the caller that wants caching (state runtime_stats helpers, the API
-    files endpoint, analytics records) and passed to ``scan_cached``; this
+    files endpoint, analytics records) and passed to ``event_stats_cached``; this
     module itself holds no shared state. Entries are keyed by the latest
     attempt's events.jsonl mtime+size, with a (-1.0, -1) sentinel when no
     attempt/events.jsonl exists (safe because a real mtime is
@@ -523,7 +523,7 @@ class EventScanCache:
         """Start with an empty cache."""
         self._entries: dict[str, tuple[float, int, EventStats]] = {}
 
-    def scan(self, task_dir: Path) -> EventStats:
+    def event_stats(self, task_dir: Path) -> EventStats:
         """Return cached stats, re-scanning only when the events file changed."""
         events_file = _latest_events_file(task_dir)
         cache_key = str(task_dir)
@@ -536,7 +536,7 @@ class EventScanCache:
         entry = self._entries.get(cache_key)
         if entry is not None and entry[0] == file_mtime and entry[1] == file_size:
             return entry[2]
-        result = scan(task_dir)
+        result = event_stats(task_dir)
         self._entries[cache_key] = (file_mtime, file_size, result)
         return result
 
@@ -545,7 +545,7 @@ class EventScanCache:
         self._entries.clear()
 
 
-def scan_cached(task_dir: Path, cache: EventScanCache | None = None) -> EventStats:
+def event_stats_cached(task_dir: Path, cache: EventScanCache | None = None) -> EventStats:
     """Scan a task dir, reusing *cache* when one is passed in.
 
     With no cache this is a plain ``scan`` (always correct, never stored);
@@ -553,5 +553,5 @@ def scan_cached(task_dir: Path, cache: EventScanCache | None = None) -> EventSta
     it here.
     """
     if cache is None:
-        return scan(task_dir)
-    return cache.scan(task_dir)
+        return event_stats(task_dir)
+    return cache.event_stats(task_dir)

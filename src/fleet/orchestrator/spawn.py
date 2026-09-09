@@ -13,7 +13,7 @@ import contextlib
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from fleet.coders import coder_kwargs
 from fleet.coders import resolve_coder as build_coder
@@ -118,7 +118,14 @@ def _purge_stale_kill_marker(st: SupervisorState, task: Task) -> None:
     (task_dir(st.fleet_home, task.id) / ".kill").unlink(missing_ok=True)
 
 
-def _resolve_cwd_and_repo(st: SupervisorState, task: Task) -> tuple[Path, Path | None] | None:
+class Workdir(NamedTuple):
+    """Where a worker runs: the task cwd plus its repo root (None outside git)."""
+
+    base_cwd: Path
+    repo_root: Path | None
+
+
+def resolve_workdir(st: SupervisorState, task: Task) -> Workdir | None:
     """Resolve the task cwd and its repo root, or block when terminal."""
     base_cwd = Path(task.cwd) if task.cwd else st.fleet_home
     if task.cwd is not None and not Path(task.cwd).is_dir():
@@ -126,7 +133,7 @@ def _resolve_cwd_and_repo(st: SupervisorState, task: Task) -> tuple[Path, Path |
         return None
     if task.cwd is None:
         st.log.warning("task_cwd_missing", task_id=task.id, fallback_root=str(base_cwd))
-    return base_cwd, worktree.detect_repo_root(base_cwd)
+    return Workdir(base_cwd=base_cwd, repo_root=worktree.detect_repo_root(base_cwd))
 
 
 def _resolve_coder_or_block(
@@ -220,10 +227,10 @@ def spawn_worker(st: SupervisorState, task: Task) -> RunningWorker | None:
     the caller can release the bead back to the queue.
     """
     _purge_stale_kill_marker(st, task)
-    resolved = _resolve_cwd_and_repo(st, task)
+    resolved = resolve_workdir(st, task)
     if resolved is None:
         return None
-    base_cwd, repo_root = resolved
+    base_cwd, repo_root = resolved.base_cwd, resolved.repo_root
     coder_triple = _resolve_coder_or_block(st, task)
     if coder_triple is None:
         return None

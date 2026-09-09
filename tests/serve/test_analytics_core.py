@@ -211,7 +211,7 @@ class TestMissingEvents:
 class TestCache:
     """Test 4: repeated calls agree; append changes the result.
 
-    The events.jsonl scan itself is cached in state.events.scan_cached;
+    The events.jsonl scan itself is cached in state.events.event_stats_cached;
     task_record_cached rebuilds the (cheap) record dict from that plus
     task.json on every call.
     """

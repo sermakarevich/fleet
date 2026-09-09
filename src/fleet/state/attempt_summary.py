@@ -19,7 +19,7 @@ from typing import Any
 from fleet.core.task import AttemptKind, EventKind
 from fleet.state import attempts as state_attempts
 from fleet.state import paths as state_paths
-from fleet.state.events import iter_attempt_events, scan_rows
+from fleet.state.events import iter_attempt_events, stats_from_rows
 from fleet.state.run_file import RunRecord
 
 _MAX_CHARS = 4096
@@ -152,7 +152,7 @@ def summarize(task_dir: Path, n: int) -> AttemptSummary:
     run = RunRecord.load(attempt_dir)
     launch = run.launch if run is not None and isinstance(run.launch, dict) else {}
     row = _attempt_row(task_dir, n)
-    stats = scan_rows(iter_attempt_events(task_dir, n))
+    stats = stats_from_rows(iter_attempt_events(task_dir, n))
 
     events = list(iter_attempt_events(task_dir, n))
     last_error = next((e for e in reversed(events) if e.get("kind") == EventKind.ERROR), None)

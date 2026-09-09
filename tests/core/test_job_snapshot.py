@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from fleet.core.job_phase import phase
+from fleet.core.job_phase import phase_of
 from fleet.core.job_snapshot import JobSnapshot
 
 
 def test_defaults_match_phase_research() -> None:
-    assert phase(JobSnapshot()) == "research"
+    assert phase_of(JobSnapshot()) == "research"
 
 
 def test_to_dict_round_trip() -> None:
@@ -23,7 +23,7 @@ def test_from_dict_defaults() -> None:
 
 
 def test_snapshot_drives_phase_table() -> None:
-    assert phase(JobSnapshot(has_research=True)) == "design"
-    assert phase(JobSnapshot(has_research=True, has_tasks=True)) == "gate"
-    assert phase(JobSnapshot(has_research=True, has_tasks=True, approved=True)) == "spawn"
-    assert phase(JobSnapshot(has_research=True, has_tasks=True, has_children=True)) == "observe"
+    assert phase_of(JobSnapshot(has_research=True)) == "design"
+    assert phase_of(JobSnapshot(has_research=True, has_tasks=True)) == "gate"
+    assert phase_of(JobSnapshot(has_research=True, has_tasks=True, approved=True)) == "spawn"
+    assert phase_of(JobSnapshot(has_research=True, has_tasks=True, has_children=True)) == "observe"

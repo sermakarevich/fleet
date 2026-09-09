@@ -22,7 +22,7 @@ from fleet.beads.client import BdError
 from fleet.cli import bootstrap, render
 from fleet.cli.render import ChildRow, JobView
 from fleet.core.effective import effective_coder_model
-from fleet.core.job_phase import phase
+from fleet.core.job_phase import phase_of
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.integrations.ask_human.store import Question, QuestionStore
 from fleet.observability import tailview
@@ -128,7 +128,7 @@ def _build_job_view(
         task_id=task.id,
         title=task.title,
         status=task.status,
-        phase=str(phase(snapshot)),
+        phase=str(phase_of(snapshot)),
         snapshot=snapshot,
         has_design=(artifacts / "DESIGN.md").exists(),
         children=tuple(_child_row(c) for c in children),
@@ -336,7 +336,7 @@ def run_tail(fleet_home: Path, task_id: str, n: int, follow: bool) -> None:
             return
         while not events_path.exists():
             time.sleep(1)
-    render.print_tail_header(task_id, runtime_stats.task_runtime_stats(task_id))
+    render.print_tail_header(task_id, runtime_stats.task_runtime_stats_for(task_id))
     _print_tail_events(events_path, n, follow)
 
 

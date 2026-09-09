@@ -24,7 +24,7 @@ from typing import Any
 
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.errors import Json, PlanError
-from fleet.core.job_phase import phase, phase_failures
+from fleet.core.job_phase import phase_failures, phase_of
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
 from fleet.core.launch import LaunchPlan
@@ -506,14 +506,14 @@ def plan_job(ctx: StepContext, queue: Queue | None = None) -> Worker:
     """Pick the job worker for this attempt: research/design/gate/spawn/observe.
 
     Reads files and the child list (I/O), then applies the pure
-    ``core/job_phase.phase`` table. Research/design attempts that already
+    ``core/job_phase.phase_of`` table. Research/design attempts that already
     failed ``job_max_phase_attempts`` times become a ``job.blocked`` worker
     instead. Fresh step instances are built on every call (LlmSession holds
     per-attempt subprocess state).
     """
     queue = queue or _default_queue(ctx.fleet_home)
     snapshot = _snapshot_for(ctx, queue)
-    current_phase = phase(snapshot)
+    current_phase = phase_of(snapshot)
     if current_phase in ("research", "design"):
         history = [
             a

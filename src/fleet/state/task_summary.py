@@ -26,11 +26,11 @@ from fleet.core.triage_policy import ignore_active
 from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.events import iter_attempt_events, scan_rows
+from fleet.state.events import iter_attempt_events, stats_from_rows
 from fleet.state.legacy import legacy_result, legacy_state_text
 from fleet.state.paths import attempt_dir
 from fleet.state.run_file import RunRecord
-from fleet.state.runtime_stats import task_runtime_info_cached
+from fleet.state.runtime_stats import task_runtime_info
 
 _STATE_EXCERPT_MAX = 6144
 
@@ -223,7 +223,7 @@ def _build_attempts_summary(task_dir: Path, limit: int) -> list[AttemptTimelineR
         raw_launch = run.launch if run is not None else None
         launch: dict = raw_launch if isinstance(raw_launch, dict) else {}
         result = _read_json_file(adir / "RESULT.json")
-        stats = scan_rows(iter_attempt_events(task_dir, n))
+        stats = stats_from_rows(iter_attempt_events(task_dir, n))
         peak_context_pct = (
             stats.peak_context_tokens / limit * 100
             if stats.peak_context_tokens is not None
@@ -313,7 +313,7 @@ def build_task_summary(
     fallback used when a blocked task has no blocked_reason.
     """
     task_id = data.get("id", "")
-    info = task_runtime_info_cached(task_dir)
+    info = task_runtime_info(task_dir)
 
     now = datetime.now(tz=UTC)
     started_at = info.started_at

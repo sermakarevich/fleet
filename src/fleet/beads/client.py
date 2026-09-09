@@ -152,7 +152,7 @@ def show(task_id: str, cwd: Path, *, timeout: int = BD_TIMEOUT_SEC) -> dict | No
     return data if isinstance(data, dict) else None
 
 
-def update(
+def update_bead(
     task_id: str,
     cwd: Path,
     *,

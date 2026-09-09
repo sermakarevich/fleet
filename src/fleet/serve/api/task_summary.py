@@ -127,7 +127,7 @@ def resolve_status(task_id: str, fleet_home: Path) -> str:
 
 def beads_assignee_clearer(fleet_home: Path) -> Callable[[str], None]:
     """clear_assignee(task_id) bound to *fleet_home*, for state.task_actions."""
-    return lambda tid: beads_client.update(tid, fleet_home, assignee="")
+    return lambda tid: beads_client.update_bead(tid, fleet_home, assignee="")
 
 
 async def body_note(request: Request) -> Any:

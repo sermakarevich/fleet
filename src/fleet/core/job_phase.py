@@ -3,7 +3,7 @@
 A ``job`` epic decomposes itself: research the repo, design a task list,
 pass a human gate, spawn child beads, then observe them. ``plan_job``
 (workers/job.py) reads the task directory into a ``JobSnapshot`` and calls
-``phase()`` — the decision table lives here so it is testable without
+``phase_of()`` — the decision table lives here so it is testable without
 files or beads.
 """
 
@@ -17,7 +17,7 @@ from fleet.core.task import AttemptKind
 JobPhase = Literal["research", "design", "gate", "spawn", "observe"]
 
 
-def phase(snapshot: JobSnapshot) -> JobPhase:
+def phase_of(snapshot: JobSnapshot) -> JobPhase:
     """Pick the job phase for *snapshot* (decision table, deterministic).
 
     | Snapshot | Phase |

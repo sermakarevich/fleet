@@ -16,7 +16,7 @@ from fleet.serve.api.models import (
 from fleet.serve.api.task_summary import event_to_json, parse_log_line
 from fleet.serve.state import AppState, StateDep
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.events import EventScanCache, iter_events, scan_cached
+from fleet.state.events import EventScanCache, event_stats_cached, iter_events
 from fleet.state.paths import task_dir as resolve_task_dir
 
 router = APIRouter(prefix="/api")
@@ -66,7 +66,8 @@ async def get_task_stderr(task_id: str, state: StateDep) -> JSONResponse:
 @router.get("/tasks/{task_id}/files", response_model=FileListResponse)
 async def get_task_files(task_id: str, state: StateDep) -> JSONResponse:
     """Per-file read/edit/write counts from the event scan (FR-20)."""
-    counts = scan_cached(resolve_task_dir(state.fleet_home, task_id), _events_cache).files_touched
+    task_path = resolve_task_dir(state.fleet_home, task_id)
+    counts = event_stats_cached(task_path, _events_cache).files_touched
     files = [
         {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
         for path, fc in sorted(counts.items())

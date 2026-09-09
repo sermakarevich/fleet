@@ -144,7 +144,7 @@ RETRY_TABLE: list[RetryRule] = [
         TaskOutcome.BLOCKED_BY_CODER,
         action=Action.BLOCK,
         block_reason_tmpl="{reason}",
-        default_reason="agent set task to blocked",
+        default_reason="coder set task to blocked",
     ),
     RetryRule(
         TaskOutcome.KILLED,

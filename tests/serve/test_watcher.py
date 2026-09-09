@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from fleet.serve.watcher import ConnectionManager, FileWatcher, _TailState
+from fleet.serve.watcher import FileWatcher, WebSocketBroadcaster, _TailState
 
 
 def test_file_watcher_detects_new_line(tmp_path: Path) -> None:
@@ -362,7 +362,7 @@ def test_prune_stale_removes_deleted_task_entry(tmp_path: Path) -> None:
     deleted_dir = tasks_dir / "task-deleted"
     deleted_dir.mkdir()
 
-    watcher = FileWatcher(ConnectionManager())
+    watcher = FileWatcher(WebSocketBroadcaster())
     watcher._tail_state["task-alive"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
     watcher._tail_state["task-deleted"] = _TailState(offset=0, mtime=0.0, path=Path("x"))
 
@@ -377,7 +377,7 @@ def test_connection_manager_removes_disconnected_on_broadcast() -> None:
     """broadcast() silently removes clients that raise on send_json."""
 
     async def _run() -> None:
-        mgr = ConnectionManager()
+        mgr = WebSocketBroadcaster()
 
         good_ws = MagicMock()
         good_ws.accept = AsyncMock()

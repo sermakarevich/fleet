@@ -1,6 +1,6 @@
 """Tests for core/job_phase.py. Mirrors the source path."""
 
-from fleet.core.job_phase import phase, phase_attempts, phase_failures
+from fleet.core.job_phase import phase_attempts, phase_failures, phase_of
 from fleet.core.job_snapshot import JobSnapshot
 
 
@@ -17,28 +17,28 @@ def _snap(**kw) -> JobSnapshot:
 
 
 def test_no_research_is_research() -> None:
-    assert phase(_snap()) == "research"
+    assert phase_of(_snap()) == "research"
 
 
 def test_research_without_tasks_is_design() -> None:
-    assert phase(_snap(has_research=True)) == "design"
+    assert phase_of(_snap(has_research=True)) == "design"
 
 
 def test_tasks_without_approval_is_gate() -> None:
-    assert phase(_snap(has_research=True, has_tasks=True)) == "gate"
+    assert phase_of(_snap(has_research=True, has_tasks=True)) == "gate"
 
 
 def test_approved_without_children_is_spawn() -> None:
-    assert phase(_snap(has_research=True, has_tasks=True, approved=True)) == "spawn"
+    assert phase_of(_snap(has_research=True, has_tasks=True, approved=True)) == "spawn"
 
 
 def test_gate_off_without_children_is_spawn() -> None:
-    assert phase(_snap(has_research=True, has_tasks=True, gate_enabled=False)) == "spawn"
+    assert phase_of(_snap(has_research=True, has_tasks=True, gate_enabled=False)) == "spawn"
 
 
 def test_children_exist_is_observe() -> None:
     assert (
-        phase(_snap(has_research=True, has_tasks=True, approved=True, has_children=True))
+        phase_of(_snap(has_research=True, has_tasks=True, approved=True, has_children=True))
         == "observe"
     )
 
@@ -46,7 +46,7 @@ def test_children_exist_is_observe() -> None:
 def test_children_win_over_pending_gate() -> None:
     # A crashed spawn that already created children resumes in observe,
     # never back in the gate.
-    assert phase(_snap(has_research=True, has_tasks=True, has_children=True)) == "observe"
+    assert phase_of(_snap(has_research=True, has_tasks=True, has_children=True)) == "observe"
 
 
 def test_phase_attempts_counts_phase_workers_only() -> None:

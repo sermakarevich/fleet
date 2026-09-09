@@ -13,7 +13,7 @@ from fastapi import WebSocket
 from fleet.core.redact import redact
 from fleet.core.task import EventKind
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.runtime_stats import task_files_touched_from_dir, task_runtime_stats_from_dir
+from fleet.state.runtime_stats import task_files_touched, task_runtime_stats
 from fleet.state.tail import read_new_bytes
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_meta import TaskMeta
@@ -26,7 +26,7 @@ class _TailState:
     path: Path  # the attempt's events.jsonl this state belongs to
 
 
-class ConnectionManager:
+class WebSocketBroadcaster:
     def __init__(self) -> None:
         self._global: set[WebSocket] = set()
         self._per_task: dict[str, set[WebSocket]] = {}
@@ -70,7 +70,7 @@ class ConnectionManager:
 class FileWatcher:
     """Tail attempt events.jsonl files and broadcast new events over websockets."""
 
-    mgr: ConnectionManager
+    mgr: WebSocketBroadcaster
     _tail_state: dict[str, _TailState] = field(default_factory=dict)
 
     async def start(self, fleet_home: Path) -> None:
@@ -165,12 +165,12 @@ class FileWatcher:
         if meta is not None and meta.title:
             task_title = meta.title
 
-        stats = task_runtime_stats_from_dir(task_dir)
+        stats = task_runtime_stats(task_dir)
         duration_sec: float | None = None
         if stats.started_at is not None:
             duration_sec = (datetime.now(tz=UTC) - stats.started_at).total_seconds()
 
-        files_touched = task_files_touched_from_dir(task_dir)
+        files_touched = task_files_touched(task_dir)
 
         return {
             **event_dict,

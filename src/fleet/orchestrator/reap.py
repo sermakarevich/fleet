@@ -110,7 +110,7 @@ def fold_declared_result(record: TaskOutcomeRecord, result: WorkerResult) -> Tas
     )
 
 
-def maybe_handle_isolated_success(  # noqa: PLR0911  # ADR 0006 bead 20
+def decision_for_isolated_success(  # noqa: PLR0911  # ADR 0006 bead 20
     st: SupervisorState,
     task: Task,
     task_dir: Path,
@@ -472,6 +472,37 @@ def observer_cap_decision(
     return None
 
 
+def decide_outcome(
+    st: SupervisorState,
+    task: Task,
+    task_dir: Path,
+    record: TaskOutcomeRecord,
+    status: str | None,
+    result: WorkerResult | None,
+) -> tuple[TaskOutcomeRecord, RetryDecision]:
+    """Decide the folded record and retry-policy decision for a finished worker.
+
+    Pure decision step: isolated-worktree success, blocked-fold of a SUCCESS
+    exit, observer follow-up cap, then the retry-policy table. Queue writes
+    happen in ``apply_decision``; journaling in ``handle_outcome``.
+    """
+    decision = decision_for_isolated_success(st, task, task_dir, record, status, result)
+    if decision is None:
+        if record.outcome == TaskOutcome.SUCCESS and status == TaskStatus.BLOCKED.value:
+            record = TaskOutcomeRecord(
+                outcome=TaskOutcome.BLOCKED_BY_CODER,
+                exit_code=record.exit_code,
+                reason="coder set task to blocked",
+            )
+        elif record.outcome == TaskOutcome.SUCCESS and result is not None:
+            record = fold_declared_result(record, result)
+        history = attempts.load_attempts(task_dir)
+        decision = observer_cap_decision(st, task, task_dir, record, history)
+        if decision is None:
+            decision = retry_policy.decide(record, history, status, st.config)
+    return record, decision
+
+
 def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutcomeRecord) -> None:
     """Fold one finished worker's outcome into queue state and the attempts journal."""
     task = worker.task
@@ -480,22 +511,7 @@ def handle_outcome(st: SupervisorState, worker: RunningWorker, outcome: TaskOutc
     status = bead_status(st, task.id)
 
     result = read_live_result(task_dir)
-    record = outcome
-
-    decision = maybe_handle_isolated_success(st, task, task_dir, record, status, result)
-    if decision is None:
-        if record.outcome == TaskOutcome.SUCCESS and status == TaskStatus.BLOCKED.value:
-            record = TaskOutcomeRecord(
-                outcome=TaskOutcome.BLOCKED_BY_CODER,
-                exit_code=record.exit_code,
-                reason="agent set task to blocked",
-            )
-        elif record.outcome == TaskOutcome.SUCCESS and result is not None:
-            record = fold_declared_result(record, result)
-        history = attempts.load_attempts(task_dir)
-        decision = observer_cap_decision(st, task, task_dir, record, history)
-        if decision is None:
-            decision = retry_policy.decide(record, history, status, st.config)
+    record, decision = decide_outcome(st, task, task_dir, outcome, status, result)
     apply_decision(st, task, task_dir, record, decision, fleet_ctx, status, result)
 
     try:

@@ -20,7 +20,7 @@ from typing import Any
 from fleet.core.retry_policy import Action
 from fleet.core.task import TaskOutcome
 from fleet.state.attempt_journal import AttemptJournal
-from fleet.state.events import EventScanCache, scan_cached
+from fleet.state.events import EventScanCache, event_stats_cached
 from fleet.state.task_index import TaskIndex
 from fleet.state.task_meta import TaskMeta
 
@@ -100,7 +100,7 @@ def _attempt_signals(task_dir: Path) -> tuple[bool, bool]:
 
 def _build_record(task_id: str, data: dict[str, Any], task_dir: Path) -> AttemptRecord:
     """Assemble one record from a raw task.json dict plus scans."""
-    stats = scan_cached(task_dir, _events_cache)
+    stats = event_stats_cached(task_dir, _events_cache)
     context_pressure, noclose = _attempt_signals(task_dir)
     return AttemptRecord(
         id=task_id,
@@ -134,7 +134,7 @@ def _build_record(task_id: str, data: dict[str, Any], task_dir: Path) -> Attempt
 def task_record_cached(task_dir: Path) -> AttemptRecord:
     """Return the analytics record for *task_dir*.
 
-    Relies on state.events.scan_cached for the events.jsonl mtime+size
+    Relies on state.events.event_stats_cached for the events.jsonl mtime+size
     cache; the record itself (task.json fields + journal signals) is cheap
     enough to rebuild every call.
     """

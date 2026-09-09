@@ -1,6 +1,6 @@
 """The job worker's phase snapshot. Pure: no I/O.
 
-``JobSnapshot`` is everything ``core/job_phase.phase()`` needs to pick one
+``JobSnapshot`` is everything ``core/job_phase.phase_of()`` needs to pick one
 of research/design/gate/spawn/observe. Callers do the file reads (three
 ``artifacts/`` existence checks plus the child list) and build this type;
 there is exactly one such type, owned here. Readers are ``workers/job.py``
