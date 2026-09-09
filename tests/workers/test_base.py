@@ -1,3 +1,5 @@
+"""Tests for the worker step pipeline (unit under test: workers/base.py)."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -8,6 +10,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
 from fleet.state.paths import task_dir
 from fleet.workers.base import StepContext, StepResult, StepStatus, Worker, WorkerRun, run_worker
+from tests.helpers.wait import await_until
 
 
 class _RecordingStep:
@@ -158,7 +161,7 @@ def test_kill_forwards_to_current_step(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         run_task = asyncio.create_task(run.run())
-        await asyncio.sleep(0.05)
+        assert await await_until(lambda: hanging.ran), "step never started"
         await run.kill("manual_kill")
         await run_task
 
@@ -176,7 +179,7 @@ def test_cancel_forwards_supervisor_shutdown_to_current_step(tmp_path: Path) -> 
 
     async def _scenario() -> None:
         run_task = asyncio.create_task(run.run())
-        await asyncio.sleep(0.05)
+        assert await await_until(lambda: hanging.ran), "step never started"
         await run.cancel()
         await run_task
 

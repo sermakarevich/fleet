@@ -21,6 +21,7 @@ from fleet.workers.base import (
     WorkerRun,
     run_worker,
 )
+from tests.helpers.wait import await_until
 
 
 def _ctx(tmp_path: Path, task_id: str = "t-fn") -> StepContext:
@@ -74,8 +75,10 @@ def test_kill_on_step_without_cancel_is_noop(tmp_path: Path) -> None:
     """WorkerRun.kill skips steps that define no cancel instead of raising."""
     ctx = _ctx(tmp_path)
     gate = asyncio.Event()
+    started = asyncio.Event()
 
     async def _hang(ctx: StepContext) -> StepResult:
+        started.set()
         await gate.wait()
         return StepResult(status=StepStatus.OK)
 
@@ -83,7 +86,7 @@ def test_kill_on_step_without_cancel_is_noop(tmp_path: Path) -> None:
 
     async def _scenario():  # type: ignore[no-untyped-def]
         run_task = asyncio.create_task(run.run())
-        await asyncio.sleep(0.05)
+        assert await await_until(started.is_set), "step never started"
         await run.kill("manual_kill")  # must not raise: FnStep has no cancel
         await run.cancel()  # same for shutdown cancel
         gate.set()

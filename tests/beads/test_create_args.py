@@ -1,3 +1,5 @@
+"""Tests for bd create argv rewriting (unit under test: beads/create_args.py)."""
+
 from __future__ import annotations
 
 import json

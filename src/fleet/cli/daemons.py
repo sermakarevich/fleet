@@ -82,22 +82,24 @@ def _report_status(fleet_home: Path, name: str, label: str, restart_hint: str) -
         fail(f"{label} is stopped; run `{restart_hint}` to start it.")
 
 
-def _build_ui() -> None:
+def _build_ui(repo_root: Path | None = None) -> None:
     """Run `just ui-build` from the repo root. Raises typer.Exit on failure.
 
     Called as the restart pre-step for `serve`, BEFORE the running server is
     stopped — so a failed/flaky build leaves the current server untouched.
     Skipped with a warning when there is no justfile (non-source install).
+    ``repo_root`` is an injection seam so tests pass a tmp dir instead of
+    patching the private ``_repo_root`` helper.
     """
-    repo_root = _repo_root()
-    if not (repo_root / "justfile").exists():
+    root = repo_root if repo_root is not None else _repo_root()
+    if not (root / "justfile").exists():
         _console.print(
-            f"[yellow]Skipping UI build:[/] no justfile at {repo_root} (not a source checkout)."
+            f"[yellow]Skipping UI build:[/] no justfile at {root} (not a source checkout)."
         )
         return
     _console.print("Building UI ([bold]just ui-build[/])…")
     try:
-        result = subproc.run(["just", "ui-build"], cwd=str(repo_root))
+        result = subproc.run(["just", "ui-build"], cwd=str(root))
     except FileNotFoundError:
         _console.print("[yellow]Skipping UI build:[/] `just` is not installed.")
         return

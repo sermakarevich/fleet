@@ -1,3 +1,5 @@
+"""Tests for the status heartbeat service (unit under test: orchestrator/status_log.py)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +19,7 @@ from fleet.orchestrator.supervisor import Supervisor
 from fleet.state import attempts as attempts_mod
 from fleet.state.journal import setup_supervisor_logger
 from tests.conftest import make_running_worker, make_supervisor
+from tests.helpers.wait import await_until
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -81,6 +84,11 @@ def _handle(s: Supervisor, task: Task, record: TaskOutcomeRecord) -> None:
     )
     worker = make_running_worker(task.id, None, task=task, attempt_n=n)
     handle_outcome(s.state, worker, record)
+
+
+def _heartbeat_count(log_root: Path) -> int:
+    """Supervisor-status heartbeats visible in the flushed log file."""
+    return len([r for r in _read_fleet_log(log_root) if r.get("event") == "supervisor_status"])
 
 
 def _read_fleet_log(log_root: Path) -> list[dict]:
@@ -189,8 +197,8 @@ def test_status_log_loop_fires_at_interval(tmp_path: Path, monkeypatch) -> None:
 
     async def _run() -> None:
         serve_task = asyncio.create_task(svc.serve(s.state))
-        # Wait long enough for two heartbeats to fire
-        await asyncio.sleep(0.25)
+        # Heartbeats flush per record: wait for two in the log file itself.
+        assert await await_until(lambda: _heartbeat_count(log_root) >= 2), "fewer than 2 heartbeats"
         s.state.shutting_down = True
         with suppress(asyncio.CancelledError, Exception):
             await asyncio.wait_for(serve_task, timeout=2.0)

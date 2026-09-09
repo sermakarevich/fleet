@@ -1,3 +1,5 @@
+"""Tests for worker result parsing (unit under test: core/result.py)."""
+
 from __future__ import annotations
 
 from fleet.core.result import ResultStatus, parse_result

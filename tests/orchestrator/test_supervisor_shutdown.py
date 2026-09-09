@@ -1,3 +1,5 @@
+"""Tests for supervisor shutdown grace (unit under test: orchestrator/supervisor.py shutdown)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -86,6 +88,8 @@ def test_shutdown_completes_quick_tasks_within_grace(tmp_path: Path) -> None:
         s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=2)
 
         async def quick_task() -> TaskOutcomeRecord:
+            # Short but nonzero: the task must still be in-flight at shutdown
+            # so the test exercises completion *within* the grace window.
             await asyncio.sleep(0.05)
             return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
@@ -148,7 +152,7 @@ def test_shutdown_force_releases_tasks_past_grace(tmp_path: Path) -> None:
         s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn_task() -> TaskOutcomeRecord:
-            await asyncio.sleep(9999)
+            await asyncio.Event().wait()  # block until cancelled; no fixed sleep
             return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
         task_id = "t-001"
@@ -177,7 +181,7 @@ def test_shutdown_force_releases_correct_task_id(tmp_path: Path) -> None:
         s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn() -> TaskOutcomeRecord:
-            await asyncio.sleep(9999)
+            await asyncio.Event().wait()  # block until cancelled; no fixed sleep
             return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
         task_id = "t-abc"
@@ -204,7 +208,7 @@ def test_shutdown_idempotent(tmp_path: Path) -> None:
         s = _make_supervisor(tmp_path, queue, shutdown_grace_sec=1)
 
         async def stubborn() -> TaskOutcomeRecord:
-            await asyncio.sleep(9999)
+            await asyncio.Event().wait()  # block until cancelled; no fixed sleep
             return TaskOutcomeRecord(outcome=TaskOutcome.SUCCESS)
 
         task_id = "t-001"

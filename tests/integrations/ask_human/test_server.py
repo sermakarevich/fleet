@@ -29,7 +29,6 @@ def test_await_answer_returns_when_answered(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.15)
             assert s.answer(qid, "yes", answered_by="web")
 
         task = asyncio.create_task(operator())
@@ -71,7 +70,6 @@ def test_await_answer_round_trips_note_only_reply(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.15)
             assert s.answer(qid, None, note="use sqlite instead", answered_by="web")
 
         task = asyncio.create_task(operator())
@@ -100,10 +98,13 @@ def test_await_answer_does_not_block_event_loop(tmp_path: Path):
         async def ticker():
             nonlocal ticks
             while True:
+                # Test scaffolding cadence (not a wait): proves the loop stays
+                # unblocked while the answer is pending.
                 await asyncio.sleep(0.02)
                 ticks += 1
 
         async def answerer():
+            # Delayed on purpose: the ticker must prove progress DURING the wait.
             await asyncio.sleep(0.2)
             s.answer(qid, "done")
 

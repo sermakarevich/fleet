@@ -8,25 +8,18 @@ from pathlib import Path
 
 from fleet.core.task import Task
 from fleet.state.config_file import write as write_atomic
+from tests.helpers.wait import await_until
 from tests.integration.conftest import (
     FakeClaudeCoder,
     MemoryQueue,
     fast_config,
     make_supervisor,
+    wait_in_flight,
 )
 
 
 def _task(tid: str) -> Task:
     return Task(id=tid, title=f"slow-{tid}", description=None, status="open")
-
-
-async def _wait_in_flight(sup, count: int, timeout: float = 10.0) -> None:
-    """Wait until supervisor has `count` in-flight tasks."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while len(sup.state.running) < count:
-        await asyncio.sleep(0.1)
-        if asyncio.get_event_loop().time() > deadline:
-            raise TimeoutError(f"timed out waiting for {count} in-flight tasks")
 
 
 def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
@@ -43,7 +36,7 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
             # Wait for all 4 tasks to be claimed (4 poll cycles at 1s each)
-            await _wait_in_flight(sup, 4, timeout=8.0)
+            await wait_in_flight(sup, 4, timeout=8.0)
 
             assert len(sup.state.running) == 4, "expected 4 in-flight tasks before config change"
             in_flight_before = set(sup.state.running.keys())
@@ -52,8 +45,10 @@ def test_dynamic_config_max_concurrent_reloads(tmp_path: Path) -> None:
             runtime_toml = tmp_path / ".fleet" / "runtime.toml"
             write_atomic(runtime_toml, {"max_concurrent": "2"})
 
-            # Wait for config to be reloaded (1 poll interval + buffer)
-            await asyncio.sleep(2.5)
+            # Config reloads on its poll tick: wait for the new value itself.
+            assert await await_until(lambda: sup.config.max_concurrent == 2, timeout=10.0), (
+                "supervisor should have reloaded config"
+            )
 
             assert sup.config.max_concurrent == 2, (
                 f"supervisor should have reloaded config; got {sup.config.max_concurrent}"
@@ -103,14 +98,15 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
     async def _run() -> None:
         sup_task = asyncio.create_task(sup.run())
         try:
-            await _wait_in_flight(sup, 4, timeout=8.0)
+            await wait_in_flight(sup, 4, timeout=8.0)
 
             runtime_toml = tmp_path / ".fleet" / "runtime.toml"
             write_atomic(runtime_toml, {"max_concurrent": "2"})
 
-            # Wait for config reload
-            await asyncio.sleep(2.0)
-            assert sup.config.max_concurrent == 2
+            # Config reloads on its poll tick: wait for the new value itself.
+            assert await await_until(lambda: sup.config.max_concurrent == 2, timeout=10.0), (
+                "supervisor should have reloaded config"
+            )
 
             # Still 4 in-flight (no kills) — slow tasks (10s) haven't completed yet
             assert len(sup.state.running) == 4
@@ -118,13 +114,9 @@ def test_dynamic_config_new_cap_respected_after_completion(tmp_path: Path) -> No
             # Poll until ≥2 slow tasks complete and in_flight drops to the new cap.
             # Slow tasks were claimed ~1s apart and each sleeps 10s, so the second
             # completion lands ~11s after the first claim; 15s gives ample margin.
-            deadline = asyncio.get_event_loop().time() + 15.0
-            while len(sup.state.running) > 2:
-                await asyncio.sleep(0.2)
-                if asyncio.get_event_loop().time() > deadline:
-                    raise TimeoutError(
-                        f"timed out waiting for in_flight <= 2; got {len(sup.state.running)}"
-                    )
+            assert await await_until(lambda: len(sup.state.running) <= 2, timeout=15.0), (
+                f"timed out waiting for in_flight <= 2; got {len(sup.state.running)}"
+            )
 
             # Stable window: allow any (unwanted) new claims to surface.
             # claim_poll_interval is 1s, so 2s covers ≥1 poll cycle.

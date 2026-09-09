@@ -1,3 +1,5 @@
+"""Tests for task logging and rotation (unit under test: state/journal.py)."""
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path

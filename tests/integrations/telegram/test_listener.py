@@ -19,6 +19,7 @@ from fleet.integrations.telegram.api import TelegramApi
 from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
 from fleet.integrations.telegram.listener import inbound_listener
 from fleet.integrations.telegram.messages import MessageStore, OffsetStore
+from tests.integrations.telegram.conftest import SleepScript
 
 
 class FakeApi(TelegramApi):
@@ -81,21 +82,14 @@ def test_no_token_returns_without_fetching(tmp_path: Path) -> None:
     assert api.seen_offsets == []
 
 
-def test_empty_allowlist_never_fetches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_allowlist_never_fetches(tmp_path: Path) -> None:
     """Default-deny: no allowlist means sleep, never getUpdates."""
     api = FakeApi([_update("/help")])
     store, env, offsets = _parts(tmp_path, api, allowed_ids="")
 
-    calls = [0]
-
-    async def _sleep(_: float) -> None:
-        calls[0] += 1
-        if calls[0] >= 2:
-            raise asyncio.CancelledError()
-
-    monkeypatch.setattr(asyncio, "sleep", _sleep)
+    sleep = SleepScript(stop_after=2)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets))
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=sleep))
     assert api.seen_offsets == []
 
 
@@ -134,9 +128,7 @@ def test_saved_offset_is_passed_to_fetch(tmp_path: Path) -> None:
     assert api.seen_offsets == [8]
 
 
-def test_network_error_backs_off_and_continues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_network_error_backs_off_and_continues(tmp_path: Path) -> None:
     """A failed poll sleeps with backoff; the loop survives it."""
     api = FakeApi([_update("/help")])
     calls = [0]
@@ -151,15 +143,11 @@ def test_network_error_backs_off_and_continues(
     api.fetch_updates = _flaky  # type: ignore[method-assign]
     store, env, offsets = _parts(tmp_path, api)
 
-    sleeps: list[float] = []
+    sleep = SleepScript(stop_after=None)
 
-    async def _sleep(s: float) -> None:
-        sleeps.append(s)
-
-    monkeypatch.setattr(asyncio, "sleep", _sleep)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(inbound_listener(api, store, env, offsets))
-    assert sleeps[:1] == [1.0]
+        asyncio.run(inbound_listener(api, store, env, offsets, sleep_fn=sleep))
+    assert sleep.calls[:1] == [1.0]
     assert len(api.sent) == 1
 
 

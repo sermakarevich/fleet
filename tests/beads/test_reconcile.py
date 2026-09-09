@@ -1,3 +1,5 @@
+"""Tests for bd/task.json status merge (unit under test: beads/reconcile.py)."""
+
 from __future__ import annotations
 
 from fleet.beads.reconcile import merge_status

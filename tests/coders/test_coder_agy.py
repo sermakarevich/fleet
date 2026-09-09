@@ -1,3 +1,5 @@
+"""Tests for the Agy coder CLI shape (unit under test: coders/agy.py)."""
+
 from pathlib import Path
 
 from fleet.coders import get_coder
