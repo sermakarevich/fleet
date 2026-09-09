@@ -8,7 +8,7 @@ import stat
 import subprocess
 from pathlib import Path
 
-from fleet.coders.claude import ClaudeCoder
+from fleet.coders.claude import SHIPPED_HOOKS_DIR, ClaudeCoder
 
 
 def _run_hook(
@@ -23,20 +23,20 @@ def _run_hook(
 
 class TestWriteRuntimeConfigCheckpointHook:
     def test_posttool_checkpoint_hook_installed(self, tmp_path: Path) -> None:
-        ClaudeCoder().write_runtime_config(tmp_path, object())
+        ClaudeCoder(fleet_home=tmp_path).write_runtime_config(tmp_path, object())
         script = tmp_path / ".fleet" / "hooks" / "posttool_checkpoint.sh"
         assert script.exists()
         mode = script.stat().st_mode
         assert mode & stat.S_IXUSR
 
     def test_posttool_hook_byte_equal_to_shipped(self, tmp_path: Path) -> None:
-        ClaudeCoder().write_runtime_config(tmp_path, object())
+        ClaudeCoder(fleet_home=tmp_path).write_runtime_config(tmp_path, object())
         installed = tmp_path / ".fleet" / "hooks" / "posttool_checkpoint.sh"
-        shipped = ClaudeCoder._shipped_hooks_dir() / "posttool_checkpoint.sh"
+        shipped = SHIPPED_HOOKS_DIR / "posttool_checkpoint.sh"
         assert installed.read_bytes() == shipped.read_bytes()
 
     def test_posttool_entry_in_settings(self, tmp_path: Path) -> None:
-        ClaudeCoder().write_runtime_config(tmp_path, object())
+        ClaudeCoder(fleet_home=tmp_path).write_runtime_config(tmp_path, object())
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         entries = [e for e in settings["hooks"].get("PostToolUse", []) if e.get("_fleet_managed")]
         assert len(entries) == 1
@@ -44,7 +44,7 @@ class TestWriteRuntimeConfigCheckpointHook:
         assert entries[0]["hooks"][0]["command"] == ".fleet/hooks/posttool_checkpoint.sh"
 
     def test_posttool_entry_not_duplicated(self, tmp_path: Path) -> None:
-        coder = ClaudeCoder()
+        coder = ClaudeCoder(fleet_home=tmp_path)
         coder.write_runtime_config(tmp_path, object())
         coder.write_runtime_config(tmp_path, object())
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
@@ -57,7 +57,7 @@ class TestWriteRuntimeConfigCheckpointHook:
 class TestPosttoolCheckpointScript:
     @staticmethod
     def _script() -> Path:
-        return ClaudeCoder._shipped_hooks_dir() / "posttool_checkpoint.sh"
+        return SHIPPED_HOOKS_DIR / "posttool_checkpoint.sh"
 
     def test_no_output_without_checkpoint_request(self, tmp_path: Path) -> None:
         attempt_dir = tmp_path / "attempts" / "1"
@@ -100,7 +100,7 @@ class TestPrecompactHook:
     def test_precompact_touches_compacted_marker(self, tmp_path: Path) -> None:
         attempt_dir = tmp_path / "attempts" / "1"
         attempt_dir.mkdir(parents=True)
-        script = ClaudeCoder._shipped_hooks_dir() / "precompact.sh"
+        script = SHIPPED_HOOKS_DIR / "precompact.sh"
         proc = _run_hook(script, attempt_dir)
         assert proc.returncode == 0
         assert (attempt_dir / ".compacted").exists()

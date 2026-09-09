@@ -33,7 +33,7 @@ class _StubCoder:
     def __init__(self) -> None:
         self.probe_calls: list[datetime] = []
 
-    def probe_health(self, task, task_dir, since):
+    def probe_health(self, task, task_dir, since, session_id=None):
         self.probe_calls.append(since)
 
 
@@ -191,7 +191,7 @@ def test_health_probe_tick_kills_on_provider_error(tmp_path: Path) -> None:
     coder = _StubCoder()
     record = TaskOutcomeRecord(outcome=TaskOutcome.FAILURE, reason="socket hangup")
 
-    def _probing(task, task_dir, since):
+    def _probing(task, task_dir, since, session_id=None):
         coder.probe_calls.append(since)
         return record
 
@@ -213,7 +213,7 @@ def test_health_probe_tick_spares_cli_still_retrying(tmp_path: Path) -> None:
     now = datetime.now(tz=UTC)
     coder = _StubCoder()
 
-    def _limited(task, task_dir, since):
+    def _limited(task, task_dir, since, session_id=None):
         return TaskOutcomeRecord(outcome=TaskOutcome.RATE_LIMIT, reason="provider rate limit")
 
     coder.probe_health = _limited

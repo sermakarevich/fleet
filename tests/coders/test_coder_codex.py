@@ -2,13 +2,14 @@ import json
 from pathlib import Path
 
 from fleet.coders import get_coder
-from fleet.coders.base import Coder
+from fleet.coders.base import CoderSpec
 from fleet.coders.codex import CODEX_HOME_DIRNAME, CodexCoder, _write_codex_config
 from fleet.core.task import Task
+from fleet.state.paths import fleet_home
 
 
 def _coder() -> CodexCoder:
-    return CodexCoder()
+    return CodexCoder(fleet_home=fleet_home())
 
 
 def _task(task_id: str = "test-001") -> Task:
@@ -25,8 +26,11 @@ def test_get_coder_returns_codex_class():
     assert cls is CodexCoder
 
 
-def test_codex_coder_is_subclass_of_coder_base():
-    assert issubclass(CodexCoder, Coder)
+def test_codex_spec_names_registry_entry():
+    assert isinstance(CodexCoder.spec, CoderSpec)
+    assert CodexCoder.spec.name == "codex"
+    assert CodexCoder.spec.context_limit == 128_000
+    assert CodexCoder.spec.default_model == "o4-mini"
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +61,7 @@ def test_build_argv_includes_model_flag_defaults_to_o4_mini(tmp_path: Path):
 
 
 def test_build_argv_uses_custom_model(tmp_path: Path):
-    argv = CodexCoder(model="o3").build_argv(_task(), tmp_path)
+    argv = CodexCoder(model="o3", fleet_home=fleet_home()).build_argv(_task(), tmp_path)
     idx = argv.index("--model")
     assert argv[idx + 1] == "o3"
 
@@ -430,6 +434,6 @@ def test_build_argv_cd_flag_follows_the_isolated_worktree(tmp_path: Path) -> Non
         json.dumps({"id": task.id, "cwd": task.cwd, "worktree_path": str(worktree)})
     )
 
-    argv = CodexCoder().build_argv(task, task_dir)
+    argv = CodexCoder(fleet_home=fleet_home()).build_argv(task, task_dir)
 
     assert argv[argv.index("--cd") + 1] == str(worktree)

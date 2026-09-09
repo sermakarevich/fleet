@@ -24,6 +24,7 @@ from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.state.config_file import load
 from fleet.state.config_file import write as write_atomic
+from fleet.state.paths import fleet_home as _default_fleet_home
 
 FAKE_CLAUDE_PY = Path(__file__).parent / "fake_cli" / "fake_claude.py"
 
@@ -35,43 +36,63 @@ BD_AVAILABLE: bool = shutil.which("bd") is not None
 # ---------------------------------------------------------------------------
 
 
-class FakeClaudeCoder(ClaudeCoder):
-    """ClaudeCoder that runs fake_claude.py instead of the real 'claude' CLI.
+class FakeClaudeCoder:
+    """Claude-shaped test double that runs fake_claude.py instead of the real CLI.
 
-    All event normalization, env(), and other coder logic is inherited.
-    Only build_argv is overridden to substitute the fake script.
+    Composes a real ClaudeCoder (event parsing, env, runtime config) and only
+    swaps the spawned binary, so integration runs exercise the real coder
+    logic. Subclasses may override env() for per-task scenarios.
 
     Args:
         scenario:  Default scenario for all runs.
         scenarios: Sequential list of scenarios; consumed one per call to env().
+        fleet_home: Fleet home handed to the composed coder (defaults to the
+            global one, exactly like the real coder used to resolve).
         **fake_env: Extra env vars forwarded to the subprocess.
     """
+
+    spec = ClaudeCoder.spec
 
     def __init__(
         self,
         scenario: str = "clean_exit",
         scenarios: list[str] | None = None,
+        fleet_home: Path | str | None = None,
         **fake_env: str,
     ) -> None:
-        super().__init__()
+        home = Path(fleet_home) if fleet_home is not None else _default_fleet_home()
+        self._cli = ClaudeCoder(fleet_home=home)
         self._scenario = scenario
         self._scenarios = scenarios
         self._fake_env = fake_env
         self._scenario_idx = 0
 
+    @property
+    def model(self) -> str:
+        """The composed coder's model (used for spawn logging)."""
+        return self._cli.model
+
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
-        parent_argv = super().build_argv(task, task_dir)
+        parent_argv = self._cli.build_argv(task, task_dir)
         # Replace "claude" with "python fake_claude.py"; inherit all other args
         return ["python", str(FAKE_CLAUDE_PY)] + parent_argv[1:]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        base = super().env(task, task_dir)
+        base = self._cli.env(task, task_dir)
         if self._scenarios and self._scenario_idx < len(self._scenarios):
             chosen = self._scenarios[self._scenario_idx]
             self._scenario_idx += 1
         else:
             chosen = self._scenario
         return {**base, "FAKE_CLAUDE_SCENARIO": chosen, **self._fake_env}
+
+    def normalize_event(self, raw_line: str):
+        """Parse one stdout line with the real Claude event logic."""
+        return self._cli.normalize_event(raw_line)
+
+    def write_runtime_config(self, project: Path, task: object) -> None:
+        """Install the real Claude project hooks and settings."""
+        self._cli.write_runtime_config(project, task)
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +374,7 @@ def beads_functional() -> bool:
 def make_supervisor(
     tmp_path: Path,
     queue: Queue,
-    coder: ClaudeCoder | None = None,
+    coder: ClaudeCoder | FakeClaudeCoder | None = None,
     config: RuntimeConfig | None = None,
 ) -> Supervisor:
     """Create a Supervisor wired to tmp_path with optional config override."""
@@ -372,7 +393,7 @@ def make_supervisor(
         queue=queue,
         log=log,
         rate_gauge=RateGauge(log=log),
-        coder_pin=coder or FakeClaudeCoder(),
+        coder_pin=coder or FakeClaudeCoder(fleet_home=tmp_path),
     )
     services = default_services()
     for svc in services:

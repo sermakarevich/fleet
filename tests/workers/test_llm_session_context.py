@@ -24,7 +24,7 @@ class StubCoder:
 
     def __init__(self, argv: list[str]) -> None:
         self._argv = argv
-        self._cli = ClaudeCoder()
+        self._cli = ClaudeCoder(fleet_home=Path.cwd())
         self.model = "stub-model"
 
     @classmethod

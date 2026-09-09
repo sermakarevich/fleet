@@ -1,13 +1,14 @@
 import json
-import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
-from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.base import CoderSpec, context_limit_for, lookup_handler, prompt_context
+from fleet.coders.env import bedrock_env, fleet_env
 from fleet.coders.model_ref import resolve_model
-from fleet.coders.ollama import DEFAULT_OLLAMA_URL, ollama_env
-from fleet.core.context_window import resolve_window
+from fleet.coders.settings import PiSettings
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.prompts import render
@@ -17,21 +18,13 @@ from fleet.prompts import render
 _PROVIDER_ID = "ollama"
 _BEDROCK_PROVIDER_ID = "amazon-bedrock"
 
+_DEFAULT_MODEL = "qwen3.6:latest"
+_DEFAULT_WINDOW = 128_000
+
 
 def _model_ref(model: str, default: str):
     """This coder's ModelRef: bare names route to the ollama provider."""
     return resolve_model(model, default, default_provider=_PROVIDER_ID)
-
-
-def _pi_agent_dir() -> Path:
-    """Directory pi reads its config from (models.json, settings.json).
-
-    Honors PI_CODING_AGENT_DIR so this writer and the spawned subprocess (which
-    inherits os.environ via the runner) always agree on the location. Defaults
-    to ~/.pi/agent, the path verified to load custom providers.
-    """
-    override = os.environ.get("PI_CODING_AGENT_DIR")
-    return Path(override) if override else Path.home() / ".pi" / "agent"
 
 
 def _map_usage(usage: object) -> dict | None:
@@ -103,49 +96,33 @@ EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
 }
 
 
-class PiCoder(Coder):
-    name = "pi"
-    context_limit = 128_000
-    default_model = "qwen3.6:latest"
+@dataclass(frozen=True)
+class PiCoder:
+    """The pi CLI coder: NDJSON events, provider config in the agent dir."""
 
-    @classmethod
-    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
-        """Context window for the given model string.
+    spec: ClassVar[CoderSpec] = CoderSpec(
+        name="pi", default_model=_DEFAULT_MODEL, context_limit=_DEFAULT_WINDOW
+    )
 
-        Resolves through ``core.context_window.resolve_window`` (per-model
-        table, Bedrock ids included) with the class ``context_limit`` as
-        the fallback, so supervisor and UI share one denominator.
-        """
+    fleet_home: Path
+    model: str = _DEFAULT_MODEL
+    default_model: str = _DEFAULT_MODEL
+    settings: PiSettings = field(default_factory=PiSettings)
+    context_limit_override: int | None = None
 
-        return resolve_window(model, overrides, cls.context_limit)
-
-    def __init__(
-        self,
-        model: str = "qwen3.6:latest",
-        ollama_url: str = DEFAULT_OLLAMA_URL,
-        context_limit: int | None = None,
-        default_model: str = "qwen3.6:latest",
-        bedrock_region: str = "",
-        bedrock_profile: str = "",
-        bedrock_context_limit: int | None = None,
-    ) -> None:
-        # bedrock_* are accepted because supervisor._resolve_coder passes the
-        # same kwargs to opencode and pi; they are inert for ollama routing.
-        self.model = model
-        self.ollama_url = ollama_url
-        self.default_model = default_model
-        self.bedrock_region = bedrock_region
-        self.bedrock_profile = bedrock_profile
-        resolved = type(self).context_limit_for(model)
-        if self.is_bedrock:
-            self.context_limit = (
-                bedrock_context_limit if bedrock_context_limit is not None else resolved
-            )
-        else:
-            self.context_limit = context_limit if context_limit is not None else resolved
+    @property
+    def context_limit(self) -> int:
+        """Effective window: explicit override wins, else the per-model table."""
+        if self.context_limit_override is not None:
+            return self.context_limit_override
+        bedrock = self.settings.bedrock
+        if self.is_bedrock and bedrock is not None and bedrock.context_limit is not None:
+            return bedrock.context_limit
+        return context_limit_for(PiCoder.spec, self.model)
 
     @property
     def is_bedrock(self) -> bool:
+        """True when the model routes to Amazon Bedrock instead of Ollama."""
         return _model_ref(self.model, self.default_model).provider == _BEDROCK_PROVIDER_ID
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
@@ -158,13 +135,10 @@ class PiCoder(Coder):
         return ["pi", "-p", "--mode", "json", "--model", full_id, prompt]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
+        bedrock = self.settings.bedrock if self.is_bedrock else None
         return {
-            **base_env(task, task_dir),
-            **ollama_env(
-                is_bedrock=self.is_bedrock,
-                bedrock_profile=self.bedrock_profile,
-                bedrock_region=self.bedrock_region,
-            ),
+            **fleet_env(task, task_dir),
+            **bedrock_env(bedrock),
         }
 
     def write_runtime_config(self, project: Path, task: Task) -> None:
@@ -184,7 +158,7 @@ class PiCoder(Coder):
             return
         local_key = ref.name
 
-        agent_dir = _pi_agent_dir()
+        agent_dir = self.settings.agent_dir
         agent_dir.mkdir(parents=True, exist_ok=True)
         target = agent_dir / "models.json"
 
@@ -210,7 +184,7 @@ class PiCoder(Coder):
             merged_models.append({"id": local_key})
 
         providers[_PROVIDER_ID] = {
-            "baseUrl": self.ollama_url,
+            "baseUrl": self.settings.ollama_url,
             "api": "openai-completions",
             "apiKey": "ollama",
             "compat": {

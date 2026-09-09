@@ -1,9 +1,12 @@
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
-from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.base import CoderSpec, lookup_handler, prompt_context
+from fleet.coders.env import fleet_env
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.prompts import render
@@ -70,23 +73,29 @@ def _raw_text_event(raw_line: str) -> Event:
     )
 
 
-class AgyCoder(Coder):
-    name = "agy"
-    context_limit = 128_000
-    default_model = "GPT-OSS 120B"
+@dataclass(frozen=True)
+class AgyCoder:
+    """The agy CLI coder: prompt-only argv, raw-text event stream.
+
+    ``fleet_home`` is reserved for the fleet MCP wiring (see the TODO below);
+    it is unused today but kept so every coder builds the same way.
+    """
+
+    spec: ClassVar[CoderSpec] = CoderSpec(
+        name="agy", default_model="GPT-OSS 120B", context_limit=128_000
+    )
+
+    fleet_home: Path
+    # NOTE: the `agy` CLI binary does not accept a model flag; it reads its
+    # active model from `~/.gemini/antigravity-cli/settings.json`. `model` is
+    # kept for supervisor logging and as a hook for a future write-settings step.
+    model: str = "GPT-OSS 120B"
     # TODO(fleet-ml2s9): hand the fleet MCP servers
     # (integrations.mcp_servers.fleet_mcp_servers: ask_human, web_fetch) to
     # agy workers explicitly, the way claude (--mcp-config), codex
     # (CODEX_HOME) and opencode (OPENCODE_CONFIG_CONTENT) already do. The agy
     # CLI's MCP config mechanism is still unknown — check `agy --help` on a
     # machine with it installed, then mirror the per-coder adaptation here.
-
-    def __init__(self, model: str = "GPT-OSS 120B") -> None:
-        # NOTE: the `agy` CLI binary does not accept a model flag; it reads
-        # its active model from `~/.gemini/antigravity-cli/settings.json`.
-        # `self.model` is kept for supervisor logging and as a hook for a
-        # future write-settings step.
-        self.model = model
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         mode, ctx = prompt_context(task, task_dir, plan)
@@ -99,7 +108,7 @@ class AgyCoder(Coder):
         ]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        return base_env(task, task_dir)
+        return fleet_env(task, task_dir)
 
     def normalize_event(self, raw_line: str) -> Event | None:
         """Parse one stdout line via EVENT_MAP; raw text streams as assistant_text.

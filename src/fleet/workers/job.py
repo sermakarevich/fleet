@@ -146,7 +146,9 @@ class JobPrepare:
             launch={"mode": self._mode, "pack_bytes": plan.pack_bytes, "kind": "work"},
         )
         assert ctx.coder is not None
-        ctx.coder.write_runtime_config(ctx.project_root, ctx.task)
+        hook = getattr(ctx.coder, "write_runtime_config", None)
+        if hook is not None:
+            hook(ctx.project_root, ctx.task)
         return StepResult(status="ok")
 
     async def cancel(self, reason: str) -> None:

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from structlog import BoundLogger
 
-from fleet.coders.base import Coder
+from fleet.coders.base import FALLBACK_CONTEXT_LIMIT, Coder, context_limit_for
 from fleet.core.config import RuntimeConfig
 from fleet.core.context_window import parse_context_windows
 from fleet.core.limits import (
@@ -71,6 +71,7 @@ class MonitorContext:
     last_event_at: datetime
     last_stdout_at: datetime
     last_probe_at: datetime
+    session_id: str | None = None
     verdict: Verdict | None = None
     peak_context_tokens: int = 0
     last_logged_bucket: int = -1
@@ -238,8 +239,11 @@ class HealthProbe(Monitor):
         ):
             return None
         ctx.last_probe_at = now
+        probe = getattr(ctx.coder, "probe_health", None)
+        if probe is None:
+            return None
         probe_outcome = await asyncio.to_thread(
-            ctx.coder.probe_health, ctx.task, ctx.task_dir, ctx.last_stdout_at
+            probe, ctx.task, ctx.task_dir, ctx.last_stdout_at, ctx.session_id
         )
         if probe_outcome is None:
             return None
@@ -286,19 +290,21 @@ def lease_times(now: datetime | None = None) -> tuple[str, str]:
 def context_limit_of(coder: Coder, overrides: dict[str, int] | None = None) -> int:
     """Effective context window for this coder/model pair.
 
-    Prefers the ``context_limit_for(model, overrides)`` classmethod
-    (per-model table from ``core.context_window``); falls back to the
-    ``context_limit`` attribute for test doubles. *overrides* is the parsed
-    ``context_windows`` config (``{model: tokens}``); None means built-ins.
+    Resolves through the shared ``context_limit_for`` table from the coder's
+    spec; test doubles without a spec fall back to their ``context_limit``
+    attribute. *overrides* is the parsed ``context_windows`` config
+    (``{model: tokens}``); None means built-ins.
     """
+    spec = getattr(coder, "spec", None)
+    if spec is None:
+        try:
+            return int(coder.context_limit)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError, ValueError):
+            return FALLBACK_CONTEXT_LIMIT
     try:
-        return int(coder.context_limit_for(getattr(coder, "model", None), overrides))
-    except (AttributeError, TypeError, ValueError):
-        pass
-    try:
-        return int(coder.context_limit)
-    except (AttributeError, TypeError, ValueError):
-        return 200_000
+        return context_limit_for(spec, getattr(coder, "model", None), overrides)
+    except (TypeError, ValueError):
+        return spec.context_limit
 
 
 def overrides_of(config: RuntimeConfig) -> dict[str, int]:

@@ -19,6 +19,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fleet.coders import get_coder
 from fleet.coders.base import Workspace
@@ -165,7 +166,9 @@ def _compaction_argv(coder: object, task: object, task_dir: Path, prompt: str) -
     if not argv:
         raise ValueError("coder.build_argv returned empty argv")
     argv[-1] = prompt
-    if getattr(coder, "name", "") == "claude":
+    spec = getattr(coder, "spec", None)
+    coder_name = spec.name if spec is not None else getattr(coder, "name", "")
+    if coder_name == "claude":
         argv.insert(-1, "--max-turns")
         argv.insert(-1, "2")
     return argv
@@ -257,12 +260,12 @@ class Compact:
             return StepResult(status="ok", reason="compaction disabled")
 
         try:
-            coder_cls = get_coder(ctx.config.compaction_coder)
+            coder_cls: Any = get_coder(ctx.config.compaction_coder)
         except ValueError as exc:
             ctx.log.warning("compaction_fallback", reason=f"unknown coder: {exc}")
             return self._fallback(ctx, f"unknown coder: {exc}")
 
-        coder = coder_cls(model=ctx.config.compaction_model)  # type: ignore[call-arg]  # Coder subclasses take model=; bead 21 adds coder_factory
+        coder = coder_cls(model=ctx.config.compaction_model, fleet_home=ctx.fleet_home)
         material = collect_material(task_dir, _workdir_of(ctx), before_n=ctx.attempt_n)
         prompt = render_compaction_prompt(material)
         try:

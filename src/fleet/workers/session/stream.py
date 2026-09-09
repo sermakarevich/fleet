@@ -58,6 +58,7 @@ class EventStream:
         self._task_id = task_id
         self.last_stdout_at = started_at
         self.last_event_at = started_at
+        self.last_session_id: str | None = None
 
     def __aiter__(self) -> AsyncIterator[Event]:
         return self._read()
@@ -88,7 +89,7 @@ class EventStream:
             if evt.session_id:
                 # Tags the run for probe_health, telling this run's provider
                 # errors apart from other sessions sharing the CLI log file.
-                self._coder.current_session_id = evt.session_id  # type: ignore[attr-defined]  # per-run session tag; owned by the stream
+                self.last_session_id = evt.session_id
             append_event(self._attempt_dir, evt)
             self.last_event_at = now
             yield evt

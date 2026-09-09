@@ -3,26 +3,26 @@ import os
 import re
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
-from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.base import CoderSpec, context_limit_for, lookup_handler, prompt_context
+from fleet.coders.env import bedrock_env, fleet_env
 from fleet.coders.model_ref import resolve_model
-from fleet.coders.ollama import DEFAULT_OLLAMA_URL, ollama_env
-from fleet.core.context_window import resolve_window
+from fleet.coders.settings import OpencodeSettings
 from fleet.core.launch import LaunchPlan
 from fleet.core.limits import RATE_LIMIT_DEFAULT_SLEEP_SEC
 from fleet.core.task import Event, Task, TaskOutcome, TaskOutcomeRecord
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
-from fleet.state.paths import fleet_home
 
 _PROVIDER_ID = "ollama-rtx"
 _BEDROCK_PROVIDER_ID = "amazon-bedrock"
 
-_DEFAULT_OPENCODE_LOG_FILE = str(
-    Path.home() / ".local" / "share" / "opencode" / "log" / "opencode.log"
-)
+_DEFAULT_MODEL = "gpt-oss:20b"
+_DEFAULT_WINDOW = 128_000
 _LOG_TAIL_BYTES = 256 * 1024
 
 _TIMESTAMP_RE = re.compile(r"timestamp=(\S+)")
@@ -188,48 +188,33 @@ EVENT_MAP: dict[tuple[str, str | None], Callable[[dict], Event | None]] = {
 }
 
 
-class OpencodeCoder(Coder):
-    name = "opencode"
-    context_limit = 128_000
-    default_model = "gpt-oss:20b"
+@dataclass(frozen=True)
+class OpencodeCoder:
+    """The opencode CLI coder: JSON run argv, config-via-env, log-file health probe."""
 
-    @classmethod
-    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
-        """Context window for the given model string.
+    spec: ClassVar[CoderSpec] = CoderSpec(
+        name="opencode", default_model=_DEFAULT_MODEL, context_limit=_DEFAULT_WINDOW
+    )
 
-        Resolves through ``core.context_window.resolve_window`` (per-model
-        table, Bedrock ids included) with the class ``context_limit`` as
-        the fallback, so supervisor and UI share one denominator.
-        """
+    fleet_home: Path
+    model: str = _DEFAULT_MODEL
+    default_model: str = _DEFAULT_MODEL
+    settings: OpencodeSettings = field(default_factory=OpencodeSettings)
+    context_limit_override: int | None = None
 
-        return resolve_window(model, overrides, cls.context_limit)
-
-    def __init__(
-        self,
-        model: str = "gpt-oss:20b",
-        ollama_url: str = DEFAULT_OLLAMA_URL,
-        context_limit: int | None = None,
-        default_model: str = "gpt-oss:20b",
-        bedrock_region: str = "",
-        bedrock_profile: str = "",
-        bedrock_context_limit: int | None = None,
-    ) -> None:
-        self.model = model
-        self.ollama_url = ollama_url
-        self.default_model = default_model
-        self.bedrock_region = bedrock_region
-        self.bedrock_profile = bedrock_profile
-        self.current_session_id: str | None = None
-        resolved = type(self).context_limit_for(model)
-        if self.is_bedrock:
-            self.context_limit = (
-                bedrock_context_limit if bedrock_context_limit is not None else resolved
-            )
-        else:
-            self.context_limit = context_limit if context_limit is not None else resolved
+    @property
+    def context_limit(self) -> int:
+        """Effective window: explicit override wins, else the per-model table."""
+        if self.context_limit_override is not None:
+            return self.context_limit_override
+        bedrock = self.settings.bedrock
+        if self.is_bedrock and bedrock is not None and bedrock.context_limit is not None:
+            return bedrock.context_limit
+        return context_limit_for(OpencodeCoder.spec, self.model)
 
     @property
     def is_bedrock(self) -> bool:
+        """True when the model routes to Amazon Bedrock instead of Ollama."""
         return _model_ref(self.model, self.default_model).provider == _BEDROCK_PROVIDER_ID
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
@@ -243,28 +228,16 @@ class OpencodeCoder(Coder):
         return argv
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
+        bedrock = self.settings.bedrock if self.is_bedrock else None
         return {
-            **base_env(task, task_dir),
+            **fleet_env(task, task_dir),
             # Provider + MCP config is injected via env instead of an
             # opencode.json written into the task cwd, so we no longer
             # pollute project directories. opencode loads this as a
             # "local"-scope config and merges it with global/project config.
             "OPENCODE_CONFIG_CONTENT": json.dumps(self._build_config()),
-            **ollama_env(
-                is_bedrock=self.is_bedrock,
-                bedrock_profile=self.bedrock_profile,
-                bedrock_region=self.bedrock_region,
-            ),
+            **bedrock_env(bedrock),
         }
-
-    def write_runtime_config(self, project: Path, task: object) -> None:
-        """No-op: provider/MCP config is injected via OPENCODE_CONFIG_CONTENT in
-        env() instead of writing an opencode.json into the project directory.
-
-        Kept for Coder-interface compatibility. Previously this wrote
-        ``project/opencode.json``, which polluted every task cwd.
-        """
-        return
 
     def _build_config(self) -> dict:
         """Build the opencode config dict (provider + MCP + permission).
@@ -275,7 +248,7 @@ class OpencodeCoder(Coder):
         ref = _model_ref(self.model, self.default_model)
         map_key = ref.name if ref.provider == _PROVIDER_ID else self.default_model
 
-        base_url = self.ollama_url
+        base_url = self.settings.ollama_url
 
         merged_models: dict = {}
         merged_models[map_key] = {
@@ -306,7 +279,7 @@ class OpencodeCoder(Coder):
                 "models": bedrock_models,
             }
 
-        shared = fleet_mcp_servers(fleet_home())
+        shared = fleet_mcp_servers(self.fleet_home)
         ask_human = shared["ask_human"]
         ask_human_entry = {
             "type": "local",
@@ -378,7 +351,13 @@ class OpencodeCoder(Coder):
             return None
         return handler(data)
 
-    def probe_health(self, task: Task, task_dir: Path, since: datetime) -> TaskOutcomeRecord | None:
+    def probe_health(
+        self,
+        task: Task,
+        task_dir: Path,
+        since: datetime,
+        session_id: str | None = None,
+    ) -> TaskOutcomeRecord | None:
         """Detect provider rate-limit/connect errors opencode swallows silently.
 
         `opencode run --format json` never emits a provider error into its
@@ -387,8 +366,10 @@ class OpencodeCoder(Coder):
         Read the tail of that log and classify lines logged after `since`
         (the last stdout event). Transient rate limits that opencode retried
         and recovered from are older than the last event and are ignored.
+        `session_id` is this run's session (tracked by the event stream) so a
+        sibling task's rate-limit errors are never attributed to us.
         """
-        log_path = Path(os.environ.get("OPENCODE_LOG_FILE", _DEFAULT_OPENCODE_LOG_FILE))
+        log_path = self.settings.log_file
         if not log_path.exists():
             return None
 
@@ -400,8 +381,4 @@ class OpencodeCoder(Coder):
 
         lines = tail.splitlines()
         model = task.model or self.model
-        # LlmSession records the session id it sees in this run's events so a
-        # sibling task's rate-limit errors are never attributed to us.
-        return classify_opencode_log_lines(
-            lines, since=since, model=model, session_id=self.current_session_id
-        )
+        return classify_opencode_log_lines(lines, since=since, model=model, session_id=session_id)

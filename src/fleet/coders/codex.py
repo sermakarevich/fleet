@@ -15,16 +15,19 @@ secrets.
 
 import json
 from collections.abc import Callable
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import ClassVar
 
-from fleet.coders.base import Coder, Workspace, base_env, lookup_handler, prompt_context
+from fleet.coders.base import CoderSpec, Workspace, lookup_handler, prompt_context
+from fleet.coders.env import fleet_env
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _resolve_task_dir
 
 _TOOL_ITEM_TYPES = frozenset(
@@ -169,13 +172,16 @@ def _event_key(data: dict) -> tuple[str, str | None]:
     return (event_type, data.get("subtype"))
 
 
-class CodexCoder(Coder):
-    name = "codex"
-    context_limit = 128_000
-    default_model = "o4-mini"
+@dataclass(frozen=True)
+class CodexCoder:
+    """The codex CLI coder: per-attempt CODEX_HOME, workdir via --cd."""
 
-    def __init__(self, model: str = "o4-mini") -> None:
-        self.model = model
+    spec: ClassVar[CoderSpec] = CoderSpec(
+        name="codex", default_model="o4-mini", context_limit=128_000
+    )
+
+    fleet_home: Path
+    model: str = "o4-mini"
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         mode, ctx = prompt_context(task, task_dir, plan)
@@ -196,7 +202,7 @@ class CodexCoder(Coder):
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         return {
-            **base_env(task, task_dir),
+            **fleet_env(task, task_dir),
             # Isolate the worker from the operator's ~/.codex/config.toml:
             # codex resolves its config under $CODEX_HOME.
             "CODEX_HOME": str(_codex_home_path(task_dir)),
@@ -210,11 +216,10 @@ class CodexCoder(Coder):
         the write instead of crashing. env() points at the same path, so the
         two agree within one attempt.
         """
-        try:
-            home = fleet_home()
-            _write_codex_config(_codex_home_path(_resolve_task_dir(home, task.id)), home)
-        except OSError:
-            pass
+        with suppress(OSError):
+            _write_codex_config(
+                _codex_home_path(_resolve_task_dir(self.fleet_home, task.id)), self.fleet_home
+            )
 
     def normalize_event(self, raw_line: str) -> Event | None:
         """Parse one stdout line via EVENT_MAP keyed on (type, item type)."""

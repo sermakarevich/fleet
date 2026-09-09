@@ -7,7 +7,7 @@ overrides carried by the window; unknown coders fall back to 200k.
 
 from __future__ import annotations
 
-from fleet.coders import get_coder
+from fleet.coders import context_limit_for
 from fleet.serve.analytics.metrics import Section
 from fleet.serve.analytics.records import AttemptRecord
 from fleet.serve.analytics.window import Window, completed
@@ -22,7 +22,7 @@ _THRESHOLDS = (("100+", 100), ("75-100", 75), ("50-75", 50), ("25-50", 25))
 def _limit_for(record: AttemptRecord, overrides: dict[str, int]) -> int:
     """Context window for the record's coder/model, or the fallback."""
     try:
-        limit = get_coder(record.coder or "").context_limit_for(record.model, overrides)
+        limit = context_limit_for(record.coder or "", record.model, overrides)
     except (ValueError, TypeError, IndexError):
         return _FALLBACK_LIMIT
     return limit if limit > 0 else _FALLBACK_LIMIT

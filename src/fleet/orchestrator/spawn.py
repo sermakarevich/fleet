@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fleet.coders import get_coder
+from fleet.coders import coder_kwargs
+from fleet.coders import resolve_coder as build_coder
 from fleet.coders.base import Coder
+from fleet.coders.settings import settings_from_env
 from fleet.core.effective import effective_coder_model
 from fleet.core.task import Task, TaskOutcome
 from fleet.orchestrator.state import RunningWorker
@@ -48,25 +51,21 @@ def resolve_coder(st: SupervisorState, task: Task) -> tuple[Coder, str, str | No
     task.coder / task.model, falling back to config defaults.
     """
     if st.coder_pin is not None:
-        return (
-            st.coder_pin,
-            st.coder_pin.name,
-            getattr(st.coder_pin, "model", None),
-        )
+        pin = st.coder_pin
+        spec = getattr(pin, "spec", None)
+        name = spec.name if spec is not None else getattr(pin, "name", "")
+        return pin, name, getattr(pin, "model", None)
     coder_name, model = effective_coder_model(
         task.coder, task.model, st.config.coder, st.config.model
     )
-    coder_cls = get_coder(coder_name)
-    kwargs: dict = {}
-    if coder_name in ("opencode", "pi"):
-        kwargs["ollama_url"] = st.config.opencode_ollama_url
-        kwargs["default_model"] = st.config.opencode_default_model
-        kwargs["bedrock_region"] = st.config.opencode_bedrock_region
-        kwargs["bedrock_profile"] = st.config.opencode_bedrock_profile
-        # Context windows are per-model now (``context_windows`` +
-        # ``core.context_window.resolve_window``); the coder resolves the
-        # window for its model itself, so no limit kwargs are passed.
-    return coder_cls(model=model, **kwargs), coder_name, model  # type: ignore[call-arg]  # Coder subclasses take model=; bead 21 adds coder_factory
+    kwargs = coder_kwargs(
+        coder_name,
+        model=model,
+        fleet_home=st.project_root,
+        config=st.config,
+        env=settings_from_env(os.environ),
+    )
+    return build_coder(coder_name, **kwargs), coder_name, model
 
 
 def block_terminal(st: SupervisorState, task: Task, reason: str) -> None:

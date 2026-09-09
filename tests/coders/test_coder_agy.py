@@ -2,12 +2,13 @@ from pathlib import Path
 
 from fleet.coders import get_coder
 from fleet.coders.agy import AgyCoder
-from fleet.coders.base import Coder
+from fleet.coders.base import CoderSpec
 from fleet.core.task import Task
+from fleet.state.paths import fleet_home
 
 
 def _coder() -> AgyCoder:
-    return AgyCoder()
+    return AgyCoder(fleet_home=fleet_home())
 
 
 def _task(task_id: str = "test-001") -> Task:
@@ -19,8 +20,11 @@ def test_get_coder_returns_agy_class():
     assert cls is AgyCoder
 
 
-def test_agy_coder_is_subclass_of_coder_base():
-    assert issubclass(AgyCoder, Coder)
+def test_agy_spec_names_registry_entry():
+    assert isinstance(AgyCoder.spec, CoderSpec)
+    assert AgyCoder.spec.name == "agy"
+    assert AgyCoder.spec.context_limit == 128_000
+    assert AgyCoder.spec.default_model == "GPT-OSS 120B"
 
 
 def test_build_argv_starts_with_agy_p(tmp_path: Path):
@@ -47,14 +51,14 @@ def test_uses_custom_model():
     """Constructor accepts an override; the agy CLI itself reads model
     from `~/.gemini/antigravity-cli/settings.json`, so the value is held on
     the coder for supervisor logging and future propagation."""
-    coder = AgyCoder(model="GPT-OSS 20B")
+    coder = AgyCoder(model="GPT-OSS 20B", fleet_home=fleet_home())
     assert coder.model == "GPT-OSS 20B"
 
 
 def test_build_argv_does_not_pass_model_flag(tmp_path: Path):
     """`agy` rejects `--model` (`flags provided but not defined: -model`),
     so build_argv must not include it."""
-    coder = AgyCoder(model="GPT-OSS 120B")
+    coder = AgyCoder(model="GPT-OSS 120B", fleet_home=fleet_home())
     argv = coder.build_argv(_task(), tmp_path)
     assert "--model" not in argv
 

@@ -1,19 +1,24 @@
 import json
 import stat
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
+from typing import ClassVar
 
-from fleet.coders.base import Coder, base_env, lookup_handler, prompt_context
+from fleet.coders.base import CoderSpec, lookup_handler, prompt_context
+from fleet.coders.env import fleet_env
 from fleet.coders.mcp import write_mcp_config
 from fleet.core.launch import LaunchPlan
 from fleet.core.task import Event, Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
 from fleet.prompts import render
 from fleet.state.attempts import latest_attempt_dir
-from fleet.state.paths import fleet_home
 from fleet.state.paths import task_dir as _resolve_task_dir
+
+SHIPPED_HOOKS_DIR = Path(__file__).parent / "hooks"
+"""Bash hooks shipped with fleet, installed into the project by this coder."""
 
 
 def _extract_usage_pct(info: dict) -> float | None:
@@ -187,13 +192,16 @@ def _attempt_dir_for(task_dir: Path) -> Path:
     return latest_attempt_dir(task_dir) or task_dir
 
 
-class ClaudeCoder(Coder):
-    name = "claude"
-    context_limit = 200_000
-    default_model = "sonnet"
+@dataclass(frozen=True)
+class ClaudeCoder:
+    """The claude CLI coder: stream-json argv, MCP config, project hooks."""
 
-    def __init__(self, model: str = "sonnet") -> None:
-        self.model = model
+    spec: ClassVar[CoderSpec] = CoderSpec(
+        name="claude", default_model="sonnet", context_limit=200_000
+    )
+
+    fleet_home: Path
+    model: str = "sonnet"
 
     def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
         mode, ctx = prompt_context(task, task_dir, plan)
@@ -207,7 +215,7 @@ class ClaudeCoder(Coder):
         # before spawn — both resolve via _attempt_dir_for, so they always
         # agree within one attempt. The write raises on OSError: the worker
         # turns it into a failed step instead of launching without ask_human.
-        mcp_path = write_mcp_config(_attempt_dir_for(task_dir), fleet_mcp_servers(fleet_home()))
+        mcp_path = write_mcp_config(_attempt_dir_for(task_dir), fleet_mcp_servers(self.fleet_home))
         return [
             "claude",
             "-p",
@@ -228,11 +236,7 @@ class ClaudeCoder(Coder):
         ]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        return base_env(task, task_dir)
-
-    @staticmethod
-    def _shipped_hooks_dir() -> Path:
-        return Path(__file__).parent / "hooks"
+        return fleet_env(task, task_dir)
 
     def write_runtime_config(self, project: Path, task: object) -> None:
         """Write fleet-managed .claude/settings.json and hook scripts into project root.
@@ -245,7 +249,7 @@ class ClaudeCoder(Coder):
         write failure raises so the worker fails the step instead of running
         without ask_human.
         """
-        hooks_src = self._shipped_hooks_dir()
+        hooks_src = SHIPPED_HOOKS_DIR
         hooks_dst = project / ".fleet" / "hooks"
         hooks_dst.mkdir(parents=True, exist_ok=True)
 
@@ -303,8 +307,8 @@ class ClaudeCoder(Coder):
 
         task_id = getattr(task, "id", None)
         if task_id:
-            tdir = _resolve_task_dir(fleet_home(), task_id)
-            write_mcp_config(_attempt_dir_for(tdir), fleet_mcp_servers(fleet_home()))
+            tdir = _resolve_task_dir(self.fleet_home, task_id)
+            write_mcp_config(_attempt_dir_for(tdir), fleet_mcp_servers(self.fleet_home))
 
     def normalize_event(self, raw_line: str) -> Event | None:
         """Parse one stdout line: hard-reject check, then EVENT_MAP on (type, subtype)."""

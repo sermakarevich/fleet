@@ -7,17 +7,18 @@ import fleet.coders.base as coder_mod
 import fleet.coders.claude as cli_mod
 import fleet.core.task as task_mod
 from fleet.coders import get_coder
-from fleet.coders.base import Coder
+from fleet.coders.base import CoderSpec
 from fleet.coders.claude import ClaudeCoder
 from fleet.coders.mcp import write_mcp_config
 from fleet.core.task import Task
 from fleet.integrations.mcp_servers import fleet_mcp_servers
+from fleet.state.paths import fleet_home
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _coder() -> ClaudeCoder:
-    return ClaudeCoder()
+    return ClaudeCoder(fleet_home=fleet_home())
 
 
 def _task(task_id: str = "test-001") -> Task:
@@ -43,8 +44,11 @@ def test_get_coder_unknown_raises():
         get_coder("unknown_cli")
 
 
-def test_claude_coder_is_subclass_of_coder_base():
-    assert issubclass(ClaudeCoder, Coder)
+def test_claude_spec_names_registry_entry():
+    assert isinstance(ClaudeCoder.spec, CoderSpec)
+    assert ClaudeCoder.spec.name == "claude"
+    assert ClaudeCoder.spec.context_limit == 200_000
+    assert ClaudeCoder.spec.default_model == "sonnet"
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +86,7 @@ def test_build_argv_defaults_to_sonnet_model(tmp_path: Path):
 
 
 def test_build_argv_uses_custom_model(tmp_path: Path):
-    coder = ClaudeCoder(model="opus")
+    coder = ClaudeCoder(model="opus", fleet_home=fleet_home())
     argv = coder.build_argv(_task(), tmp_path)
     idx = argv.index("--model")
     assert argv[idx + 1] == "opus"

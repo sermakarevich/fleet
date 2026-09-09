@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from fleet.coders.claude import ClaudeCoder
+from fleet.coders.claude import SHIPPED_HOOKS_DIR, ClaudeCoder
 
 EXPECTED_SETTINGS = Path(__file__).parent.parent / "fixtures" / "expected_settings.json"
 
 
 @pytest.fixture
-def coder():
-    return ClaudeCoder()
+def coder(tmp_path):
+    return ClaudeCoder(fleet_home=tmp_path)
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestFirstCallWritesSettings:
 
     def test_hook_scripts_byte_equal_to_shipped(self, coder, project):
         coder.write_runtime_config(project, object())
-        shipped_dir = ClaudeCoder._shipped_hooks_dir()
+        shipped_dir = SHIPPED_HOOKS_DIR
         for name in ("precompact.sh", "pretool_askuserquestion.sh"):
             installed = project / ".fleet" / "hooks" / name
             shipped = shipped_dir / name

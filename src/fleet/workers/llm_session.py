@@ -104,6 +104,8 @@ async def run_monitored(
         async for evt in stream:
             state.last_event_at = stream.last_event_at
             state.last_stdout_at = stream.last_stdout_at
+            if stream.last_session_id is not None:
+                state.session_id = stream.last_session_id
             verdict = _event_verdict(monitors, evt, state)
             if verdict is not None and verdict.kill:
                 await proc.terminate_group(KILL_GRACE_SEC)

@@ -1,33 +1,44 @@
 """The coder contract and the task workspace every coder runs in.
 
 :class:`Coder` is the interface one file per CLI in this package implements
-(name, argv, env, event parsing, health); :class:`Workspace` owns where a
-task runs (task dir, attempt dir, cwd, isolated worktree); :func:`base_env`
-owns the ``FLEET_*`` variables every coder sets; :func:`prompt_context`
-resolves the launch mode plus the ``prompts`` context for ``build_argv``.
-Called by ``workers`` (spawn, stream, monitors) and the coder modules.
+(structural: a coder is any object with a ``spec`` plus ``build_argv``,
+``env`` and ``normalize_event``). :class:`CoderSpec` is the frozen class-level
+data (name, default model, fallback window); :func:`context_limit_for` is the
+one place that resolves a per-model window from a spec. Optional hooks
+(``write_runtime_config``, ``probe_health``) are NOT on the Protocol: callers
+in ``workers`` look them up with ``getattr``. :class:`Workspace` owns where a
+task runs (task dir, attempt dir, cwd, isolated worktree);
+:func:`prompt_context` resolves the launch mode plus the ``prompts`` context
+for ``build_argv``. Called by ``workers`` (spawn, stream, monitors) and the
+coder modules.
 """
 
+from __future__ import annotations
+
 import json
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 from fleet.core.context_window import resolve_window
 from fleet.core.launch import LaunchPlan
-from fleet.core.task import Event, Task, TaskOutcomeRecord
+from fleet.core.task import Event, Task
 from fleet.prompts import PromptContext
 
 __all__ = [
     "Coder",
+    "CoderSpec",
     "EventHandler",
     "Workspace",
-    "base_env",
+    "FALLBACK_CONTEXT_LIMIT",
+    "context_limit_for",
     "lookup_handler",
     "prompt_context",
 ]
+
+FALLBACK_CONTEXT_LIMIT = 200_000
+"""Window used when no coder (or no spec) is available: the legacy base default."""
 
 
 EventHandler = Callable[[dict], Event | None]
@@ -49,12 +60,63 @@ def lookup_handler(
     return handler
 
 
-def base_env(task: Task, task_dir: Path) -> dict[str, str]:
-    """The ``FLEET_*`` variables every coder sets (attempt vars are layered later)."""
-    return {
-        "FLEET_TASK_ID": task.id,
-        "FLEET_TASK_DIR": str(task_dir),
-    }
+@dataclass(frozen=True, slots=True)
+class CoderSpec:
+    """Class-level coder data: registry name, default model, fallback window."""
+
+    name: str
+    default_model: str
+    context_limit: int
+
+
+def context_limit_for(
+    spec: CoderSpec, model: str | None, overrides: dict[str, int] | None = None
+) -> int:
+    """Context window for *model* under *spec* (one denominator for UI + supervisor).
+
+    Resolves through ``core.context_window.resolve_window`` with the spec's
+    ``context_limit`` as the fallback. *overrides* is the parsed
+    ``context_windows`` config (``{model: tokens}``); None means built-ins only.
+    """
+    return resolve_window(model, overrides, spec.context_limit)
+
+
+class Coder(Protocol):
+    """The interface every coder CLI implements (spec, argv, env, events)."""
+
+    spec: CoderSpec
+
+    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
+        """Return the argv list to spawn the coder CLI subprocess.
+
+        *plan* is the `core.launch.LaunchPlan` for this attempt (fresh vs.
+        continue, and the continue pack); None means "treat as fresh, no
+        pack" for callers/tests that predate launch planning. Coders build
+        their prompt via `prompts.render` (see `prompt_context` above).
+        """
+        ...
+
+    def env(self, task: Task, task_dir: Path) -> dict[str, str]:
+        """Return env-var overlay merged over os.environ when spawning.
+
+        MUST include FLEET_TASK_ID, FLEET_TASK_DIR (see `coders.env.fleet_env`).
+        MUST NOT include ANTHROPIC_API_KEY (owned by the CLI).
+
+        FLEET_ATTEMPT_N, FLEET_ATTEMPT_DIR, FLEET_LAUNCH_MODE are NOT this
+        method's job — `workers/llm_session.py::LlmSession` layers those on
+        top of this dict itself, since they depend on the attempt (not the
+        coder), and adding them here would require every coder to widen its
+        signature for values it never uses.
+        """
+        ...
+
+    def normalize_event(self, raw_line: str) -> Event | None:
+        """Parse one line of subprocess stdout into a normalized Event.
+
+        Returns None for malformed JSON or lines the coder wants to drop.
+        SHALL be pure: no I/O, no logging, no side effects.
+        """
+        ...
 
 
 @dataclass(frozen=True)
@@ -123,74 +185,3 @@ def prompt_context(
         worktree=workspace.isolation_workdir,
         isolated=workspace.is_isolated,
     )
-
-
-class Coder(ABC):
-    """The interface every coder CLI implements (name, argv, env, events, health)."""
-
-    name: str
-    context_limit: int = 200_000
-    default_model: str = ""
-
-    @classmethod
-    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
-        """Context window for the given model string.
-
-        Resolves through ``core.context_window.resolve_window`` with the
-        class ``context_limit`` as the fallback, so supervisor and UI share
-        one denominator. *overrides* is the parsed ``context_windows``
-        config (``{model: tokens}``); None means the built-in table only.
-        """
-
-        return resolve_window(model, overrides, cls.context_limit)
-
-    @abstractmethod
-    def build_argv(self, task: Task, task_dir: Path, plan: LaunchPlan | None = None) -> list[str]:
-        """Return the argv list to spawn the coder CLI subprocess.
-
-        *plan* is the `core.launch.LaunchPlan` for this attempt (fresh vs.
-        continue, and the continue pack); None means "treat as fresh, no
-        pack" for callers/tests that predate launch planning. Coders build
-        their prompt via `prompts.render` (see `prompt_context` above).
-        """
-
-    @abstractmethod
-    def env(self, task: Task, task_dir: Path) -> dict[str, str]:
-        """Return env-var overlay merged over os.environ when spawning.
-
-        MUST include FLEET_TASK_ID, FLEET_TASK_DIR (see `base_env`).
-        MUST NOT include ANTHROPIC_API_KEY (owned by the CLI).
-
-        FLEET_ATTEMPT_N, FLEET_ATTEMPT_DIR, FLEET_LAUNCH_MODE are NOT this
-        method's job — `workers/llm_session.py::LlmSession` layers those on
-        top of this dict itself, since they depend on the attempt (not the
-        coder), and adding them here would require every coder to widen its
-        signature for values it never uses.
-        """
-
-    @abstractmethod
-    def normalize_event(self, raw_line: str) -> Event | None:
-        """Parse one line of subprocess stdout into a normalized Event.
-
-        Returns None for malformed JSON or lines the coder wants to drop.
-        SHALL be pure: no I/O, no logging, no side effects.
-        """
-
-    def write_runtime_config(self, project: Path, task: Task) -> None:  # noqa: B027  # intentional no-op hook
-        """Inject coder-managed config (hooks, settings) into project root before spawn.
-
-        Default is a no-op; coders that need to write config should override this.
-        Called by LlmSession.run before the subprocess is spawned.
-        """
-
-    def probe_health(self, task: Task, task_dir: Path, since: datetime) -> TaskOutcomeRecord | None:
-        """Called periodically by LlmSession while the subprocess is silent.
-
-        `since` is the time of the last stdout event: only provider errors
-        logged after it count, because an error the CLI already recovered
-        from (it kept streaming) must not kill a healthy session.
-        Return a TaskOutcomeRecord to make the runner kill the process and
-        report that outcome; None means healthy (or unsupported by this coder).
-        Default is a no-op.
-        """
-        return None

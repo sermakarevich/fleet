@@ -29,7 +29,7 @@ class StubCoder:
     def __init__(self, argv: list[str], context_limit: int = 200_000) -> None:
         self._argv = argv
         self.context_limit = context_limit
-        self._cli = ClaudeCoder()
+        self._cli = ClaudeCoder(fleet_home=Path.cwd())
         self.runtime_config_calls: list[tuple[Path, Task]] = []
 
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
@@ -649,7 +649,7 @@ def test_probe_health_kills_silent_worker_and_returns_its_outcome(
             super().__init__(argv=argv)
             self.probe_calls = 0
 
-        def probe_health(self, task, task_dir, started_at):
+        def probe_health(self, task, task_dir, started_at, session_id=None):
             self.probe_calls += 1
             if self.probe_calls < 2:
                 return None
@@ -727,7 +727,7 @@ def test_probe_rate_limit_is_ignored_until_rate_limit_silence_threshold(
             super().__init__(argv=argv)
             self.probe_calls = 0
 
-        def probe_health(self, task, task_dir, since):
+        def probe_health(self, task, task_dir, since, session_id=None):
             self.probe_calls += 1
             return TaskOutcomeRecord(
                 outcome=TaskOutcome.RATE_LIMIT,

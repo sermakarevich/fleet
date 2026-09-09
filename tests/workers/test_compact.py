@@ -58,12 +58,9 @@ class FakeCompactionCoder:
 
     lines: list[str] = _SUCCESS_LINES
 
-    def __init__(self, model: str = "fake") -> None:
+    def __init__(self, model: str = "fake", fleet_home: Path | None = None) -> None:
         self.model = model
-
-    @classmethod
-    def context_limit_for(cls, model: str | None, overrides: dict[str, int] | None = None) -> int:
-        return cls.context_limit
+        self.fleet_home = fleet_home
 
     def build_argv(self, task: Task, task_dir: Path, plan=None) -> list[str]:
         return [sys.executable, "-c", _emit_script(list(self.lines)), "__PROMPT__"]
