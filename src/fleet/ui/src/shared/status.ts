@@ -32,8 +32,25 @@ const STATUS_LABELS: Record<string, string> = {
   deferred: 'Deferred',
   closed: 'Closed',
   failed: 'Failed',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  attention: 'Attention',
+  cancelled: 'Cancelled',
 };
 
 export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
+}
+
+// Workflow run statuses (ADR 0008): derived, never hand-edited.
+const RUN_STATUS_STYLES: Record<string, StatusStyle> = {
+  running: { bg: '#2563eb', fg: '#fff' },
+  succeeded: { bg: '#16a34a', fg: '#fff' },
+  attention: { bg: '#d97706', fg: '#fff' },
+  cancelled: { bg: '#6b7280', fg: '#fff' },
+};
+
+/** Chip colors for a workflow run status; unknown statuses get the default. */
+export function runStatusColor(status: string): StatusStyle {
+  return RUN_STATUS_STYLES[status] ?? DEFAULT_STYLE;
 }

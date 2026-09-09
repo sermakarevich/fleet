@@ -59,6 +59,8 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
     { id: 'create', label: 'Create new task', run: () => { onCreateTask(); setOpen(false); } },
     { id: 'schedules', label: 'Go to Schedules', run: () => go('/schedules') },
     { id: 'create-schedule', label: 'Create new schedule', run: () => go('/schedules?new=1') },
+    { id: 'workflows', label: 'Go to Workflows', run: () => go('/workflows') },
+    { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
     { id: 'analytics', label: 'Go to Analytics', run: () => go('/analytics') },
     { id: 'config', label: 'Go to Config', run: () => go('/config') },
     {

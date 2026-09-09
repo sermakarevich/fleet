@@ -4,10 +4,10 @@
  * POLL cadences and pauses while the events socket streams. Called by
  * every page, tab and palette in the UI.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../api';
 import { usePoll } from '../poll';
-import type { CreateTaskInput, RuntimeConfig, ScheduleInput } from '../types';
+import type { CreateTaskInput, RuntimeConfig, ScheduleInput, WorkflowInput } from '../types';
 import { useTaskMutation } from './useTaskMutation';
 import { useDebounced } from './useDebounced';
 
@@ -346,5 +346,76 @@ export function useCronPreview(cron: string, timezone: string) {
     queryKey: ['cron-preview', debouncedCron, debouncedZone],
     queryFn: () => api.previewCron(debouncedCron, debouncedZone || 'UTC'),
     enabled: debouncedCron.trim().length > 0,
+  });
+}
+
+// --- Workflows (ordered stages of workers, ADR 0008) -----------------------
+
+export function useWorkflows() {
+  return useQuery({ queryKey: ['workflows'], queryFn: api.listWorkflows, refetchInterval: 10000 });
+}
+
+export function useWorkflow(id: string | null) {
+  return useQuery({
+    queryKey: ['workflow', id],
+    queryFn: () => api.getWorkflow(id as string),
+    enabled: !!id,
+  });
+}
+
+export function useCreateWorkflow() {
+  return useTaskMutation('Create workflow', (payload: WorkflowInput) => api.createWorkflow(payload), {
+    invalidate: [['workflows']],
+    success: 'Workflow saved',
+    failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useUpdateWorkflow() {
+  return useTaskMutation(
+    'Update workflow',
+    ({ id, payload }: { id: string; payload: WorkflowInput }) => api.updateWorkflow(id, payload),
+    {
+      invalidate: (_data, vars) => [['workflows'], ['workflow', vars.id]],
+      success: 'Workflow saved',
+      failure: (_vars, err) => `Save failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+export function useDeleteWorkflow() {
+  return useTaskMutation('Delete workflow', (id: string) => api.deleteWorkflow(id), {
+    invalidate: (_data, id) => [['workflows'], ['workflow', id]],
+    success: 'Workflow deleted',
+    failure: (_vars, err) => `Delete failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useRunWorkflow() {
+  return useTaskMutation('Run workflow', (id: string) => api.runWorkflow(id), {
+    invalidate: (_data, id) => [['workflows'], ['workflow', id], ['workflow-runs']],
+    success: 'Run started',
+    failure: (_vars, err) => `Run failed: ${errorMessage(err)}`,
+  });
+}
+
+export function useImportWorkflow() {
+  return useTaskMutation(
+    'Import workflow',
+    ({ yaml, replace_id }: { yaml: string; replace_id?: string }) =>
+      api.importWorkflow(yaml, replace_id),
+    {
+      invalidate: [['workflows']],
+      success: (data) => `Imported ${data.name}`,
+      failure: (_vars, err) => `Import failed: ${errorMessage(err)}`,
+    },
+  );
+}
+
+// Server-side draft validation for the editor; a plain mutation (no toast:
+// problems are normal while editing, the editor lists them inline).
+export function useValidateWorkflow() {
+  return useMutation({
+    mutationFn: (payload: WorkflowInput) => api.validateWorkflow(payload),
   });
 }

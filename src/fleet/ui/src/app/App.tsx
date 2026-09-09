@@ -5,6 +5,7 @@ import { ChatPage } from '../features/chat/ChatPage';
 import { TasksPage } from '../features/tasks/TasksPage';
 import { BeadsPage } from '../features/beads/BeadsPage';
 import { SchedulesPage } from '../features/schedules/SchedulesPage';
+import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { TaskDetailPage } from '../features/task-detail/TaskDetailPage';
 import { ConfigPage } from '../features/config/ConfigPage';
 import { AnalyticsPage } from '../features/analytics/AnalyticsPage';
@@ -46,6 +47,9 @@ function AppInner() {
           <Route path="/bd" element={<BeadsPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/schedules/:id" element={<SchedulesPage />} />
+          <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/workflows/new" element={<WorkflowsPage />} />
+          <Route path="/workflows/:id" element={<WorkflowsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/config" element={<ConfigPage />} />
           <Route path="/chat" element={<ChatPage />} />
