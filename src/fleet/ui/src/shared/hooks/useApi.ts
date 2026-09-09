@@ -276,8 +276,12 @@ export function useSearch(query: string) {
 
 // --- Schedules (recurring workers, ADR 0007) -------------------------------
 
-export function useSchedules() {
-  return useQuery({ queryKey: ['schedules'], queryFn: api.getSchedules, refetchInterval: 10000 });
+export function useSchedules(target?: 'task' | 'workflow') {
+  return useQuery({
+    queryKey: ['schedules', target ?? 'all'],
+    queryFn: () => api.getSchedules(target),
+    refetchInterval: 10000,
+  });
 }
 
 export function useSchedule(id: string | null) {

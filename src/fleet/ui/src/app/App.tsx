@@ -5,6 +5,7 @@ import { ChatPage } from '../features/chat/ChatPage';
 import { TasksPage } from '../features/tasks/TasksPage';
 import { BeadsPage } from '../features/beads/BeadsPage';
 import { SchedulesPage } from '../features/schedules/SchedulesPage';
+import { RecurringPage } from '../features/recurring/RecurringPage';
 import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/task-detail/TaskDetailPage';
@@ -49,6 +50,8 @@ function AppInner() {
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/schedules/:id" element={<SchedulesPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/recurring" element={<RecurringPage />} />
+          <Route path="/recurring/:id" element={<RecurringPage />} />
           <Route path="/workflows/new" element={<WorkflowsPage />} />
           <Route path="/workflows/:id" element={<WorkflowsPage />} />
           <Route path="/workflows/:id/runs" element={<WorkflowsPage />} />

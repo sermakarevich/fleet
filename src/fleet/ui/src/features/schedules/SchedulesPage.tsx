@@ -4,7 +4,7 @@
  * Called by App's /schedules and /schedules/:id routes; the selected id
  * and the create form live in the URL so both are shareable.
  */
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSchedules } from '../../shared/hooks/useApi';
 import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import * as T from '../../shared/styles/tokens';
@@ -15,7 +15,7 @@ import { ScheduleForm } from './ScheduleForm';
 
 // Schedules page: heading, table, create form and detail drawer.
 export function SchedulesPage() {
-  const { data: schedules, isLoading, error } = useSchedules();
+  const { data: schedules, isLoading, error } = useSchedules('task');
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { id: selectedId } = useParams();
@@ -37,6 +37,10 @@ export function SchedulesPage() {
         <h2 style={R.headingStyle()}>
           Schedules <span style={R.countStyle()}>({items.length})</span>
         </h2>
+        <span style={R.mutedStyle()}>
+          single-task schedules · recurring workflows have their own{' '}
+          <Link to="/recurring">tab</Link>
+        </span>
         <button
           style={R.merge(T.btnPrimary, { marginLeft: 'auto' })}
           onClick={() => setSearchParams({ new: '1' })}

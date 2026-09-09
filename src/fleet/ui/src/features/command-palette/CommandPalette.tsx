@@ -62,6 +62,8 @@ export function CommandPalette({ open, setOpen, onCreateTask }: Props) {
     { id: 'workflows', label: 'Go to Workflows', run: () => go('/workflows') },
     { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?view=runs') },
     { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
+    { id: 'recurring', label: 'Go to Recurring workflows', run: () => go('/recurring') },
+    { id: 'schedule-workflow', label: 'Schedule a workflow', run: () => go('/recurring?new=1') },
     { id: 'analytics', label: 'Go to Analytics', run: () => go('/analytics') },
     { id: 'config', label: 'Go to Config', run: () => go('/config') },
     {

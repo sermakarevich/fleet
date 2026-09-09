@@ -81,7 +81,8 @@ export interface ScheduleInput {
   cron: string;
   timezone?: string;
   enabled?: boolean;
-  title: string;
+  // Required for target "task", omitted for target "workflow".
+  title?: string;
   description?: string;
   cwd?: string;
   coder?: string;

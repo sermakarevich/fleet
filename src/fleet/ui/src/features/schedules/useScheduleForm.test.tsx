@@ -35,6 +35,8 @@ function makeSchedule(): Schedule {
     model: 'sonnet',
     priority: 2,
     overlap: 'queue',
+    target: 'task',
+    workflow_id: null,
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '2026-09-01T00:00:00Z',
     next_fire_at: null,

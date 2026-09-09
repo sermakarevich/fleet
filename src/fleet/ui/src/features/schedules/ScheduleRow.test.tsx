@@ -25,6 +25,8 @@ function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     model: null,
     priority: 1,
     overlap: 'skip',
+    target: 'task',
+    workflow_id: null,
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '2026-09-01T00:00:00Z',
     next_fire_at: '2026-09-10T09:00:00Z',

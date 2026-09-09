@@ -325,8 +325,10 @@ export const api = {
 
   // --- Schedules (recurring workers) ---------------------------------------
 
-  async getSchedules(): Promise<Schedule[]> {
-    const result = await request<{ schedules: Schedule[] }>('/api/schedules');
+  async getSchedules(target?: 'task' | 'workflow'): Promise<Schedule[]> {
+    const result = await request<{ schedules: Schedule[] }>(
+      `/api/schedules${qs({ target })}`,
+    );
     return result.schedules;
   },
 

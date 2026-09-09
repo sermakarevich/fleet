@@ -81,6 +81,7 @@ export function NavBar({ onNewTask }: { onNewTask: () => void }) {
       <NavLink style={navLinkStyle} to="/bd">bd</NavLink>
       <NavLink style={navLinkStyle} to="/schedules">schedules</NavLink>
       <NavLink style={navLinkStyle} to="/workflows">workflows</NavLink>
+      <NavLink style={navLinkStyle} to="/recurring">recurring</NavLink>
       <NavLink style={navLinkStyle} to="/analytics">analytics</NavLink>
       <NavLink style={navLinkStyle} to="/config">config</NavLink>
       <NavLink style={navLinkStyle} to="/chat">
