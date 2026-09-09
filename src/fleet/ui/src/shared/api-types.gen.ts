@@ -1214,6 +1214,10 @@ export interface components {
             job_max_phase_attempts: number;
             /** Serve Cors Origins */
             serve_cors_origins: string[];
+            /** Serve Host */
+            serve_host: string;
+            /** Serve Port */
+            serve_port: number;
         };
         /**
          * ContentResponse

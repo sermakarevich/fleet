@@ -21,6 +21,12 @@ app = typer.Typer(
         "and agent backends from one machine.\n\n"
         "Typical flow:  fleet init  →  fleet bd create  →  fleet run start"
     ),
+    epilog=(
+        "Examples:\n\n"
+        '  fleet bd create "Fix login redirect" --coder opencode\n'
+        "  fleet task fleet-abc log\n"
+        "  fleet run restart"
+    ),
 )
 
 tasks.register(app)

@@ -9,14 +9,19 @@ from typing import Annotated
 import typer
 
 from fleet.cli import subproc
+from fleet.cli.errors import ExitCode, fail
 from fleet.core.errors import SubprocessTimeout
 from fleet.integrations.ask_human.server import main
 
 _ASK_HUMAN_HELP = "ask_human MCP server — the backend of the fleet chat tab."
 
+_ASK_HUMAN_EPILOG = "Examples:\n\n  fleet ask-human install --scope user\n  fleet ask-human serve"
+
 
 def register(app: typer.Typer) -> None:
-    ask_human_app = typer.Typer(no_args_is_help=True, help=_ASK_HUMAN_HELP)
+    ask_human_app = typer.Typer(
+        no_args_is_help=True, help=_ASK_HUMAN_HELP, epilog=_ASK_HUMAN_EPILOG
+    )
     app.add_typer(ask_human_app, name="ask-human", help=_ASK_HUMAN_HELP)
 
     @ask_human_app.command("serve")
@@ -36,8 +41,7 @@ def register(app: typer.Typer) -> None:
 
         claude = shutil.which("claude")
         if not claude:
-            typer.echo("Error: 'claude' CLI not found in PATH.", err=True)
-            raise typer.Exit(1)
+            fail("'claude' CLI not found in PATH.", ExitCode.NOT_FOUND)
         fleet_bin = shutil.which("fleet") or sys.argv[0]
 
         try:
@@ -61,11 +65,9 @@ def register(app: typer.Typer) -> None:
                 capture=True,
             )
         except SubprocessTimeout as exc:
-            typer.echo(f"Error: {' '.join(exc.argv)} timed out.", err=True)
-            raise typer.Exit(1) from exc
+            fail(f"{' '.join(exc.argv)} timed out.", ExitCode.BACKEND)
         if result.returncode != 0:
-            typer.echo(f"Error: claude mcp add failed: {result.stderr.strip()}", err=True)
-            raise typer.Exit(1)
+            fail(f"claude mcp add failed: {result.stderr.strip()}", ExitCode.BACKEND)
         typer.echo(
             f"Registered MCP server 'ask_human' ({scope} scope) -> {fleet_bin} ask-human serve"
         )

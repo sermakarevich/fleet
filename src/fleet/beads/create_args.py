@@ -28,20 +28,78 @@ class FlagSpec:
     forward_to_bd: bool  # True = left in argv for bd (fleet only inspects it)
     override_key: str | None  # key in the returned overrides, None = not reported
     allowed: tuple[str, ...] | None = None  # valid values, None = anything goes
+    help: str = ""  # one-line help shown by `fleet bd` (single source)
 
 
 _FLAGS: dict[str, FlagSpec] = {
-    "coder": FlagSpec("--coder", True, "fleet_coder", False, "coder"),
-    "model": FlagSpec("--model", True, "fleet_model", False, "model"),
-    "worker": FlagSpec("--worker", True, "fleet_worker", False, "worker"),
-    "cwd": FlagSpec("--cwd", True, "fleet_cwd", False, "cwd"),
-    "isolation": FlagSpec(
-        "--isolation", True, "fleet_isolation", False, "isolation", ("worktree", "none")
+    "coder": FlagSpec(
+        "--coder",
+        True,
+        "fleet_coder",
+        False,
+        "coder",
+        help="coder CLI that should run this task (e.g. --coder opencode)",
     ),
-    "job_gate": FlagSpec("--job-gate", True, "fleet_job_gate", False, "job_gate", ("on", "off")),
+    "model": FlagSpec(
+        "--model", True, "fleet_model", False, "model", help="model for the coder to use"
+    ),
+    "worker": FlagSpec(
+        "--worker",
+        True,
+        "fleet_worker",
+        False,
+        "worker",
+        help="worker family (see workers/__init__.py::WORKERS), overriding the type default",
+    ),
+    "cwd": FlagSpec(
+        "--cwd",
+        True,
+        "fleet_cwd",
+        False,
+        "cwd",
+        help="task working directory (default: the shell's current directory)",
+    ),
+    "isolation": FlagSpec(
+        "--isolation",
+        True,
+        "fleet_isolation",
+        False,
+        "isolation",
+        ("worktree", "none"),
+        help="git worktree isolation, or 'none' to opt out for this task",
+    ),
+    "job_gate": FlagSpec(
+        "--job-gate",
+        True,
+        "fleet_job_gate",
+        False,
+        "job_gate",
+        ("on", "off"),
+        help="'off' skips the job worker's human approval gate",
+    ),
     "body_file": FlagSpec("--body-file", True, None, True, None),
     "deps": FlagSpec("--deps", True, None, True, None),
 }
+
+
+def flag_table() -> dict[str, FlagSpec]:
+    """Copy of the fleet-owned create-flag registry (single source for help and parsing)."""
+    return dict(_FLAGS)
+
+
+def value_flag_names() -> frozenset[str]:
+    """Long flag spellings (``--coder``) that consume the next argv token."""
+    return frozenset(spec.flag for spec in _FLAGS.values() if spec.takes_value)
+
+
+def describe_flags() -> list[str]:
+    """One help line per intercepted row: ``--flag <value>: description``."""
+    lines = []
+    for _key, spec in _FLAGS.items():
+        if spec.forward_to_bd or not spec.help:
+            continue
+        lines.append(f"  {spec.flag} <value>: {spec.help}.")
+    return lines
 
 
 class CreateOverrides(TypedDict):

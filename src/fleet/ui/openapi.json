@@ -2755,6 +2755,14 @@
             },
             "type": "array",
             "title": "Serve Cors Origins"
+          },
+          "serve_host": {
+            "type": "string",
+            "title": "Serve Host"
+          },
+          "serve_port": {
+            "type": "integer",
+            "title": "Serve Port"
           }
         },
         "type": "object",
@@ -2797,7 +2805,9 @@
           "job_child_model",
           "job_max_children",
           "job_max_phase_attempts",
-          "serve_cors_origins"
+          "serve_cors_origins",
+          "serve_host",
+          "serve_port"
         ],
         "title": "ConfigView",
         "description": "Full RuntimeConfig as JSON (mirrors core.config.RuntimeConfig)."

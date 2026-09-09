@@ -18,6 +18,7 @@ from typing import Annotated, Any
 import typer
 
 from fleet.cli import bootstrap, render
+from fleet.cli.errors import ExitCode, fail
 from fleet.integrations.telegram import setup as telegram_setup
 
 
@@ -26,18 +27,16 @@ def _wizard_token(yes: bool) -> tuple[str, str]:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         if yes:
-            typer.echo(
-                "Error: TELEGRAM_BOT_TOKEN is not set. Export it before running with --yes.",
-                err=True,
+            fail(
+                "TELEGRAM_BOT_TOKEN is not set. Export it before running with --yes.",
+                ExitCode.USAGE,
             )
-            raise typer.Exit(1)
         token = typer.prompt("Bot token", hide_input=True)
     typer.echo("Validating token... ", nl=False)
     try:
         bot = telegram_setup.validate_token(token)
     except Exception as exc:
-        typer.echo(f"failed\nError: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"token validation failed: {exc}", ExitCode.BACKEND)
     bot_username = bot.get("username", "?")
     typer.echo(f"ok — @{bot_username}")
     if not os.environ.get("TELEGRAM_BOT_TOKEN"):
@@ -63,8 +62,7 @@ def _choose_chat(chat_list: list[dict], yes: bool) -> dict:
             raise ValueError
         return chat_list[idx]
     except ValueError:
-        typer.echo("Invalid choice.", err=True)
-        raise typer.Exit(1) from None
+        fail("Invalid choice.", ExitCode.USAGE)
 
 
 def _wizard_chat_id(
@@ -82,15 +80,13 @@ def _wizard_chat_id(
     try:
         chat_list, offset = telegram_setup.discover_chats(token)
     except Exception as exc:
-        typer.echo(f"\nNetwork error while polling: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"Network error while polling: {exc}", ExitCode.BACKEND)
     typer.echo()  # newline after dots
     if not chat_list:
-        typer.echo(
+        fail(
             "No messages received. Make sure the bot is in the chat and a message was sent.",
-            err=True,
+            ExitCode.ERROR,
         )
-        raise typer.Exit(1)
     chosen = _choose_chat(chat_list, yes)
     typer.echo(f"Selected: [{chosen['type']}] {chosen['title']}  (id: {chosen['id']})")
     return chosen["id"], offset
@@ -102,8 +98,7 @@ def _write_chat_id(path: Path, written_keys: dict[str, str], chosen_chat_id: str
         telegram_setup.write_chat_id(path, chosen_chat_id)
         written_keys["telegram_chat_id"] = chosen_chat_id
     except Exception as exc:
-        typer.echo(f"Error writing config: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"Error writing config: {exc}", ExitCode.ERROR)
 
 
 def _capture_allowed_ids(token: str, bot_username: str, offset: Any) -> str | None:
@@ -115,8 +110,7 @@ def _capture_allowed_ids(token: str, bot_username: str, offset: Any) -> str | No
     try:
         seen_users, _ = telegram_setup.discover_users(token, offset)
     except Exception as exc:
-        typer.echo(f"\nNetwork error while polling: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"Network error while polling: {exc}", ExitCode.BACKEND)
     typer.echo()
     if not seen_users:
         typer.echo("Warning: no user messages found — skipping inbound setup.")
@@ -171,8 +165,7 @@ def _write_inbound_config(
         written_keys["telegram_allowed_ids"] = allowed_ids_value
         written_keys["telegram_default_cwd"] = default_cwd_value
     except Exception as exc:
-        typer.echo(f"Error writing config: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"Error writing config: {exc}", ExitCode.ERROR)
 
 
 def _send_test_message(token: str, chosen_chat_id: str) -> None:

@@ -100,3 +100,50 @@ def test_unknown_coder_exits_nonzero(mock_run: MagicMock, mock_queue_cls: MagicM
     assert result.exit_code != 0
     assert "no-such-coder" in result.output
     mock_run.assert_not_called()
+
+
+@patch("fleet.beads.client.subprocess.run")
+def test_leading_flag_value_not_mistaken_for_subcommand(mock_run: MagicMock) -> None:
+    """`fleet bd --db /x list` forwards verbatim (the /x value is not the subcommand)."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["bd", "--db", "/tmp/x.db", "list", "--json"])
+
+    assert result.exit_code == 0, result.output
+    forwarded = mock_run.call_args[0][0]
+    assert forwarded == ["bd", "--db", "/tmp/x.db", "list", "--json"]
+
+
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
+def test_create_after_leading_global_flag_still_intercepted(
+    mock_run: MagicMock, mock_queue_cls: MagicMock
+) -> None:
+    """`fleet bd --db /x create T` is still treated as create (human summary path)."""
+    mock_run.return_value = _make_completed_process(
+        json.dumps({"data": [{"id": "fleet-g1", "title": "Titled"}]})
+    )
+    mock_queue_cls.return_value = MagicMock()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["bd", "--db", "/tmp/x.db", "create", "Titled"])
+
+    assert result.exit_code == 0, result.output
+    assert "Created fleet-g1" in result.output
+
+
+@patch("fleet.cli.beads.BeadsQueue")
+@patch("fleet.beads.client.subprocess.run")
+def test_json_equals_form_not_duplicated(mock_run: MagicMock, mock_queue_cls: MagicMock) -> None:
+    """`--json=true` counts as user-passed JSON; fleet must not append another --json."""
+    mock_run.return_value = _make_completed_process()
+    mock_queue_cls.return_value = MagicMock()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["bd", "create", "--json=true", "T"])
+
+    assert result.exit_code == 0, result.output
+    forwarded = mock_run.call_args[0][0]
+    assert "--json=true" in forwarded
+    assert "--json" not in forwarded

@@ -293,17 +293,22 @@ def print_lines(lines: list[str]) -> None:
         typer.echo(line)
 
 
+def print_error(message: str) -> None:
+    """Echo an error line to stderr; the one sink behind `cli/errors.fail`."""
+    typer.echo(f"Error: {message}", err=True)
+
+
 def print_text(text: str) -> None:
     """Write pre-read file text to stdout (log/state/result artifacts)."""
 
     typer.echo(text, nl=False)
 
 
-def print_file_or_exit(path: Path, missing_msg: str) -> None:
-    """Print an artifact file, exiting 1 with *missing_msg* when it is absent."""
+def print_file_or_exit(path: Path, missing_msg: str, code: int = 1) -> None:
+    """Print an artifact file, exiting *code* with *missing_msg* when it is absent."""
     if not path.exists():
         typer.echo(missing_msg, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(code)
     typer.echo(path.read_text(encoding="utf-8"), nl=False)
 
 
@@ -341,8 +346,8 @@ def print_purge_result(deleted: int, freed_mb: float, skipped: int) -> None:
     typer.echo(f"purged {deleted} archived task dirs ({freed_mb:.1f} MB freed); skipped {skipped}")
 
 
-def print_start_report(result: StartResult, label: str, logfile: Path) -> None:
-    """Echo a daemon start/restart outcome; callers exit nonzero on immediate death."""
+def print_start_report(result: StartResult, label: str, logfile: Path, code: int = 1) -> None:
+    """Echo a daemon start/restart outcome; callers exit *code* on immediate death."""
     if result.already_running:
         _console.print(f"[yellow]{label} already running[/] (pid {result.pid}).")
         return
@@ -350,7 +355,7 @@ def print_start_report(result: StartResult, label: str, logfile: Path) -> None:
         detail = f" ({result.detail})" if result.detail else ""
         _console.print(f"[red]{label} failed to start[/]{detail} — process exited immediately.")
         _print_log_tail(logfile)
-        raise typer.Exit(1)
+        raise typer.Exit(code)
     _console.print(f"[green]{label} started[/] (pid {result.pid}). Logs: {logfile}")
 
 

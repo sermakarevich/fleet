@@ -63,6 +63,12 @@ class RuntimeConfig:
     # Empty (default) means same-origin only (no CORS headers are sent).
     # TOML array of origins, e.g. ["https://fleet.example.com"].
     serve_cors_origins: list[str] = field(default_factory=list)
+    # UI server bind address and port (`fleet serve start --host/--port`
+    # default to these). 0.0.0.0 exposes the UI on the LAN/Tailscale, so
+    # pair it with FLEET_API_TOKEN (see README "Remote access"); use
+    # 127.0.0.1 for local-only.
+    serve_host: str = "0.0.0.0"
+    serve_port: int = 7890
 
 
 _KEY_TYPES: dict[str, type] = {

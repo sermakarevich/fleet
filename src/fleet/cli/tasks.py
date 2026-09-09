@@ -8,7 +8,6 @@ fleet-fleet_home/queue/config dependencies come from ``cli/bootstrap``.
 
 from __future__ import annotations
 
-import sys
 import time
 from enum import StrEnum
 from pathlib import Path
@@ -20,6 +19,8 @@ from typer.core import TyperCommand
 from fleet.beads import client as beads_client
 from fleet.beads.client import BdError
 from fleet.cli import bootstrap, render
+from fleet.cli.errors import ExitCode, fail
+from fleet.cli.options import TaskIdArgument
 from fleet.cli.render import ChildRow, JobView
 from fleet.core.effective import effective_coder_model
 from fleet.core.job_phase import phase_of
@@ -48,21 +49,19 @@ class TaskAction(StrEnum):
 
 
 def _fetch_ready(queue: BeadsQueue, limit: int) -> list[Task]:
-    """Ready tasks, exiting 1 when the queue is unreadable."""
+    """Ready tasks, exiting BACKEND when the queue is unreadable."""
     try:
         return queue.list_ready(limit=limit)
     except BdError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+        fail(str(exc), ExitCode.BACKEND)
 
 
 def _fetch_in_progress(queue: BeadsQueue, limit: int) -> list[Task]:
-    """Running tasks, exiting 1 when the queue is unreadable."""
+    """Running tasks, exiting BACKEND when the queue is unreadable."""
     try:
         return queue.list_in_progress(limit=limit)
     except BdError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+        fail(str(exc), ExitCode.BACKEND)
 
 
 def _fetch_ignored(queue: BeadsQueue, limit: int) -> list[tuple[Task, str]]:
@@ -70,17 +69,15 @@ def _fetch_ignored(queue: BeadsQueue, limit: int) -> list[tuple[Task, str]]:
     try:
         return queue.list_ignored(limit=limit)
     except BdError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+        fail(str(exc), ExitCode.BACKEND)
 
 
 def _fetch_job(queue: BeadsQueue, job_id: str) -> Task:
-    """One bead, exiting 1 when bd cannot show it."""
+    """One bead, exiting NOT_FOUND when bd cannot show it."""
     try:
         return queue.get(job_id)
     except BdError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+        fail(str(exc), ExitCode.NOT_FOUND)
 
 
 def _fetch_children(queue: BeadsQueue, job_id: str) -> list[Any]:
@@ -199,7 +196,7 @@ def _tail_follow(events_path: Path, buffer_n: int) -> None:
             if rendered:
                 render.print_lines(rendered[-buffer_n:] if buffer_n > 0 else rendered)
     except KeyboardInterrupt:
-        sys.exit(0)
+        return
 
 
 def run_init(fleet_home: Path, force: bool) -> None:
@@ -210,8 +207,7 @@ def run_init(fleet_home: Path, force: bool) -> None:
             beads_client.run_bd(["init"], cwd=fleet_home)
         except BdError as exc:
             if "already" not in str(exc).lower():
-                typer.echo(f"bd init failed: {exc}", err=True)
-                raise typer.Exit(1) from exc
+                fail(f"bd init failed: {exc}", ExitCode.BACKEND)
     bootstrap.config(fleet_home)  # writes defaults if missing
     (fleet_home / "tasks").mkdir(exist_ok=True)
     render.print_init_done(fleet_home)
@@ -236,8 +232,7 @@ def run_kill(fleet_home: Path, task_id: str) -> None:
     """Interrupt a running task via its .kill sentinel."""
     task_dir = state_paths.task_dir(fleet_home, task_id)
     if not (task_dir / "task.json").exists():
-        typer.echo(f"Task {task_id} not found.", err=True)
-        raise typer.Exit(1)
+        fail(f"Task {task_id} not found.", ExitCode.NOT_FOUND)
     (task_dir / ".kill").touch()
     render.print_kill_sent(task_id)
 
@@ -301,8 +296,7 @@ def _print_state(fleet_home: Path, task_id: str, task_dir: Path) -> None:
         return
     legacy = legacy_state_text(task_dir)
     if legacy is None:
-        typer.echo(f"No STATE.md for task {task_id}", err=True)
-        raise typer.Exit(1)
+        fail(f"No STATE.md for task {task_id}", ExitCode.NOT_FOUND)
     render.print_text(legacy)
 
 
@@ -310,16 +304,21 @@ def run_task_artifact(fleet_home: Path, task_id: str, action: TaskAction) -> Non
     """Print a task's log, STATE.md, or RESULT.json artifact."""
     task_dir = state_paths.task_dir(fleet_home, task_id)
     if not task_dir.exists():
-        typer.echo(f"No task directory at {task_dir}", err=True)
-        raise typer.Exit(1)
+        fail(f"No task directory at {task_dir}", ExitCode.NOT_FOUND)
     if action is TaskAction.state:
         _print_state(fleet_home, task_id, task_dir)
     elif action is TaskAction.result:
         render.print_file_or_exit(
-            locate(fleet_home, task_id, "result"), f"No RESULT.json for task {task_id}"
+            locate(fleet_home, task_id, "result"),
+            f"No RESULT.json for task {task_id}",
+            code=int(ExitCode.NOT_FOUND),
         )
     else:
-        render.print_file_or_exit(locate(fleet_home, task_id, "log"), f"No log for task {task_id}")
+        render.print_file_or_exit(
+            locate(fleet_home, task_id, "log"),
+            f"No log for task {task_id}",
+            code=int(ExitCode.NOT_FOUND),
+        )
 
 
 def run_job_view(fleet_home: Path, job_id: str) -> None:
@@ -337,8 +336,7 @@ def _print_tail_events(events_path: Path, line_count: int, follow: bool) -> None
     try:
         raw_lines = events_path.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
-        typer.echo(f"Error: cannot read {events_path}", err=True)
-        raise typer.Exit(1) from exc
+        fail(f"cannot read {events_path}: {exc}", ExitCode.ERROR)
     rendered = tailview.render_lines(raw_lines)
     if not rendered:
         typer.echo("(no renderable events)")
@@ -352,8 +350,7 @@ def run_tail(fleet_home: Path, task_id: str, line_count: int, follow: bool) -> N
     """Print a human-readable, one-line-per-event view of a task's events.jsonl."""
     task_dir = state_paths.task_dir(fleet_home, task_id)
     if not task_dir.exists():
-        typer.echo(f"No task directory for {task_id} at {task_dir}", err=True)
-        raise typer.Exit(1)
+        fail(f"No task directory for {task_id} at {task_dir}", ExitCode.NOT_FOUND)
     events_path = locate(fleet_home, task_id, "events")
     # If events.jsonl does not exist yet, still print header; --follow will wait.
     if not events_path.exists():
@@ -368,14 +365,12 @@ def run_tail(fleet_home: Path, task_id: str, line_count: int, follow: bool) -> N
 
 
 def _latest_supervisor_log(log_dir: Path) -> Path:
-    """Newest fleet-*.jsonl file, exiting 1 when the dir is missing or empty."""
+    """Newest fleet-*.jsonl file, exiting NOT_FOUND when the dir is missing or empty."""
     if not log_dir.exists():
-        typer.echo(f"No log directory at {log_dir}", err=True)
-        raise typer.Exit(1)
+        fail(f"No log directory at {log_dir}", ExitCode.NOT_FOUND)
     candidates = sorted(log_dir.glob("fleet-*.jsonl"), key=lambda p: p.stat().st_mtime)
     if not candidates:
-        typer.echo(f"No log files in {log_dir}", err=True)
-        raise typer.Exit(1)
+        fail(f"No log files in {log_dir}", ExitCode.NOT_FOUND)
     return candidates[-1]
 
 
@@ -386,15 +381,18 @@ def run_log(fleet_home: Path, lines: int | None) -> None:
         render.print_text(latest.read_text(encoding="utf-8"))
         return
     if lines <= 0:
-        typer.echo("Error: lines must be a positive integer.", err=True)
-        raise typer.Exit(1)
+        fail("lines must be a positive integer.", ExitCode.USAGE)
     with latest.open("r", encoding="utf-8") as fh:
         render.print_text("".join(fh.readlines()[-lines:]))
 
 
 def register(app: typer.Typer) -> None:
     """Wire every task command as a thin closure over the helpers above."""
-    job_app = typer.Typer(no_args_is_help=True, help="Inspect job (epic) beads.")
+    job_app = typer.Typer(
+        no_args_is_help=True,
+        help="Inspect job (epic) beads.",
+        epilog="Examples:\n\n  fleet job view fleet-abc\n  fleet task fleet-abc log",
+    )
     app.add_typer(job_app, name="job")
 
     @app.command()
@@ -415,7 +413,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command()
     def show(
-        task_id: Annotated[str, typer.Argument(help="Task ID.")],
+        task_id: TaskIdArgument,
         json_output: Annotated[
             bool, typer.Option("--json", help="Emit raw bd show JSON envelope.")
         ] = False,
@@ -425,7 +423,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("kill")
     def kill_cmd(
-        task_id: Annotated[str, typer.Argument(help="Task ID to kill.")],
+        task_id: TaskIdArgument,
     ) -> None:
         """Interrupt a running task (supervisor terminates it and marks it manually interrupted)."""
         run_kill(bootstrap.fleet_home(), task_id)
@@ -470,7 +468,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("task", cls=_TaskHelpCommand)
     def task_cmd(
-        task_id: Annotated[str, typer.Argument(help="Task ID.")],
+        task_id: TaskIdArgument,
         action: Annotated[
             TaskAction,
             typer.Argument(help="What to print: log | state | result."),
@@ -488,7 +486,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("tail")
     def tail_cmd(
-        task_id: Annotated[str, typer.Argument(help="Task ID.")],
+        task_id: TaskIdArgument,
         line_count: Annotated[
             int,
             typer.Option("--lines", "-n", help="Number of last rendered lines to show."),

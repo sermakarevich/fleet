@@ -14,6 +14,7 @@ from typing import Annotated
 import typer
 
 from fleet.cli import bootstrap, render
+from fleet.cli.errors import ExitCode, fail
 from fleet.cli.render import TelegramStatus
 from fleet.cli.telegram_setup import register as register_setup
 from fleet.core.config import RuntimeConfig
@@ -40,7 +41,16 @@ def _probe_status(token: str, config: RuntimeConfig) -> TelegramStatus:
 
 def register(app: typer.Typer) -> None:
     """Build the ``telegram`` subgroup: status, test, and the setup wizard."""
-    telegram_app = typer.Typer(no_args_is_help=True, help="Telegram integration diagnostics.")
+    telegram_app = typer.Typer(
+        no_args_is_help=True,
+        help="Telegram integration diagnostics.",
+        epilog=(
+            "Examples:\n\n"
+            "  fleet telegram status\n"
+            '  fleet telegram test --message "hello from fleet"\n'
+            "  fleet telegram setup --chat-id -1001234567890 --yes"
+        ),
+    )
     app.add_typer(telegram_app, name="telegram", help="Telegram integration diagnostics.")
 
     @telegram_app.command("status")
@@ -54,7 +64,7 @@ def register(app: typer.Typer) -> None:
         status = _probe_status(token, bootstrap.config(bootstrap.fleet_home()))
         render.print_telegram_status(status, render.mask_token(token) if token else "(not set)")
         if not render.telegram_verdict_ok(status):
-            raise typer.Exit(1)
+            raise typer.Exit(int(ExitCode.ERROR))
 
     @telegram_app.command("test")
     def telegram_test(
@@ -65,21 +75,17 @@ def register(app: typer.Typer) -> None:
         """Send a test message to the configured Telegram chat."""
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         if not token:
-            typer.echo("Error: TELEGRAM_BOT_TOKEN is not set.", err=True)
-            raise typer.Exit(1)
+            fail("TELEGRAM_BOT_TOKEN is not set.", ExitCode.ERROR)
         config = bootstrap.config(bootstrap.fleet_home())
         if not config.telegram_chat_id:
-            typer.echo(
-                "Error: telegram_chat_id is not configured. "
-                "Run `fleet config set telegram_chat_id=<id>`.",
-                err=True,
+            fail(
+                "telegram_chat_id is not configured. Run `fleet config set telegram_chat_id=<id>`.",
+                ExitCode.USAGE,
             )
-            raise typer.Exit(1)
         try:
             telegram_setup.send_test_message(token, config.telegram_chat_id, message)
         except Exception as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1) from exc
+            fail(str(exc), ExitCode.BACKEND)
         render.print_test_sent(config.telegram_chat_id)
 
     register_setup(telegram_app)

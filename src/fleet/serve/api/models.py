@@ -375,6 +375,8 @@ class ConfigView(BaseModel):
     job_max_children: int
     job_max_phase_attempts: int
     serve_cors_origins: list[str]
+    serve_host: str
+    serve_port: int
 
 
 class CoderInfo(BaseModel):

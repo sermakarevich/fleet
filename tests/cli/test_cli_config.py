@@ -29,6 +29,8 @@ def test_config_show_prints_expected_keys(tmp_path: Path) -> None:
         "max_concurrent",
         "coder",
         "model",
+        "serve_host",
+        "serve_port",
     ):
         assert key in result.output, f"Expected '{key}' in config show output"
 
@@ -91,7 +93,7 @@ def test_config_set_atomicity_bad_value_leaves_file_unchanged(tmp_path: Path) ->
             app, ["config", "set", "max_concurrent=2", "stall_warning_minutes=garbage"]
         )
 
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     content = config_path.read_text(encoding="utf-8")
     # File must be unchanged — max_concurrent stays 4, not 2
     assert "max_concurrent = 4" in content
@@ -101,7 +103,7 @@ def test_config_set_atomicity_bad_value_leaves_file_unchanged(tmp_path: Path) ->
 def test_config_set_unknown_key_exits_nonzero(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
         result = runner.invoke(app, ["config", "set", "unknown_key=1"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
 
 
 def test_config_set_unknown_key_message_contains_unknown(tmp_path: Path) -> None:
@@ -125,7 +127,7 @@ def test_config_set_multiple_keys(tmp_path: Path) -> None:
 def test_config_set_unknown_coder_exits_nonzero(tmp_path: Path) -> None:
     with _patch_root(tmp_path):
         result = runner.invoke(app, ["config", "set", "coder=garbage_typo"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "garbage_typo" in result.output
 
 

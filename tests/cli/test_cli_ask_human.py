@@ -21,7 +21,7 @@ def test_ask_human_help_lists_commands() -> None:
 def test_install_requires_claude_cli(tmp_path) -> None:
     with patch("shutil.which", return_value=None):
         result = runner.invoke(app, ["ask-human", "install"])
-    assert result.exit_code == 1
+    assert result.exit_code == 3
     assert "claude" in result.output
 
 

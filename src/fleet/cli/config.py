@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from fleet.cli.errors import ExitCode, fail
 from fleet.coders import get_coder
 from fleet.state.config_file import load as load_config
 from fleet.state.config_file import write as write_config
@@ -14,7 +15,15 @@ from fleet.state.paths import fleet_home
 
 
 def register(app: typer.Typer) -> None:
-    config_app = typer.Typer(no_args_is_help=True)
+    config_app = typer.Typer(
+        no_args_is_help=True,
+        epilog=(
+            "Examples:\n\n"
+            "  fleet config show\n"
+            "  fleet config set model=sonnet\n"
+            "  fleet config set serve_port=7890 serve_host=127.0.0.1"
+        ),
+    )
     app.add_typer(config_app, name="config", help="Manage runtime configuration.")
 
     @config_app.command("show")
@@ -46,11 +55,10 @@ def register(app: typer.Typer) -> None:
         updates: dict[str, str] = {}
         for pair in pairs:
             if "=" not in pair:
-                typer.echo(
-                    f"Error: invalid argument {pair!r} — expected key=value format.",
-                    err=True,
+                fail(
+                    f"invalid argument {pair!r} — expected key=value format.",
+                    ExitCode.USAGE,
                 )
-                raise typer.Exit(1)
             k, _, v = pair.partition("=")
             updates[k.strip()] = v.strip()
 
@@ -59,13 +67,11 @@ def register(app: typer.Typer) -> None:
             try:
                 get_coder(updates["coder"])
             except ValueError as exc:
-                typer.echo(f"Error: {exc}", err=True)
-                raise typer.Exit(1) from exc
+                fail(str(exc), ExitCode.USAGE)
         try:
             new_cfg = write_config(path, updates)
         except ValueError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1) from exc
+            fail(str(exc), ExitCode.USAGE)
 
         typer.echo(f"{'key':<38} value")
         typer.echo("-" * 55)

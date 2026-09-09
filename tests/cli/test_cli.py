@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 import fleet.cli.daemons as climod
 from fleet.beads.client import BdError
 from fleet.cli.main import app
+from fleet.core.limits import BD_TIMEOUT_SEC
 from fleet.core.task import Task
 from fleet.observability.daemon import StartResult
 from fleet.observability.pidfile import PidFile
@@ -85,7 +86,7 @@ def test_show_missing_task_exits_nonzero() -> None:
         mock_cls.return_value = mock_q
         mock_q.get.side_effect = BdError("task not found: missing-task")
         result = runner.invoke(app, ["show", "missing-task"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
 
 
 def test_show_missing_task_prints_error_message() -> None:
@@ -122,14 +123,17 @@ def test_run_foreground_invalid_config_coder_exits_nonzero(tmp_path, monkeypatch
     (cfg_dir / "runtime.toml").write_text('coder = "does-not-exist"\n')
     with patch("fleet.cli.bootstrap.BeadsQueue"):
         result = runner.invoke(app, ["run", "foreground"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "Available" in result.output or "claude" in result.output
 
 
 def test_run_foreground_uses_configured_coder(tmp_path, monkeypatch) -> None:
     """`fleet run foreground` constructs Supervisor with no per-run coder override."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    with patch("fleet.cli.bootstrap.BeadsQueue"), patch("fleet.cli.daemons.Supervisor") as mock_cls:
+    with (
+        patch("fleet.cli.bootstrap.BeadsQueue"),
+        patch("fleet.cli.bootstrap.Supervisor") as mock_cls,
+    ):
         mock_sup = MagicMock()
         mock_sup.run = AsyncMock(return_value=0)
         mock_cls.return_value = mock_sup
@@ -241,16 +245,19 @@ def test_serve_restart_no_build_skips_hook(tmp_path, monkeypatch) -> None:
 def test_serve_restart_reuses_stored_port(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     with (
-        patch("fleet.cli.daemons.read_pid_record") as mock_read,
+        patch("fleet.cli.options.read_pid_record") as mock_read,
         patch("fleet.cli.daemons.restart") as mock_restart,
     ):
-        mock_read.return_value = PidFile(pid=999, started_at="x", extra={"port": 8080})
+        mock_read.return_value = PidFile(
+            pid=999, started_at="x", extra={"host": "0.0.0.0", "port": 8080}
+        )
         mock_restart.return_value = StartResult(pid=7, already_running=False, alive=True)
         result = runner.invoke(app, ["serve", "restart", "--no-build"])
     assert result.exit_code == 0, result.output
-    # The spec used for the restart carries the port read from the PID file.
+    # The spec used for the restart carries the host/port read from the PID file.
     last_spec = mock_restart.call_args[0][0]
     assert last_spec.extra.get("port") == 8080
+    assert last_spec.extra.get("host") == "0.0.0.0"
 
 
 # ---------------------------------------------------------------------------
@@ -318,8 +325,8 @@ def test_ready_no_tasks_prints_message() -> None:
 
 def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
+    completed = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
         result = runner.invoke(app, ["bd", "ready", "--limit", "5", "--json"])
     assert result.exit_code == 0
     mock_run.assert_called_once()
@@ -330,8 +337,8 @@ def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch)
 
 def test_bd_passthrough_propagates_nonzero_exit_code(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    completed = MagicMock(returncode=2)
-    with patch("fleet.cli.subproc.run", return_value=completed):
+    completed = MagicMock(returncode=2, stdout="", stderr="")
+    with patch("fleet.beads.client.subprocess.run", return_value=completed):
         result = runner.invoke(app, ["bd", "show", "missing-id"])
     assert result.exit_code == 2
 
@@ -339,8 +346,8 @@ def test_bd_passthrough_propagates_nonzero_exit_code(tmp_path, monkeypatch) -> N
 def test_bd_passthrough_does_not_intercept_help_flag(tmp_path, monkeypatch) -> None:
     """A `--help` after `bd` should be passed to bd, not handled by typer."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
+    completed = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
         runner.invoke(app, ["bd", "--help"])
     mock_run.assert_called_once()
     args, _ = mock_run.call_args
@@ -438,15 +445,16 @@ def test_bd_create_nonzero_exit_does_not_write_task_json(tmp_path, monkeypatch) 
     assert not (tmp_path / "tasks").exists() or not list((tmp_path / "tasks").iterdir())
 
 
-def test_bd_non_create_subcommand_uses_simple_passthrough(tmp_path, monkeypatch) -> None:
-    """`bd show ...` must NOT be intercepted — keeps stdout flowing to the terminal."""
+def test_bd_non_create_subcommand_uses_client_with_timeout(tmp_path, monkeypatch) -> None:
+    """`bd show ...` goes through BdClient (timeout-owned), not raw subprocess."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    completed = MagicMock(returncode=0)
-    with patch("fleet.cli.subproc.run", return_value=completed) as mock_run:
-        runner.invoke(app, ["bd", "show", "fleet-1"])
-    # Simple passthrough: no capture_output kwarg.
-    _, kwargs = mock_run.call_args
-    assert "capture_output" not in kwargs
+    completed = MagicMock(returncode=0, stdout="", stderr="")
+    with patch("fleet.beads.client.subprocess.run", return_value=completed) as mock_run:
+        result = runner.invoke(app, ["bd", "show", "fleet-1"])
+    assert result.exit_code == 0
+    args, kwargs = mock_run.call_args
+    assert args[0] == ["bd", "show", "fleet-1"]
+    assert kwargs["timeout"] == BD_TIMEOUT_SEC
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +519,7 @@ def test_bd_create_rejects_unknown_coder(tmp_path, monkeypatch) -> None:
         )
     # bd must not be called when the coder is invalid.
     mock_run.assert_not_called()
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     assert "does-not-exist" in result.output or "Available" in result.output
 
 
@@ -590,7 +598,7 @@ def test_log_picks_most_recent_file(tmp_path, monkeypatch) -> None:
 def test_log_errors_when_no_log_dir(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     result = runner.invoke(app, ["log"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "No log" in result.output
 
 
@@ -598,7 +606,7 @@ def test_log_errors_when_log_dir_empty(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     (tmp_path / "logging").mkdir()
     result = runner.invoke(app, ["log"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "No log files" in result.output
 
 
@@ -606,7 +614,7 @@ def test_log_rejects_non_positive_tail(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _seed_log_dir(tmp_path, "fleet-2026-05-23.jsonl", "x\n")
     result = runner.invoke(app, ["log", "0"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
 
 
 # ---------------------------------------------------------------------------
@@ -739,7 +747,7 @@ def test_tasks_beads_error_exits_nonzero() -> None:
         mock_cls.return_value = mock_q
         mock_q.list_in_progress.side_effect = BdError("bd boom")
         result = runner.invoke(app, ["tasks"])
-    assert result.exit_code != 0
+    assert result.exit_code == 4
     assert "bd boom" in result.output
 
 
@@ -778,7 +786,7 @@ def test_task_log_prints_log_file(tmp_path, monkeypatch) -> None:
 def test_task_missing_task_dir_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     result = runner.invoke(app, ["task", "t-missing", "state"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "No task directory" in result.output
 
 
@@ -786,7 +794,7 @@ def test_task_state_missing_file_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _seed_task_dir(tmp_path, "t-001")
     result = runner.invoke(app, ["task", "t-001", "state"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "STATE.md" in result.output
 
 
@@ -805,7 +813,7 @@ def test_task_log_missing_file_errors(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _seed_task_dir(tmp_path, "t-001")
     result = runner.invoke(app, ["task", "t-001", "log"])
-    assert result.exit_code != 0
+    assert result.exit_code == 3
     assert "No log for task" in result.output
 
 
