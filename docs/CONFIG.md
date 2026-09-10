@@ -1,5 +1,10 @@
 # fleet configuration reference
 
+Configurable keys live in `$FLEET_HOME/runtime.toml`. Edit via `fleet config set …` or
+directly in the file. The full tables below — every key, default, and example — are
+generated from `core/config.py`, with environment variables and tunables documented
+alongside.
+
 Settings live in `$FLEET_HOME/runtime.toml` — edit via `fleet config set …`
 or directly in the file. The supervisor re-reads the file on change and
 applies updates without restart; in-flight subprocesses are never killed by

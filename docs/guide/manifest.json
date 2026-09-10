@@ -1,0 +1,148 @@
+{
+  "pages": [
+    {
+      "slug": "overview",
+      "title": "Overview",
+      "section": "Learn",
+      "file": "docs/OVERVIEW.md"
+    },
+    {
+      "slug": "concepts",
+      "title": "Concepts",
+      "section": "Learn",
+      "file": "docs/guide/concepts.md"
+    },
+    {
+      "slug": "getting-started",
+      "title": "Getting started",
+      "section": "Learn",
+      "file": "docs/guide/getting-started.md"
+    },
+    {
+      "slug": "how-it-works",
+      "title": "How it works",
+      "section": "Learn",
+      "file": "docs/guide/how-it-works.md"
+    },
+    {
+      "slug": "commands",
+      "title": "Command reference",
+      "section": "Reference",
+      "file": "docs/guide/commands.md"
+    },
+    {
+      "slug": "configuration",
+      "title": "Configuration",
+      "section": "Reference",
+      "file": "docs/CONFIG.md"
+    },
+    {
+      "slug": "worker-contract",
+      "title": "Worker contract",
+      "section": "Reference",
+      "file": "docs/WORKER_CONTRACT.md"
+    },
+    {
+      "slug": "telegram",
+      "title": "Telegram",
+      "section": "Integrations",
+      "file": "docs/guide/telegram.md"
+    },
+    {
+      "slug": "ask-human",
+      "title": "ask_human broker",
+      "section": "Integrations",
+      "file": "docs/guide/ask-human.md"
+    },
+    {
+      "slug": "coders",
+      "title": "Coders",
+      "section": "Integrations",
+      "file": "docs/guide/coders.md"
+    },
+    {
+      "slug": "architecture",
+      "title": "Architecture",
+      "section": "Internals",
+      "file": "docs/ARCHITECTURE.md"
+    },
+    {
+      "slug": "development",
+      "title": "Development",
+      "section": "Internals",
+      "file": "docs/guide/development.md"
+    },
+    {
+      "slug": "adr",
+      "title": "Decisions (ADRs)",
+      "section": "Internals",
+      "file": "docs/adr/README.md"
+    },
+    {
+      "slug": "adr-0001",
+      "title": "ADR 0001: Fleet's Own SQLite Store Becomes Authoritative; Beads Becomes an Adapter",
+      "section": "Internals",
+      "file": "docs/adr/0001-store-first-beads-as-adapter.md"
+    },
+    {
+      "slug": "adr-0002",
+      "title": "ADR 0002: Organize the Code by Concept, Not by Process",
+      "section": "Internals",
+      "file": "docs/adr/0002-concept-based-package-layout.md"
+    },
+    {
+      "slug": "adr-0003",
+      "title": "ADR 0003: Workers Are Step Pipelines Between the Orchestrator and the Coders",
+      "section": "Internals",
+      "file": "docs/adr/0003-workers-as-step-pipelines.md"
+    },
+    {
+      "slug": "adr-0004",
+      "title": "ADR 0004: Task Directory Artifacts Are Driven by Three Use Cases",
+      "section": "Internals",
+      "file": "docs/adr/0004-task-directory-artifacts-by-use-case.md"
+    },
+    {
+      "slug": "adr-0005",
+      "title": "ADR 0005: The Supervisor Is a Runner of Ordered Services",
+      "section": "Internals",
+      "file": "docs/adr/0005-supervisor-as-service-runner.md"
+    },
+    {
+      "slug": "adr-0006",
+      "title": "ADR 0006: One Owner, One Level, One Registry \u2014 the Codebase-Wide Clean Code Program",
+      "section": "Internals",
+      "file": "docs/adr/0006-codebase-wide-clean-code-program.md"
+    },
+    {
+      "slug": "adr-0007",
+      "title": "ADR 0007: Recurring Workers via Schedules",
+      "section": "Internals",
+      "file": "docs/adr/0007-recurring-workers.md"
+    },
+    {
+      "slug": "adr-0008",
+      "title": "ADR 0008: Workflows \u2014 ordered stages of workers on top of the beads queue",
+      "section": "Internals",
+      "file": "docs/adr/0008-workflows.md"
+    },
+    {
+      "slug": "adr-0009",
+      "title": "ADR 0009: UI information architecture \u2014 workers and workflows, four tabs",
+      "section": "Internals",
+      "file": "docs/adr/0009-ui-information-architecture.md"
+    },
+    {
+      "slug": "adr-0010",
+      "title": "ADR 0010: Workflow run inputs, step isolation, and step outputs",
+      "section": "Internals",
+      "file": "docs/adr/0010-workflow-inputs-and-step-outputs.md"
+    },
+    {
+      "slug": "adr-0011",
+      "title": "ADR 0011: Event triggers (start a task on a signal)",
+      "section": "Internals",
+      "file": "docs/adr/0011-event-triggers.md"
+    }
+  ]
+}
