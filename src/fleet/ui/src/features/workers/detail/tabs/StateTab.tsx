@@ -1,10 +1,9 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { errorMessage, isNotFound } from '../../../../shared/api';
 import { useArtifactOutputs, useArtifactResult, useArtifactState } from '../../../../shared/hooks/useApi';
 import type { TaskResult } from '../../../../shared/types';
 import { merge } from '../../../../shared/styles/recipes';
 import * as T from '../../../../shared/styles/tokens';
+import { Markdown } from '../../../../shared/ui/Markdown';
 
 interface Props {
   taskId: string;
@@ -65,7 +64,7 @@ export function StateTab({ taskId, result }: Props) {
         )}
       </div>
       <div style={styles.markdown}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{state}</ReactMarkdown>
+        <Markdown source={state} />
       </div>
       <div style={styles.section}>
         <div style={styles.sectionLabel}>RESULT.json</div>

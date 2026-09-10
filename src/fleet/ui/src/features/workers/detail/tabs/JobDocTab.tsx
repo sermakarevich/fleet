@@ -1,8 +1,7 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { errorMessage, isNotFound } from '../../../../shared/api';
 import { useArtifactDoc } from '../../../../shared/hooks/useApi';
 import * as T from '../../../../shared/styles/tokens';
+import { Markdown } from '../../../../shared/ui/Markdown';
 
 interface Props {
   taskId: string;
@@ -41,7 +40,7 @@ export function JobDocTab({ taskId, kind }: Props) {
         )}
       </div>
       <div style={styles.markdown}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.content}</ReactMarkdown>
+        <Markdown source={data.content} />
       </div>
     </div>
   );

@@ -126,9 +126,15 @@ discoverable even though they are not editable.
 - Any backend behaviour change other than `GET /api/config/constants` and the
   supervisor active-count fix.
 
+### Note 2026-09-10 — Docs tab
+
+Amendment: a fifth tab **Docs** (`/docs`) renders the repo's `docs/` markdown, bundled at build
+time from `docs/guide/manifest.json`. It is a reference page, not a fifth object, so the two-object model
+above is unchanged.
+
 ## Consequences
 
-- Eight tabs become four. Two duplicate feature folders become one.
+- Eight tabs become five (four working tabs plus Docs). Two duplicate feature folders become one.
 - Workers and Workflows pages have the same three-part shape, so a new operator
   learns one layout.
 - Analytics charts are deleted from the UI. The API stays and the charts can
