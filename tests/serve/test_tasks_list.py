@@ -170,7 +170,7 @@ def test_unclaimed_fleet_bead_appears_with_open_status(
 def test_closed_limit_keeps_exactly_n_most_recent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """?closed_limit=2 keeps exactly the 2 most recent closed/failed."""
+    """?closed_limit=2 keeps exactly the 2 most recent closed."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
 
@@ -184,7 +184,7 @@ def test_closed_limit_keeps_exactly_n_most_recent(
     _make_task_dir(
         tasks_root,
         "task-ddd",
-        "failed",
+        "closed",
         created_at="2024-01-03T00:00:00Z",
         started_at="2024-01-03T00:00:01Z",
     )

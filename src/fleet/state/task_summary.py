@@ -329,11 +329,7 @@ def build_task_summary(
         context_pct = context_tokens / limit * 100
 
     status = data.get("status", "")
-    ended_at = (
-        info.last_event_at.isoformat()
-        if status in ("closed", "failed") and info.last_event_at
-        else None
-    )
+    ended_at = info.last_event_at.isoformat() if status == "closed" and info.last_event_at else None
 
     blocked_reason = data.get("blocked_reason")
     if blocked_reason is None and status == TaskStatus.BLOCKED.value:

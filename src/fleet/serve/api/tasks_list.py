@@ -56,8 +56,8 @@ async def list_tasks(
         else raw
         for raw in raw_tasks
     ]
-    active = [d for d in reconciled if d.get("status") not in ("closed", "failed")]
-    closed = [d for d in reconciled if d.get("status") in ("closed", "failed")]
+    active = [d for d in reconciled if d.get("status") != "closed"]
+    closed = [d for d in reconciled if d.get("status") == "closed"]
     closed.sort(key=recency_key, reverse=True)
     if closed_limit > 0:
         closed = closed[:closed_limit]

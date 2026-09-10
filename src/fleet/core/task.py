@@ -36,13 +36,15 @@ class EventKind(StrEnum):
 
 
 class TaskStatus(StrEnum):
-    """Bead status as reported by ``bd``."""
+    """Bead status as reported by ``bd``.
+
+    Failures are `BLOCKED` with a reason; bd has no failed status.
+    """
 
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     BLOCKED = "blocked"
     CLOSED = "closed"
-    FAILED = "failed"
 
 
 class AttemptKind(StrEnum):

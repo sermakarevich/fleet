@@ -26,7 +26,9 @@ from fleet.serve.analytics.records import AttemptRecord
 from fleet.serve.analytics.window import Window, build_window
 
 #: Outcome by reconciled status; anything else is still active.
-OUTCOME_BY_STATUS = {"closed": "success", "failed": "failed", "blocked": "blocked"}
+#: bd has no failed status; the failed outcome bucket is kept for API
+#: compatibility and stays 0.
+OUTCOME_BY_STATUS = {"closed": "success", "blocked": "blocked"}
 
 #: Every metric in response order; summarize renders one key per section.
 SUMMARY_SECTIONS: list[Section] = [

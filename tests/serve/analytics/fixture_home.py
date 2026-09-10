@@ -1,7 +1,7 @@
 """Deterministic analytics fixture fleet_home shared by the analytics tests.
 
 Builds six tasks with fixed timestamps (no clock dependence): a closed
-success, a failed task with a rejected rate-limit event, a blocked task
+success, a blocked task with a rejected rate-limit event, a blocked task
 with an unknown coder, an active task with no events, a closed task whose
 journal released without closing (noclose), and a closed task whose
 journal ended in context_pressure. ``compute_summary(fleet_home, 0)`` over this
@@ -108,7 +108,7 @@ def build_fixture_home(fleet_home: Path) -> Path:
     )
 
     beta = _make_task(
-        tasks_root, "task-beta", status="failed", coder="claude", model="opus", cwd="/proj-b"
+        tasks_root, "task-beta", status="blocked", coder="claude", model="opus", cwd="/proj-b"
     )
     _write_events(
         beta,

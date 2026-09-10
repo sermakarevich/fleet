@@ -156,7 +156,7 @@ class TestFixtureInput:
             ("task-zeta", "context_pressure"),
             ("task-eps", "noclose"),
             ("task-gamma", "blocked"),
-            ("task-beta", "failed"),
+            ("task-beta", "blocked"),
         ]
 
     def test_rate_limits(self, tmp_path: Path) -> None:

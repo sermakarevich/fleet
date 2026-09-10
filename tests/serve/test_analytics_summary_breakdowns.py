@@ -32,7 +32,7 @@ class TestSummaryModelAndProjectBreakdowns:
 
         window = _make_window_day(2)
 
-        # (claude, sonnet) → 2 tasks, 1 success + 1 failure
+        # (claude, sonnet) → 2 tasks, 1 success + 1 blocked
         td1 = make_task_dir(
             tasks_root,
             "task-mm1",
@@ -62,7 +62,7 @@ class TestSummaryModelAndProjectBreakdowns:
         td2 = make_task_dir(
             tasks_root,
             "task-mm2",
-            status="failed",
+            status="blocked",
             coder="claude",
             model="sonnet",
             cwd="/proj-z",

@@ -72,8 +72,8 @@ class TestSummaryDefaultDays:
             ],
         )
 
-        # Task 3: failed, within window
-        td3 = make_task_dir(tasks_root, "task-3", status="failed", cwd="/proj-b")
+        # Task 3: blocked, within window
+        td3 = make_task_dir(tasks_root, "task-3", status="blocked", cwd="/proj-b")
         write_events(
             td3,
             [

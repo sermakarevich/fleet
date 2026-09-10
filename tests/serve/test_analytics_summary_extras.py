@@ -210,7 +210,7 @@ class TestSummaryExtras:
         assert heatmap[wd][window_dt.hour] == 3
         assert heatmap[td2_wd][other_hour] == 1
 
-    def test_errors_recent_contains_failed_and_blocked_newest_first(
+    def test_errors_recent_contains_blocked_newest_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _patch_no_beads(monkeypatch)
@@ -218,8 +218,8 @@ class TestSummaryExtras:
         monkeypatch.setenv("FLEET_HOME", str(tmp_path))
         tasks_root = tmp_path / "tasks"
 
-        # Failed task with older timestamp
-        td1 = make_task_dir(tasks_root, "task-err-1", status="failed", cwd="/p")
+        # Blocked task with older timestamp
+        td1 = make_task_dir(tasks_root, "task-err-1", status="blocked", cwd="/p")
         old_ts = _make_future_days(3)
         write_events(
             td1,
@@ -250,13 +250,13 @@ class TestSummaryExtras:
         data = asyncio.run(_run())
 
         errors = data["errors_recent"]
-        # Should have both failed and blocked
+        # Should have both blocked tasks
         assert len(errors) == 2
-        # Newest first: task-err-2 (blocked, 1 day ago) > task-err-1 (failed, 3 days ago)
+        # Newest first: task-err-2 (blocked, 1 day ago) > task-err-1 (blocked, 3 days ago)
         assert errors[0]["id"] == "task-err-2"
         assert errors[0]["outcome"] == "blocked"
         assert errors[1]["id"] == "task-err-1"
-        assert errors[1]["outcome"] == "failed"
+        assert errors[1]["outcome"] == "blocked"
         # Verify all fields present
         assert "title" in errors[0]
         assert "coder" in errors[0]
