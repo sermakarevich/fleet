@@ -8,21 +8,20 @@ import { useMemo } from 'react';
 import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
 import type { TaskSummary } from '../../shared/types';
 
-export type WorkerStatusFilter = 'running' | 'queued' | 'blocked' | 'done' | 'failed';
+export type WorkerStatusFilter = 'running' | 'queued' | 'blocked' | 'done';
 
 export const WORKER_FILTERS: Array<{ key: WorkerStatusFilter; label: string }> = [
   { key: 'running', label: 'Running' },
   { key: 'queued', label: 'Queued' },
   { key: 'blocked', label: 'Blocked' },
   { key: 'done', label: 'Done' },
-  { key: 'failed', label: 'Failed' },
 ];
 
 export const WORKERS_PAGE_SIZE = 25;
 
 const VALID = WORKER_FILTERS.map((f) => f.key);
 
-const ALERT_FILTERS: WorkerStatusFilter[] = ['blocked', 'failed'];
+const ALERT_FILTERS: WorkerStatusFilter[] = ['blocked'];
 
 // Keep workers matching the status filter and search query.
 function applyFilter(tasks: TaskSummary[], filter: WorkerStatusFilter, query: string): TaskSummary[] {
@@ -44,7 +43,6 @@ function matchesFilter(task: TaskSummary, filter: WorkerStatusFilter): boolean {
     case 'queued': return task.status === 'open' || task.status === 'ready';
     case 'blocked': return task.status === 'blocked';
     case 'done': return task.status === 'closed';
-    case 'failed': return task.status === 'failed';
   }
 }
 

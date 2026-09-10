@@ -21,8 +21,8 @@ interface TasksSocketMessage {
   event: FleetEvent;
 }
 
-// Closed-task window behind GET /api/tasks ?closed_limit=: the done and
-// failed filters only see this many recently-closed beads, so the tab
+// Closed-task window behind GET /api/tasks ?closed_limit=: the done
+// filter only sees this many recently-closed beads, so the tab
 // offers Load more up to the server max. Mirrors core/limits.py
 // (CLOSED_TASKS_DEFAULT / CLOSED_TASKS_MAX).
 const CLOSED_WINDOW_DEFAULT = 300;
@@ -96,7 +96,7 @@ export function RunsTab() {
 
   const windowSize = closedLimit ?? CLOSED_WINDOW_DEFAULT;
   const canLoadMore =
-    (filter === 'done' || filter === 'failed') && windowSize < CLOSED_WINDOW_MAX;
+    filter === 'done' && windowSize < CLOSED_WINDOW_MAX;
 
   if (error && tasks.length === 0) {
     return <p style={R.errorMsgStyle()}>Error: {String(error)}</p>;
@@ -107,7 +107,6 @@ export function RunsTab() {
       <NeedsAttentionStrip
         tasks={tasks}
         onSelectBlocked={() => setFilter('blocked')}
-        onSelectFailed={() => setFilter('failed')}
       />
       <div style={R.topBarStyle()}>
         <FilterBar

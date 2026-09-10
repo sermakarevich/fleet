@@ -166,7 +166,7 @@ function wrapper(initialEntries: string[]) {
 
 describe('WorkersPage Runs tab', () => {
   it('renders the workers heading with Runs/Scheduled sub-tabs and the default running filter', async () => {
-    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' }), makeTask({ id: 'w2', status: 'failed' })] });
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' }), makeTask({ id: 'w2', status: 'blocked' })] });
     render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
 
     expect(await screen.findByRole('heading', { name: /workers/ })).toBeInTheDocument();
@@ -182,19 +182,31 @@ describe('WorkersPage Runs tab', () => {
   it('round-trips the status filter through the URL', async () => {
     mockCommon({
       tasks: [
-        makeTask({ id: 'w1', status: 'failed' }),
-        makeTask({ id: 'w2', status: 'blocked' }),
+        makeTask({ id: 'w1', status: 'blocked' }),
+        makeTask({ id: 'w2', status: 'closed' }),
       ],
     });
-    render(<WorkersPage />, { wrapper: wrapper(['/workers?status=failed']) });
+    render(<WorkersPage />, { wrapper: wrapper(['/workers?status=blocked']) });
 
     expect(await screen.findByText('title-w1')).toBeInTheDocument();
     expect(screen.queryByText('title-w2')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Blocked/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Done/ }));
     expect(await screen.findByText('title-w2')).toBeInTheDocument();
     expect(screen.queryByText('title-w1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('location').textContent).toContain('status=blocked');
+    expect(screen.getByTestId('location').textContent).toContain('status=done');
+  });
+
+  it('renders exactly the Running, Queued, Blocked, Done filters', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' })] });
+    render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
+    await screen.findByText('title-w1');
+
+    expect(screen.getByRole('button', { name: /Running/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Queued/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Blocked/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Done/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Failed/ })).not.toBeInTheDocument();
   });
 });
 
@@ -271,13 +283,13 @@ describe('WorkersPage Triggered tab', () => {
 });
 
 describe('NeedsAttentionStrip', () => {
-  it('shows blocked, failed-24h, rate-limited-24h and question counts', async () => {
+  it('shows blocked, rate-limited-24h and question counts', async () => {
     mockCommon({ tasks: [makeTask({ id: 'w1', status: 'blocked' })], questions: 2 });
     render(<WorkersPage />, { wrapper: wrapper(['/workers?status=blocked']) });
     await screen.findByText('title-w1');
 
     expect(screen.getByRole('button', { name: 'blocked: 1' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'failed 24h: 2' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /failed 24h/ })).not.toBeInTheDocument();
     expect(screen.getByTitle('Rate-limit events in the last 24 hours')).toHaveTextContent('3');
     expect(screen.getByRole('button', { name: 'pending questions: 2' })).toBeInTheDocument();
   });
@@ -303,10 +315,10 @@ describe('NeedsAttentionStrip', () => {
 });
 
 describe('Retry and Close row actions', () => {
-  it('shows Retry (not Close) on failed rows and confirms through the shared Confirm', async () => {
-    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'failed' })] });
+  it('shows Retry (not Close) on blocked rows and confirms through the shared Confirm', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'blocked' })] });
     const requeueSpy = vi.spyOn(api, 'requeueTask').mockResolvedValue(undefined);
-    render(<WorkersPage />, { wrapper: wrapper(['/workers?status=failed']) });
+    render(<WorkersPage />, { wrapper: wrapper(['/workers?status=blocked']) });
 
     const row = await screen.findByText('title-w1');
     const container = row.closest('tr') ?? row.closest('div');

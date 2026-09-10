@@ -81,7 +81,7 @@ describe('isStaleLease', () => {
   it('is false when the task is not running', () => {
     expect(
       isStaleLease(
-        makeTask({ id: 'c', status: 'failed', lease: { ...OLD_LEASE, alive: false } }),
+        makeTask({ id: 'c', status: 'blocked', lease: { ...OLD_LEASE, alive: false } }),
       ),
     ).toBe(false);
   });

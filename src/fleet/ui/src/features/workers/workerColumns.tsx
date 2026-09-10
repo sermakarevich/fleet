@@ -36,9 +36,9 @@ export function isStaleLease(task: TaskSummary): boolean {
     && task.lease.alive === false;
 }
 
-// Retry re-queues a stuck worker; offered on failed and blocked rows.
+// Retry re-queues a stuck worker; offered on blocked rows.
 function isRetryEligible(task: TaskSummary): boolean {
-  return task.status === 'failed' || task.status === 'blocked';
+  return task.status === 'blocked';
 }
 
 // Close archives a worker that should not run; offered on running/queued rows.

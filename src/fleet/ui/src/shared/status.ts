@@ -16,7 +16,6 @@ const STATUS_STYLES: Record<string, StatusStyle> = {
   ready: { bg: T.colors.info, fg: T.colors.white },
   deferred: { bg: T.colors.gray, fg: T.colors.white },
   closed: { bg: T.colors.borderSubtle, fg: T.colors.textDim },
-  failed: { bg: T.colors.redDark, fg: T.colors.white },
 };
 
 const DEFAULT_STYLE: StatusStyle = { bg: T.colors.border, fg: T.colors.textSecondary };
@@ -32,7 +31,6 @@ const STATUS_LABELS: Record<string, string> = {
   ready: 'Ready',
   deferred: 'Deferred',
   closed: 'Closed',
-  failed: 'Failed',
   running: 'Running',
   succeeded: 'Succeeded',
   attention: 'Attention',

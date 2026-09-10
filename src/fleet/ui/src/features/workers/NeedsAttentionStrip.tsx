@@ -1,6 +1,6 @@
-// Needs-attention strip above the workers Runs list: four compact tiles
-// for blocked workers, failures in the last 24h, rate-limit events in the
-// last 24h and pending inbox questions. Blocked comes from the live task
+// Needs-attention strip above the workers Runs list: three compact tiles
+// for blocked workers, rate-limit events in the last 24h and pending
+// inbox questions. Blocked comes from the live task
 // list; the rest read useAnalyticsSummary(days=1) and useChatQuestions.
 // Rendered by WorkersPage; hidden on narrow screens (<480px).
 import { useNavigate } from 'react-router-dom';
@@ -14,8 +14,6 @@ interface NeedsAttentionStripProps {
   tasks: TaskSummary[];
   /** Jump the Runs tab to the blocked filter. */
   onSelectBlocked: () => void;
-  /** Jump the Runs tab to the failed filter. */
-  onSelectFailed: () => void;
 }
 
 // One compact tile: a coloured count plus a label; clickable tiles are
@@ -59,9 +57,9 @@ function Tile({
   );
 }
 
-// Four attention counts; null on narrow screens where the Runs list
+// Three attention counts; null on narrow screens where the Runs list
 // already fills the viewport.
-export function NeedsAttentionStrip({ tasks, onSelectBlocked, onSelectFailed }: NeedsAttentionStripProps) {
+export function NeedsAttentionStrip({ tasks, onSelectBlocked }: NeedsAttentionStripProps) {
   const navigate = useNavigate();
   const isNarrow = useIsMobile(480);
   const { data: summary } = useAnalyticsSummary(1);
@@ -70,7 +68,6 @@ export function NeedsAttentionStrip({ tasks, onSelectBlocked, onSelectFailed }: 
   if (isNarrow) return null;
 
   const blocked = tasks.filter((t) => t.status === 'blocked').length;
-  const failed24h = (summary?.errors_recent ?? []).filter((e) => e.outcome === 'failed').length;
   const rateLimited24h = summary?.rate_limits.length
     ?? summary?.kpis.rate_limited_tasks
     ?? 0;
@@ -84,13 +81,6 @@ export function NeedsAttentionStrip({ tasks, onSelectBlocked, onSelectFailed }: 
         color={T.colors.amber}
         title="Blocked workers — filter the list"
         onClick={onSelectBlocked}
-      />
-      <Tile
-        label="failed 24h"
-        count={failed24h}
-        color={T.colors.danger}
-        title="Failures in the last 24 hours — filter the list"
-        onClick={onSelectFailed}
       />
       <Tile
         label="rate-limited 24h"
