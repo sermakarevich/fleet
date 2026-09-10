@@ -25,7 +25,7 @@ import { CommentsTab } from './tabs/CommentsTab';
 import { BeadJsonTab } from './tabs/BeadJsonTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import type { FleetEvent } from '../../../shared/types';
-import { merge, when } from '../../../shared/styles/recipes';
+import { merge } from '../../../shared/styles/recipes';
 import * as T from '../../../shared/styles/tokens';
 
 type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files' | 'dependencies' | 'comments' | 'bead';
@@ -112,8 +112,6 @@ export function TaskDetailPage() {
             activeTab={activeTab}
             onTabChange={(id) => setActiveTab(id as TabId)}
             label="Task views"
-            barStyle={styles.tabBar}
-            tabStyle={(active) => merge(styles.tabBtn, when(active, styles.tabBtnActive), {  })}
             panelStyle={styles.tabContent}
           >
             {renderTab()}
@@ -144,30 +142,6 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     flex: 1,
     overflow: 'hidden',
-  },
-  tabBar: {
-    display: 'flex',
-    gap: 0,
-    borderBottom: `1px solid ${T.colors.borderSubtle}`,
-    background: T.colors.bgSurface,
-    overflowX: 'auto',
-    flexShrink: 0,
-  },
-  tabBtn: {
-    padding: '0.4rem 0.9rem',
-    background: 'transparent',
-    border: 'none',
-    borderBottom: '2px solid transparent',
-    color: T.colors.textDim,
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 500,
-    whiteSpace: 'nowrap',
-  },
-  tabBtnActive: {
-    color: T.colors.textPrimary,
-    borderBottomColor: T.colors.accent,
-    fontWeight: 600,
   },
   tabContent: {
     flex: 1,

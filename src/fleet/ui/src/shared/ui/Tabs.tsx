@@ -2,13 +2,15 @@
  * Accessible tab strip: the one tablist/tab/tabpanel implementation in the
  * UI. Renders role="tablist" with roving-tabindex tabs, arrow-key (plus
  * Home/End) navigation with automatic activation, and a role="tabpanel"
- * for the active tab's content. Called by TaskDetailPage.
+ * for the active tab's content. Called by PageShell and TaskDetailPage.
  */
 import { useId, useRef } from 'react';
+import * as T from '../styles/tokens';
 
 export interface TabDef {
   id: string;
   label: string;
+  count?: number;
 }
 
 interface TabsProps {
@@ -29,6 +31,39 @@ interface TabsProps {
   /** Styles for the panel wrapper. */
   panelStyle?: React.CSSProperties;
 }
+
+// Shared default look: underline strip like the top NavBar active link.
+const DEFAULT_BAR: React.CSSProperties = {
+  display: 'flex',
+  gap: 0,
+  borderBottom: `1px solid ${T.colors.borderSubtle}`,
+};
+
+function defaultTab(active: boolean): React.CSSProperties {
+  return {
+    padding: '0.4rem 0.9rem',
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    borderBottomColor: active ? T.colors.accent : 'transparent',
+    color: active ? T.colors.textPrimary : T.colors.textDim,
+    fontSize: '0.8rem',
+    fontWeight: active ? 600 : 500,
+    cursor: 'pointer',
+  };
+}
+
+const DEFAULT_PANEL: React.CSSProperties = {
+  paddingTop: '0.875rem',
+};
+
+const COUNT: React.CSSProperties = {
+  fontWeight: 400,
+  color: T.colors.textDim,
+  fontSize: '0.75rem',
+  marginLeft: '0.375rem',
+  fontVariantNumeric: 'tabular-nums',
+};
 
 // Keyboard-operable tab strip with arrow-key navigation.
 export function Tabs({
@@ -79,7 +114,7 @@ export function Tabs({
 
   return (
     <>
-      <div ref={listRef} role="tablist" aria-label={label} style={barStyle}>
+      <div ref={listRef} role="tablist" aria-label={label} style={barStyle ?? DEFAULT_BAR}>
         {tabs.map((tab) => {
           const active = tab.id === activeTab;
           return (
@@ -91,11 +126,13 @@ export function Tabs({
               aria-selected={active}
               aria-controls={`${baseId}-panel`}
               tabIndex={active ? 0 : -1}
-              style={tabStyle?.(active)}
+              className="fleet-tab"
+              style={tabStyle ? tabStyle(active) : defaultTab(active)}
               onClick={() => onTabChange(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, tab.id)}
             >
               {tab.label}
+              {tab.count != null && <span style={COUNT}>{tab.count}</span>}
             </button>
           );
         })}
@@ -104,7 +141,7 @@ export function Tabs({
         role="tabpanel"
         id={`${baseId}-panel`}
         aria-labelledby={`${baseId}-tab-${activeTab}`}
-        style={panelStyle}
+        style={panelStyle ?? DEFAULT_PANEL}
       >
         {children}
       </div>

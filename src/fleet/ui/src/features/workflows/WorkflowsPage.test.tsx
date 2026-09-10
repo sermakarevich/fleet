@@ -112,7 +112,7 @@ describe('WorkflowsPage', () => {
     expect(await screen.findByText('nightly-quality')).toBeInTheDocument();
     expect(listSpy).toHaveBeenCalledWith('workflow');
     expect(screen.getByText('Overlap')).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Scheduled/ })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('Run opens the input form when the workflow declares inputs', async () => {

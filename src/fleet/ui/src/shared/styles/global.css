@@ -50,6 +50,12 @@ button:disabled {
   outline-offset: -2px;
 }
 
+/* Shared tab strip (Tabs.tsx): keyboard focus must stay visible */
+.fleet-tab:focus-visible {
+  outline: 2px solid var(--fleet-accent, #3b82f6);
+  outline-offset: -2px;
+}
+
 /* CommandPalette items (moved from inline <style> in CommandPalette.tsx) */
 .cmd-item[data-selected="true"],
 .cmd-item[aria-selected="true"] {

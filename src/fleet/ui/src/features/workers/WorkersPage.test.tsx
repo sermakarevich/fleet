@@ -170,11 +170,13 @@ describe('WorkersPage Runs tab', () => {
     render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
 
     expect(await screen.findByRole('heading', { name: /workers/ })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Runs' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: /Runs/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Scheduled/ })).toHaveAttribute('aria-selected', 'false');
     // Default filter is running: only the in-progress worker shows.
     expect(await screen.findByText('title-w1')).toBeInTheDocument();
     expect(screen.queryByText('title-w2')).not.toBeInTheDocument();
+    // Counts live on the tabs once the queries settle: 2 workers polled.
+    expect(screen.getByRole('tab', { name: /Runs/ })).toHaveTextContent('2');
   });
 
   it('round-trips the status filter through the URL', async () => {
@@ -205,7 +207,7 @@ describe('WorkersPage Scheduled tab', () => {
     const listSpy = vi.spyOn(api, 'getSchedules');
     render(<WorkersPage />, { wrapper: wrapper(['/workers?tab=scheduled']) });
 
-    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Scheduled/ })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('sched-s1')).toBeInTheDocument();
     expect(screen.queryByText('title-w1')).not.toBeInTheDocument();
     expect(listSpy).toHaveBeenCalledWith('task');
@@ -245,9 +247,9 @@ describe('WorkersPage Triggered tab', () => {
     ]);
     render(<WorkersPage />, { wrapper: wrapper(['/workers?tab=triggered']) });
 
-    expect(screen.getByRole('tab', { name: 'Runs' })).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByRole('tab', { name: 'Scheduled' })).toHaveAttribute('aria-selected', 'false');
-    expect(screen.getByRole('tab', { name: 'Triggered' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Runs/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: /Scheduled/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: /Triggered/ })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('trig-t1')).toBeInTheDocument();
     expect(screen.queryByText('title-w1')).not.toBeInTheDocument();
     expect(listSpy).toHaveBeenCalledTimes(1);
@@ -258,11 +260,11 @@ describe('WorkersPage Triggered tab', () => {
     vi.spyOn(api, 'listTriggers').mockResolvedValue([]);
     render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Triggered' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Triggered/ }));
     expect(await screen.findByText(/No event triggers yet/)).toBeInTheDocument();
     expect(screen.getByTestId('location').textContent).toContain('tab=triggered');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Runs' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Runs/ }));
     expect(await screen.findByText('title-w1')).toBeInTheDocument();
     expect(screen.getByTestId('location').textContent).not.toContain('tab=');
   });

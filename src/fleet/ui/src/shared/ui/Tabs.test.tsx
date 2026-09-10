@@ -71,4 +71,32 @@ describe('Tabs', () => {
     expect(onTabChange).toHaveBeenCalledWith('live');
     unmount();
   });
+
+  it('renders count after label when given', () => {
+    const { getByRole, unmount } = render(
+      <Tabs
+        tabs={[
+          { id: 'runs', label: 'Runs', count: 300 },
+          { id: 'scheduled', label: 'Scheduled' },
+        ]}
+        activeTab="runs"
+        label="Views"
+        onTabChange={() => undefined}
+      >
+        <p>Panel</p>
+      </Tabs>,
+    );
+    expect(getByRole('tab', { name: /Runs/ })).toHaveTextContent('300');
+    expect(getByRole('tab', { name: 'Scheduled' })).not.toHaveTextContent(/[0-9]/);
+    unmount();
+  });
+
+  it('active tab has aria-selected and accent underline style', () => {
+    const { getByRole, unmount } = show();
+    const active = getByRole('tab', { name: 'Live' });
+    expect(active).toHaveAttribute('aria-selected', 'true');
+    // jsdom serializes colours to rgb(): this is T.colors.accent.
+    expect(active.style.borderBottomColor).toBe('rgb(59, 130, 246)');
+    unmount();
+  });
 });

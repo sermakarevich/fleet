@@ -36,7 +36,7 @@ export function PageShell({
       <div style={R.topBarStyle()}>
         <h1 style={R.headingStyle()}>
           {title}
-          {count != null && <span style={R.countStyle()}> ({count})</span>}
+          {count != null && !tabs && <span style={R.countStyle()}> ({count})</span>}
         </h1>
         {subtitle && <span style={R.mutedStyle()}>{subtitle}</span>}
         {actions && <span style={styles.actions}>{actions}</span>}

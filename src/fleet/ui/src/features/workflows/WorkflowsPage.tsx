@@ -15,6 +15,7 @@ import {
   useDeleteWorkflow,
   useImportWorkflow,
   useRunWorkflow,
+  useSchedules,
   useWorkflow,
   useWorkflowRuns,
   useWorkflows,
@@ -162,6 +163,7 @@ export function WorkflowsPage() {
   const [conflict, setConflict] = useState<ImportConflict | null>(null);
 
   const items = workflows ?? [];
+  const { data: workflowSchedules, isLoading: schedulesLoading } = useSchedules('workflow');
   const isNew = location.pathname.endsWith('/new');
   const runsOfId = location.pathname.endsWith('/runs') ? (selectedId ?? null) : null;
   const editingId = isNew || runsOfId ? null : (selectedId ?? null);
@@ -249,11 +251,10 @@ export function WorkflowsPage() {
   return (
     <PageShell
       title={view === 'runs' ? 'Runs' : view === 'scheduled' ? 'Scheduled' : 'Workflows'}
-      count={view === 'definitions' ? items.length : undefined}
       tabs={[
-        { id: 'definitions', label: 'Definitions' },
+        { id: 'definitions', label: 'Definitions', count: isLoading ? undefined : items.length },
         { id: 'runs', label: 'Runs' },
-        { id: 'scheduled', label: 'Scheduled' },
+        { id: 'scheduled', label: 'Scheduled', count: schedulesLoading ? undefined : workflowSchedules?.length },
       ]}
       activeTab={view}
       onTabChange={(id) => setView(id as 'definitions' | 'runs' | 'scheduled')}
