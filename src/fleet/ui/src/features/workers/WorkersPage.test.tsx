@@ -1,6 +1,6 @@
 /**
  * Tests for the workers page: Runs/Scheduled sub-tabs, legacy route
- * redirects, strip counts, retry/close row actions on the right statuses
+ * redirects, footer counts, retry/close row actions on the right statuses
  * and status-filter URL round-trips.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -282,7 +282,7 @@ describe('WorkersPage Triggered tab', () => {
   });
 });
 
-describe('NeedsAttentionStrip', () => {
+describe('AttentionFooter', () => {
   it('shows blocked, rate-limited-24h and question counts', async () => {
     mockCommon({ tasks: [makeTask({ id: 'w1', status: 'blocked' })], questions: 2 });
     render(<WorkersPage />, { wrapper: wrapper(['/workers?status=blocked']) });
@@ -291,10 +291,10 @@ describe('NeedsAttentionStrip', () => {
     expect(screen.getByRole('button', { name: 'blocked: 1' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /failed 24h/ })).not.toBeInTheDocument();
     expect(screen.getByTitle('Rate-limit events in the last 24 hours')).toHaveTextContent('3');
-    expect(screen.getByRole('button', { name: 'pending questions: 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'questions: 2' })).toBeInTheDocument();
   });
 
-  it('blocked tile filters the list, questions tile opens inbox', async () => {
+  it('blocked footer item filters the list, questions item opens inbox', async () => {
     mockCommon({
       tasks: [
         makeTask({ id: 'w1', status: 'in_progress' }),
@@ -309,8 +309,22 @@ describe('NeedsAttentionStrip', () => {
     expect(await screen.findByText('title-w2')).toBeInTheDocument();
     expect(screen.getByTestId('location').textContent).toContain('status=blocked');
 
-    fireEvent.click(screen.getByRole('button', { name: 'pending questions: 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'questions: 1' }));
     expect(await screen.findByText('inbox marker')).toBeInTheDocument();
+  });
+
+  it('renders the footer after the list with a Showing N of M summary', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'in_progress' })] });
+    render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
+    expect(await screen.findByText('title-w1')).toBeInTheDocument();
+
+    // The footer sticks at the bottom: the blocked-count button lives in
+    // the footer region, after the list rows in DOM order.
+    const footer = screen.getByLabelText('Needs attention');
+    expect(within(footer).getByRole('button', { name: 'blocked: 0' })).toBeInTheDocument();
+    const row = screen.getByText('title-w1');
+    expect(row.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(footer).getByText('Showing 1 of 1 workers')).toBeInTheDocument();
   });
 });
 

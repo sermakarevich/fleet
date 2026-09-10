@@ -2,6 +2,8 @@
 
 Date: 2026-09-09
 Status: Accepted (implemented 2026-09-09; UI 1/7–7/7, commits 4104576..HEAD)
+
+Amended 2026-09-10
 Builds on: ADR 0007 (recurring workers / schedules), ADR 0008 (workflows),
 ADR 0006 (clean-code rules, applied to the UI as well).
 
@@ -55,8 +57,9 @@ The renamed tasks page. Sub-tabs:
 - **Scheduled** — schedules with `target=task`. Same table shape as the
   Workflows → Scheduled sub-tab.
 
-A **needs-attention strip** above the list shows counts for blocked, failed in
-the last 24 h, rate-limited in the last 24 h and pending inbox questions. It
+A **needs-attention footer** below the list shows counts for blocked,
+rate-limited in the last 24 h and pending inbox questions (fleet has no
+failed status; failures are blocked beads). It
 reads `/api/analytics/summary` and replaces the analytics tab.
 
 The worker detail page (`/workers/:id`, today's task detail) absorbs the

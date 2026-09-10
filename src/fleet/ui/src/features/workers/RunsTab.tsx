@@ -1,6 +1,6 @@
 // Runs tab of the workers page: today's worker list on DataList +
 // FilterBar with URL-synced status filters, plus the needs-attention
-// strip above the list. Rendered by WorkersPage when ?tab=runs (default).
+// footer below the list. Rendered by WorkersPage when ?tab=runs (default).
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKillTask, useTasks } from '../../shared/hooks/useApi';
@@ -12,7 +12,7 @@ import * as R from '../../shared/styles/recipes';
 import { DataList } from '../../shared/ui/DataList';
 import { FilterBar } from '../../shared/ui/FilterBar';
 import { LoadingState } from '../../shared/ui/LoadingState';
-import { NeedsAttentionStrip } from './NeedsAttentionStrip';
+import { AttentionFooter } from './AttentionFooter';
 import { WORKER_FILTERS, useWorkerFilters } from './useWorkerFilters';
 import { TaskCard, taskColumns, type WorkerActionVerb } from './workerColumns';
 
@@ -29,8 +29,8 @@ const CLOSED_WINDOW_DEFAULT = 300;
 const CLOSED_WINDOW_MAX = 2000;
 const CLOSED_WINDOW_STEP = 300;
 
-// Runs list: filters, strip, table/cards, pagination and the shared
-// kill/retry/close confirm flow (mutations fire in the row cells).
+// Runs list: filters, table/cards, pagination, the attention footer and
+// the shared kill/retry/close confirm flow (mutations fire in the row cells).
 export function RunsTab() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -58,6 +58,7 @@ export function RunsTab() {
     searchQuery,
     page,
     totalPages,
+    sortedFiltered,
     pageItems,
     alertCounts,
     setFilter,
@@ -103,11 +104,7 @@ export function RunsTab() {
   }
 
   return (
-    <>
-      <NeedsAttentionStrip
-        tasks={tasks}
-        onSelectBlocked={() => setFilter('blocked')}
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
       <div style={R.topBarStyle()}>
         <FilterBar
           searchQuery={searchQuery}
@@ -171,6 +168,13 @@ export function RunsTab() {
           </button>
         </div>
       )}
-    </>
+
+      <AttentionFooter
+        tasks={tasks}
+        onSelectBlocked={() => setFilter('blocked')}
+        shown={pageItems.length}
+        total={sortedFiltered.length}
+      />
+    </div>
   );
 }
