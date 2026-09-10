@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
 from fleet.core.config import RuntimeConfig
 from fleet.serve.api import models
@@ -66,6 +67,22 @@ def json_body_ref(ok_response: dict) -> str | None:
         return ok_response["content"]["application/json"]["schema"]["$ref"]
     except (KeyError, TypeError):
         return None
+
+
+def test_swagger_served_under_api_not_spa_docs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Swagger lives under /api/ so the SPA owns /docs (UI Docs tab)."""
+    ui_dist = tmp_path / "ui_dist"
+    ui_dist.mkdir(exist_ok=True)
+    (ui_dist / "index.html").write_text("<html>fleet-spa</html>")
+    client = TestClient(_app(tmp_path, monkeypatch))
+    r = client.get("/api/openapi.json")
+    assert r.status_code == 200
+    assert "openapi" in r.json()
+    assert client.get("/api/docs").status_code == 200
+    r = client.get("/docs")
+    assert "swagger-ui" not in r.text.lower()
 
 
 def test_config_view_matches_runtime_config() -> None:

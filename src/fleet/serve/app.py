@@ -190,7 +190,13 @@ def create_app(queue: Queue | None = None) -> FastAPI:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    app = FastAPI(lifespan=_lifespan)
+    # API spec pages live under /api/ so the SPA owns /docs (UI Docs tab).
+    app = FastAPI(
+        lifespan=_lifespan,
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
+    )
     refresh_config(state)
     register_error_handlers(app)
     app.add_middleware(

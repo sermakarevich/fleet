@@ -253,7 +253,7 @@ you do not fully trust — or bind local-only with
 `fleet config set serve_host=127.0.0.1`). Full key list: [docs/CONFIG.md](../CONFIG.md).
 
 Starts a local web server backed by FastAPI and serves a React SPA at
-`http://127.0.0.1:7890` (or `http://<tailscale-ip>:7890` from another device on your tailnet). The UI provides:
+`http://127.0.0.1:7890` (or `http://<tailscale-ip>:7890` from another device on your tailnet). API spec (Swagger): http://localhost:7890/api/docs. The UI provides:
 - **Dashboard** — live task table with status, elapsed time, and context usage
 - **Task detail** — logs, plan, knowledge, and chat per task
 - **Chat** — review and answer blocked tasks in one place
