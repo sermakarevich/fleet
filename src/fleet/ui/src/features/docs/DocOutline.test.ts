@@ -1,6 +1,6 @@
 // outlineOf: ## and ### headings with slug ids, fenced code ignored.
 import { describe, expect, it } from 'vitest';
-import { outlineOf } from './DocOutline';
+import { OUTLINE_ROOT_MARGIN, outlineOf } from './DocOutline';
 import { slugifyHeading } from '../../shared/ui/Markdown';
 
 describe('outlineOf', () => {
@@ -20,5 +20,13 @@ describe('outlineOf', () => {
   it('ignores # and #### headings', () => {
     const body = '# Top\n\n#### Deep\n\n## Kept\n';
     expect(outlineOf(body).map(i => i.text)).toEqual(['Kept']);
+  });
+});
+
+describe('OUTLINE_ROOT_MARGIN', () => {
+  it('uses only px or % units, as IntersectionObserver requires', () => {
+    for (const part of OUTLINE_ROOT_MARGIN.split(/\s+/)) {
+      expect(part).toMatch(/^-?\d+(\.\d+)?(px|%)$/);
+    }
   });
 });

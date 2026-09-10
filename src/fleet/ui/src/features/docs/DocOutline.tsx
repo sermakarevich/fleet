@@ -8,6 +8,10 @@ import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import * as T from '../../shared/styles/tokens';
 import { slugifyHeading } from '../../shared/ui/Markdown';
 
+// IntersectionObserver accepts only px or % here (not rem), so this is the one
+// place in the UI that uses pixels on purpose. -64px ≈ the 4rem nav height.
+export const OUTLINE_ROOT_MARGIN = '-64px 0px -70% 0px';
+
 export interface OutlineItem {
   depth: 2 | 3;
   text: string;
@@ -45,7 +49,12 @@ function useActiveHeading(ids: string[]): string | null {
         if (entry.isIntersecting) setActiveId(entry.target.id);
       }
     };
-    const observer = new IntersectionObserver(seen, { rootMargin: '-4rem 0px -70% 0px' });
+    let observer: IntersectionObserver;
+    try {
+      observer = new IntersectionObserver(seen, { rootMargin: OUTLINE_ROOT_MARGIN });
+    } catch {
+      return; // outline highlighting is optional; never take the page down
+    }
     for (const id of ids) {
       const el = document.getElementById(id);
       if (el != null) observer.observe(el);
