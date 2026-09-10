@@ -82,6 +82,7 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
     { id: 'workflow-runs', label: 'Go to workflow runs', run: () => go('/workflows?tab=runs') },
     { id: 'create-workflow', label: 'Create new workflow', run: () => go('/workflows/new') },
     { id: 'settings', label: 'Go to Settings', run: () => go('/settings') },
+    { id: 'docs', label: 'Go to Docs', run: () => go('/docs') },
     {
       id: 'pause', label: 'Pause supervisor', run: () => {
         pauseSupervisor.mutate();

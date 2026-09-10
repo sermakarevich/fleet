@@ -1,5 +1,5 @@
-// Four-tab nav bar (ADR 0009 UI 7/7): exactly Workers, Workflows,
-// Inbox, Settings in that order, a "+ New worker" button, the events
+// Five-tab nav bar (ADR 0009 + Docs): exactly Workers, Workflows,
+// Inbox, Settings, Docs in that order, a "+ New worker" button, the events
 // connection dot, and a stale chip with a Restart action behind Confirm.
 // Rendered by AppInner above every page.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,9 +67,9 @@ function tabLabels(): string[] {
 }
 
 describe('NavBar tabs', () => {
-  it('renders exactly four tabs in ADR 0009 order', () => {
+  it('renders exactly five tabs in ADR 0009 + Docs order', () => {
     render(<NavBar onNewWorker={() => {}} />, { wrapper: wrapper() });
-    expect(tabLabels()).toEqual(['Workers', 'Workflows', 'Inbox', 'Settings']);
+    expect(tabLabels()).toEqual(['Workers', 'Workflows', 'Inbox', 'Settings', 'Docs']);
   });
 
   it('has no analytics link and keeps + New worker plus the connection dot', () => {

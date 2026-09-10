@@ -102,7 +102,7 @@ export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
     return () => obs.disconnect();
   }, []);
 
-  // Four tabs (ADR 0009): Workers · Workflows · Inbox · Settings.
+  // Five-tab nav bar (ADR 0009 + Docs): Workers · Workflows · Inbox · Settings · Docs.
   const navLinks = (
     <>
       <NavLink style={navLinkStyle} to="/workers">Workers</NavLink>
@@ -114,6 +114,7 @@ export function NavBar({ onNewWorker }: { onNewWorker: () => void }) {
         </span>
       </NavLink>
       <NavLink style={navLinkStyle} to="/settings">Settings</NavLink>
+      <NavLink style={navLinkStyle} to="/docs">Docs</NavLink>
     </>
   );
 

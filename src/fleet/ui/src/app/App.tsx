@@ -8,6 +8,7 @@ import { WorkflowsPage } from '../features/workflows/WorkflowsPage';
 import { WorkflowRunPage } from '../features/workflows/WorkflowRunPage';
 import { TaskDetailPage } from '../features/workers/detail/TaskDetailPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { DocsPage } from '../features/docs/DocsPage';
 import { NewWorkerPanel } from '../features/workers/NewWorkerPanel';
 import { CommandPalette } from '../features/command-palette/CommandPalette';
 import { useCommandPalette } from '../shared/hooks/useCommandPalette';
@@ -122,6 +123,8 @@ function AppInner() {
           <Route path="/workflow-runs/:runId" element={<WorkflowRunPage />} />
           <Route path="/analytics" element={<AnalyticsRedirect />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/docs" element={<DocsPage />} />
+          <Route path="/docs/:slug" element={<DocsPage />} />
           <Route path="/config" element={<ConfigRedirect />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/inbox/:id" element={<InboxDetailPage />} />

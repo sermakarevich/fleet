@@ -1,3 +1,4 @@
+import path from 'path';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
@@ -7,6 +8,9 @@ export default defineConfig({
     outDir: 'dist',
   },
   server: {
+    fs: {
+      allow: [path.resolve(__dirname, '../../..')],
+    },
     proxy: {
       '/api': 'http://localhost:7890',
       '/ws': {
