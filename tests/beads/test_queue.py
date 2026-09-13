@@ -327,6 +327,56 @@ def test_create_task_passes_deps_atomically(tmp_path: Path) -> None:
     assert meta["depends_on"] == ["a-1", "b-2"]
 
 
+def test_snapshot_shared_across_reads_within_ttl(tmp_path: Path) -> None:
+    """list_in_progress + list_blocked + list_by_metadata share one `list --all` call."""
+    q = BeadsQueue(repo_root=tmp_path)
+    rows = [
+        {"id": "t-1", "title": "A", "description": None, "status": "in_progress"},
+        {"id": "t-2", "title": "B", "description": None, "status": "blocked"},
+        {"id": "t-3", "title": "C", "description": None, "status": "open", "metadata": {"k": "v"}},
+    ]
+    calls: list[list[str]] = []
+
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        calls.append(list(argv))
+        return rows
+
+    with patch.object(q._client, "run_json", side_effect=fake_run_json):
+        in_progress = q.list_in_progress(limit=50)
+        blocked = q.list_blocked(limit=100)
+        by_meta = q.list_by_metadata("k", "v")
+
+    list_all_calls = [c for c in calls if c and c[0] == "list"]
+    assert len(list_all_calls) == 1
+    assert [t.id for t in in_progress] == ["t-1"]
+    assert [t.id for t in blocked] == ["t-2"]
+    assert [t.id for t in by_meta] == ["t-3"]
+
+
+def test_snapshot_invalidated_after_claim(tmp_path: Path) -> None:
+    """A claim() drops the cached snapshot so the next read re-fetches it."""
+    q = BeadsQueue(repo_root=tmp_path)
+    rows = [{"id": "t-1", "title": "A", "description": None, "status": "open"}]
+    calls: list[list[str]] = []
+
+    def fake_run_json(argv: list[str], **kwargs: object) -> object:
+        calls.append(list(argv))
+        if argv and argv[0] == "show":
+            return _show_body("t-1")
+        return rows
+
+    with (
+        patch.object(q._client, "run_json", side_effect=fake_run_json),
+        patch.object(q._client, "run", side_effect=_ok_run),
+    ):
+        q.list_blocked(limit=100)
+        q.claim("t-1", "worker-1")
+        q.list_blocked(limit=100)
+
+    list_all_calls = [c for c in calls if c and c[0] == "list"]
+    assert len(list_all_calls) == 2
+
+
 def test_set_bd_fields_writes_title_and_preserves_fleet_fields(tmp_path: Path) -> None:
     """set_bd_fields snapshots title/description from a bd body, keeping cwd/coder/model."""
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import shlex
 import shutil
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +25,9 @@ from fleet.core.task import Task
 
 #: Length of the `bd update <id>` prefix: longer argv means text changed.
 _UPDATE_PREFIX_LEN = 2
+
+#: One `bd list --all` snapshot is reused for this long (roughly one supervisor tick).
+_SNAPSHOT_TTL_SEC = 4.0
 
 
 class Queue(ABC):
@@ -214,9 +218,38 @@ class BeadsQueue(Queue):
         self.repo_root = repo_root
         self._client = client or BdClient(repo_root)
         self._store = store or TaskStore(repo_root)
+        self._snap: list[dict] | None = None
+        self._snap_expires = 0.0
+
+    def _snapshot(self) -> list[dict]:
+        """One `bd list --all` snapshot, reused for `_SNAPSHOT_TTL_SEC`.
+
+        `_ready_epic_rows`, `_rows("list:status=...")` and `list_by_metadata`
+        all filter this in-memory instead of spawning their own `bd`
+        process, so a tick costs one `list --all` plus one `ready` call
+        instead of 4-5 separate processes fighting over the Dolt file lock.
+        """
+        now = time.monotonic()
+        if self._snap is not None and now < self._snap_expires:
+            return self._snap
+        try:
+            data = self._client.run_json(["list", "--all", "--limit", "0"])
+        except BdError:
+            return []
+        rows = data.get("data", data) if isinstance(data, dict) else (data or [])
+        if not isinstance(rows, list):
+            rows = []
+        self._snap = [r for r in rows if isinstance(r, dict) and r.get("id")]
+        self._snap_expires = now + _SNAPSHOT_TTL_SEC
+        return self._snap
+
+    def _invalidate_snapshot(self) -> None:
+        """Drop the cached snapshot after any call that mutates bd state."""
+        self._snap = None
 
     def claim(self, task_id: str, claimer_id: str) -> Task:
         self._client.run(["update", task_id, "--claim"], actor=claimer_id)
+        self._invalidate_snapshot()
         body = self._client.run_json(["show", task_id])
         if isinstance(body, list):
             body = body[0] if body else None
@@ -258,16 +291,9 @@ class BeadsQueue(Queue):
 
     def _ready_epic_rows(self) -> list[dict]:
         """Open epics whose children are all closed/blocked (observer input)."""
-        try:
-            data = self._client.run_json(["list", "--status", "open", "--limit", "0"])
-        except BdError:
-            return []
-        items = data.get("data", data) if isinstance(data, dict) else (data or [])
-        if not isinstance(items, list):
-            return []
         rows = []
-        for cand in items:
-            if not isinstance(cand, dict) or cand.get("issue_type") != "epic":
+        for cand in self._snapshot():
+            if cand.get("status") != "open" or cand.get("issue_type") != "epic":
                 continue
             epic_id = cand.get("id")
             if not epic_id:
@@ -312,6 +338,7 @@ class BeadsQueue(Queue):
             with contextlib.suppress(BdError, TypeError, ValueError):
                 self._client.run(["update", child.id, "--priority", str(int(spec["priority"]))])
         self._client.run(["dep", "add", epic_id, child.id])
+        self._invalidate_snapshot()
         return child
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
@@ -320,16 +347,19 @@ class BeadsQueue(Queue):
         if reason:
             self._client.run(["comment", task_id, reason])
         self._store.mark_released(task_id, wait_sec)
+        self._invalidate_snapshot()
 
     def set_blocked(self, task_id: str, reason: str) -> None:
         """Mark a task blocked with a reason."""
         self._client.run(["update", task_id, "--status", "blocked", "--notes", reason])
         self._store.mark_blocked(task_id, reason)
+        self._invalidate_snapshot()
 
     def close(self, task_id: str, reason: str = "completed") -> None:
         """Close a task with a reason."""
         self._client.run(["close", task_id, "--reason", reason])
         self._store.mark_closed(task_id)
+        self._invalidate_snapshot()
 
     def delete(self, task_id: str) -> None:
         """Delete a task and drop its task dir."""
@@ -337,6 +367,7 @@ class BeadsQueue(Queue):
         task_dir = self._store.task_dir(task_id)
         if task_dir.exists():
             shutil.rmtree(task_dir)
+        self._invalidate_snapshot()
 
     def comment(self, task_id: str, body: str) -> None:
         """Append a comment to a task."""
@@ -362,6 +393,7 @@ class BeadsQueue(Queue):
             self._client.run(["update", task_id, "--defer", ""])
             if self.get(task_id).status == "deferred":
                 self._client.run(["update", task_id, "--status", "open"])
+        self._invalidate_snapshot()
 
     def get(self, task_id: str) -> Task:
         """Show one task by id."""
@@ -401,28 +433,31 @@ class BeadsQueue(Queue):
 
     def list_by_metadata(self, field: str, value: str) -> list[Task]:
         """Tasks whose bd metadata `field` equals `value` (one workflow run)."""
-        data = self._client.run_json(
-            ["list", "--all", "--limit", "0", "--metadata-field", f"{field}={value}"]
-        )
-        items = data if isinstance(data, list) else []
+        items = [
+            item
+            for item in self._snapshot()
+            if (item.get("metadata") or {}).get(field) == value
+        ]
         return [
             build_task(item, self._store.read(item["id"]))
             for item in items
-            if isinstance(item, dict) and item.get("id")
+            if item.get("id")
         ]
 
     def _rows(self, query: str, limit: int) -> list[dict]:
-        """Run one list-shaped `bd` query and return its dict rows."""
+        """Rows for one list-shaped query: `bd ready`, or a snapshot filter by status."""
         if query == "ready":
-            argv = ["ready", "--limit", str(limit)]
-        else:
-            name, _, status = query.partition(":status=")
-            argv = [name, "--status", status, "--limit", str(limit)]
-        data = self._client.run_json(argv)
-        items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
-        if not isinstance(items, list):
-            return []
-        return [item for item in items if isinstance(item, dict) and item.get("id")]
+            try:
+                data = self._client.run_json(["ready", "--limit", str(limit)])
+            except BdError:
+                return []
+            items: list = data.get("data", data) if isinstance(data, dict) else (data or [])
+            if not isinstance(items, list):
+                return []
+            return [item for item in items if isinstance(item, dict) and item.get("id")]
+        _, _, status = query.partition(":status=")
+        rows = [item for item in self._snapshot() if item.get("status") == status]
+        return rows[:limit] if limit else rows
 
     def create_task(  # noqa: PLR0913, PLR0917  # ADR 0006 bead 4
         self,
@@ -464,6 +499,7 @@ class BeadsQueue(Queue):
                 depends_on=depends_on,
             ),
         )
+        self._invalidate_snapshot()
         return self.get(task_id)
 
     def set_cwd(self, task_id: str, cwd: str) -> None:
