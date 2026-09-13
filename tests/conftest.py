@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 import structlog
 
-from fleet.beads.client import BdError
+from fleet.beads.client import BdError, reset_bd_bin_cache
 from fleet.beads.queue import BeadsQueue, Queue
 from fleet.coders.base import Coder
 from fleet.core.config import RuntimeConfig
@@ -23,6 +23,14 @@ from fleet.orchestrator.rate_gauge import RateGauge
 from fleet.orchestrator.service import Service
 from fleet.orchestrator.state import RunningWorker
 from fleet.state.config_file import load
+
+
+@pytest.fixture(autouse=True)
+def reset_bd_binary_cache():
+    """Clear the cached `bd` path so PATH/env changes take effect per test."""
+    reset_bd_bin_cache()
+    yield
+    reset_bd_bin_cache()
 
 
 @pytest.fixture

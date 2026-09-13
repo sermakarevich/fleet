@@ -25,7 +25,8 @@ def test_bd_passthrough_forwards_args_with_fleet_home_cwd(tmp_path, monkeypatch)
     assert result.exit_code == 0
     mock_run.assert_called_once()
     args, kwargs = mock_run.call_args
-    assert args[0] == ["bd", "ready", "--limit", "5", "--json"]
+    assert args[0][0].endswith("bd")
+    assert args[0][1:] == ["ready", "--limit", "5", "--json"]
     assert kwargs["cwd"] == Path(tmp_path).resolve()
 
 
@@ -45,7 +46,8 @@ def test_bd_passthrough_does_not_intercept_help_flag(tmp_path, monkeypatch) -> N
         runner.invoke(app, ["bd", "--help"])
     mock_run.assert_called_once()
     args, _ = mock_run.call_args
-    assert args[0] == ["bd", "--help"]
+    assert args[0][0].endswith("bd")
+    assert args[0][1:] == ["--help"]
 
 
 def test_bd_passthrough_listed_in_help() -> None:
@@ -136,7 +138,8 @@ def test_bd_non_create_subcommand_uses_client_with_timeout(tmp_path, monkeypatch
         result = runner.invoke(app, ["bd", "show", "fleet-1"])
     assert result.exit_code == 0
     args, kwargs = mock_run.call_args
-    assert args[0] == ["bd", "show", "fleet-1"]
+    assert args[0][0].endswith("bd")
+    assert args[0][1:] == ["show", "fleet-1"]
     assert kwargs["timeout"] == BD_TIMEOUT_SEC
 
 

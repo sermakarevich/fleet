@@ -11,6 +11,7 @@ are NOT auto-restarted on crash; use `restart` to pick up code changes.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +20,7 @@ import uvicorn
 from rich.console import Console
 
 import fleet
+from fleet.beads.client import BdError, resolve_bd_bin
 from fleet.cli import bootstrap, options, render, subproc
 from fleet.cli.errors import ExitCode, fail
 from fleet.cli.options import HostOption, PortOption
@@ -44,6 +46,7 @@ from fleet.observability.daemon import (
     tunnel_spec,
 )
 from fleet.observability.process import service_status
+from fleet.orchestrator.checks import StartupAborted, check_bd_binary
 from fleet.serve.auth import warn_if_exposed
 
 _RUN_EPILOG = "Examples:\n\n  fleet run start\n  fleet run status\n  fleet run restart"
@@ -65,6 +68,16 @@ _TUNNEL_EPILOG = (
 )
 
 _console = Console()
+
+logger = logging.getLogger(__name__)
+
+
+def bd_status_line() -> str:
+    """One-line `bd` binary status for `fleet run status` and `fleet doctor`."""
+    try:
+        return f"bd: {resolve_bd_bin()}"
+    except BdError as exc:
+        return f"bd: NOT FOUND — {exc}"
 
 
 def _repo_root() -> Path:
@@ -150,6 +163,8 @@ def _register_run_commands(app: typer.Typer) -> None:
                 rc = asyncio.run(supervisor.run())
             except NotImplementedError as exc:
                 fail(str(exc))
+            except StartupAborted as exc:
+                fail(f"supervisor cannot start: {exc}", ExitCode.BACKEND)
             raise typer.Exit(rc)
         finally:
             release_supervisor_lock(lock_fh)
@@ -175,6 +190,7 @@ def _register_run_commands(app: typer.Typer) -> None:
     @run_app.command("status")
     def run_status() -> None:
         """Show whether the supervisor daemon is running."""
+        typer.echo(bd_status_line())
         _report_status(bootstrap.fleet_home(), "supervisor", "supervisor", "fleet run restart")
 
 
@@ -194,6 +210,10 @@ def _register_serve_commands(app: typer.Typer) -> None:
     ) -> None:
         """Run the UI server in the foreground (blocks). This is what `start` execs."""
 
+        problem = check_bd_binary()
+        if problem is not None:
+            logger.error("bd_binary_found failed: %s", problem)
+            fail(f"serve cannot start: {problem}", ExitCode.BACKEND)
         warn_if_exposed(host)
         uvicorn.run("fleet.serve.app:create_app", host=host, port=port, factory=True)
 

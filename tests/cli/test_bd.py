@@ -112,7 +112,8 @@ def test_leading_flag_value_not_mistaken_for_subcommand(mock_run: MagicMock) -> 
 
     assert result.exit_code == 0, result.output
     forwarded = mock_run.call_args[0][0]
-    assert forwarded == ["bd", "--db", "/tmp/x.db", "list", "--json"]
+    assert forwarded[0].endswith("bd")
+    assert forwarded[1:] == ["--db", "/tmp/x.db", "list", "--json"]
 
 
 @patch("fleet.cli.beads.BeadsQueue")

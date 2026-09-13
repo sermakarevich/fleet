@@ -73,6 +73,7 @@ appears here.
 | Name | Read by | Default | Purpose |
 |---|---|---|---|
 | `FLEET_HOME` | `state/paths.py` | `~/.fleet` | Fleet home root: beads DB, `runtime.toml`, tasks, logs. |
+| `FLEET_BD_BIN` | `beads/client.py` | auto-detected (`bd` on PATH, else `~/.local/bin/bd`, `/opt/homebrew/bin/bd`) | Absolute path override for the `bd` binary (needed under launchd's minimal PATH). |
 | `FLEET_API_TOKEN` | `serve/auth.py` | `""` (open) | Bearer token required on the API (`Authorization: Bearer …`) and `?token=` on WebSockets. |
 | `TELEGRAM_BOT_TOKEN` | `cli/telegram_setup.py`, `cli/telegram.py`, `serve/state.py` | `""` | Bot token for Telegram notifications and inbound commands. |
 | `ASK_HUMAN_DB` | `integrations/ask_human/store.py` | `<fleet_home>/ask_human/questions.db` | Override path of the shared ask_human questions database. |

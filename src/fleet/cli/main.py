@@ -13,6 +13,7 @@ from fleet.cli import (
     beads,
     config,
     daemons,
+    doctor,
     schedule,
     tasks,
     telegram,
@@ -42,6 +43,7 @@ app = typer.Typer(
 tasks.register(app)
 beads.register(app)
 daemons.register(app)
+doctor.register(app)
 config.register(app)
 telegram.register(app)
 ask_human.register(app)

@@ -7,8 +7,10 @@ Called by ``beads/queue.py`` (through :class:`BdClient`), ``beads/cache.py``,
 
 from __future__ import annotations
 
+import functools
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,56 @@ class BdError(RuntimeError):
         self.returncode = returncode
 
 
+BD_BIN_ENV = "FLEET_BD_BIN"
+
+
+def bd_binary_candidates() -> list[str]:
+    """Ordered fallback paths probed when `bd` is not on PATH."""
+    return [str(Path.home() / ".local" / "bin" / "bd"), "/opt/homebrew/bin/bd"]
+
+
+@functools.lru_cache(maxsize=1)
+def _resolve_bd_bin_uncached(path_env: str, home: str, env_override: str | None) -> str:
+    """Cached core of resolve_bd_bin; args are the cache key (env snapshot)."""
+    if env_override:
+        if Path(env_override).is_file():
+            return env_override
+        raise BdError(
+            f"bd executable not found: {BD_BIN_ENV}={env_override} does not exist "
+            f"(checked: {BD_BIN_ENV}={env_override})"
+        )
+    on_path = shutil.which("bd", path=path_env)
+    if on_path:
+        return on_path
+    for candidate in (f"{home}/.local/bin/bd", "/opt/homebrew/bin/bd"):
+        if Path(candidate).is_file():
+            return candidate
+    raise BdError(
+        "bd executable not found "
+        f"(checked FLEET_BD_BIN env, PATH, {', '.join(bd_binary_candidates())}; "
+        "set FLEET_BD_BIN to the absolute path of the bd binary)"
+    )
+
+
+def reset_bd_bin_cache() -> None:
+    """Forget the cached `bd` path (tests re-resolve after changing PATH)."""
+    _resolve_bd_bin_uncached.cache_clear()
+
+
+def resolve_bd_bin() -> str:
+    """Absolute path to the `bd` binary, resolved once and cached.
+
+    Order: ``FLEET_BD_BIN`` env override, then ``shutil.which("bd")``,
+    then the fallback candidates. Raises BdError listing every place
+    that was checked when nothing is found.
+    """
+    return _resolve_bd_bin_uncached(
+        os.environ.get("PATH", os.defpath),
+        os.path.expanduser("~"),
+        os.environ.get(BD_BIN_ENV),
+    )
+
+
 def try_run_bd(
     args: list[str],
     *,
@@ -45,7 +97,7 @@ def try_run_bd(
     full_env = {**os.environ, **env} if env else None
     try:
         return subprocess.run(
-            ["bd", *args],
+            [resolve_bd_bin(), *args],
             capture_output=True,
             text=True,
             cwd=cwd,
@@ -54,7 +106,12 @@ def try_run_bd(
             timeout=timeout,
         )
     except FileNotFoundError as exc:
-        raise BdError("bd executable not found") from exc
+        reset_bd_bin_cache()
+        raise BdError(
+            "bd executable not found "
+            f"(checked FLEET_BD_BIN env, PATH, {', '.join(bd_binary_candidates())}; "
+            "set FLEET_BD_BIN to the absolute path of the bd binary)"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise BdError(
             f"bd {' '.join(args)} timed out after {timeout}s",

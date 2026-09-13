@@ -99,3 +99,58 @@ def test_bd_client_run_timeout_overrides_default(tmp_path: Path) -> None:
     with patch("fleet.beads.client.subprocess.run", side_effect=fake_run):
         client.run(["show", "t-1"], timeout=5)
     assert seen["timeout"] == 5
+
+
+def test_resolve_bd_bin_prefers_env_override(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """FLEET_BD_BIN wins even when PATH has no `bd`."""
+    fake_bd = tmp_path / "bd"
+    fake_bd.write_text("#!/bin/sh\necho hi\n")
+    fake_bd.chmod(0o755)
+    monkeypatch.setenv("FLEET_BD_BIN", str(fake_bd))
+    monkeypatch.setenv("PATH", "")
+    assert beads_client.resolve_bd_bin() == str(fake_bd)
+
+
+def test_resolve_bd_bin_uses_fallback_when_path_empty(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """With an empty PATH, an existing fallback candidate is used."""
+    fake_home = tmp_path / "home"
+    local_bin = fake_home / ".local" / "bin"
+    local_bin.mkdir(parents=True)
+    fake_bd = local_bin / "bd"
+    fake_bd.write_text("#!/bin/sh\necho hi\n")
+    fake_bd.chmod(0o755)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("FLEET_BD_BIN", raising=False)
+    monkeypatch.setenv("PATH", "")
+    assert beads_client.resolve_bd_bin() == str(fake_bd)
+
+
+def test_resolve_bd_bin_missing_lists_candidates(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Nothing found -> BdError naming every place that was checked."""
+    monkeypatch.delenv("FLEET_BD_BIN", raising=False)
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("HOME", "/nonexistent-home-for-bd-test")
+    with (
+        patch.object(beads_client, "bd_binary_candidates", return_value=["/nope/bd"]),
+        pytest.raises(BdError, match="/nope/bd"),
+    ):
+        beads_client.resolve_bd_bin()
+
+
+def test_try_run_bd_uses_resolved_binary(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """try_run_bd execs the resolved absolute path, not bare `bd`."""
+    fake_bd = tmp_path / "bd"
+    fake_bd.write_text("#!/bin/sh\necho hi\n")
+    fake_bd.chmod(0o755)
+    monkeypatch.setenv("FLEET_BD_BIN", str(fake_bd))
+    seen: dict = {}
+    seen_cmd: list = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        seen_cmd.extend(cmd)
+        seen.update(kwargs)
+        return _completed("")
+
+    with patch("fleet.beads.client.subprocess.run", side_effect=fake_run):
+        beads_client.try_run_bd(["--version"], cwd=tmp_path)
+    assert seen_cmd[0] == str(fake_bd)

@@ -72,7 +72,8 @@ def test_beads_list_returns_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert beads[0]["id"] == "fleet-1"
     assert beads[0]["assignee"] == "claude"
     assert beads[0]["dependency_count"] == 2
-    assert fake.calls[0][:2] == ["bd", "list"]
+    assert fake.calls[0][0].endswith("bd")
+    assert fake.calls[0][1:3] == ["list", "--all"]
 
 
 def test_beads_list_handles_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,7 +142,8 @@ def test_bead_set_status_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     resp = _post(app, "/api/beads/fleet-4/status", json={"status": "blocked"})
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    assert fake.calls[0] == ["bd", "update", "fleet-4", "--status", "blocked"]
+    assert fake.calls[0][0].endswith("bd")
+    assert fake.calls[0][1:] == ["update", "fleet-4", "--status", "blocked"]
 
 
 def test_bead_set_status_invalid_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,7 +167,8 @@ def test_bead_unblock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     resp = _post(app, "/api/beads/fleet-5/unblock")
     assert resp.status_code == 200
-    assert fake.calls[0] == ["bd", "update", "fleet-5", "--status", "open"]
+    assert fake.calls[0][0].endswith("bd")
+    assert fake.calls[0][1:] == ["update", "fleet-5", "--status", "open"]
 
 
 def test_bead_remove_assignee(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,7 +180,8 @@ def test_bead_remove_assignee(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     resp = _post(app, "/api/beads/fleet-6/remove-assignee")
     assert resp.status_code == 200
-    assert fake.calls[0] == ["bd", "update", "fleet-6", "--assignee", ""]
+    assert fake.calls[0][0].endswith("bd")
+    assert fake.calls[0][1:] == ["update", "fleet-6", "--assignee", ""]
 
 
 def test_bead_update_502_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
