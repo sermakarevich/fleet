@@ -38,6 +38,11 @@ STATUS_LOG_INTERVAL_SEC: int = 30
 # slow event-loop tick can never trigger a reclaim.
 HEARTBEAT_SEC: int = 30
 LEASE_RECONCILE_INTERVAL_SEC: int = 60
+# Orphaned claim: a bead claimed in_progress that never grew an attempt dir
+# (its supervisor died right after claiming, before spawning). Reclaim only
+# once the claim is older than this, so a claim that is merely mid-spawn is
+# never released out from under it.
+LEASE_NO_ATTEMPT_GRACE_SEC: int = 300
 # Retention (gc) pass: archive closed tasks, purge old archives, drop
 # stale worktrees. Runs once at supervisor startup, then on this cadence.
 GC_INTERVAL_SEC: int = 86400
@@ -116,6 +121,7 @@ TUNABLE_DOCS: dict[str, str] = {
     "STATUS_LOG_INTERVAL_SEC": "Heartbeat lines between supervisor status logs.",
     "HEARTBEAT_SEC": "Attempt lease heartbeat rewrite cadence.",
     "LEASE_RECONCILE_INTERVAL_SEC": "How often stale attempt leases are reclaimed.",
+    "LEASE_NO_ATTEMPT_GRACE_SEC": "Claim age before an attempt-less claim is released.",
     "GC_INTERVAL_SEC": "Retention pass cadence after the startup pass.",
     "PROBE_INTERVAL_SEC": "Health-probe tick for running coder sessions.",
     "PROBE_SILENCE_SEC": "Silence that marks a session as possibly stuck.",

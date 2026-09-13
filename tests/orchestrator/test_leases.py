@@ -229,3 +229,37 @@ def test_list_failure_never_raises(tmp_path: Path) -> None:
 
     s = _make_supervisor(tmp_path, _BoomQueue())
     reconcile_leases(s.state)  # must not raise
+
+
+def _age_task_dir(task_dir: Path, age_sec: float) -> None:
+    """Backdate *task_dir*'s mtime so claim-age math sees it as *age_sec* old."""
+    stamp = (datetime.now(tz=UTC) - timedelta(seconds=age_sec)).timestamp()
+    os.utime(task_dir, (stamp, stamp))
+
+
+def test_orphan_claim_past_grace_released(tmp_path: Path) -> None:
+    """No attempt dir at all, claimed well past the grace period: released."""
+    task = _task("t-lease-orphan-old")
+    queue = LeaseQueue([task])
+    s = _make_supervisor(tmp_path, queue)
+    task_dir = s.state.task_dir_for(task.id)
+    task_dir.mkdir(parents=True)
+    _age_task_dir(task_dir, 600)
+    reconcile_leases(s.state)
+    assert len(queue.released) == 1
+    assert queue.released[0] == ("t-lease-orphan-old", "claimed but no attempt started; re-queued")
+
+
+def test_orphan_claim_within_grace_untouched(tmp_path: Path) -> None:
+    """No attempt dir, but claimed recently: only logged, not released."""
+    task = _task("t-lease-orphan-fresh")
+    queue = LeaseQueue([task])
+    s = _make_supervisor(tmp_path, queue)
+    log = FakeLog()
+    s.state.log = log  # type: ignore[assignment]
+    task_dir = s.state.task_dir_for(task.id)
+    task_dir.mkdir(parents=True)
+    _age_task_dir(task_dir, 60)
+    reconcile_leases(s.state)
+    assert queue.released == []
+    assert any(evt == "lease_no_attempt_dir" for _, evt, _ in log.events)
