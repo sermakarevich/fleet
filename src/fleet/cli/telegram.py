@@ -8,7 +8,6 @@ through ``cli/render.py``. The setup wizard lives in
 
 from __future__ import annotations
 
-import os
 from typing import Annotated
 
 import typer
@@ -19,6 +18,7 @@ from fleet.cli.render import TelegramStatus
 from fleet.cli.telegram_setup import register as register_setup
 from fleet.core.config import RuntimeConfig
 from fleet.integrations.telegram import setup as telegram_setup
+from fleet.integrations.telegram.token import telegram_token
 
 
 def _probe_status(token: str, config: RuntimeConfig) -> TelegramStatus:
@@ -60,7 +60,7 @@ def register(app: typer.Typer) -> None:
         Exits 0 when fully configured (token valid, chat id and allowed ids set),
         exits 1 otherwise — suitable for scripting.
         """
-        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        token = telegram_token(bootstrap.fleet_home())
         status = _probe_status(token, bootstrap.config(bootstrap.fleet_home()))
         render.print_telegram_status(status, render.mask_token(token) if token else "(not set)")
         if not render.telegram_verdict_ok(status):
@@ -73,7 +73,7 @@ def register(app: typer.Typer) -> None:
         ),
     ) -> None:
         """Send a test message to the configured Telegram chat."""
-        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        token = telegram_token(bootstrap.fleet_home())
         if not token:
             fail("TELEGRAM_BOT_TOKEN is not set.", ExitCode.ERROR)
         config = bootstrap.config(bootstrap.fleet_home())

@@ -17,7 +17,7 @@ fleet telegram setup
 
 The wizard validates your token, asks you to post a message in your channel so it can discover the chat ID, optionally sets up inbound task commands (writing `telegram_allowed_ids` and `telegram_default_cwd` for you), and sends a confirmation message. All values are written to `runtime.toml` automatically.
 
-Add the `export TELEGRAM_BOT_TOKEN=…` line to your shell profile so it is set whenever `fleet serve` starts.
+Add the `export TELEGRAM_BOT_TOKEN=…` line to your shell profile so it is set whenever `fleet serve` starts — or, since launchd daemons run with a bare environment, write the token to `~/.fleet/telegram_token` (chmod 600) instead, which fleet reads whenever the env var is unset.
 
 To verify the setup at any time:
 

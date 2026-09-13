@@ -75,7 +75,7 @@ appears here.
 | `FLEET_HOME` | `state/paths.py` | `~/.fleet` | Fleet home root: beads DB, `runtime.toml`, tasks, logs. |
 | `FLEET_BD_BIN` | `beads/client.py` | auto-detected (`bd` on PATH, else `~/.local/bin/bd`, `/opt/homebrew/bin/bd`) | Absolute path override for the `bd` binary (needed under launchd's minimal PATH). |
 | `FLEET_API_TOKEN` | `serve/auth.py` | `""` (open) | Bearer token required on the API (`Authorization: Bearer …`) and `?token=` on WebSockets. |
-| `TELEGRAM_BOT_TOKEN` | `cli/telegram_setup.py`, `cli/telegram.py`, `serve/state.py` | `""` | Bot token for Telegram notifications and inbound commands. |
+| `TELEGRAM_BOT_TOKEN` | `cli/telegram_setup.py`, `integrations/telegram/token.py` | `""` | Bot token for Telegram notifications and inbound commands; falls back to `<fleet_home>/telegram_token` when unset. |
 | `ASK_HUMAN_DB` | `integrations/ask_human/store.py` | `<fleet_home>/ask_human/questions.db` | Override path of the shared ask_human questions database. |
 | `FLEET_ROOT` | `integrations/mcp_servers.py` | auto-detected repo root | Anchors `uv --directory` so MCP servers run this checkout's code. |
 | `FLEET_TASK_DIR` | `integrations/ask_human/server.py` | (none) | Derives the agent id when the MCP server runs without one. |

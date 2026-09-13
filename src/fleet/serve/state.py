@@ -8,7 +8,6 @@ env, offset file) built from here by create_app — never app.state itself.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
@@ -20,6 +19,7 @@ from fleet.beads.queue import BeadsQueue, Queue
 from fleet.core.config import RuntimeConfig
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.integrations.mcp_servers import ask_human_db_path
+from fleet.integrations.telegram.token import telegram_token
 from fleet.serve.event_stream import FileWatcher, WebSocketBroadcaster
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
@@ -55,7 +55,7 @@ def build_state(queue: Queue | None = None) -> AppState:
         config_path=fleet_home / "runtime.toml",
         watcher=FileWatcher(mgr=mgr),
         connection_manager=mgr,
-        telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        telegram_token=telegram_token(fleet_home),
     )
 
 

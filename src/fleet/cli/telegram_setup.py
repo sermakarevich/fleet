@@ -44,6 +44,7 @@ def _wizard_token(yes: bool) -> tuple[str, str]:
             "\nAdd this to your shell profile "
             "(token is never stored in runtime.toml):\n"
             f"  export TELEGRAM_BOT_TOKEN={token}\n"
+            "or write it to ~/.fleet/telegram_token (chmod 600) so it survives launchd restarts.\n"
         )
     return token, bot_username
 
