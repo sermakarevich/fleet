@@ -52,6 +52,7 @@ metadata and regenerate.
 | `triage_interval_minutes` | `int` | `15` | Minutes between blocked-task triage scans; 0 disables. | `fleet config set triage_interval_minutes=30` |
 | `gc_retention_days` | `int` | `30` | Days before closed tasks archive; 0 disables archiving. | `fleet config set gc_retention_days=7` |
 | `gc_archive_days` | `int` | `90` | Days before archives delete permanently; 0 disables purging. | `fleet config set gc_archive_days=30` |
+| `gc_beads` | `bool` | `true` | Also run `bd gc`/`bd compact` over gc_retention_days during the daily pass. | `fleet config set gc_beads=false` |
 | `observer_max_followups` | `int` | `10` | Max follow-up tasks opened per observer validation round. | `fleet config set observer_max_followups=5` |
 | `observer_max_rounds` | `int` | `3` | Max partial observer rounds before human review. | `fleet config set observer_max_rounds=5` |
 | `job_gate` | `bool` | `true` | Ask approval before a job spawns its planned children. | `fleet config set job_gate=false` |

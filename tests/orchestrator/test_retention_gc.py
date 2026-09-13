@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from fleet.beads.client import BdError
 from fleet.core.limits import GC_INTERVAL_SEC
 from fleet.orchestrator.retention_gc import (
     make_retention_gc,
@@ -101,3 +102,112 @@ def test_default_interval_matches_limits() -> None:
     """Default interval comes from core/limits.py; ctor arg overrides it."""
     assert make_retention_gc().interval_sec == GC_INTERVAL_SEC
     assert make_retention_gc(interval_sec=0.01).interval_sec == 0.01
+
+
+class _FakeBdClient:
+    """Records every argv passed to `.run` instead of shelling out to `bd`."""
+
+    calls: list[list[str]] = []
+
+    def __init__(self, fleet_home: Path) -> None:
+        self.fleet_home = fleet_home
+
+    def run(self, argv: list[str], **_kwargs: object):
+        _FakeBdClient.calls.append(list(argv))
+        return _CompletedProcess(stdout="Decay: 3 issues deleted\n")
+
+
+class _RaisingBdClient(_FakeBdClient):
+    def run(self, argv: list[str], **_kwargs: object):
+        _FakeBdClient.calls.append(list(argv))
+        raise BdError("bd gc exploded")
+
+
+class _CompletedProcess:
+    def __init__(self, stdout: str) -> None:
+        self.stdout = stdout
+
+
+@pytest.fixture(autouse=True)
+def _reset_fake_bd_calls() -> None:
+    _FakeBdClient.calls = []
+
+
+def _empty_home(tmp_path: Path) -> Path:
+    fleet_home = tmp_path / ".fleet"
+    (fleet_home / "tasks").mkdir(parents=True)
+    return fleet_home
+
+
+def test_bd_gc_and_compact_run_once_per_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daily pass runs `bd gc --older-than <days> --force` then `bd compact --days <days>`."""
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.BdClient", _FakeBdClient)
+    fleet_home = _empty_home(tmp_path)
+    sup = _sup_for(fleet_home, tmp_path)
+    sup.state.config.gc_retention_days = 14
+
+    retention_gc_pass(sup.state)
+
+    assert _FakeBdClient.calls == [
+        ["gc", "--older-than", "14", "--force"],
+        ["compact", "--days", "14"],
+    ]
+
+
+def test_bd_gc_skipped_when_gc_beads_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.BdClient", _FakeBdClient)
+    fleet_home = _empty_home(tmp_path)
+    sup = _sup_for(fleet_home, tmp_path)
+    sup.state.config.gc_retention_days = 14
+    sup.state.config.gc_beads = False
+
+    retention_gc_pass(sup.state)
+
+    assert _FakeBdClient.calls == []
+
+
+def test_bd_gc_skipped_when_days_not_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.BdClient", _FakeBdClient)
+    fleet_home = _empty_home(tmp_path)
+    sup = _sup_for(fleet_home, tmp_path)
+    sup.state.config.gc_retention_days = 0
+
+    retention_gc_pass(sup.state)
+
+    assert _FakeBdClient.calls == []
+
+
+def test_bd_gc_skipped_when_bead_in_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.BdClient", _FakeBdClient)
+    monkeypatch.setattr(
+        "fleet.orchestrator.retention_gc.get_beads_status_map",
+        lambda _home: {"fleet-1": {"status": "in_progress"}},
+    )
+    fleet_home = _empty_home(tmp_path)
+    sup = _sup_for(fleet_home, tmp_path)
+    sup.state.config.gc_retention_days = 14
+
+    retention_gc_pass(sup.state)
+
+    assert _FakeBdClient.calls == []
+
+
+def test_bd_gc_failure_is_logged_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.BdClient", _RaisingBdClient)
+    fleet_home = _empty_home(tmp_path)
+    sup = _sup_for(fleet_home, tmp_path)
+    sup.state.config.gc_retention_days = 14
+
+    retention_gc_pass(sup.state)  # must not raise
+
+    assert _FakeBdClient.calls == [["gc", "--older-than", "14", "--force"]]

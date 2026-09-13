@@ -374,6 +374,7 @@ class ConfigView(BaseModel):
     triage_interval_minutes: int
     gc_retention_days: int
     gc_archive_days: int
+    gc_beads: bool
     observer_max_followups: int
     observer_max_rounds: int
     job_gate: bool

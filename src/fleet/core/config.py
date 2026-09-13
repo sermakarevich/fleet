@@ -223,6 +223,13 @@ class RuntimeConfig:
             "30",
         ),
     )
+    gc_beads: bool = field(
+        default=True,
+        metadata=_meta(
+            "Also run `bd gc`/`bd compact` over gc_retention_days during the daily pass.",
+            "false",
+        ),
+    )
     # Observer worker: max follow-up tasks opened per validation round, and
     # max partial observer rounds before the epic blocks for human review.
     observer_max_followups: int = field(

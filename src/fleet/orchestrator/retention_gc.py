@@ -7,9 +7,12 @@ cadence; ``make_retention_gc`` wraps it in a ``PeriodicService``.
 
 from __future__ import annotations
 
+import re
 import shutil
+import time
 from typing import TYPE_CHECKING
 
+from fleet.beads.client import BdClient, BdError
 from fleet.beads.status_cache import get_beads_status_map
 from fleet.core.limits import GC_INTERVAL_SEC
 from fleet.orchestrator.service import PeriodicService, ServiceOrder
@@ -40,13 +43,13 @@ def retention_gc_pass(st: SupervisorState) -> None:
     """
     fleet_home = st.fleet_home
     log = st.log
+    beads_map = get_beads_status_map(fleet_home)
     try:
         stale = find_stale_worktrees(fleet_home, days=st.config.gc_retention_days)
     except Exception as exc:  # noqa: BLE001 - selection failed, skip step
         log.warning("retention_worktrees_failed", error=str(exc))
         stale = []
     try:
-        beads_map = get_beads_status_map(fleet_home)
         gc = apply_gc(
             fleet_home, plan_gc(fleet_home, days=st.config.gc_retention_days, beads_map=beads_map)
         )
@@ -69,6 +72,7 @@ def retention_gc_pass(st: SupervisorState) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
         log.warning("retention_purge_failed", error=str(exc))
+    _run_bd_gc(st, beads_map)
     removed = 0
     for item in stale:
         try:
@@ -91,6 +95,42 @@ def retention_gc_pass(st: SupervisorState) -> None:
             )
     if stale:
         log.info("retention_worktrees", found=len(stale), removed=removed)
+
+
+def _run_bd_gc(st: SupervisorState, beads_map: dict[str, dict] | None) -> None:
+    """Decay and compact the beads database itself, guarded by config and state.
+
+    Skipped when disabled, when the retention window is 0, or while any bead
+    is in progress (a `bd gc` mid-run could race a worker's own bd calls).
+    Never raises: a BdError is logged and the pass continues.
+    """
+    days = st.config.gc_retention_days
+    if not st.config.gc_beads or days <= 0:
+        return
+    if beads_map and any(item.get("status") == "in_progress" for item in beads_map.values()):
+        return
+    client = BdClient(st.fleet_home)
+    started = time.monotonic()
+    try:
+        result = client.run(["gc", "--older-than", str(days), "--force"])
+        deleted = _count_from_gc_output(result.stdout)
+        client.run(["compact", "--days", str(days)])
+        st.log.info(
+            "retention_bd_gc",
+            deleted=deleted,
+            duration_sec=round(time.monotonic() - started, 3),
+        )
+    except BdError as exc:
+        st.log.warning("retention_bd_gc_failed", error=str(exc))
+
+
+_GC_DECAY_RE = re.compile(r"Decay:\s*(\d+)\s*issues?\s*deleted", re.IGNORECASE)
+
+
+def _count_from_gc_output(stdout: str) -> int | None:
+    """Best-effort count of deleted beads parsed from `bd gc`'s "Decay: N issues deleted" line."""
+    match = _GC_DECAY_RE.search(stdout)
+    return int(match.group(1)) if match else None
 
 
 def make_retention_gc(interval_sec: float = GC_INTERVAL_SEC) -> PeriodicService:

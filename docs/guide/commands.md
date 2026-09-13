@@ -94,9 +94,16 @@ retention pass once at startup (after lease reconciliation) and then every
    `0` disables) are deleted permanently.
 3. **Worktrees** — worktree dirs under `$FLEET_HOME/worktrees/` whose task
    is closed and older than `gc_retention_days` are removed.
+4. **Beads** — when `gc_beads` is enabled (default on), `bd gc --older-than
+   gc_retention_days --force` and `bd compact --days gc_retention_days` run
+   against the beads database itself, permanently deleting closed beads
+   older than the window (export first if you need the history) and
+   squashing old Dolt commits; this step is skipped while any bead is
+   in progress.
 
 Each step logs counts and bytes (`retention_gc_tasks`,
-`retention_purge_archive`, `retention_worktrees` in the supervisor log).
+`retention_purge_archive`, `retention_worktrees`, `retention_bd_gc` in the
+supervisor log).
 
 ### `fleet schedule ...` (recurring workers)
 
