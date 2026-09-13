@@ -89,6 +89,8 @@ class Task:
     repo_root: str | None = None
     base_ref: str | None = None
     worktree_path: str | None = None
+    # bd labels (e.g. "trigger:<id>" written by firing.py::_extra_args).
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

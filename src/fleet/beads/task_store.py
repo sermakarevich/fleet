@@ -56,6 +56,7 @@ def build_task(body: dict, meta: dict, *, status_override: str | None = None) ->
         repo_root=meta.get("repo_root"),
         base_ref=meta.get("base_ref"),
         worktree_path=meta.get("worktree_path"),
+        labels=tuple(body.get("labels") or ()),
     )
 
 

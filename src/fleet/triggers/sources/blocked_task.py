@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 
 from fleet.core import triage_policy
 from fleet.core.retry_policy import rounds_for_history
+from fleet.core.task import Task
 from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir, load_attempts
@@ -38,7 +39,7 @@ class BlockedTaskSource:
         fleet_only = _fleet_blocked_only(ctx.params)
         events: list[TriggerEvent] = []
         for bead in beads:
-            event = _event_for(ctx, bead.id, fleet_only)
+            event = _event_for(ctx, bead, fleet_only)
             if event is not None:
                 events.append(event)
         return events
@@ -58,8 +59,9 @@ def _fleet_blocked_only(params: dict[str, str]) -> bool:
     return raw not in ("false", "0", "no", "off")
 
 
-def _event_for(ctx: SourceContext, task_id: str, fleet_only: bool) -> TriggerEvent | None:
+def _event_for(ctx: SourceContext, bead: Task, fleet_only: bool) -> TriggerEvent | None:
     """Build the event for one blocked bead, or None when skipped."""
+    task_id = bead.id
     task_dir = state_paths.task_dir(ctx.fleet_home, task_id)
     meta = TaskMeta.load(task_dir)
     data = meta.to_dict() if meta is not None else {}
@@ -68,15 +70,29 @@ def _event_for(ctx: SourceContext, task_id: str, fleet_only: bool) -> TriggerEve
         return None
     if triage_policy.ignore_active(_opt_str(data.get("ignore_until")), ctx.now):
         return None
-    if "fleet_trigger_id" in data:
+    if _opened_by_trigger(bead, data):
         return None
     blocked_at = str(data.get("blocked_at") or "")
     key = f"{task_id}@{blocked_at or 'unknown'}"
     occurred = blocked_at or ctx.now.isoformat()
-    payload = _payload(task_id, task_dir, data, blocked_reason, blocked_at)
+    payload = _payload(bead, task_dir, data, blocked_reason, blocked_at)
     return TriggerEvent(
         source=BlockedTaskSource.kind, key=key, occurred_at=occurred, payload=payload
     )
+
+
+def _opened_by_trigger(bead: Task, data: dict[str, Any]) -> bool:
+    """True when this bead was itself opened by a trigger firing.
+
+    task.json's `fleet_trigger_id` (written by firing.py::open_task) is lost
+    whenever the task dir is rewritten on claim (queue.py::claim), so the
+    durable check is the bd label `trigger:<id>` (firing.py::_extra_args),
+    which lives on the bead itself. The task.json check stays as a cheap
+    belt-and-braces fallback.
+    """
+    if any(label.startswith("trigger:") for label in bead.labels):
+        return True
+    return "fleet_trigger_id" in data
 
 
 def _opt_str(value: Any) -> str | None:
@@ -85,9 +101,10 @@ def _opt_str(value: Any) -> str | None:
 
 
 def _payload(
-    task_id: str, task_dir: Path, data: dict[str, Any], blocked_reason: str, blocked_at: str
+    bead: Task, task_dir: Path, data: dict[str, Any], blocked_reason: str, blocked_at: str
 ) -> dict[str, str]:
     """Flat string payload for one blocked-bead event."""
+    task_id = bead.id
     history = load_attempts(task_dir)
     declared = read_declared_result(task_dir)
     status = declared.get("status") if isinstance(declared, dict) else None
@@ -96,7 +113,7 @@ def _payload(
         "title": str(data.get("title") or ""),
         "blocked_reason": blocked_reason,
         "blocked_at": blocked_at,
-        "cwd": str(data.get("cwd") or ""),
+        "cwd": str(data.get("cwd") or bead.cwd or ""),
         "task_dir": str(task_dir.absolute()),
         "coder": str(data.get("coder") or ""),
         "model": str(data.get("model") or ""),

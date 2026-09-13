@@ -190,6 +190,7 @@ class FakeQueue(Queue):
             coder=coder,
             model=model,
             worker=worker,
+            labels=tuple(labels or ()),
         )
         self._tasks[task_id] = task
         self._meta[task_id] = _metadata_of(extra_args)

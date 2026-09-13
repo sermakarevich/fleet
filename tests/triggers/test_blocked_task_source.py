@@ -32,9 +32,15 @@ def _ctx(fleet_home: Path, queue: FakeQueue, **params: str) -> SourceContext:
     return SourceContext(fleet_home=fleet_home, queue=queue, now=NOW, params=dict(params))
 
 
-def _blocked(queue: FakeQueue, fleet_home: Path, title: str = "stuck", **meta: Any) -> str:
-    """Open a task, mark it blocked, and write its task.json."""
-    task = queue.create_task(title)
+def _blocked(
+    queue: FakeQueue,
+    fleet_home: Path,
+    title: str = "stuck",
+    labels: list[str] | None = None,
+    **meta: Any,
+) -> str:
+    """Open a task (optionally labeled), mark it blocked, and write its task.json."""
+    task = queue.create_task(title, labels=labels)
     queue.set_blocked(task.id, "blocked")
     _write_meta(fleet_home, task.id, title=title, **meta)
     return task.id
@@ -98,6 +104,21 @@ def test_trigger_opened_bead_skipped(tmp_path: Path) -> None:
         blocked_reason="x",
         blocked_at=BLOCKED_AT,
         fleet_trigger_id="trg-abc123",
+    )
+    assert BlockedTaskSource().poll(_ctx(tmp_path, queue)) == []
+
+
+def test_trigger_label_skipped_even_without_task_json_marker(tmp_path: Path) -> None:
+    """The task.json `fleet_trigger_id` marker is lost when the task dir is
+    rewritten on claim; the bd label `trigger:<id>` survives, so it alone
+    must suppress the event."""
+    queue = FakeQueue()
+    _blocked(
+        queue,
+        tmp_path,
+        labels=["trigger:blocked-task-investigator"],
+        blocked_reason="x",
+        blocked_at=BLOCKED_AT,
     )
     assert BlockedTaskSource().poll(_ctx(tmp_path, queue)) == []
 
