@@ -31,7 +31,7 @@ import contextlib
 import json
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -39,7 +39,11 @@ from typing import TYPE_CHECKING
 from fleet.core.clock import SystemClock
 from fleet.core.iso import parse_iso
 from fleet.core.leases import LeaseVerdict, classify_lease, orphan_dirs
-from fleet.core.limits import HEARTBEAT_SEC, LEASE_RECONCILE_INTERVAL_SEC
+from fleet.core.limits import (
+    HEARTBEAT_SEC,
+    LEASE_NO_ATTEMPT_GRACE_SEC,
+    LEASE_RECONCILE_INTERVAL_SEC,
+)
 from fleet.core.process import host_name, pid_alive
 from fleet.core.retry_policy import Action
 from fleet.core.task import TaskOutcome
@@ -58,6 +62,7 @@ if TYPE_CHECKING:
     from .state import SupervisorState
 
 LEASE_EXPIRED_REASON = "lease expired"
+LEASE_ORPHAN_CLAIM_REASON = "claimed but no attempt started; re-queued"
 
 
 class _LeaseGap(StrEnum):
@@ -274,11 +279,47 @@ def _act_on_lease(
         return
     if facts.gap is _LeaseGap.NO_PID:
         st.log.warning("lease_no_pid", task_id=task.id)
-    else:
-        _log_lease_once(seen, st, facts.gap.value, task.id)
+        return
+    if facts.gap in (_LeaseGap.NO_ATTEMPT_DIR, _LeaseGap.NO_RUN):
+        age = _claim_age_sec(st, task)
+        if age is not None and age > LEASE_NO_ATTEMPT_GRACE_SEC:
+            _reclaim_lease(
+                st,
+                task,
+                reason=LEASE_ORPHAN_CLAIM_REASON,
+                release_reason=LEASE_ORPHAN_CLAIM_REASON,
+                event="lease_orphan_claim_released",
+            )
+            return
+    _log_lease_once(seen, st, facts.gap.value, task.id)
 
 
-def _reclaim_lease(st: SupervisorState, task: Task) -> None:
+def _claim_age_sec(st: SupervisorState, task: Task) -> float | None:
+    """Seconds since *task* was claimed, or None when that can't be proven.
+
+    Prefers the bead's own `updated_at` (set by ``bd update --claim``);
+    falls back to the task dir's mtime, since a claim with no attempt dir
+    has no other record of when it happened.
+    """
+    updated_at = getattr(task, "updated_at", None)
+    when = parse_iso(updated_at) if isinstance(updated_at, str) else None
+    if when is None:
+        task_dir = st.task_dir_for(task.id)
+        try:
+            when = datetime.fromtimestamp(task_dir.stat().st_mtime, tz=UTC)
+        except OSError:
+            return None
+    return (st.clock.now() - when).total_seconds()
+
+
+def _reclaim_lease(
+    st: SupervisorState,
+    task: Task,
+    *,
+    reason: str = LEASE_EXPIRED_REASON,
+    release_reason: str | None = None,
+    event: str = "lease_expired_released",
+) -> None:
     """Journal a lease-expired end and release the bead for re-queueing."""
     task_dir = st.task_dir_for(task.id)
     try:
@@ -286,15 +327,15 @@ def _reclaim_lease(st: SupervisorState, task: Task) -> None:
             task_dir,
             outcome=TaskOutcome.KILLED,
             exit_code=None,
-            reason=LEASE_EXPIRED_REASON,
+            reason=reason,
             action=Action.RELEASE,
         )
     except OSError as exc:
         st.log.warning("lease_record_failed", task_id=task.id, error=str(exc))
         return
     try:
-        st.queue.release(task.id, reason="lease expired; re-queued")
-        st.log.warning("lease_expired_released", task_id=task.id)
+        st.queue.release(task.id, reason=release_reason or f"{reason}; re-queued")
+        st.log.warning(event, task_id=task.id)
     except Exception as exc:
         st.log.warning("lease_release_failed", task_id=task.id, error=str(exc))
 

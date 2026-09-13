@@ -107,6 +107,7 @@ runtime (unlike Settings, they need a code change + `fleet run restart`).
 | `STATUS_LOG_INTERVAL_SEC` | `30` | Heartbeat lines between supervisor status logs. |
 | `HEARTBEAT_SEC` | `30` | Attempt lease heartbeat rewrite cadence. |
 | `LEASE_RECONCILE_INTERVAL_SEC` | `60` | How often stale attempt leases are reclaimed. |
+| `LEASE_NO_ATTEMPT_GRACE_SEC` | `300` | Claim age before an attempt-less claim is released. |
 | `GC_INTERVAL_SEC` | `86400` | Retention pass cadence after the startup pass. |
 | `PROBE_INTERVAL_SEC` | `30` | Health-probe tick for running coder sessions. |
 | `PROBE_SILENCE_SEC` | `60` | Silence that marks a session as possibly stuck. |
