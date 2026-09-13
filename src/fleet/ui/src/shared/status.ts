@@ -35,6 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
   succeeded: 'Succeeded',
   attention: 'Attention',
   cancelled: 'Cancelled',
+  unknown: 'Unknown',
 };
 
 export function statusLabel(status: string): string {

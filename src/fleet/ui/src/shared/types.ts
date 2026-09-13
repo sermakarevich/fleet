@@ -18,6 +18,7 @@ export type TaskAttempt = Schemas['TaskAttempt'];
 export type TaskChild = Schemas['TaskChild'];
 export type TaskChildren = Schemas['TaskChildren'];
 export type TaskDetail = Schemas['TaskDetail'];
+export type TaskListResponse = Schemas['TaskListResponse'];
 export type Bead = Schemas['Bead'];
 export type BeadDependency = Schemas['BeadDependency'];
 export type BeadComment = Schemas['BeadComment'];

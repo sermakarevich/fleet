@@ -338,6 +338,16 @@ export function altRowStyle(index: number): CSSProperties {
   return { background: index % 2 === 0 ? 'transparent' : T.colors.bgElevated };
 }
 
+// Red outage banner above the Runs list while beads is unreachable:
+// statuses on screen are last-known or "unknown", never trusted.
+export function beadsDownBannerStyle(): CSSProperties {
+  return {
+    margin: '0 0 0.75rem', padding: '0.5rem 0.75rem', borderRadius: '0.25rem',
+    background: T.colors.danger, color: T.colors.white,
+    fontSize: '0.8125rem', fontWeight: 600, fontFamily: 'system-ui, sans-serif',
+  };
+}
+
 // Diff line background/text per change kind.
 export const DIFF_LINE_STYLE: Record<'equal' | 'remove' | 'add', CSSProperties> = {
   equal: { background: 'transparent', color: T.colors.textDim },

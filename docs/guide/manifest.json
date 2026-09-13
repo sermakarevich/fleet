@@ -143,6 +143,12 @@
       "title": "ADR 0011: Event triggers (start a task on a signal)",
       "section": "Internals",
       "file": "docs/adr/0011-event-triggers.md"
+    },
+    {
+      "slug": "adr-0012",
+      "title": "ADR 0012: Never serve stale task.json statuses silently when beads is unavailable",
+      "section": "Internals",
+      "file": "docs/adr/0012-beads-unavailable-statuses.md"
     }
   ]
 }

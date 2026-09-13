@@ -18,7 +18,8 @@ from typing import Any
 from fastapi import Request
 
 from fleet.beads import client as beads_client
-from fleet.beads.status_cache import get_beads_status_map
+from fleet.beads.reconcile import merge_status
+from fleet.beads.status_cache import BeadsSnapshot, get_beads_status_map
 from fleet.coders import context_limit_for
 from fleet.core.config import RuntimeConfig
 from fleet.core.effective import effective_coder_model
@@ -184,6 +185,36 @@ def build_all_summaries(
 def list_raw_tasks(fleet_home: Path) -> list[dict]:
     """Raw task.json dicts for every task (runs in a thread; walks tasks/)."""
     return [raw for _, raw in TaskIndex(fleet_home).iter_meta()]
+
+
+#: Status for rows whose truth needs beads but beads never succeeded.
+#: Matches no UI status filter, so stale task.json rows never render as
+#: running/queued/blocked while the outage banner shows.
+UNKNOWN_STATUS = "unknown"
+
+
+def reconcile_task_list(raw_tasks: list[dict], snapshot: BeadsSnapshot) -> list[dict]:
+    """Reconcile raw task.json dicts against a beads snapshot.
+
+    A present map (fresh or stale last-known) merges via merge_status and
+    adds synthetic rows for unclaimed fleet beads. When beads never
+    succeeded, locally-closed rows stay closed and every other row becomes
+    "unknown" — raw task.json statuses are never served as-is.
+    """
+    beads_map = snapshot.map
+    if beads_map is not None:
+        known_ids = {str(r.get("id", "")) for r in raw_tasks}
+        raw_tasks = raw_tasks + list_unclaimed_raw_tasks(beads_map, known_ids)
+        return [
+            merge_status(raw, beads_map.get(raw.get("id", ""))) if raw.get("id", "") else raw
+            for raw in raw_tasks
+        ]
+    if not snapshot.available:
+        return [
+            raw if raw.get("status") == "closed" else {**raw, "status": UNKNOWN_STATUS}
+            for raw in raw_tasks
+        ]
+    return raw_tasks
 
 
 def fetch_beads_info(task_id: str, fleet_home: Path) -> dict | None:

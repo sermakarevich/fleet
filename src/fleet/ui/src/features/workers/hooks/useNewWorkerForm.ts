@@ -66,10 +66,11 @@ export function useNewWorkerForm(onClose: () => void, onCreated: (id: string) =>
   const templates: Template[] = templatesData?.templates ?? [];
 
   const recentCwds = useMemo(() => {
-    if (!tasksData) return [];
+    const list = tasksData?.tasks ?? [];
+    if (list.length === 0) return [];
     const seen = new Set<string>();
     const cwds: string[] = [];
-    for (const t of tasksData) {
+    for (const t of list) {
       if (t.cwd && !seen.has(t.cwd)) {
         seen.add(t.cwd);
         cwds.push(t.cwd);
@@ -80,8 +81,9 @@ export function useNewWorkerForm(onClose: () => void, onCreated: (id: string) =>
   }, [tasksData]);
 
   const openTasks = useMemo(() => {
-    if (!tasksData) return [];
-    return tasksData.filter((t) => t.status !== 'closed' && t.status !== 'failed');
+    const list = tasksData?.tasks ?? [];
+    if (list.length === 0) return [];
+    return list.filter((t) => t.status !== 'closed' && t.status !== 'failed');
   }, [tasksData]);
 
   useEffect(() => {

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from fleet.beads.status_cache import BeadsSnapshot
 from fleet.serve.app import create_app
 
 
@@ -51,9 +52,12 @@ def _get(app, path: str, **kwargs) -> httpx.Response:
 
 
 def _mock_beads_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monkey-patch get_beads_status_map to return None (skip beads in tests)."""
+    """Monkey-patch get_beads_snapshot to report bd unavailable (skip beads in tests)."""
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
 
 
@@ -147,8 +151,8 @@ def test_unclaimed_fleet_bead_appears_with_open_status(
         },
     }
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map",
-        MagicMock(return_value={"fleet-unclaimed": bead_info}),
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(return_value=BeadsSnapshot(map={"fleet-unclaimed": bead_info}, available=True)),
     )
 
     app = create_app()
@@ -263,7 +267,7 @@ def test_response_shape_is_correct(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     resp = _get(app, "/api/tasks")
     assert resp.status_code == 200
     data = resp.json()
-    assert list(data.keys()) == ["tasks"]
+    assert set(data.keys()) == {"tasks", "beads_available", "beads_error"}
     assert isinstance(data["tasks"], list)
 
     for task in data["tasks"]:

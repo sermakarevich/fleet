@@ -177,6 +177,10 @@ class TaskListResponse(BaseModel):
     """Envelope for GET /api/tasks."""
 
     tasks: list[TaskDetail]
+    # False when beads is unreachable (or the map is a stale last-known
+    # copy): non-closed statuses are "unknown", never raw task.json.
+    beads_available: bool = True
+    beads_error: str | None = None
 
 
 class TaskAttemptListResponse(BaseModel):
@@ -308,6 +312,9 @@ class SupervisorResponse(BaseModel):
     paused: bool
     version_fingerprint: str | None = None
     stale: bool | None = None
+    # False when beads is unreachable (map None or stale last-known copy).
+    beads_available: bool = True
+    beads_error: str | None = None
 
 
 class PauseResponse(BaseModel):
@@ -556,6 +563,10 @@ class AnalyticsSummary(BaseModel):
     heatmap: list[list[int]]
     errors_recent: list[AnalyticsErrorRecent]
     rate_limits: list[AnalyticsRateLimit]
+    # False when beads is unreachable: outcomes were decided from raw
+    # task.json statuses and may be stale.
+    beads_available: bool = True
+    beads_error: str | None = None
 
 
 class SearchHit(BaseModel):

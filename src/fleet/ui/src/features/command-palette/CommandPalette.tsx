@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { errorMessage } from '../../shared/api';
 import { Modal } from '../../shared/ui/Modal';
 import { usePauseSupervisor, useResumeSupervisor, useSearch } from '../../shared/hooks/useApi';
-import type { TaskSummary } from '../../shared/types';
+import type { TaskListResponse } from '../../shared/types';
 import * as T from '../../shared/styles/tokens';
 
 interface Props {
@@ -48,7 +48,7 @@ export function CommandPalette({ open, setOpen, onCreateWorker }: Props) {
     error: searchError,
   } = useSearch(debouncedQuery);
 
-  const cachedTasks = (qc.getQueryData<TaskSummary[]>(['tasks']) ?? []).filter(t =>
+  const cachedTasks = (qc.getQueryData<TaskListResponse>(['tasks'])?.tasks ?? []).filter(t =>
     !inputValue ||
     t.title?.toLowerCase().includes(inputValue.toLowerCase()) ||
     t.id.toLowerCase().includes(inputValue.toLowerCase()),

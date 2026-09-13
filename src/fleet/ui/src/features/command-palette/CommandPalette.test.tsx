@@ -40,7 +40,7 @@ function wrapper(seed: TaskSummary[]) {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    client.setQueryData(['tasks'], seed);
+    client.setQueryData(['tasks'], { tasks: seed, beads_available: true, beads_error: null });
     return (
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/workers']}>

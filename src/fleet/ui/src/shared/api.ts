@@ -20,7 +20,7 @@ import type {
   SupervisorStatus,
   TaskChildren,
   TaskDetail,
-  TaskSummary,
+  TaskListResponse,
   Template,
   TriggerDetail,
   TriggerInput,
@@ -151,9 +151,10 @@ function json(method: string, body: unknown): RequestInit {
 export const api = {
   // closedLimit maps to GET /api/tasks ?closed_limit=: the closed-task
   // window (core/limits.py CLOSED_TASKS_DEFAULT/MAX). Omitted → server default.
-  async getTasks(closedLimit?: number): Promise<TaskSummary[]> {
-    const result = await request<{ tasks: TaskSummary[] }>(`/api/tasks${qs({ closed_limit: closedLimit })}`);
-    return result.tasks;
+  // The envelope carries beads_available/beads_error: when beads is down,
+  // non-closed rows are "unknown" and the Runs tab banners the outage.
+  async getTasks(closedLimit?: number): Promise<TaskListResponse> {
+    return request<TaskListResponse>(`/api/tasks${qs({ closed_limit: closedLimit })}`);
   },
 
   getTask(id: string): Promise<TaskDetail> {

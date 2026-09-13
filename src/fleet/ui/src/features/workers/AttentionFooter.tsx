@@ -17,6 +17,8 @@ interface AttentionFooterProps {
   shown: number;
   /** Tasks matching the current filter. */
   total: number;
+  /** True while beads is down: task.json counts are stale, hide them. */
+  countsStale?: boolean;
 }
 
 // One footer item: a StatusDot-style dot + semibold tabular count + label.
@@ -54,7 +56,7 @@ function Item({
 
 // Slim sticky status line; null on narrow screens where the Runs list
 // already fills the viewport.
-export function AttentionFooter({ tasks, onSelectBlocked, shown, total }: AttentionFooterProps) {
+export function AttentionFooter({ tasks, onSelectBlocked, shown, total, countsStale }: AttentionFooterProps) {
   const navigate = useNavigate();
   const isNarrow = useIsMobile(480);
   const { data: summary } = useAnalyticsSummary(1);
@@ -62,7 +64,10 @@ export function AttentionFooter({ tasks, onSelectBlocked, shown, total }: Attent
 
   if (isNarrow) return null;
 
-  const blocked = tasks.filter((t) => t.status === 'blocked').length;
+  const blocked = countsStale ? 0 : tasks.filter((t) => t.status === 'blocked').length;
+  const blockedTitle = countsStale
+    ? 'beads unavailable — blocked count hidden'
+    : 'Blocked workers — filter the list';
   const rateLimited24h = summary?.rate_limits.length
     ?? summary?.kpis.rate_limited_tasks
     ?? 0;
@@ -70,7 +75,7 @@ export function AttentionFooter({ tasks, onSelectBlocked, shown, total }: Attent
 
   return (
     <div style={styles.footer} aria-label="Needs attention">
-      <Item label="blocked" count={blocked} activeColor={T.colors.amber} title="Blocked workers — filter the list" onClick={onSelectBlocked} />
+      <Item label="blocked" count={blocked} activeColor={T.colors.amber} title={blockedTitle} onClick={onSelectBlocked} />
       <Item label="rate-limited · 24h" count={rateLimited24h} activeColor={T.colors.warningFg} title="Rate-limit events in the last 24 hours" />
       <Item label="questions" count={pendingQuestions} activeColor={T.colors.link} title="Unanswered inbox questions — open inbox" onClick={() => navigate('/inbox')} />
       <span style={styles.showing}>Showing {shown} of {total} workers</span>
