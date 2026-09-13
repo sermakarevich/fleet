@@ -60,12 +60,15 @@ def decide(
     open_count: int,
     last_fired_at: datetime | None,
     now: datetime,
+    rendered_cwd: str | None = None,
 ) -> Decision:
     """Say whether `event` opens a task for `trigger`, or why it is skipped."""
     if not trigger.enabled:
         return Decision("skip", "disabled")
     if already_fired:
         return Decision("skip", f"already fired for {event.key}")
+    if trigger.cwd and (not rendered_cwd or "{{" in rendered_cwd):
+        return Decision("skip", "cwd template rendered empty")
     if open_count >= trigger.max_open:
         return Decision("skip", f"max_open {trigger.max_open} reached")
     if last_fired_at is not None and trigger.cooldown_sec > 0:
@@ -75,15 +78,17 @@ def decide(
     return Decision("open")
 
 
-def _metadata(trigger: Trigger, event: TriggerEvent, n: int) -> dict[str, Any]:
+def _metadata(
+    trigger: Trigger, event: TriggerEvent, n: int, *, cwd: str | None
+) -> dict[str, Any]:
     """Bead metadata mirroring `beads/create_args.py` fleet_* keys."""
     meta: dict[str, Any] = {
         "fleet_trigger_id": trigger.id,
         "fleet_trigger_event": event.key,
         "fleet_trigger_n": n,
     }
-    if trigger.cwd is not None:
-        meta["fleet_cwd"] = trigger.cwd
+    if cwd is not None:
+        meta["fleet_cwd"] = cwd
     if trigger.coder is not None:
         meta["fleet_coder"] = trigger.coder
     if trigger.model is not None:
@@ -93,10 +98,10 @@ def _metadata(trigger: Trigger, event: TriggerEvent, n: int) -> dict[str, Any]:
     return meta
 
 
-def _extra_args(trigger: Trigger, event: TriggerEvent, n: int) -> str:
+def _extra_args(trigger: Trigger, event: TriggerEvent, n: int, *, cwd: str | None) -> str:
     """Extra `bd create` args: priority, labels, and quoted metadata JSON."""
     labels = ",".join(["trigger:" + trigger.id, *trigger.labels])
-    metadata = shlex.quote(json.dumps(_metadata(trigger, event, n)))
+    metadata = shlex.quote(json.dumps(_metadata(trigger, event, n, cwd=cwd)))
     return f"-p {trigger.priority} -l {labels} --metadata {metadata}"
 
 
@@ -117,7 +122,7 @@ def open_task(
         cwd=cwd,
         coder=trigger.coder,
         model=trigger.model,
-        extra_args=_extra_args(trigger, event, firing_n),
+        extra_args=_extra_args(trigger, event, firing_n, cwd=cwd),
     )
     if trigger.isolation is not None:
         queue.set_overrides(
@@ -210,6 +215,10 @@ def _fire_one_trigger(  # noqa: PLR0913  # one tick, one call-site shape
     count = open_count(trigger, queue)
     last_at = _last_fired_at(store, trigger.id)
     for event in events:
+        n = store.firing_count(trigger.id) + 1
+        rendered_cwd = (
+            render(trigger.cwd, trigger=trigger, event=event, firing_n=n) if trigger.cwd else None
+        )
         decision = decide(
             trigger,
             event,
@@ -217,9 +226,12 @@ def _fire_one_trigger(  # noqa: PLR0913  # one tick, one call-site shape
             open_count=count,
             last_fired_at=last_at,
             now=now,
+            rendered_cwd=rendered_cwd,
         )
         if decision.action != "open":
-            if not decision.reason.startswith("already fired"):
+            if decision.reason == "cwd template rendered empty":
+                log.warning("trigger_skipped", trigger_id=trigger.id, reason=decision.reason)
+            elif not decision.reason.startswith("already fired"):
                 log.debug("trigger_skipped", trigger_id=trigger.id, reason=decision.reason)
             continue
         try:

@@ -22,6 +22,7 @@ from fleet.cli.errors import ExitCode, fail
 from fleet.coders import get_coder
 from fleet.triggers import firing as firing_mod
 from fleet.triggers.model import Trigger, new_id
+from fleet.triggers.render import render as render_template
 from fleet.triggers.sources import SOURCES, UnknownSource, source_for, source_params
 from fleet.triggers.sources.base import SourceContext
 from fleet.triggers.store import TriggerStore
@@ -359,6 +360,12 @@ def run_test(fleet_home: Path, now: datetime, trigger_id: str) -> None:
         typer.echo("No events.")
         return
     for event in events:
+        n = store.firing_count(trigger.id) + 1
+        rendered_cwd = (
+            render_template(trigger.cwd, trigger=trigger, event=event, firing_n=n)
+            if trigger.cwd
+            else None
+        )
         decision = firing_mod.decide(
             trigger,
             event,
@@ -366,6 +373,7 @@ def run_test(fleet_home: Path, now: datetime, trigger_id: str) -> None:
             open_count=count,
             last_fired_at=last_at,
             now=now,
+            rendered_cwd=rendered_cwd,
         )
         reason = decision.reason or "-"
         typer.echo(f"{event.key}: decide({decision.action}) {reason}")

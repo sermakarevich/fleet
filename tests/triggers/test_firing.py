@@ -149,6 +149,85 @@ def test_fire_opens_task_and_appends_row(tmp_path: Path) -> None:
     assert [f.n for f in store.firings(trigger.id)] == [2, 1]
 
 
+def test_fire_metadata_has_rendered_cwd(tmp_path: Path) -> None:
+    """`fleet_cwd` in the bead metadata is the rendered path, never the raw template."""
+    store = TriggerStore(tmp_path)
+    queue = FakeQueue()
+    trigger = _trigger(cwd="/repo/{{event.task_id}}")
+    store.save(trigger)
+
+    firing = fire(trigger, _event(key="k1"), store=store, queue=queue, now=NOW, fleet_home=tmp_path)
+    created = queue.created[0]
+    meta = _metadata_of(created["extra_args"])
+    assert meta["fleet_cwd"] == "/repo/task-1"
+    assert "{{" not in meta["fleet_cwd"]
+    assert created["cwd"] == "/repo/task-1"
+    _ = firing
+
+
+def test_decide_skips_when_cwd_renders_empty() -> None:
+    """A cwd template is set but renders empty (or unresolved) -> skip, no bead."""
+    trigger = _trigger(cwd="{{event.cwd}}")
+    event = _event(key="k")
+    got = decide(
+        trigger,
+        event,
+        already_fired=False,
+        open_count=0,
+        last_fired_at=None,
+        now=NOW,
+        rendered_cwd="",
+    )
+    assert (got.action, got.reason) == ("skip", "cwd template rendered empty")
+
+    got_unresolved = decide(
+        trigger,
+        event,
+        already_fired=False,
+        open_count=0,
+        last_fired_at=None,
+        now=NOW,
+        rendered_cwd="{{event.cwd}}",
+    )
+    assert (got_unresolved.action, got_unresolved.reason) == ("skip", "cwd template rendered empty")
+
+
+def test_decide_cwd_not_applicable_when_no_template() -> None:
+    """A trigger with no cwd template still fires (the rule does not apply)."""
+    trigger = _trigger()
+    event = _event(key="k")
+    got = decide(
+        trigger,
+        event,
+        already_fired=False,
+        open_count=0,
+        last_fired_at=None,
+        now=NOW,
+        rendered_cwd=None,
+    )
+    assert got.action == "open"
+
+
+def test_fire_due_skips_empty_cwd_and_logs_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An event whose payload lacks `cwd` renders the template empty; no bead opens."""
+    monkeypatch.setitem(SOURCES, "fake_src", _FakeSource)
+    _FakeSource.queued = [_event(key="k1", cwd="")]
+    store = TriggerStore(tmp_path)
+    store.save(_trigger(source="fake_src", cwd="{{event.cwd}}"))
+    queue = FakeQueue()
+    log = FakeLog()
+
+    fired = fire_due(store=store, queue=queue, fleet_home=tmp_path, now=NOW, log=log)
+    assert fired == []
+    assert queue.created == []
+    assert store.firings("trg-abc123") == []
+    warnings = log.events("warning", "trigger_skipped")
+    assert len(warnings) == 1
+    assert warnings[0]["reason"] == "cwd template rendered empty"
+
+
 def test_fire_isolation_sets_overrides(tmp_path: Path) -> None:
     """An isolated trigger persists its isolation through set_overrides."""
 
