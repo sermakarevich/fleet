@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from fleet.core.task import Task, TaskOutcome, TaskOutcomeRecord
-from fleet.orchestrator.reap import Reap, outcome_of, pop_finished
+from fleet.orchestrator.reap import Reap, bead_status, outcome_of, pop_finished
 from fleet.orchestrator.service import ServiceOrder
 from fleet.orchestrator.state import SupervisorState
 from tests.conftest import make_running_worker, make_supervisor
@@ -52,6 +52,36 @@ class _Recorder:
         self, st: SupervisorState, worker, outcome: TaskOutcomeRecord
     ) -> None:
         self.finished.append((worker, outcome))
+
+
+class _FlakyQueue(StubQueue):
+    """Fails `get` a fixed number of times before succeeding (or always)."""
+
+    def __init__(self, *, fail_times: int, status: str = "in_progress") -> None:
+        super().__init__(status=status)
+        self._fail_times = fail_times
+        self.calls = 0
+
+    def get(self, task_id: str) -> Task:
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise RuntimeError("bd show timed out")
+        return super().get(task_id)
+
+
+def test_bead_status_retries_once_on_transient_failure(tmp_path: Path) -> None:
+    """A single `bd show` failure is absorbed by the retry, not surfaced as None."""
+    queue = _FlakyQueue(fail_times=1, status="closed")
+    sup = make_supervisor(tmp_path, services=[], checks=[], queue=queue)
+    assert bead_status(sup.state, "t1") == "closed"
+    assert queue.calls == 2
+
+
+def test_bead_status_returns_none_when_persistently_unreadable(tmp_path: Path) -> None:
+    """Two failed reads leave the status genuinely unknown (None), not "closed"."""
+    queue = _FlakyQueue(fail_times=99)
+    sup = make_supervisor(tmp_path, services=[], checks=[], queue=queue)
+    assert bead_status(sup.state, "t1") is None
 
 
 def test_pop_finished_removes_worker(tmp_path: Path) -> None:

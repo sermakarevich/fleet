@@ -78,12 +78,19 @@ class RetryRule:
     # Extra knobs the five core fields cannot express:
     # release_reason_tmpl renders the RELEASE/NOOP/CLOSE reason, wait_for
     # computes RELEASE wait_sec from (record, rounds, now), bead_open restricts
-    # the row to open (True) or already-closed (False) beads, and
-    # default_reason fills {reason} when the record carries none.
+    # the row to open (True) or already-closed (False) beads (a row with
+    # bead_open set never matches when the status is unknown — see
+    # bead_status_unknown below), and default_reason fills {reason} when the
+    # record carries none.
     release_reason_tmpl: str = ""
     wait_for: Callable[[TaskOutcomeRecord, int, datetime], int | None] | None = None
     bead_open: bool | None = None
     default_reason: str = ""
+    # True restricts this row to the "bd show failed/timed out" case (caller
+    # passes bead_status=None). Used for a single dedicated fallback row so an
+    # unreadable status never falls through to the bead_open=False NOOP row,
+    # which would otherwise wrongly report "already closed on exit".
+    bead_status_unknown: bool = False
 
 
 def _has_close_reason(record: TaskOutcomeRecord) -> bool:
@@ -183,6 +190,13 @@ RETRY_TABLE: list[RetryRule] = [
         bead_open=True,
         action=Action.RELEASE,
         release_reason_tmpl="supervisor shutdown; re-queued",
+        wait_for=_wait_const(0),
+    ),
+    RetryRule(
+        None,
+        bead_status_unknown=True,
+        action=Action.RELEASE,
+        release_reason_tmpl="bead status unknown on exit (bd show failed/timed out); re-queued",
         wait_for=_wait_const(0),
     ),
     RetryRule(
@@ -374,14 +388,36 @@ def _reason_matches(match: ReasonMatch, record: TaskOutcomeRecord) -> bool:
 
 
 def _rule_matches(rule: RetryRule, record: TaskOutcomeRecord, bead_status: str | None) -> bool:
-    """True when *rule* is a candidate for *record* on a bead with *bead_status*."""
+    """True when *rule* is a candidate for *record* on a bead with *bead_status*.
+
+    ``bead_status is None`` means the read itself failed (bd show
+    errored/timed out), not that the bead is closed: it must not satisfy
+    either a ``bead_open=True`` row (needs a confirmed in_progress bead) or a
+    ``bead_open=False`` row (needs a confirmed non-in_progress bead). Only
+    the dedicated ``bead_status_unknown`` row may match it.
+    """
     if rule.outcome is not None and record.outcome != rule.outcome:
         return False
-    if rule.bead_open is True and bead_status != TaskStatus.IN_PROGRESS.value:
-        return False
-    if rule.bead_open is False and bead_status == TaskStatus.IN_PROGRESS.value:
+    if rule.bead_status_unknown:
+        return bead_status is None and _reason_matches(rule.reason_match, record)
+    if not _bead_open_compatible(rule.bead_open, bead_status):
         return False
     return _reason_matches(rule.reason_match, record)
+
+
+def _bead_open_compatible(bead_open: bool | None, bead_status: str | None) -> bool:
+    """True when *bead_open* is silent, or a confirmed *bead_status* satisfies it.
+
+    An unread status (``bead_status is None``) never satisfies a
+    ``bead_open=True`` or ``bead_open=False`` row: it is neither confirmed
+    in_progress nor confirmed non-in_progress.
+    """
+    if bead_open is None:
+        return True
+    if bead_status is None:
+        return False
+    is_in_progress = bead_status == TaskStatus.IN_PROGRESS.value
+    return is_in_progress if bead_open else not is_in_progress
 
 
 def _render(tmpl: str, rule: RetryRule, record: TaskOutcomeRecord, rounds: int) -> str:

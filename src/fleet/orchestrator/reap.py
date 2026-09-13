@@ -97,11 +97,21 @@ def outcome_of(fut: asyncio.Task) -> TaskOutcomeRecord:
 
 
 def bead_status(st: SupervisorState, task_id: str) -> str | None:
-    """Current bead status, or None when the queue lookup fails."""
-    try:
-        return st.queue.get(task_id).status
-    except Exception:
-        return None
+    """Current bead status, or None when the queue lookup fails twice.
+
+    `bd show` can take 10-80s under Dolt lock contention and simply time
+    out, which is not the same as the bead being closed. One retry absorbs
+    a transient lock; if it still fails, the caller must treat the status
+    as genuinely unknown (retry_policy's ``bead_status_unknown`` row), never
+    as "closed".
+    """
+    for _attempt in range(2):
+        try:
+            return st.queue.get(task_id).status
+        except Exception:
+            continue
+    st.log.bind(task_id=task_id).warning("task_exit_bead_status_unknown")
+    return None
 
 
 def read_live_result(task_dir: Path) -> WorkerResult | None:

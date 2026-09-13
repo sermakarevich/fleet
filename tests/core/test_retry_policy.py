@@ -168,6 +168,31 @@ def test_noop_when_bead_not_in_progress() -> None:
     )
 
 
+def test_unknown_bead_status_is_not_treated_as_closed() -> None:
+    """A SUCCESS with a close reason but an unreadable bead status (bd show
+    failed/timed out) must not be treated as "already closed on exit" — that
+    was the fleet-tqnfd bug: it must re-queue instead of silently NOOPing.
+    """
+    config = RuntimeConfig()
+    rec = _record(TaskOutcome.SUCCESS, close_reason="done")
+    decision = decide(rec, [], None, config)
+    assert decision.action != Action.NOOP
+    assert decision.action == Action.RELEASE
+    assert "unknown" in decision.reason
+
+
+def test_known_closed_bead_status_still_noops() -> None:
+    config = RuntimeConfig()
+    rec = _record(TaskOutcome.SUCCESS, close_reason="done")
+    assert decide(rec, [], "closed", config).action == Action.NOOP
+
+
+def test_known_in_progress_bead_status_still_closes() -> None:
+    config = RuntimeConfig()
+    rec = _record(TaskOutcome.SUCCESS, close_reason="done")
+    assert decide(rec, [], "in_progress", config).action == Action.CLOSE
+
+
 def test_rounds_for_history_countstrailing_streaks() -> None:
     history = _hist(("failure", "x"), ("failure", "x"), ("success", None))
     rounds = rounds_for_history(history)
