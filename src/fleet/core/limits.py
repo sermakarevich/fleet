@@ -79,9 +79,9 @@ SEARCH_LIMIT_MAX: int = 100
 # GET /api/analytics/summary trailing window: default 7 days, at most 365.
 ANALYTICS_DAYS_DEFAULT: int = 7
 ANALYTICS_DAYS_MAX: int = 365
-# Serve event-stream watcher: how often the task dirs are re-scanned
-# (see serve/event_stream.py::FileWatcher).
-SERVE_WATCH_INTERVAL_SEC: float = 0.2
+# Serve event-stream watcher: how often the active (in_progress) task dirs
+# are re-scanned (see serve/event_stream.py::FileWatcher).
+SERVE_WATCH_INTERVAL_SEC: float = 1.0
 # Serve question poller: idle tick between Telegram notify rounds, and the
 # backoff ceiling after repeated Telegram failures (see serve/app.py).
 QUESTION_POLL_SEC: float = 2.0
@@ -135,7 +135,7 @@ TUNABLE_DOCS: dict[str, str] = {
     "SEARCH_LIMIT_MAX": "Max hits per search request.",
     "ANALYTICS_DAYS_DEFAULT": "Default trailing window in days for analytics.",
     "ANALYTICS_DAYS_MAX": "Max trailing window in days for analytics.",
-    "SERVE_WATCH_INTERVAL_SEC": "Task-dir rescan cadence of the event watcher.",
+    "SERVE_WATCH_INTERVAL_SEC": "Active-task rescan cadence of the event watcher.",
     "QUESTION_POLL_SEC": "Idle tick between Telegram notify rounds.",
     "QUESTION_BACKOFF_MAX_SEC": "Backoff ceiling after Telegram failures.",
     "WS_REPLAY_LINES": "Replay window for in-progress tasks on serve restart.",

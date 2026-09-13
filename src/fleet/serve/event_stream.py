@@ -71,9 +71,9 @@ class WebSocketBroadcaster:
             await self.disconnect(ws)
 
 
-def _list_task_dirs(index: TaskIndex) -> list[Path]:
-    """Snapshot of task dirs (runs in a thread; walks tasks/)."""
-    return list(index.iter_dirs())
+def _active_task_dirs(index: TaskIndex) -> list[Path]:
+    """Task dirs whose task.json status is in_progress (runs in a thread)."""
+    return [task_dir for task_dir, raw in index.iter_meta() if raw.get("status") == "in_progress"]
 
 
 def _stat_size(path: Path) -> int | None:
@@ -98,21 +98,31 @@ class FileWatcher:
 
     mgr: WebSocketBroadcaster
     _tail_state: dict[str, _TailState] = field(default_factory=dict)
+    _inactive_streak: dict[str, int] = field(default_factory=dict)
 
     async def start(self, fleet_home: Path) -> None:
-        """Tail the latest attempt's events.jsonl for all task dirs until cancelled."""
+        """Tail the latest attempt's events.jsonl for in_progress task dirs until cancelled.
+
+        A task that has already fallen out of _tail_state's active set (just
+        finished) is tailed once more so its final events flush, then pruned.
+        """
         index = TaskIndex(fleet_home)
         while True:
             try:
-                task_dirs = await asyncio.to_thread(_list_task_dirs, index)
-                for task_dir in task_dirs:
+                active_dirs = await asyncio.to_thread(_active_task_dirs, index)
+                active_ids = {task_dir.name for task_dir in active_dirs}
+                tasks_dir = index.tasks_dir
+                stale_dirs = [
+                    tasks_dir / task_id for task_id in self._tail_state if task_id not in active_ids
+                ]
+                for task_dir in active_dirs + stale_dirs:
                     try:
                         await self._tail_task(task_dir)
                     except asyncio.CancelledError:
                         raise
                     except Exception:
                         logger.exception("watcher task error", extra={"task_id": task_dir.name})
-                await asyncio.to_thread(self._prune_stale, index.tasks_dir)
+                await asyncio.to_thread(self._prune_stale, active_ids)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -128,16 +138,20 @@ class FileWatcher:
         if events_file.exists():
             await self._tail_one(task_dir, task_dir.name, events_file)
 
-    def _prune_stale(self, tasks_dir: Path) -> None:
-        """Drop _tail_state entries whose task directory no longer exists."""
-        existing = (
-            {p.name for p in TaskIndex(tasks_dir.parent).iter_dirs()}
-            if tasks_dir.exists()
-            else set()
-        )
+    _PRUNE_AFTER_INACTIVE_CYCLES = 2
+
+    def _prune_stale(self, active_ids: set[str]) -> None:
+        """Drop _tail_state entries inactive (not in_progress) for 2 consecutive cycles."""
         for task_id in list(self._tail_state):
-            if task_id not in existing:
+            if task_id in active_ids:
+                self._inactive_streak.pop(task_id, None)
+                continue
+            streak = self._inactive_streak.get(task_id, 0) + 1
+            if streak >= self._PRUNE_AFTER_INACTIVE_CYCLES:
                 del self._tail_state[task_id]
+                self._inactive_streak.pop(task_id, None)
+            else:
+                self._inactive_streak[task_id] = streak
 
     async def _replay_tail(
         self, task_id: str, path: Path, tail_lines: int = WS_REPLAY_LINES

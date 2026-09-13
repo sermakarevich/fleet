@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -352,25 +353,83 @@ def test_replay_capped_at_50_lines(tmp_path: Path) -> None:
     assert last_payload["raw"]["seq"] == 59
 
 
-def test_prune_stale_removes_deleted_task_entry(tmp_path: Path) -> None:
-    """_prune_stale drops tail-state entries for task directories that no longer exist."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-
-    alive_dir = tasks_dir / "task-alive"
-    alive_dir.mkdir()
-    deleted_dir = tasks_dir / "task-deleted"
-    deleted_dir.mkdir()
-
+def test_prune_stale_removes_entry_after_two_inactive_cycles(tmp_path: Path) -> None:
+    """_prune_stale drops tail-state entries after 2 consecutive inactive cycles."""
     watcher = FileWatcher(WebSocketBroadcaster())
     watcher._tail_state["task-alive"] = _TailState(offset=0, path=Path("x"))
-    watcher._tail_state["task-deleted"] = _TailState(offset=0, path=Path("x"))
+    watcher._tail_state["task-finished"] = _TailState(offset=0, path=Path("x"))
 
-    deleted_dir.rmdir()
-    watcher._prune_stale(tasks_dir)
-
+    # Cycle 1: task-finished just fell out of the active set - kept (flush grace).
+    watcher._prune_stale({"task-alive"})
     assert "task-alive" in watcher._tail_state
-    assert "task-deleted" not in watcher._tail_state
+    assert "task-finished" in watcher._tail_state
+
+    # Cycle 2: still inactive - now pruned.
+    watcher._prune_stale({"task-alive"})
+    assert "task-alive" in watcher._tail_state
+    assert "task-finished" not in watcher._tail_state
+
+
+def test_prune_stale_resets_streak_when_active_again(tmp_path: Path) -> None:
+    """A task seen active again resets its inactive streak."""
+    watcher = FileWatcher(WebSocketBroadcaster())
+    watcher._tail_state["task-flappy"] = _TailState(offset=0, path=Path("x"))
+
+    watcher._prune_stale(set())
+    assert "task-flappy" in watcher._tail_state
+
+    watcher._prune_stale({"task-flappy"})
+    assert "task-flappy" in watcher._tail_state
+    assert watcher._inactive_streak.get("task-flappy", 0) == 0
+
+    watcher._prune_stale(set())
+    assert "task-flappy" in watcher._tail_state
+
+
+def test_start_cycle_only_tails_in_progress_task(tmp_path: Path) -> None:
+    """After one watcher cycle, only the in_progress task appears in _tail_state."""
+    fleet_home = tmp_path
+    tasks_dir = fleet_home / "tasks"
+    tasks_dir.mkdir()
+
+    closed_dir = tasks_dir / "task-closed"
+    closed_dir.mkdir()
+    (closed_dir / "task.json").write_text(json.dumps({"id": "task-closed", "status": "closed"}))
+    closed_attempt = closed_dir / "attempts" / "1"
+    closed_attempt.mkdir(parents=True)
+    (closed_attempt / "events.jsonl").touch()
+    (closed_dir / "attempts.jsonl").write_text(
+        json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}) + "\n"
+    )
+
+    running_dir = tasks_dir / "task-running"
+    running_dir.mkdir()
+    (running_dir / "task.json").write_text(
+        json.dumps({"id": "task-running", "status": "in_progress"})
+    )
+    running_attempt = running_dir / "attempts" / "1"
+    running_attempt.mkdir(parents=True)
+    (running_attempt / "events.jsonl").touch()
+    (running_dir / "attempts.jsonl").write_text(
+        json.dumps({"event": "start", "n": 1, "ts": "2026-01-01T00:00:00+00:00"}) + "\n"
+    )
+
+    mgr = MagicMock()
+    mgr.broadcast = AsyncMock()
+
+    watcher = FileWatcher(mgr)
+
+    async def _run_one_cycle() -> None:
+        task = asyncio.ensure_future(watcher.start(fleet_home))
+        await asyncio.sleep(0.5)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_run_one_cycle())
+
+    assert "task-running" in watcher._tail_state
+    assert "task-closed" not in watcher._tail_state
 
 
 def test_connection_manager_removes_disconnected_on_broadcast() -> None:

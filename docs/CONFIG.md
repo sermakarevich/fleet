@@ -126,7 +126,7 @@ runtime (unlike Settings, they need a code change + `fleet run restart`).
 | `SEARCH_LIMIT_MAX` | `100` | Max hits per search request. |
 | `ANALYTICS_DAYS_DEFAULT` | `7` | Default trailing window in days for analytics. |
 | `ANALYTICS_DAYS_MAX` | `365` | Max trailing window in days for analytics. |
-| `SERVE_WATCH_INTERVAL_SEC` | `0.2` | Task-dir rescan cadence of the event watcher. |
+| `SERVE_WATCH_INTERVAL_SEC` | `1.0` | Active-task rescan cadence of the event watcher. |
 | `QUESTION_POLL_SEC` | `2.0` | Idle tick between Telegram notify rounds. |
 | `QUESTION_BACKOFF_MAX_SEC` | `60.0` | Backoff ceiling after Telegram failures. |
 | `WS_REPLAY_LINES` | `50` | Replay window for in-progress tasks on serve restart. |
