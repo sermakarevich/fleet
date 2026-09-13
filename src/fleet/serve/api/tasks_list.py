@@ -8,8 +8,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from fleet.beads.client import BdError
-from fleet.beads.reconcile import merge_status
-from fleet.beads.status_cache import get_beads_status_map
+from fleet.beads.status_cache import get_beads_snapshot
 from fleet.coders import get_coder, list_coders
 from fleet.core.limits import CLOSED_TASKS_DEFAULT, CLOSED_TASKS_MAX
 from fleet.serve.api.artifact_files import read_templates
@@ -23,8 +22,8 @@ from fleet.serve.api.task_summary import (
     build_all_summaries,
     config_defaults,
     list_raw_tasks,
-    list_unclaimed_raw_tasks,
     recency_key,
+    reconcile_task_list,
 )
 from fleet.serve.auth import HTTP_AUTH
 from fleet.serve.errors import parse_json_body, unprocessable
@@ -40,22 +39,14 @@ async def list_tasks(
 ) -> JSONResponse:
     """List task summaries, active first then recently-closed (FR-07).
 
-    Fleet beads without a task dir yet (created via plain `bd create`)
-    appear as synthetic rows with `has_task_dir: false`; the GET handler
-    itself never writes a task dir.
+    Unclaimed fleet beads appear as synthetic rows (`has_task_dir: false`;
+    never written here). Without beads, non-closed task.json statuses are
+    "unknown"; the envelope carries `beads_available`/`beads_error`.
     """
     fleet_home = state.fleet_home
     raw_tasks = await asyncio.to_thread(list_raw_tasks, fleet_home)
-    beads_map = await asyncio.to_thread(get_beads_status_map, fleet_home)
-    if beads_map is not None:
-        known_ids = {str(r.get("id", "")) for r in raw_tasks}
-        raw_tasks = raw_tasks + list_unclaimed_raw_tasks(beads_map, known_ids)
-    reconciled = [
-        merge_status(raw, beads_map.get(raw.get("id", "")))
-        if beads_map is not None and raw.get("id", "")
-        else raw
-        for raw in raw_tasks
-    ]
+    snapshot = await asyncio.to_thread(get_beads_snapshot, fleet_home)
+    reconciled = reconcile_task_list(raw_tasks, snapshot)
     active = [d for d in reconciled if d.get("status") != "closed"]
     closed = [d for d in reconciled if d.get("status") == "closed"]
     closed.sort(key=recency_key, reverse=True)
@@ -66,12 +57,18 @@ async def list_tasks(
         build_all_summaries,
         active + closed,
         fleet_home,
-        beads_map,
+        snapshot.map,
         default_coder=default_coder,
         default_model=default_model,
     )
     summaries.sort(key=lambda s: recency_key(s) or "", reverse=True)
-    return JSONResponse({"tasks": summaries})
+    return JSONResponse(
+        {
+            "tasks": summaries,
+            "beads_available": snapshot.available,
+            "beads_error": snapshot.error,
+        }
+    )
 
 
 @router.get("/coders", response_model=CoderListResponse)

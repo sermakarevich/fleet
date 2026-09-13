@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from fleet.beads import status_cache as beads_info
+from fleet.beads.status_cache import BeadsSnapshot
 from fleet.serve.app import create_app
 from fleet.state import events as events_mod
 from fleet.state import runtime_stats as stats_mod
@@ -24,7 +25,10 @@ def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     _make_task_dir(tasks_root, "task-abc", "in_progress")
 
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
 
     app = create_app()
@@ -43,7 +47,9 @@ def test_tasks_list_returns_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     t = data["tasks"][0]
     assert t["id"] == "task-abc"
     assert t["title"] == "Task task-abc"
-    assert t["status"] == "in_progress"
+    assert t["status"] == "unknown"
+    assert data["beads_available"] is False
+    assert data["beads_error"] == "bd unavailable in tests"
     assert "elapsed_sec" in t
     assert "events" in t
 
@@ -55,7 +61,10 @@ def test_task_summary_includes_priority_and_depends_on(
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     tasks_root = tmp_path / "tasks"
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
     _make_task_dir(
         tasks_root,
@@ -88,7 +97,10 @@ def test_tasks_list_cache_hit_skips_rescan(tmp_path: Path, monkeypatch: pytest.M
     """Second GET /api/tasks poll does not re-scan unchanged events.jsonl."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cachecheck")
     event = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
@@ -128,7 +140,10 @@ def test_tasks_list_cache_invalidated_on_events_change(
     """Cache is invalidated when events.jsonl changes; events count reflects the update."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
     task_dir = _make_task_dir(tmp_path / "tasks", "task-cacheinv")
     ev1 = {"kind": "tool_use", "ts": "2024-01-01T00:00:00Z", "tool_name": "Read"}
@@ -259,17 +274,20 @@ def test_list_tasks_fills_missing_title_from_beads(
         json.dumps({"id": "task-notitle", "cwd": "/repo", "coder": "claude"})
     )
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map",
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
         MagicMock(
-            return_value={
-                "task-notitle": {
-                    "status": "open",
-                    "created_at": None,
-                    "priority": 2,
-                    "title": "From beads",
-                    "description": "Beads body",
-                }
-            }
+            return_value=BeadsSnapshot(
+                map={
+                    "task-notitle": {
+                        "status": "open",
+                        "created_at": None,
+                        "priority": 2,
+                        "title": "From beads",
+                        "description": "Beads body",
+                    }
+                },
+                available=True,
+            )
         ),
     )
     app = create_app()
@@ -329,7 +347,10 @@ def test_list_tasks_includes_block_and_retry_fields(
     )
 
     monkeypatch.setattr(
-        "fleet.serve.api.tasks_list.get_beads_status_map", MagicMock(return_value=None)
+        "fleet.serve.api.tasks_list.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
 
     app = create_app()

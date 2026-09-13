@@ -8,7 +8,7 @@
     "/api/tasks": {
       "get": {
         "summary": "List Tasks",
-        "description": "List task summaries, active first then recently-closed (FR-07).\n\nFleet beads without a task dir yet (created via plain `bd create`)\nappear as synthetic rows with `has_task_dir: false`; the GET handler\nitself never writes a task dir.",
+        "description": "List task summaries, active first then recently-closed (FR-07).\n\nUnclaimed fleet beads appear as synthetic rows (`has_task_dir: false`;\nnever written here). Without beads, non-closed task.json statuses are\n\"unknown\"; the envelope carries `beads_available`/`beads_error`.",
         "operationId": "list_tasks_api_tasks_get",
         "parameters": [
           {
@@ -3074,6 +3074,22 @@
             },
             "type": "array",
             "title": "Rate Limits"
+          },
+          "beads_available": {
+            "type": "boolean",
+            "title": "Beads Available",
+            "default": true
+          },
+          "beads_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beads Error"
           }
         },
         "type": "object",
@@ -5581,6 +5597,22 @@
               }
             ],
             "title": "Stale"
+          },
+          "beads_available": {
+            "type": "boolean",
+            "title": "Beads Available",
+            "default": true
+          },
+          "beads_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beads Error"
           }
         },
         "type": "object",
@@ -6337,6 +6369,22 @@
             },
             "type": "array",
             "title": "Tasks"
+          },
+          "beads_available": {
+            "type": "boolean",
+            "title": "Beads Available",
+            "default": true
+          },
+          "beads_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beads Error"
           }
         },
         "type": "object",

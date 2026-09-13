@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { ToastProvider } from '../../shared/contexts/ToastContext';
 import { api } from '../../shared/api';
-import type { AnalyticsSummary, ChatQuestion, EventTrigger, Schedule, TaskSummary } from '../../shared/types';
+import type { AnalyticsSummary, ChatQuestion, EventTrigger, Schedule, TaskListResponse, TaskSummary } from '../../shared/types';
 import { WorkersPage } from './WorkersPage';
 import { TaskIdRedirect, ScheduleIdRedirect } from '../../app/App';
 
@@ -130,8 +130,16 @@ function mockQuestions(n: number): { now: number; pending: ChatQuestion[] } {
   } as unknown as { now: number; pending: ChatQuestion[] };
 }
 
-function mockCommon(opts?: { tasks?: TaskSummary[]; schedules?: Schedule[]; questions?: number }) {
-  vi.spyOn(api, 'getTasks').mockResolvedValue(opts?.tasks ?? []);
+function mockTasks(tasks: TaskSummary[], beadsDown = false): TaskListResponse {
+  return {
+    tasks: tasks as unknown as TaskListResponse['tasks'],
+    beads_available: !beadsDown,
+    beads_error: beadsDown ? 'bd exploded' : null,
+  };
+}
+
+function mockCommon(opts?: { tasks?: TaskSummary[]; beadsDown?: boolean; schedules?: Schedule[]; questions?: number }) {
+  vi.spyOn(api, 'getTasks').mockResolvedValue(mockTasks(opts?.tasks ?? [], opts?.beadsDown));
   vi.spyOn(api, 'getSchedules').mockResolvedValue(opts?.schedules ?? []);
   vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
   vi.spyOn(api, 'getAnalyticsSummary').mockResolvedValue(mockSummary());
@@ -177,6 +185,17 @@ describe('WorkersPage Runs tab', () => {
     expect(screen.queryByText('title-w2')).not.toBeInTheDocument();
     // Counts live on the tabs once the queries settle: 2 workers polled.
     expect(screen.getByRole('tab', { name: /Runs/ })).toHaveTextContent('2');
+  });
+
+  it('banners a beads outage and hides the stale blocked count', async () => {
+    mockCommon({ tasks: [makeTask({ id: 'w1', status: 'unknown' })], beadsDown: true });
+    render(<WorkersPage />, { wrapper: wrapper(['/workers']) });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'beads unavailable: bd exploded — statuses may be stale',
+    );
+    // The footer blocked count is suppressed while beads is down.
+    expect(screen.getByTitle('beads unavailable — blocked count hidden')).toBeInTheDocument();
   });
 
   it('round-trips the status filter through the URL', async () => {
@@ -433,7 +452,7 @@ describe('legacy redirects', () => {
 
 describe('Runs history Load more', () => {
   function mockHistory(tasks: TaskSummary[]) {
-    const tasksSpy = vi.spyOn(api, 'getTasks').mockResolvedValue(tasks);
+    const tasksSpy = vi.spyOn(api, 'getTasks').mockResolvedValue(mockTasks(tasks));
     vi.spyOn(api, 'getSchedules').mockResolvedValue([]);
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
     vi.spyOn(api, 'getAnalyticsSummary').mockResolvedValue(mockSummary());

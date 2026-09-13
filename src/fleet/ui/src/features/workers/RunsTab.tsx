@@ -38,15 +38,21 @@ export function RunsTab() {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
 
   const [closedLimit, setClosedLimit] = useState<number | undefined>(undefined);
-  const { data: polledTasks, isLoading, error } = useTasks(closedLimit);
+  const { data: polled, isLoading, error } = useTasks(closedLimit);
   const { overlays, updateFromEvent } = useTasksState();
   const killTask = useKillTask();
+
+  // Beads is the source of truth for statuses: while it is unreachable
+  // the server reports non-closed rows as "unknown" and the tab banners
+  // the outage instead of trusting Running/Queued/Blocked counts.
+  const beadsDown = polled?.beads_available === false;
+  const beadsError = polled?.beads_error ?? 'unknown error';
 
   // Displayed list derives from the polled query plus live socket
   // overlays, so polls never discard updates that arrived between polls.
   const tasks = useMemo(
-    () => applyTaskOverlays(polledTasks ?? [], overlays),
-    [polledTasks, overlays],
+    () => applyTaskOverlays(polled?.tasks ?? [], overlays),
+    [polled, overlays],
   );
 
   useEventSocket<TasksSocketMessage>('/ws/events', ({ task_id: taskId, event }) => {
@@ -60,11 +66,15 @@ export function RunsTab() {
     totalPages,
     sortedFiltered,
     pageItems,
-    alertCounts,
+    alertCounts: liveAlertCounts,
     setFilter,
     setSearchQuery,
     setPage,
   } = useWorkerFilters(tasks);
+
+  // While beads is down the Running/Queued/Blocked counts would come from
+  // unreconciled task.json rows: suppress them (the banner says why).
+  const alertCounts = beadsDown ? {} : liveAlertCounts;
 
   useEffect(() => {
     setStoppingIds(prev => {
@@ -105,6 +115,11 @@ export function RunsTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
+      {beadsDown && (
+        <p role="alert" style={R.beadsDownBannerStyle()}>
+          beads unavailable: {beadsError} — statuses may be stale
+        </p>
+      )}
       <div style={R.topBarStyle()}>
         <FilterBar
           searchQuery={searchQuery}
@@ -174,6 +189,7 @@ export function RunsTab() {
         onSelectBlocked={() => setFilter('blocked')}
         shown={pageItems.length}
         total={sortedFiltered.length}
+        countsStale={beadsDown}
       />
     </div>
   );

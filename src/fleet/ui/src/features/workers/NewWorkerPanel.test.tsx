@@ -31,7 +31,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function mockLookups() {
   vi.spyOn(api, 'getCoders').mockResolvedValue({ coders: [] });
   vi.spyOn(api, 'getTemplates').mockResolvedValue({ templates: [] });
-  vi.spyOn(api, 'getTasks').mockResolvedValue([]);
+  vi.spyOn(api, 'getTasks').mockResolvedValue({ tasks: [], beads_available: true, beads_error: null });
   vi.spyOn(api, 'previewCron').mockResolvedValue({ valid: true, error: null, upcoming: [] });
 }
 

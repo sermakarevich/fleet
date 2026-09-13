@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from fleet.beads.status_cache import BeadsSnapshot
 from fleet.serve.analytics import records as records_mod
 from fleet.state import runtime_stats as stats_mod
 
@@ -72,10 +73,12 @@ def _make_attempt_dir(tmp_path: Path, task_id: str = "task-attempt") -> Path:
 
 
 def _patch_no_beads(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monkey-patch get_beads_status_map to return None (bd unavailable in tests)."""
+    """Monkey-patch get_beads_snapshot to report bd unavailable in tests."""
     monkeypatch.setattr(
-        "fleet.beads.status_cache.get_beads_status_map",
-        MagicMock(return_value=None),
+        "fleet.beads.status_cache.get_beads_snapshot",
+        MagicMock(
+            return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable in tests")
+        ),
     )
 
 

@@ -15,9 +15,9 @@ export interface paths {
          * List Tasks
          * @description List task summaries, active first then recently-closed (FR-07).
          *
-         *     Fleet beads without a task dir yet (created via plain `bd create`)
-         *     appear as synthetic rows with `has_task_dir: false`; the GET handler
-         *     itself never writes a task dir.
+         *     Unclaimed fleet beads appear as synthetic rows (`has_task_dir: false`;
+         *     never written here). Without beads, non-closed task.json statuses are
+         *     "unknown"; the envelope carries `beads_available`/`beads_error`.
          */
         get: operations["list_tasks_api_tasks_get"];
         put?: never;
@@ -1420,6 +1420,13 @@ export interface components {
             errors_recent: components["schemas"]["AnalyticsErrorRecent"][];
             /** Rate Limits */
             rate_limits: components["schemas"]["AnalyticsRateLimit"][];
+            /**
+             * Beads Available
+             * @default true
+             */
+            beads_available: boolean;
+            /** Beads Error */
+            beads_error?: string | null;
         };
         /**
          * AnalyticsThroughput
@@ -2344,6 +2351,13 @@ export interface components {
             version_fingerprint?: string | null;
             /** Stale */
             stale?: boolean | null;
+            /**
+             * Beads Available
+             * @default true
+             */
+            beads_available: boolean;
+            /** Beads Error */
+            beads_error?: string | null;
         };
         /**
          * TaskAttempt
@@ -2536,6 +2550,13 @@ export interface components {
         TaskListResponse: {
             /** Tasks */
             tasks: components["schemas"]["TaskDetail"][];
+            /**
+             * Beads Available
+             * @default true
+             */
+            beads_available: boolean;
+            /** Beads Error */
+            beads_error?: string | null;
         };
         /**
          * TaskResult

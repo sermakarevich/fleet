@@ -23,7 +23,7 @@ export function WorkersPage() {
   const { data: triggers, isLoading: triggersLoading } = useTriggers();
 
   const TABS = [
-    { id: 'runs', label: 'Runs', count: tasksLoading ? undefined : polledTasks?.length },
+    { id: 'runs', label: 'Runs', count: tasksLoading ? undefined : polledTasks?.tasks.length },
     { id: 'scheduled', label: 'Scheduled', count: schedulesLoading ? undefined : taskSchedules?.length },
     { id: 'triggered', label: 'Triggered', count: triggersLoading ? undefined : triggers?.length },
   ];

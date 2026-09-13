@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from fleet.beads.status_cache import BeadsSnapshot
 from fleet.serve.analytics import records as records_mod
 from fleet.serve.analytics.summary import compute_summary
 from tests.serve.analytics.fixture_home import build_fixture_home
@@ -26,7 +27,10 @@ def test_summary_matches_recorded_snapshot(tmp_path: Path) -> None:
     """compute_summary(fleet_home, 0) equals the recorded fixture output."""
     records_mod._events_cache.clear()
     build_fixture_home(tmp_path)
-    with patch("fleet.beads.status_cache.get_beads_status_map", MagicMock(return_value=None)):
+    with patch(
+        "fleet.beads.status_cache.get_beads_snapshot",
+        MagicMock(return_value=BeadsSnapshot(map=None, available=False, error="bd unavailable")),
+    ):
         actual = compute_summary(tmp_path, 0)
     expected = json.loads(_SNAPSHOT.read_text("utf-8"))
     assert actual == expected
@@ -47,6 +51,8 @@ def test_snapshot_fixture_has_every_section() -> None:
         "heatmap",
         "errors_recent",
         "rate_limits",
+        "beads_available",
+        "beads_error",
     }
     assert len(expected["heatmap"]) == 7
     assert pytest.approx(expected["kpis"]["success_rate"]) == 0.6

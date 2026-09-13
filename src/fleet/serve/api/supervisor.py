@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from fleet.beads.status_cache import get_beads_snapshot
 from fleet.core.process import pid_alive
 from fleet.observability.daemon import restart, supervisor_spec
 from fleet.observability.pidfile import read as read_pid_record
@@ -53,6 +54,7 @@ def _supervisor_snapshot() -> dict:
     active_count = _count_active(fleet_home) if running else 0
     paused = (fleet_home / ".pause").exists()
     max_concurrent = config.max_concurrent
+    beads = get_beads_snapshot(fleet_home)
     return {
         "pid": svc.pid,
         "started_at": svc.since,
@@ -63,6 +65,8 @@ def _supervisor_snapshot() -> dict:
         "paused": paused,
         "version_fingerprint": svc.fingerprint,
         "stale": svc.stale,
+        "beads_available": beads.available,
+        "beads_error": beads.error,
     }
 
 
