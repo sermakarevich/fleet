@@ -75,6 +75,31 @@ def test_gc_days_zero_disables(tmp_path: Path) -> None:
     assert (tmp_path / "tasks" / "fleet-old").is_dir()
 
 
+def test_gc_beads_map_says_closed_archives(tmp_path: Path) -> None:
+    """task.json is stale (in_progress) but beads reports the bead closed."""
+    _make_task(tmp_path, "fleet-stale", "in_progress", old=True)
+    result = plan_gc(tmp_path, days=30, beads_map={"fleet-stale": {"status": "closed"}})
+    assert result.archived == ["fleet-stale"]
+    assert result.closed_from_beads == 1
+
+
+def test_gc_beads_map_absent_bead_archives(tmp_path: Path) -> None:
+    """Bead missing from the map entirely is treated as closed."""
+    _make_task(tmp_path, "fleet-gone", "in_progress", old=True)
+    result = plan_gc(tmp_path, days=30, beads_map={})
+    assert result.archived == ["fleet-gone"]
+    assert result.closed_from_beads == 1
+
+
+def test_gc_beads_map_none_falls_back_to_task_json(tmp_path: Path) -> None:
+    """bd unavailable: stale in_progress task.json is not archived."""
+    _make_task(tmp_path, "fleet-stale", "in_progress", old=True)
+    result = plan_gc(tmp_path, days=30, beads_map=None)
+    assert result.archived == []
+    assert result.skipped == 1
+    assert result.closed_from_beads == 0
+
+
 def _make_archive(fleet_home: Path, name: str, old: bool, age_days: int = 40) -> Path:
     d = fleet_home / "archive" / "tasks" / name
     d.mkdir(parents=True, exist_ok=True)

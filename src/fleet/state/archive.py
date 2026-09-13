@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from fleet.beads.reconcile import merge_status
 from fleet.core.task import TaskStatus
 from fleet.state.paths import tasks_root
 from fleet.state.task_index import TaskIndex
@@ -18,6 +19,7 @@ class GcResult:
     archived: list[str]
     skipped: int
     bytes_moved: int
+    closed_from_beads: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,28 +40,43 @@ def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-def plan_gc(fleet_home: Path, days: int = 30) -> GcResult:
-    """Select closed task dirs older than *days* for archiving (no moves)."""
+def plan_gc(
+    fleet_home: Path, days: int = 30, beads_map: dict[str, dict] | None = None
+) -> GcResult:
+    """Select closed task dirs older than *days* for archiving (no moves).
+
+    Status is resolved via :func:`fleet.beads.reconcile.merge_status` against
+    *beads_map* (beads is the source of truth; a task id absent from the map
+    is treated as closed). When *beads_map* is None (bd unavailable), status
+    falls back to the raw ``task.json`` value only, so GC never archives
+    because bd was down.
+    """
     tasks_dir = tasks_root(fleet_home)
     archived: list[str] = []
     skipped = 0
     bytes_moved = 0
+    closed_from_beads = 0
     if days <= 0:
         return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
     cutoff = time.time() - days * 86400
     if not tasks_dir.is_dir():
         return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
-    for task_dir, _raw in TaskIndex(fleet_home).iter_meta():
-        meta = TaskMeta.load(task_dir)
-        if meta is None:
+    for task_dir, raw in TaskIndex(fleet_home).iter_meta():
+        resolved = merge_status(raw, beads_map.get(task_dir.name)) if beads_map is not None else raw
+        raw_status = resolved.get("status")
+        if raw_status != TaskStatus.CLOSED.value or task_dir.stat().st_mtime > cutoff:
             skipped += 1
             continue
-        if meta.status != TaskStatus.CLOSED.value or task_dir.stat().st_mtime > cutoff:
-            skipped += 1
-            continue
+        if beads_map is not None and raw.get("status") != TaskStatus.CLOSED.value:
+            closed_from_beads += 1
         archived.append(task_dir.name)
         bytes_moved += _dir_size(task_dir)
-    return GcResult(archived=archived, skipped=skipped, bytes_moved=bytes_moved)
+    return GcResult(
+        archived=archived,
+        skipped=skipped,
+        bytes_moved=bytes_moved,
+        closed_from_beads=closed_from_beads,
+    )
 
 
 def apply_gc(fleet_home: Path, plan: GcResult) -> GcResult:
@@ -69,6 +86,9 @@ def apply_gc(fleet_home: Path, plan: GcResult) -> GcResult:
     for name in plan.archived:
         task_dir = tasks_dir / name
         if task_dir.is_dir():
+            meta = TaskMeta.load(task_dir) or TaskMeta(id=name)
+            meta.status = TaskStatus.CLOSED.value
+            meta.save(task_dir)
             archive_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(task_dir), str(archive_dir / name))
     return plan

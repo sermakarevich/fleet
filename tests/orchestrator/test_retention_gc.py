@@ -8,6 +8,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from fleet.core.limits import GC_INTERVAL_SEC
 from fleet.orchestrator.retention_gc import (
     make_retention_gc,
@@ -18,6 +20,16 @@ from fleet.orchestrator.retention_gc import (
 from tests.conftest import make_supervisor
 
 OLD = time.time() - 40 * 86400
+
+
+@pytest.fixture(autouse=True)
+def _no_real_bd_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never shell out to the real `bd` binary from these tests.
+
+    Beads is unavailable in the test fleet_home, so get_beads_status_map
+    returns None and plan_gc falls back to raw task.json status.
+    """
+    monkeypatch.setattr("fleet.orchestrator.retention_gc.get_beads_status_map", lambda _home: None)
 
 
 def _make_task(fleet_home: Path, task_id: str, status: str, old: bool) -> Path:

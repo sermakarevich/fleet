@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 from typing import TYPE_CHECKING
 
+from fleet.beads.status_cache import get_beads_status_map
 from fleet.core.limits import GC_INTERVAL_SEC
 from fleet.orchestrator.service import PeriodicService, ServiceOrder
 from fleet.state.archive import apply_gc, apply_purge, find_stale_worktrees, plan_gc, plan_purge
@@ -45,12 +46,16 @@ def retention_gc_pass(st: SupervisorState) -> None:
         log.warning("retention_worktrees_failed", error=str(exc))
         stale = []
     try:
-        gc = apply_gc(fleet_home, plan_gc(fleet_home, days=st.config.gc_retention_days))
+        beads_map = get_beads_status_map(fleet_home)
+        gc = apply_gc(
+            fleet_home, plan_gc(fleet_home, days=st.config.gc_retention_days, beads_map=beads_map)
+        )
         log.info(
             "retention_gc_tasks",
             archived=len(gc.archived),
             skipped=gc.skipped,
             bytes_moved=gc.bytes_moved,
+            closed_from_beads=gc.closed_from_beads,
         )
     except Exception as exc:  # noqa: BLE001 - one bad step, rest continue
         log.warning("retention_gc_tasks_failed", error=str(exc))
