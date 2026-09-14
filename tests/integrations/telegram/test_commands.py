@@ -9,9 +9,10 @@ touched by the answer flow, which test_listener.py covers.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -39,13 +40,19 @@ class FakeApi(TelegramApi):
         return 1
 
 
-def _env(tmp_path: Path, queue: Any, api: FakeApi) -> CommandEnv:
+def _env(
+    tmp_path: Path,
+    queue: Any,
+    api: FakeApi,
+    start_workflow: Callable[[str, dict[str, str]], Awaitable[str]] | None = None,
+) -> CommandEnv:
     """CommandEnv with a static allowlist and fresh reply routing."""
     return CommandEnv(
         queue=queue,
         messages=MessageStore(tmp_path / "qmsgs.json"),
         allowed_ids=lambda: {"123"},
         default_cwd=lambda: None,
+        start_workflow=start_workflow,
     )
 
 
@@ -106,7 +113,15 @@ def test_command_dispatch_table(
 
 def test_commands_registry_lists_every_command() -> None:
     """COMMANDS has one row per supported command, nothing more."""
-    assert set(COMMANDS) == {"/new_task", "/tasks", "/task", "/help", "/start"}
+    assert set(COMMANDS) == {
+        "/new_task",
+        "/tasks",
+        "/task",
+        "/help",
+        "/start",
+        "/workflow",
+        "/summary",
+    }
 
 
 def test_new_task_create_args(tmp_path: Path) -> None:
@@ -115,3 +130,81 @@ def test_new_task_create_args(tmp_path: Path) -> None:
     queue = _queue("created")
     asyncio.run(_env(tmp_path, queue, api).dispatch(api, MagicMock(), _update("/new_task T\nD")))
     queue.create_task.assert_called_once_with("T", "D", None, None, None)
+
+
+def _run(tmp_path: Path, text: str, starter: Any) -> FakeApi:
+    """Dispatch one message with the given starter; return the sent replies."""
+    api = FakeApi()
+    env = _env(tmp_path, _queue("blank"), api, starter)
+    asyncio.run(env.dispatch(api, MagicMock(), _update(text)))
+    return api
+
+
+def test_summary_starts_summary_get(tmp_path: Path) -> None:
+    """/summary <url> starts summary_get with the url and replies its result."""
+    starter = AsyncMock(return_value="Started summary_get run r1: 2 steps, first task t1")
+    api = _run(tmp_path, "/summary https://e.com/a", starter)
+    starter.assert_awaited_once_with("summary_get", {"url": "https://e.com/a"})
+    assert len(api.sent) == 1
+    assert api.sent[0][1] == "Started summary_get run r1: 2 steps, first task t1"
+
+
+def test_summary_without_url_is_usage(tmp_path: Path) -> None:
+    """/summary with no url replies usage and never calls the starter."""
+    starter = AsyncMock(return_value="never")
+    api = _run(tmp_path, "/summary", starter)
+    starter.assert_not_called()
+    assert len(api.sent) == 1
+    assert "Usage: /summary <url>" in api.sent[0][1]
+
+
+def test_summary_bad_url_is_usage(tmp_path: Path) -> None:
+    """/summary with a non-http url replies usage and never calls the starter."""
+    starter = AsyncMock(return_value="never")
+    api = _run(tmp_path, "/summary notaurl", starter)
+    starter.assert_not_called()
+    assert len(api.sent) == 1
+    assert "Usage: /summary <url>" in api.sent[0][1]
+
+
+def test_workflow_parses_inputs(tmp_path: Path) -> None:
+    """/workflow passes the name plus key=value inputs to the starter."""
+    starter = AsyncMock(return_value="Started summary_get run r1: 1 steps, first task t1")
+    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a chunk_chars=8000", starter)
+    starter.assert_awaited_once_with(
+        "summary_get", {"url": "https://e.com/a", "chunk_chars": "8000"}
+    )
+    assert len(api.sent) == 1
+    assert "Started summary_get" in api.sent[0][1]
+
+
+def test_workflow_bad_token_is_usage(tmp_path: Path) -> None:
+    """/workflow with a token missing `=` replies usage."""
+    starter = AsyncMock(return_value="never")
+    api = _run(tmp_path, "/workflow x bad", starter)
+    starter.assert_not_called()
+    assert len(api.sent) == 1
+    assert "Usage: /workflow <name> key=value ..." in api.sent[0][1]
+
+
+def test_workflow_unavailable_without_starter(tmp_path: Path) -> None:
+    """No injected starter means a not-available reply."""
+    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a", None)
+    assert len(api.sent) == 1
+    assert api.sent[0][1] == "Workflows are not available on this server."
+
+
+def test_summary_unavailable_without_starter(tmp_path: Path) -> None:
+    """No injected starter means a not-available reply for /summary too."""
+    api = _run(tmp_path, "/summary https://e.com/a", None)
+    assert len(api.sent) == 1
+    assert api.sent[0][1] == "Workflows are not available on this server."
+
+
+def test_workflow_starter_error_replies_could_not_start(tmp_path: Path) -> None:
+    """A raising starter surfaces as `Could not start <name>: <exc>`."""
+    starter = AsyncMock(side_effect=ValueError("nope"))
+    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a", starter)
+    assert len(api.sent) == 1
+    assert "Could not start" in api.sent[0][1]
+    assert "nope" in api.sent[0][1]

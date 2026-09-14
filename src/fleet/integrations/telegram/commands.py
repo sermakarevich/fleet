@@ -10,7 +10,7 @@ the CommandEnv with queue, reply routing and config providers.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +30,8 @@ HELP_TEXT = (
     "following lines become the description)\n"
     "/tasks - list open tasks\n"
     "/task <id> - show task details\n"
+    "/workflow <name> key=value… — start a saved workflow\n"
+    "/summary <url> — summarize a URL into the knowledge base (summary_get workflow)\n"
     "/help - show this help\n"
     "\nReply to a question message to answer it; "
     "with exactly one pending question a plain message answers it directly."
@@ -52,6 +54,7 @@ class CommandContext:
     chat_id: str
     text: str
     message: dict
+    start_workflow: Callable[[str, dict[str, str]], Awaitable[str]] | None = None
 
 
 @dataclass
@@ -62,6 +65,7 @@ class CommandEnv:
     messages: MessageStore
     allowed_ids: Callable[[], set[str]]
     default_cwd: Callable[[], str | None]
+    start_workflow: Callable[[str, dict[str, str]], Awaitable[str]] | None = None
 
     def is_allowed(self, update: dict, allowed: set[str]) -> bool:
         """True when the update's sender or chat is on the allowlist."""
@@ -73,7 +77,15 @@ class CommandEnv:
         text = msg.get("text") or ""
         chat_id = str((msg.get("chat") or {}).get("id", ""))
         ctx = CommandContext(
-            api, store, self.queue, self.messages, self.default_cwd(), chat_id, text, msg
+            api,
+            store,
+            self.queue,
+            self.messages,
+            self.default_cwd(),
+            chat_id,
+            text,
+            msg,
+            self.start_workflow,
         )
         stripped = text.strip()
         if stripped.startswith("/"):
@@ -254,10 +266,69 @@ async def handle_help(ctx: CommandContext) -> None:
         await ctx.api.send(ctx.chat_id, HELP_TEXT)
 
 
+async def handle_workflow(ctx: CommandContext) -> None:
+    """`/workflow <name> key=value ...` starts a saved workflow with inputs."""
+    if not ctx.chat_id:
+        return
+    parts = ctx.text.strip().split()
+    if len(parts) <= 1:
+        await ctx.api.send(ctx.chat_id, "Usage: /workflow <name> key=value ...")
+        return
+    name = parts[1]
+    inputs: dict[str, str] = {}
+    for token in parts[2:]:
+        if "=" not in token:
+            await ctx.api.send(ctx.chat_id, "Usage: /workflow <name> key=value ...")
+            return
+        key, _, value = token.partition("=")
+        inputs[key] = value
+    if ctx.start_workflow is None:
+        await ctx.api.send(ctx.chat_id, "Workflows are not available on this server.")
+        return
+    try:
+        reply = await ctx.start_workflow(name, inputs)
+    except Exception as exc:
+        await ctx.api.send(ctx.chat_id, f"Could not start {name}: {exc}")
+        return
+    await ctx.api.send(ctx.chat_id, reply)
+
+
+async def handle_summary(ctx: CommandContext) -> None:
+    """`/summary <url> [chunk_chars=N]` is sugar for `/workflow summary_get url=<url>`."""
+    if not ctx.chat_id:
+        return
+    parts = ctx.text.strip().split()
+    args = parts[1:]
+    url: str | None = args[0] if args else None
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        await ctx.api.send(ctx.chat_id, "Usage: /summary <url>")
+        return
+    inputs: dict[str, str] = {"url": url}
+    for token in args[1:]:
+        key, sep, value = token.partition("=")
+        if sep and key == "chunk_chars":
+            inputs[key] = value
+        elif "=" not in token:
+            continue
+        else:
+            inputs[key] = value
+    if ctx.start_workflow is None:
+        await ctx.api.send(ctx.chat_id, "Workflows are not available on this server.")
+        return
+    try:
+        reply = await ctx.start_workflow("summary_get", inputs)
+    except Exception as exc:
+        await ctx.api.send(ctx.chat_id, f"Could not start summary_get: {exc}")
+        return
+    await ctx.api.send(ctx.chat_id, reply)
+
+
 COMMANDS: dict[str, Handler] = {
     "/new_task": handle_new_task,
     "/tasks": handle_tasks,
     "/task": handle_task,
     "/help": handle_help,
     "/start": handle_help,
+    "/workflow": handle_workflow,
+    "/summary": handle_summary,
 }

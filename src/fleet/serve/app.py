@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from starlette.types import Scope
 
 import fleet.integrations.telegram.notify as tg_notify
 from fleet.beads.queue import Queue
+from fleet.core.errors import WorkflowInvalid
 from fleet.core.limits import QUESTION_BACKOFF_MAX_SEC, QUESTION_POLL_SEC
 from fleet.integrations.telegram.api import TelegramApi
 from fleet.integrations.telegram.commands import CommandEnv, parse_allowed_ids
@@ -28,6 +30,8 @@ from fleet.serve.api import ROUTERS
 from fleet.serve.errors import register_error_handlers
 from fleet.serve.state import AppState, build_state, refresh_config
 from fleet.state.paths import fleet_home
+from fleet.workflows.model import Trigger
+from fleet.workflows.runs import start_run
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +126,32 @@ async def _question_poller(
             delay = min(delay * 2, QUESTION_BACKOFF_MAX_SEC)
 
 
+def _workflow_starter(state: AppState) -> Callable[[str, dict[str, str]], Awaitable[str]]:
+    """Start a saved workflow by name for the Telegram listener (runs in a thread)."""
+
+    async def _start(name: str, inputs: dict[str, str]) -> str:
+        workflow = state.workflow_store.get_by_name(name)
+        if workflow is None:
+            raise ValueError(f"workflow {name!r} is not imported (fleet workflow import <file>)")
+        try:
+            run = await asyncio.to_thread(
+                start_run,
+                workflow,
+                store=state.workflow_store,
+                queue=state.queue,
+                now=datetime.now(UTC),
+                trigger=Trigger.manual,
+                inputs=inputs,
+            )
+        except WorkflowInvalid as exc:
+            raise ValueError("; ".join(exc.problems)) from exc
+        steps = state.workflow_store.step_runs(run.id)
+        first = steps[0].task_id if steps else "-"
+        return f"Started {name} run {run.id}: {len(steps)} steps, first task {first}"
+
+    return _start
+
+
 def _command_env(state: AppState) -> CommandEnv:
     """Handler dependencies for the inbound listener, read live from state."""
     return CommandEnv(
@@ -131,6 +161,7 @@ def _command_env(state: AppState) -> CommandEnv:
             state.config.telegram_allowed_ids if state.config else ""
         ),
         default_cwd=lambda: (state.config.telegram_default_cwd if state.config else "") or None,
+        start_workflow=_workflow_starter(state),
     )
 
 
