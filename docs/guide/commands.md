@@ -168,6 +168,17 @@ The same workflows are visible in the web UI under the **Workflows** tab
 sub-tab (`fleet schedule create --workflow <id|name> ...`). Definitions and run
 history live in `~/.fleet/workflows.db` (SQLite). See ADR 0008.
 
+A workflow may name a `builder:` instead of saving `stages:` — a builder
+expands the saved definition into concrete stages at run start (see ADR 0013).
+`fleet workflow show` prints `builder:` for such workflows, and `fleet workflow
+show --yaml` round-trips it. The only builder today is `summary_get`
+(`docs/workflows/summary-get.yaml`): import it with
+`fleet workflow import docs/workflows/summary-get.yaml`, then run
+`fleet workflow run summary_get --input url=<url>` to summarize a YouTube
+video, X/Twitter thread, arXiv/PDF, or article page into an LLM-wiki folder in
+the knowledge base (one wiki-page step per chunk, then digest/summary,
+explainer/questions/critical-thinking/connections, and index).
+
 ### `fleet bd <args...>`
 
 Forwards arguments verbatim to the `bd` CLI, executed inside `$FLEET_HOME`.

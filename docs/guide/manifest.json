@@ -133,6 +133,12 @@
       "file": "docs/adr/0009-ui-information-architecture.md"
     },
     {
+      "slug": "adr-0010-beads-dolt-server-mode",
+      "title": "ADR 0010: beads Dolt server mode to remove per-process lock contention",
+      "section": "Internals",
+      "file": "docs/adr/0010-beads-dolt-server-mode.md"
+    },
+    {
       "slug": "adr-0010",
       "title": "ADR 0010: Workflow run inputs, step isolation, and step outputs",
       "section": "Internals",
@@ -149,6 +155,12 @@
       "title": "ADR 0012: Never serve stale task.json statuses silently when beads is unavailable",
       "section": "Internals",
       "file": "docs/adr/0012-beads-unavailable-statuses.md"
+    },
+    {
+      "slug": "adr-0013",
+      "title": "ADR 0013: Workflow builders — expand a saved definition into stages at run start",
+      "section": "Internals",
+      "file": "docs/adr/0013-workflow-builders.md"
     }
   ]
 }

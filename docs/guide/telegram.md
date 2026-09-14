@@ -81,7 +81,7 @@ fleet config set telegram_chat_id=-1001234567890
 
 ## Inbound task creation from Telegram
 
-Fleet can receive commands from Telegram to create and inspect tasks — no web UI needed, no public URL or webhook required (long polling is used). Four commands are supported: `/new_task` creates a task, `/tasks` lists open tasks, `/task <id>` shows details for one task, and `/help` (or `/start`) shows command usage.
+Fleet can receive commands from Telegram to create and inspect tasks — no web UI needed, no public URL or webhook required (long polling is used). Six commands are supported: `/new_task` creates a task, `/tasks` lists open tasks, `/task <id>` shows details for one task, `/workflow` starts a saved workflow, `/summary` summarizes a source into the knowledge base, and `/help` (or `/start`) shows command usage.
 
 **This feature is off by default.** Until `telegram_allowed_ids` is set, the listener runs but accepts no commands.
 
@@ -151,6 +151,39 @@ Title: <title>
 
 If the task ID is not found, Fleet suggests using `/new_task` to create one.
 
+#### `/workflow <name> key=value… — start a saved workflow`
+
+```
+/workflow <name> key=value…
+```
+
+Starts a saved workflow (see `fleet workflow`) with the given inputs. Each
+extra token must be `key=value` (for example
+`/workflow summary_get url=https://example.com/a chunk_chars=8000`). Fleet
+replies with the run id and step count, for example
+`Started summary_get run <id>: N steps, first task <id>`. Unknown workflow
+names and validation problems are reported back as `Could not start <name>: …`.
+The workflow must already be imported on the server.
+
+#### `/summary <url> — summarize a source into the knowledge base`
+
+```
+/summary <url> [chunk_chars=N]
+```
+
+Shorthand for `/workflow summary_get url=<url>`: summarizes a YouTube video,
+X/Twitter thread, arXiv/PDF, or article page into an LLM-wiki folder in the
+knowledge base via the `summary_get` workflow builder. Prerequisite on the
+server:
+
+```bash
+fleet workflow import docs/workflows/summary-get.yaml
+```
+
+On success Fleet replies with the same run format:
+`Started summary_get run <id>: N steps, first task <id>`. The URL must start
+with `http://` or `https://`, otherwise Fleet replies `Usage: /summary <url>`.
+
 #### `/help` — show command usage
 
 ```
@@ -158,6 +191,15 @@ If the task ID is not found, Fleet suggests using `/new_task` to create one.
 ```
 
 Fleet replies with a summary of all available commands and the answer flow. Telegram clients send `/start` automatically when a user first opens the bot — Fleet treats `/start` as an alias for `/help` and replies with the same message.
+
+```
+/new_task <title> - create a task
+/tasks - list open tasks
+/task <id> - show task details
+/workflow <name> key=value… — start a saved workflow
+/summary <url> — summarize a URL into the knowledge base (summary_get workflow)
+/help - show this help
+```
 
 ### Step 1 — Find your numeric Telegram user ID
 
