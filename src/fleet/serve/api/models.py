@@ -849,6 +849,7 @@ class WorkflowRequest(BaseModel):
     description: str = ""
     defaults: WorkflowDefaultsModel = Field(default_factory=WorkflowDefaultsModel)
     inputs: list[WorkflowInputModel] = Field(default_factory=list)
+    builder: str | None = None
     stages: list[StageRequest] = Field(default_factory=list)
 
 
@@ -891,6 +892,7 @@ class WorkflowView(BaseModel):
     description: str
     defaults: WorkflowDefaultsModel
     inputs: list[WorkflowInputModel] = Field(default_factory=list)
+    builder: str | None = None
     stages: list[StageRequest]
     step_count: int
     stage_count: int

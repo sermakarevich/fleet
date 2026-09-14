@@ -112,6 +112,7 @@ def _workflow_from_request(
             isolation=req.defaults.isolation,
         ),
         inputs=tuple(_input_from_request(item) for item in req.inputs),
+        builder=req.builder or None,
         stages=tuple(
             Stage(name=stage.name, steps=tuple(_step_from_request(item) for item in stage.steps))
             for stage in req.stages

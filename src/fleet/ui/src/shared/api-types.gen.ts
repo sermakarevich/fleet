@@ -1727,6 +1727,8 @@ export interface components {
             gc_retention_days: number;
             /** Gc Archive Days */
             gc_archive_days: number;
+            /** Gc Beads */
+            gc_beads: boolean;
             /** Observer Max Followups */
             observer_max_followups: number;
             /** Observer Max Rounds */
@@ -2853,6 +2855,8 @@ export interface components {
             defaults: components["schemas"]["WorkflowDefaultsModel"];
             /** Inputs */
             inputs?: components["schemas"]["WorkflowInputModel"][];
+            /** Builder */
+            builder?: string | null;
             /** Stages */
             stages: components["schemas"]["StageRequest"][];
             /** Step Count */

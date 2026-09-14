@@ -3923,6 +3923,10 @@
             "type": "integer",
             "title": "Gc Archive Days"
           },
+          "gc_beads": {
+            "type": "boolean",
+            "title": "Gc Beads"
+          },
           "observer_max_followups": {
             "type": "integer",
             "title": "Observer Max Followups"
@@ -4006,6 +4010,7 @@
           "triage_interval_minutes",
           "gc_retention_days",
           "gc_archive_days",
+          "gc_beads",
           "observer_max_followups",
           "observer_max_rounds",
           "job_gate",
@@ -7064,6 +7069,17 @@
             },
             "type": "array",
             "title": "Inputs"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Builder"
           },
           "stages": {
             "items": {

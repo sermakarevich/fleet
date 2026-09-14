@@ -429,3 +429,40 @@ def test_run_malformed_inputs_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyP
         app, "POST", f"/api/workflows/{workflow_id}/run", json={"inputs": ["paper_url"]}
     )
     assert resp.status_code == 422
+
+
+def test_create_with_builder_and_no_stages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A builder workflow saves with empty stages and GET returns the builder."""
+    app = _app(tmp_path, monkeypatch)
+    payload = {
+        "name": "b",
+        "builder": "summary_get",
+        "inputs": [{"name": "url", "required": True}],
+        "defaults": {},
+    }
+    resp = _request(app, "POST", "/api/workflows", json=payload)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["builder"] == "summary_get"
+    assert body["stages"] == []
+
+    fetched = _request(app, "GET", f"/api/workflows/{body['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["builder"] == "summary_get"
+    assert fetched.json()["stages"] == []
+
+
+def test_create_with_unknown_builder_is_422(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unregistered builder name is 422 naming the unknown builder."""
+    app = _app(tmp_path, monkeypatch)
+    payload = {
+        "name": "b",
+        "builder": "nope",
+        "inputs": [{"name": "url", "required": True}],
+        "defaults": {},
+    }
+    resp = _request(app, "POST", "/api/workflows", json=payload)
+    assert resp.status_code == 422
+    assert "unknown builder" in resp.json()["error"]
