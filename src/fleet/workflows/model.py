@@ -15,9 +15,11 @@ from enum import StrEnum
 from typing import Any
 
 from fleet.core.errors import WorkflowInvalid
+from fleet.workflows.builders import builder_names
 
 _STEP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 _INPUT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_BUILDER_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 #: Allowed step isolation modes: a git worktree per task, or none (run in
 #: place, for steps that write into auto-synced trees such as ~/.ai).
@@ -125,6 +127,11 @@ class Workflow:
     stages: tuple[Stage, ...] = ()
     created_at: str = ""
     updated_at: str = ""
+    #: Name of a registered builder (`fleet.workflows.builders`) that expands
+    #: this definition into concrete stages at run start. A builder workflow
+    #: usually saves no stages: the shape depends on the run's inputs (for
+    #: example one step per chunk of a fetched source).
+    builder: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return this workflow as plain JSON-safe data."""
@@ -132,6 +139,7 @@ class Workflow:
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "builder": self.builder,
             "defaults": {
                 "cwd": self.defaults.cwd,
                 "coder": self.defaults.coder,
@@ -173,7 +181,15 @@ class Workflow:
             stages=stages,
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
+            builder=_optional_builder(data.get("builder")),
         )
+
+
+def _optional_builder(raw: Any) -> str | None:
+    """Builder name from stored data; empty means no builder."""
+    if raw is None or raw == "":
+        return None
+    return str(raw)
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,7 +365,8 @@ def _status_from(raw: Any) -> RunStatus:
 def validate(workflow: Workflow) -> list[str]:
     """Check every stage/needs/input/isolation rule; return human problems."""
     problems: list[str] = []
-    if not workflow.stages:
+    problems.extend(_validate_builder(workflow.builder))
+    if not workflow.stages and workflow.builder is None:
         problems.append("stages: workflow has no stages")
     if not _priority_ok(workflow.defaults.priority):
         problems.append(_priority_problem("defaults", workflow.defaults.priority))
@@ -408,6 +425,17 @@ def _validate_isolation(where: str, isolation: str | None) -> list[str]:
         return []
     if isolation not in ISOLATION_MODES:
         return [f"{where}: isolation {isolation!r} must be one of {', '.join(ISOLATION_MODES)}"]
+    return []
+
+
+def _validate_builder(builder: str | None) -> list[str]:
+    """Check a builder name is a slug naming a registered builder (or unset)."""
+    if builder is None:
+        return []
+    if not _BUILDER_NAME_RE.match(builder):
+        return [f"builder {builder!r}: name must match ^[a-z][a-z0-9_]*$"]
+    if builder not in builder_names():
+        return [f"builder {builder!r}: unknown builder (known: {', '.join(builder_names())})"]
     return []
 
 
