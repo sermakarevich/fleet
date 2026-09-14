@@ -1,0 +1,397 @@
+"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index.
+
+Called by `workflows.runs` through `builders.expand` at run start. The saved
+workflow carries no stages; `build` fetches the source behind the run's `url`
+input (reusing `builders.sources`), splits it with `builders.chunking`, writes
+the fetched text plus one file per chunk into the run work dir, and returns
+the workflow with five concrete stages: `plan` (one step), `wiki` (one step
+per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
+critical-thinking, connections), and `index` (one step).
+
+Step descriptions are worker instructions. Absolute chunk/work paths are
+written into them literally at build time; the knowledge-base folder is only
+known after the `plan` step runs, so it is referenced as the template
+`{{steps.plan.outputs.paper_dir}}`, rendered when later stages are released.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from pathlib import Path
+
+from fleet.workflows.builders import BuildContext
+from fleet.workflows.builders.chunking import Chunk, chunk_text, parse_chunk_chars
+from fleet.workflows.builders.sources import Source, SourceKind, fetch
+from fleet.workflows.model import Stage, Step, Workflow
+
+#: Template every later stage uses for the knowledge-base folder chosen by `plan`.
+PAPER_DIR = "{{steps.plan.outputs.paper_dir}}"
+
+#: Closing line of every step description.
+TAIL = "Do not run git. Do not close the bead yourself."
+
+_TYPE_OF: dict[SourceKind, str] = {
+    SourceKind.youtube: "Video",
+    SourceKind.pdf: "Paper",
+    SourceKind.x: "Article",
+    SourceKind.article: "Article",
+}
+
+_PLAN_DESC = """You are planning where a fetched source will live in the knowledge base.
+
+Source under study: "__TITLE__" (__URL__, kind __KIND__ via __TOOL__).
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY these two files (never the chunk bodies):
+   - __SOURCE_MD__ (provenance header only: title, source, kind, fetched, tool)
+   - __CHUNKS_JSON__ (chunk index/slug/title list)
+   Do not read __WORK__/chunks/*.md — chunk bodies belong to later workers.
+
+2. Decide the route from the title and chunk list:
+   - Investment/finance topic → base /Users/sergii/.ai/knowledge/investment with a new
+     folder <YYYY-MM-DD>-<PascalName>, using {{run.date}} for the date.
+   - Anything else → /Users/sergii/.ai/knowledge/papers/<PascalName>.
+   - If the route is genuinely unclear, or the target folder already exists, ask with
+     mcp__ask_human__ask_human_question. Never guess, never overwrite an existing folder.
+
+3. Create the layout and copy the source:
+   - mkdir -p <paper_dir>/source <paper_dir>/wiki/images
+   - Copy __SOURCE_MD__ to <paper_dir>/source/source.md.
+   - If __WORK__/source.pdf exists and is smaller than 2 MB, copy it to
+     <paper_dir>/source/source.pdf too; otherwise pin the PDF location (__URL__) at the
+     top of <paper_dir>/source/source.md.
+
+4. Write <paper_dir>/source/plan.md: a table mapping each chunk slug to its planned wiki
+   page NN-<kebab-topic>.md plus a one-line "covers" note per row.
+
+5. Write $FLEET_TASK_DIR/outputs.json exactly as {"paper_dir": "<absolute paper dir>",
+   "slug": "<PascalName>", "title": "__TITLE__", "type": "__TYPE__"}.
+   Type rule from the source kind (__KIND__): youtube → Video, pdf → Paper,
+   x/article → Article. This run: __TYPE__.
+
+Do not run git commands.
+__TAIL__"""
+
+_CHUNK_DESC = """You are writing one wiki page for chunk __NN__/__TOTAL__
+("__CHUNK_TITLE__") of "__TITLE__".
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY these two files:
+   - __CHUNK_MD__ (the chunk body; your only source of facts)
+   - __PAPER_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
+     name; default __DEFAULT_PAGE__ when absent)
+   Do not read any other chunk file, the original source, or the web.
+
+2. Write __PAPER_DIR__/wiki/<page from plan.md> with exactly this contract:
+   > [[../index|Wiki]] | [[../summary|Summary]] | [[../digest|Digest]]
+   # <Topic>
+   **In one sentence:** <the chunk's whole argument in one sentence>
+   ## Key points
+   - 5–8 bullets, each a complete claim with numbers/mechanisms, not a topic label
+   ---
+   ## <subsections mirroring the source>  (tables, exact numbers, verbatim quotes)
+   **Covers:** <section/timestamp range>
+
+3. Never invent content: only claims present in the chunk. If the chunk is empty or
+   garbled, still write the page, saying so (title, one-sentence note, Covers line).
+
+The knowledge base syncs itself and parallel workers share the tree; no git commands.
+__TAIL__"""
+
+_DIGEST_DESC = """You are writing the digest for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY __PAPER_DIR__/wiki/*.md (never the source, the chunk files, or the web).
+
+2. Write __PAPER_DIR__/digest.md:
+   - Backlink line: > [[index|Wiki]] | [[summary|Summary]]
+   - Heading: # __TITLE__ — Digest
+   - Then one section per wiki page in order: ## N. [[wiki/NN-x|Title]] with that page's
+     **In one sentence:** line and its ## Key points bullets copied VERBATIM (no
+     rewording, no merging).
+   - End with ## The argument in five moves (5–7 numbered clauses tracing the whole
+     source's argument across the pages).
+
+__TAIL__"""
+
+_SUMMARY_DESC = """You are writing the summary for "__TITLE__" (__URL__, type __TYPE__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY __PAPER_DIR__/wiki/*.md (never the source, the chunk files, or the web).
+
+2. Write __PAPER_DIR__/summary.md:
+   - Heading: # __TITLE__
+   - Metadata line for type __TYPE__ (pick the matching variant):
+     **Paper:** [..](__URL__) / **Article:** [..](__URL__) — <source>, <date> /
+     **Video:** [..](__URL__) — <channel>
+   - Sections in order: ## Human Readable TL;DR (3–5 plain sentences with analogies),
+     ## TL;DR, then ---, then ## Problem & Motivation, ## Main Original Ideas (numbered,
+     with bold names), ## Key Findings, ## Suggestions & Future Directions,
+     ## Authors & Institutions.
+   - Flowing paragraphs throughout, never one-sentence-per-line.
+
+__TAIL__"""
+
+_EXPLAINER_DESC = """You are writing the plain-language explainer for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read __PAPER_DIR__/digest.md plus __PAPER_DIR__/wiki/*.md (never the source or the web).
+
+2. Write __PAPER_DIR__/explainer.md, 80–150 lines:
+   - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
+   - Heading: # __TITLE__ — In Plain Language
+   - Sections in order: ## What is this about?, ## Why does it matter?,
+     ## How does it work?, ## Where can this be used?, ## Conclusions & takeaways,
+     ## Jargon decoder (a table of 5–12 terms with plain definitions).
+
+__TAIL__"""
+
+_QUESTIONS_DESC = """You are writing retrieval-practice questions for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read __PAPER_DIR__/digest.md plus __PAPER_DIR__/wiki/*.md (never the source or the web).
+   Count the wiki pages: fewer than 5 pages → 6–8 questions; 5–8 pages → 8–12; more
+   than 8 pages → 12–20. Cover every wiki page with at least one question and include
+   exactly one evaluation question (judgment/recommendation).
+
+2. Write __PAPER_DIR__/questions.md:
+   - Front-matter: type: Retrieval Prompts, last_reviewed: null, review_count: 0
+   - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
+   - Heading: # Retrieval Practice: __TITLE__
+   - One block per question: ### Qn. <question> followed by > [!tip]- Answer and then
+     > <2–4 sentences>. See [[wiki/NN-x|Topic]].
+
+__TAIL__"""
+
+_CRITICAL_DESC = """You are writing the critical analysis for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read __PAPER_DIR__/digest.md plus __PAPER_DIR__/wiki/*.md (never the source or the web).
+
+2. Write __PAPER_DIR__/critical_thinking.md, 60–120 lines:
+   - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
+   - Heading: # Critical Analysis: __TITLE__
+   - Sections in order: ## Claims vs. evidence, ## Genuinely new vs. repackaged,
+     ## Weaknesses and blind spots, ## Applicability (including a
+     **Relevance to my work** bullet list for AI/ML engineering, agentic systems, and
+     the Elisity data platform), ## What this changes,
+     ## Verdict ending with a bold call: **adopt** / **trial** / **watch** / **skip**.
+
+__TAIL__"""
+
+_CONNECTIONS_DESC = """You are writing the knowledge-base connections for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read __PAPER_DIR__/digest.md plus __PAPER_DIR__/wiki/*.md for what this source is
+   about (never the source or the web). Then survey the knowledge base:
+   read /Users/sergii/.ai/knowledge/structured_papers/index.md, skim 2–3 category files,
+   and ls /Users/sergii/.ai/knowledge/papers/.
+
+2. Write __PAPER_DIR__/connections.md: 2–6 genuinely related entries, one per line, as
+   - [[<category>/<Folder>/summary|<Title>]] — <relationship>.
+   When nothing is genuinely related, the file holds the single line
+   _No related entries found in the KB as of {{run.date}}._
+
+__TAIL__"""
+
+_INDEX_DESC = """You are writing the folder index for "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read __PAPER_DIR__/summary.md, __PAPER_DIR__/digest.md, and the list of
+   __PAPER_DIR__/wiki/*.md (never the source or the web).
+
+2. Write __PAPER_DIR__/index.md:
+   - Front-matter with exactly these keys: type, title, description,
+     generated: { by: claude/<model you are running as>, at: <current ISO time> },
+     sources: [ {id: original, resource: __URL__},
+     {id: local-copy, resource: source/source.md} ], tags: [2–5 topic tags].
+   - Heading: # __TITLE__, then 2–3 orientation sentences.
+   - ## How to work through this (summary ~2 min → digest ~10 min → wiki pages).
+   - ## Read This Folder (links to summary, digest, explainer, critical_thinking,
+     questions, connections).
+   - ## Wiki table | Page | Covers | with one row per wiki/*.md in order.
+   - ## Original Source (link to __URL__ and the local copy source/source.md).
+
+3. Sanity checklist before finishing: every wiki page has **In one sentence:** and
+   ## Key points; digest lines are verbatim copies; every page has at least one
+   question in questions.md. Report any defect in RESULT.json notes instead of fixing
+   other workers' files silently.
+
+__TAIL__"""
+
+
+def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
+    """Fetch the URL, chunk it, and return the workflow with concrete stages."""
+    raw_url = ctx.inputs.get("url")
+    url = raw_url.strip() if raw_url else ""
+    if not url:
+        raise ValueError("input url is required")
+    target = parse_chunk_chars(ctx.inputs.get("chunk_chars"))
+    work = ctx.work_dir("summary_get")
+    work.mkdir(parents=True, exist_ok=True)
+    source = fetch(url, work)
+    _write_source(work, source, url, ctx)
+    chunks = chunk_text(source.text, target)
+    _write_chunks(work, chunks)
+    return replace(workflow, stages=_stages(source, chunks, work, url))
+
+
+def _write_source(work: Path, source: Source, url: str, ctx: BuildContext) -> None:
+    """Write the fetched text with a provenance header into the run work dir."""
+    header = (
+        f"# {source.title}\n"
+        f"Source: {url}\n"
+        f"Kind: {source.kind.value}\n"
+        f"Fetched: {ctx.now.isoformat()}\n"
+        f"Tool: {source.tool}\n"
+        f"\n"
+        f"{source.text}\n"
+    )
+    (work / "source.md").write_text(header, encoding="utf-8")
+
+
+def _write_chunks(work: Path, chunks: list[Chunk]) -> None:
+    """Write one markdown file per chunk plus a JSON manifest of them all."""
+    chunk_dir = work / "chunks"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    records = []
+    for chunk in chunks:
+        path = chunk_dir / f"{chunk.slug}.md"
+        path.write_text(f"# {chunk.title}\n\n{chunk.text}\n", encoding="utf-8")
+        records.append(
+            {
+                "index": chunk.index,
+                "slug": chunk.slug,
+                "title": chunk.title,
+                "path": str(path),
+                "chars": len(chunk.text),
+            }
+        )
+    (work / "chunks.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+
+
+def _fill(template: str, **values: str) -> str:
+    """Substitute __TOKEN__ placeholders (template braces stay literal)."""
+    text = template.replace("__TAIL__", TAIL).replace("__PAPER_DIR__", PAPER_DIR)
+    for key, value in values.items():
+        text = text.replace(f"__{key}__", value)
+    return text
+
+
+def _common(source: Source, work: Path, url: str) -> dict[str, str]:
+    """Placeholder values shared by every step description."""
+    return {
+        "TITLE": source.title,
+        "URL": url,
+        "KIND": source.kind.value,
+        "TOOL": source.tool,
+        "TYPE": _TYPE_OF[source.kind],
+        "WORK": str(work),
+        "SOURCE_MD": str(work / "source.md"),
+        "CHUNKS_JSON": str(work / "chunks.json"),
+    }
+
+
+def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[Stage, ...]:
+    """The five fixed stages: plan, wiki, derive, enrich, index."""
+    common = _common(source, work, url)
+    chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
+    total = str(len(chunks))
+    plan = Stage(
+        name="plan",
+        steps=(
+            Step(
+                name="plan",
+                title=f"summary_get: plan {source.title}",
+                description=_fill(_PLAN_DESC, **common),
+            ),
+        ),
+    )
+    wiki = Stage(
+        name="wiki",
+        steps=tuple(
+            Step(
+                name=name,
+                title=f"summary_get: wiki {chunk.index:02d}/{total} {chunk.title}",
+                description=_fill(
+                    _CHUNK_DESC,
+                    **common,
+                    NN=f"{chunk.index:02d}",
+                    TOTAL=total,
+                    CHUNK_TITLE=chunk.title,
+                    SLUG=chunk.slug,
+                    CHUNK_MD=str(work / "chunks" / f"{chunk.slug}.md"),
+                    DEFAULT_PAGE=f"{chunk.slug}.md",
+                ),
+                needs=("plan",),
+            )
+            for name, chunk in zip(chunk_names, chunks, strict=True)
+        ),
+    )
+    derive = Stage(
+        name="derive",
+        steps=(
+            Step(
+                name="digest",
+                title=f"summary_get: digest {source.title}",
+                description=_fill(_DIGEST_DESC, **common),
+                needs=chunk_names,
+            ),
+            Step(
+                name="summary",
+                title=f"summary_get: summary {source.title}",
+                description=_fill(_SUMMARY_DESC, **common),
+                needs=chunk_names,
+            ),
+        ),
+    )
+    enrich = Stage(
+        name="enrich",
+        steps=(
+            Step(
+                name="explainer",
+                title=f"summary_get: explainer {source.title}",
+                description=_fill(_EXPLAINER_DESC, **common),
+                needs=("digest", "summary"),
+            ),
+            Step(
+                name="questions",
+                title=f"summary_get: questions {source.title}",
+                description=_fill(_QUESTIONS_DESC, **common),
+                needs=("digest", "summary"),
+            ),
+            Step(
+                name="critical-thinking",
+                title=f"summary_get: critical-thinking {source.title}",
+                description=_fill(_CRITICAL_DESC, **common),
+                needs=("digest", "summary"),
+            ),
+            Step(
+                name="connections",
+                title=f"summary_get: connections {source.title}",
+                description=_fill(_CONNECTIONS_DESC, **common),
+                needs=("digest", "summary"),
+            ),
+        ),
+    )
+    index = Stage(
+        name="index",
+        steps=(
+            Step(
+                name="index",
+                title=f"summary_get: index {source.title}",
+                description=_fill(_INDEX_DESC, **common),
+                needs=("explainer", "questions", "critical-thinking", "connections"),
+            ),
+        ),
+    )
+    return (plan, wiki, derive, enrich, index)

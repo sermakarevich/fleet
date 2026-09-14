@@ -50,7 +50,7 @@ def parse_chunk_chars(raw: str | None) -> int:
     try:
         value = int(raw.strip())
     except ValueError:
-        raise ValueError(f"chunk_chars: {raw!r} is not an integer") from None
+        return CHUNK_CHARS_DEFAULT
     return max(CHUNK_CHARS_MIN, min(CHUNK_CHARS_MAX, value))
 
 
