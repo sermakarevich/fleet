@@ -24,6 +24,8 @@ from fleet.core.errors import WorkflowInvalid
 from fleet.core.task import Task, TaskStatus
 from fleet.state import task_actions
 from fleet.state.paths import read_outputs, task_dir
+from fleet.workflows import builders
+from fleet.workflows.builders.sources import SourceError
 from fleet.workflows.model import (
     RunStatus,
     Step,
@@ -177,15 +179,26 @@ def start_run(
     """Open every step's bead stage by stage and record the run as running."""
     ensure_valid(workflow)
     resolved = resolve_inputs(workflow, inputs)
+    run_id = new_run_id()
+    ctx = builders.BuildContext(
+        run_id=run_id, fleet_home=store.db_path.parent, now=now, inputs=resolved
+    )
+    try:
+        expanded = builders.expand(workflow, ctx)
+    except (SourceError, ValueError) as exc:
+        raise WorkflowInvalid([f"builder {workflow.builder}: {exc}"]) from exc
+    if expanded is not workflow:
+        expanded = replace(expanded, builder=None)  # concrete stages now; no re-expansion
+        ensure_valid(expanded)
     n = store.run_count(workflow.id) + 1
     stamp = now.isoformat()
     run = WorkflowRun(
-        id=new_run_id(),
+        id=run_id,
         workflow_id=workflow.id,
         n=n,
         trigger=trigger,
         schedule_id=schedule_id,
-        spec=workflow,
+        spec=expanded,
         status=RunStatus.running,
         started_at=stamp,
         inputs=resolved,
@@ -193,12 +206,12 @@ def start_run(
     store.save_run(run)
     run_date = _as_utc(now).date().isoformat()
     task_ids: dict[str, str] = {}
-    for planned in plan(workflow):
+    for planned in plan(expanded):
         # Stage 1 renders and opens now; later stages park deferred with
         # raw text until the release pass renders them (ADR 0010).
         defer = None if planned.stage_index == 0 else DEFER_FAR
         try:
-            task = _open_step(workflow, run, n, run_date, planned, task_ids, queue, defer)
+            task = _open_step(expanded, run, n, run_date, planned, task_ids, queue, defer)
         except BdError as exc:
             reason = f"create failed at step {planned.step.name}: {exc}"
             store.finish_run(run.id, RunStatus.attention, reason, stamp)

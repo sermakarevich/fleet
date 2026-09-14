@@ -6,7 +6,8 @@ import pytest
 import yaml
 
 from fleet.core.errors import WorkflowInvalid
-from fleet.workflows.model import ensure_valid
+from fleet.workflows import builders
+from fleet.workflows.model import Workflow, ensure_valid
 from fleet.workflows.yaml_io import from_yaml, to_yaml
 
 ADR_EXAMPLE = """\
@@ -181,3 +182,12 @@ def test_required_input_with_default_rejected() -> None:
     text = INPUTS_EXAMPLE.replace("required: true", "required: true\n    default: x")
     with pytest.raises(WorkflowInvalid, match="default"):
         from_yaml(text)
+
+
+def test_builder_yaml_round_trip_without_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(builders.BUILDER_MODULES, "fake", "tests.workflows.fake_builder")
+    workflow = Workflow(id="", name="built", description="d", builder="fake", stages=())
+    text = to_yaml(workflow)
+    assert "builder" in text
+    assert "stages" not in text
+    assert from_yaml(text) == workflow

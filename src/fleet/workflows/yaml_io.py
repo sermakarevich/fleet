@@ -32,6 +32,7 @@ _TOP_LEVEL_KEYS = frozenset(
         "description",
         "defaults",
         "inputs",
+        "builder",
         "stages",
         "created_at",
         "updated_at",
@@ -46,6 +47,8 @@ def to_yaml(workflow: Workflow, *, with_ids: bool = False) -> str:
         doc["id"] = workflow.id
     doc["name"] = workflow.name
     doc["description"] = workflow.description
+    if workflow.builder is not None:
+        doc["builder"] = workflow.builder
     doc["defaults"] = {
         "cwd": workflow.defaults.cwd,
         "coder": workflow.defaults.coder,
@@ -56,7 +59,8 @@ def to_yaml(workflow: Workflow, *, with_ids: bool = False) -> str:
         doc["defaults"]["isolation"] = workflow.defaults.isolation
     if workflow.inputs:
         doc["inputs"] = [_input_to_yaml(item) for item in workflow.inputs]
-    doc["stages"] = [_stage_to_yaml(stage) for stage in workflow.stages]
+    if workflow.stages or workflow.builder is None:
+        doc["stages"] = [_stage_to_yaml(stage) for stage in workflow.stages]
     if with_ids:
         doc["created_at"] = workflow.created_at
         doc["updated_at"] = workflow.updated_at
@@ -122,8 +126,13 @@ def _workflow_from_data(data: Any) -> Workflow:
     name = data.get("name")
     if not isinstance(name, str) or not name:
         raise WorkflowInvalid(["name: required and must not be empty"])
-    stages_raw = data.get("stages")
-    if not isinstance(stages_raw, list) or not stages_raw:
+    builder = data.get("builder")
+    if builder is not None and (not isinstance(builder, str) or not builder):
+        raise WorkflowInvalid(["builder: must be a non-empty string"])
+    stages_raw = data.get("stages") or []
+    if not isinstance(stages_raw, list):
+        raise WorkflowInvalid(["stages: must be a list"])
+    if not stages_raw and builder is None:
         raise WorkflowInvalid(["stages: required and must not be empty"])
     description = data.get("description", "")
     if not isinstance(description, str):
@@ -132,6 +141,7 @@ def _workflow_from_data(data: Any) -> Workflow:
         id=_optional_str(data, "id"),
         name=name,
         description=description,
+        builder=builder,
         defaults=_defaults_from_data(data.get("defaults")),
         inputs=_inputs_from_data(data.get("inputs")),
         stages=tuple(_stage_from_data(item) for item in stages_raw),

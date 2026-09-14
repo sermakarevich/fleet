@@ -745,6 +745,8 @@ def print_workflow_show(workflow: Workflow, updated_note: str = "") -> None:
     typer.echo(f"workflow: {workflow.name} ({workflow.id})")
     if workflow.description:
         typer.echo(f"description: {workflow.description}")
+    if workflow.builder:
+        typer.echo(f"builder: {workflow.builder} (stages are built at run start)")
     if updated_note:
         typer.echo(updated_note)
     if workflow.inputs:
