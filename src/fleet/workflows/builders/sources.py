@@ -130,7 +130,8 @@ def _fetch_local_file(url: str, path: Path, kind: SourceKind, work_dir: Path) ->
         if shutil.which("pdftotext") is None:
             raise SourceError("pdf: `pdftotext` (poppler) is not installed")
         text = _run(["pdftotext", "-layout", str(staged), "-"], what="pdf text")
-        return Source(url=url, kind=kind, title=_pdf_title(staged, text), text=text, tool="pdftotext")
+        title = _pdf_title(staged, text)
+        return Source(url=url, kind=kind, title=title, text=text, tool="pdftotext")
     text = staged.read_text(encoding="utf-8", errors="replace")
     if len(text.strip()) < 200:  # noqa: PLR2004  # same stub threshold as web articles
         raise SourceError(f"fetch {url}: file yielded only {len(text)} characters of text")
