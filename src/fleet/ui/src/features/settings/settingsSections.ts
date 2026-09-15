@@ -90,6 +90,7 @@ export const FIELD_DEFS: Record<SettingKey, FieldDef> = {
   state_max_bytes: { section: 'compaction', kind: 'number', label: 'STATE.md cap (bytes)', help: 'Hard cap on the worker-memory file.' },
   gc_retention_days: { section: 'housekeeping', kind: 'number', label: 'Retention (days)', help: 'Days before closed tasks archive; 0 disables.' },
   gc_archive_days: { section: 'housekeeping', kind: 'number', label: 'Archive purge (days)', help: 'Days before archives delete permanently; 0 disables.' },
+  gc_beads: { section: 'housekeeping', kind: 'boolean', label: 'Compact beads DB', help: 'Also run bd gc/compact over the retention window in the daily pass.' },
   telegram_chat_id: { section: 'integrations', kind: 'text', label: 'Telegram chat ID', help: 'Chat ID for notifications; empty disables them.' },
   telegram_allowed_ids: { section: 'integrations', kind: 'text', label: 'Telegram allowed sender IDs', help: 'Comma-separated; empty disables inbound commands.', placeholder: '123456789,987654321' },
   telegram_default_cwd: { section: 'integrations', kind: 'text', label: 'Telegram default directory', help: 'Working directory for tasks created via Telegram.' },

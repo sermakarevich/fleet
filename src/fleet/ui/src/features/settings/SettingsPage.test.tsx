@@ -61,6 +61,7 @@ const CONFIG_FIXTURE: RuntimeConfig = {
   triage_interval_minutes: 15,
   gc_retention_days: 30,
   gc_archive_days: 90,
+  gc_beads: true,
   observer_max_followups: 10,
   observer_max_rounds: 3,
   job_gate: true,
