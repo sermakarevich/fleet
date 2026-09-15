@@ -11,7 +11,7 @@ import pytest
 
 from fleet.workflows.builders import BuildContext, summary_get
 from fleet.workflows.builders.chunking import CHUNK_CHARS_DEFAULT, chunk_text, parse_chunk_chars
-from fleet.workflows.builders.sources import Source, SourceKind, detect
+from fleet.workflows.builders.sources import Source, SourceError, SourceKind, detect, fetch
 from fleet.workflows.model import Workflow, ensure_valid
 
 _AT = datetime(2026, 9, 10, 12, 0, 0, tzinfo=UTC)
@@ -57,6 +57,33 @@ def test_detect_routes_by_url() -> None:
     assert detect("https://arxiv.org/abs/1234.5678") is SourceKind.pdf
     assert detect("https://arxiv.org/pdf/1234.5678") is SourceKind.pdf
     assert detect("https://example.com/some/article") is SourceKind.article
+
+
+def test_detect_routes_local_files(tmp_path: Path) -> None:
+    """Absolute paths and file:// URLs route by suffix; junk is rejected loudly."""
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    md = tmp_path / "notes.md"
+    md.write_text("hello world")
+    assert detect(str(pdf)) is SourceKind.pdf
+    assert detect("file://" + str(pdf)) is SourceKind.pdf
+    assert detect(str(md)) is SourceKind.article
+    with pytest.raises(SourceError, match="must be"):
+        detect(str(tmp_path / "run.exe"))
+    with pytest.raises(SourceError, match="must be"):
+        detect("not a url")
+
+
+def test_fetch_local_text_file(tmp_path: Path) -> None:
+    """Local .md/.txt files are read off disk without any network."""
+    md = tmp_path / "notes.md"
+    md.write_text("# Title here\n\n" + "body words " * 100)
+    src = fetch(str(md), tmp_path / "work")
+    assert src.kind is SourceKind.article
+    assert src.tool == "local-file"
+    assert "Title here" in src.text
+    with pytest.raises(SourceError, match="no such file"):
+        fetch(str(tmp_path / "missing.md"), tmp_path / "work")
 
 
 def _ctx(tmp_path: Path, inputs: dict[str, str]) -> BuildContext:

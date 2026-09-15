@@ -34,6 +34,7 @@ _USER_AGENT = "Mozilla/5.0 (compatible; fleet-summary_get/1.0)"
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 _X_HOSTS = ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com")
 _ARXIV_ID_RE = re.compile(r"arxiv\.org/(?:abs|pdf|html)/([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)")
+_LOCAL_TEXT_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
 _BLOCK_TAGS = frozenset(
     {"p", "div", "br", "li", "ul", "ol", "tr", "table", "section", "article", "blockquote", "pre"}
 )
@@ -64,11 +65,32 @@ class Source:
     tool: str
 
 
+def _local_path(url: str) -> Path | None:
+    """Absolute local path for `file://` URLs and bare paths; None when not local."""
+    text = url.strip()
+    if text.startswith("file://"):
+        return Path(urllib.request.url2pathname(text[len("file://") :])).expanduser()
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme == "" and parsed.path.startswith("/"):
+        return Path(parsed.path).expanduser()
+    if text.startswith("/") or text.startswith("~/"):
+        return Path(text).expanduser()
+    return None
+
+
 def detect(url: str) -> SourceKind:
-    """Pick the fetch route from the URL's host and path."""
+    """Pick the fetch route from the URL's host and path, or from a local file suffix."""
+    local = _local_path(url)
+    if local is not None:
+        suffix = local.suffix.lower()
+        if suffix == ".pdf":
+            return SourceKind.pdf
+        if suffix in _LOCAL_TEXT_SUFFIXES:
+            return SourceKind.article
+        raise SourceError(f"url {url!r}: local files must be .pdf, .md or .txt")
     parsed = urllib.parse.urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise SourceError(f"url {url!r}: must be an http(s) URL")
+        raise SourceError(f"url {url!r}: must be an http(s) URL or an absolute local path")
     host = parsed.netloc.lower()
     if host in _YOUTUBE_HOSTS:
         return SourceKind.youtube
@@ -81,6 +103,9 @@ def detect(url: str) -> SourceKind:
 
 def fetch(url: str, work_dir: Path) -> Source:
     """Fetch one URL by its detected route; `work_dir` receives downloads."""
+    local = _local_path(url)
+    if local is not None:
+        return _fetch_local_file(url, local, detect(url), work_dir)
     kind = detect(url)
     if kind is SourceKind.youtube:
         return _fetch_youtube(url)
@@ -89,6 +114,28 @@ def fetch(url: str, work_dir: Path) -> Source:
     if kind is SourceKind.pdf:
         return _fetch_pdf(url, work_dir)
     return _fetch_article(url)
+
+
+def _fetch_local_file(url: str, path: Path, kind: SourceKind, work_dir: Path) -> Source:
+    """Read a local file straight off disk: PDFs through pdftotext, text as-is."""
+    if not path.is_file():
+        raise SourceError(f"fetch {url}: no such file")
+    if path.stat().st_size > _MAX_BYTES:
+        raise SourceError(f"fetch {url}: file exceeds {_MAX_BYTES} bytes")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    staged = work_dir / f"source{path.suffix.lower()}"
+    if path.resolve() != staged.resolve():
+        staged.write_bytes(path.read_bytes())
+    if kind is SourceKind.pdf:
+        if shutil.which("pdftotext") is None:
+            raise SourceError("pdf: `pdftotext` (poppler) is not installed")
+        text = _run(["pdftotext", "-layout", str(staged), "-"], what="pdf text")
+        return Source(url=url, kind=kind, title=_pdf_title(staged, text), text=text, tool="pdftotext")
+    text = staged.read_text(encoding="utf-8", errors="replace")
+    if len(text.strip()) < 200:  # noqa: PLR2004  # same stub threshold as web articles
+        raise SourceError(f"fetch {url}: file yielded only {len(text)} characters of text")
+    first = next((line.strip() for line in text.splitlines() if line.strip()), path.name)
+    return Source(url=url, kind=kind, title=first[:160], text=text, tool="local-file")
 
 
 def _run(argv: list[str], *, what: str) -> str:
