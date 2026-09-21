@@ -68,8 +68,18 @@ scans fleet-blocked beads and posts one non-blocking question per bead to
 the ask_human store (visible in the Inbox tab / Telegram) with a rule-based
 fix proposal: rate limits suggest switching coder/model, repeated stalls
 suggest a stronger model, exhausted context retries suggest splitting the
-task, and worker-reported blocks quote the report verbatim. Answering
-applies the fix (retry, retry with `claude/opus`, append your note to the
+task, and worker-reported blocks quote the report verbatim.
+
+The supervisor first waits for the blocked-task investigator's report:
+while an investigation bead is open but its report has not landed, the
+question is held back (up to `triage_investigation_wait_minutes`, 30 by
+default; `triage_wait_for_investigation` switches the wait off). When the
+report lands, the question leads with the investigator's root cause,
+evidence, category and confidence, and puts the recommended option first.
+The full report lives in the investigation bead's
+`artifacts/INVESTIGATION.md`, whose path is included in the question.
+
+Answering applies the fix (retry, retry with `claude/opus`, append your note to the
 task and retry, close as won't-do, or ignore 24h / forever). Ignored tasks
 show an "ignored" badge in the Workers table with an Unignore button
 (`POST /api/tasks/{id}/unignore`, `fleet tasks --ignored` lists them);

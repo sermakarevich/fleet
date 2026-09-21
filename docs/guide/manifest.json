@@ -161,6 +161,12 @@
       "title": "ADR 0013: Workflow builders — expand a saved definition into stages at run start",
       "section": "Internals",
       "file": "docs/adr/0013-workflow-builders.md"
+    },
+    {
+      "slug": "adr-0014",
+      "title": "ADR 0014: Triage shows the blocked-task investigation",
+      "section": "Internals",
+      "file": "docs/adr/0014-triage-shows-the-investigation.md"
     }
   ]
 }
