@@ -15,9 +15,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from fleet.core.investigation import InvestigationReport
 from fleet.core.iso import parse_iso
 from fleet.core.limits import CONTEXT_MAX_ROUNDS, FAILURE_MAX_ROUNDS, STALL_MAX_ROUNDS
 from fleet.core.result import ResultStatus
+
+#: Character budget for the whole question text. Telegram truncates a message
+#: at 4096 characters and `integrations/telegram/notify.py` appends the numbered
+#: options AFTER the prompt, so an unbounded prompt would cut the options off.
+PROMPT_MAX_CHARS = 3200
+#: Per-section caps inside the investigation block.
+ROOT_CAUSE_MAX_CHARS = 900
+EVIDENCE_MAX_CHARS = 700
+INVESTIGATION_MAX_CHARS = 1800
 
 # Canonical answer options. The apply step (orchestrator/triage.py) matches
 # the operator's selected answer against these strings verbatim.
@@ -109,6 +119,8 @@ class TriageInput:
     result: dict | None
     blocked_reason: str
     merge_conflict: MergeConflictInfo | None = None
+    investigation: InvestigationReport | None = None
+    investigation_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -261,6 +273,93 @@ TRIAGE_RULES: list[TriageRule] = [
 ]
 
 
+def _cap(text: str, max_chars: int) -> str:
+    """Trim text to max_chars on a whitespace boundary, adding "…" when cut."""
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 0:
+        return ""
+    if max_chars == 1:
+        return "…"
+    cut = text[: max_chars - 1]
+    idx = max(cut.rfind(" "), cut.rfind("\n"), cut.rfind("\t"))
+    if idx > 0:
+        cut = cut[:idx]
+    cut = cut.rstrip()
+    if not cut:
+        cut = text[: max_chars - 1].rstrip()
+    if not cut:
+        return "…"
+    return cut + "…"
+
+
+def recommended_option(report: InvestigationReport, options: list[str]) -> str | None:
+    """Triage option the investigator's recommended action maps to, if any."""
+    if report.category.strip().lower().startswith("merge-conflict") and RESOLVE_MERGE in options:
+        return RESOLVE_MERGE
+    action = report.recommended_action.strip().lower()
+    if action.startswith("unblock-as-is"):
+        mapped: str | None = RETRY_SAME
+    elif action.startswith("unblock-after"):
+        mapped = EDIT_RETRY
+    elif action.startswith("close"):
+        mapped = CLOSE
+    elif action.startswith("needs-human"):
+        return None
+    else:
+        return None
+    if mapped is not None and mapped in options:
+        return mapped
+    return None
+
+
+def investigation_block(report: InvestigationReport, path: str = "") -> str:
+    """The operator-facing paragraph built from one investigation report."""
+    lines: list[str] = []
+    headline = report.headline()
+    if headline:
+        lines.append(f"Investigation: {headline}")
+    root = _cap(report.root_cause, ROOT_CAUSE_MAX_CHARS)
+    if root:
+        lines.append(f"Root cause: {root}")
+    evidence = _cap(report.evidence, EVIDENCE_MAX_CHARS)
+    if evidence:
+        lines.append(f"Evidence: {evidence}")
+    if report.category:
+        if report.confidence:
+            lines.append(f"Category: {report.category} (confidence: {report.confidence})")
+        else:
+            lines.append(f"Category: {report.category}")
+    if report.recommended_action:
+        lines.append(f"Investigator recommends: {report.recommended_action}")
+    if path:
+        lines.append(f"Full report: {path}")
+    return _cap("\n".join(lines), INVESTIGATION_MAX_CHARS)
+
+
+def with_investigation(
+    proposal: Proposal,
+    report: InvestigationReport | None,
+    path: str = "",
+    *,
+    budget: int = PROMPT_MAX_CHARS,
+) -> Proposal:
+    """Return `proposal` with the investigation finding folded in."""
+    if report is None or report.is_empty:
+        return proposal
+    head, _, rest = proposal.text.partition("\n")
+    block = investigation_block(report, path)
+    room = budget - len(head) - len(block) - 4
+    rest = _cap(rest.strip(), max(0, room))
+    text = "\n\n".join(part for part in (head, block, rest) if part)
+    rec = recommended_option(report, proposal.options)
+    if rec is not None:
+        options = [rec] + [o for o in proposal.options if o != rec]
+    else:
+        options = list(proposal.options)
+    return Proposal(text=text, options=options)
+
+
 def ignore_active(ignore_until: str | None, now: datetime | None = None) -> bool:
     """True when an ``ignore_until`` value still suppresses triage.
 
@@ -290,6 +389,9 @@ def propose(
     attempts: dict,
     result: dict | None,
     blocked_reason: str,
+    *,
+    investigation: InvestigationReport | None = None,
+    investigation_path: str = "",
 ) -> Proposal:
     """Build a triage proposal for one blocked task.
 
@@ -299,6 +401,8 @@ def propose(
     *result*: parsed task-level RESULT.json (``status`` / ``blocked_reason`` /
     ``open_questions`` keys) or None when absent.
     *blocked_reason*: the fleet block reason from task.json.
+    *investigation*: already-parsed ``InvestigationReport`` folded into the question.
+    *investigation_path*: source path of the investigation report shown in the question.
     """
     task_id = task.get("id", "?")
     title = task.get("title", "")
@@ -313,10 +417,12 @@ def propose(
         result=result,
         blocked_reason=blocked_reason,
         merge_conflict=merge_conflict_info(task),
+        investigation=investigation,
+        investigation_path=investigation_path,
     )
     for rule in TRIAGE_RULES:
         if rule.matches(triage):
-            return rule.proposal(triage)
+            return with_investigation(rule.proposal(triage), investigation, investigation_path)
     raise ValueError("TRIAGE_RULES has no default rule")
 
 

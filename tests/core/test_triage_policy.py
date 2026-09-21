@@ -2,12 +2,14 @@
 
 from datetime import UTC, datetime, timedelta
 
+from fleet.core.investigation import InvestigationReport
 from fleet.core.triage_policy import (
     CLOSE,
     COMMON_OPTIONS,
     EDIT_RETRY,
     IGNORE_24H,
     IGNORE_FOREVER,
+    PROMPT_MAX_CHARS,
     RESOLVE_MERGE,
     RETRY_OPUS,
     RETRY_SAME,
@@ -205,3 +207,122 @@ def test_merge_conflict_info_tolerates_missing_fields():
 def test_merge_conflict_info_none_when_absent():
     assert merge_conflict_info({"id": "t"}) is None
     assert merge_conflict_info({"id": "t", "merge_conflict": ["not", "a", "dict"]}) is None
+
+
+def _full_report(**overrides):
+    base = {
+        "root_cause": "The worker used a stale base ref and the merge failed.",
+        "evidence": "See worker log lines showing the stale fetch.",
+        "category": "test-failure",
+        "recommended_action": "unblock-as-is",
+        "confidence": "high",
+        "raw": "The worker used a stale base ref and the merge failed.",
+    }
+    base.update(overrides)
+    return InvestigationReport(**base)
+
+
+def test_propose_with_investigation_folds_block_between_header_and_rule_text():
+    report = _full_report()
+    p = propose(
+        {"id": "t1", "title": "T"},
+        _attempts(),
+        None,
+        "failure streak",
+        investigation=report,
+        investigation_path="/p/INVESTIGATION.md",
+    )
+    header = "Task t1 (T) is blocked: failure streak"
+    assert p.text.splitlines()[0] == header
+    parts = p.text.split("\n\n")
+    assert parts[0] == header
+    assert parts[1].startswith("Investigation:")
+    assert "Root cause:" in parts[1]
+    assert "Root cause: The worker used a stale base" in p.text
+    assert "How should fleet proceed?" in parts[-1]
+    assert "/p/INVESTIGATION.md" in p.text
+
+
+def test_propose_without_investigation_is_byte_identical_to_today():
+    kwargs = ({"id": "t1", "title": "T"}, _attempts(), None, "failure streak")
+    p = propose(*kwargs)
+    assert p.text == "Task t1 (T) is blocked: failure streak\nHow should fleet proceed?"
+    assert p.options == COMMON_OPTIONS
+    again = propose(*kwargs, investigation=None)
+    assert again.text == p.text
+    assert again.options == p.options
+
+
+def test_empty_report_changes_nothing():
+    kwargs = ({"id": "t1", "title": "T"}, _attempts(), None, "failure streak")
+    plain = propose(*kwargs)
+    with_empty = propose(*kwargs, investigation=InvestigationReport())
+    assert with_empty.text == plain.text
+    assert with_empty.options == plain.options
+
+
+def test_unblock_as_is_puts_retry_same_first():
+    report = _full_report(recommended_action="unblock-as-is")
+    p = propose(
+        {"id": "t1", "title": "T"}, _attempts(), None, "failure streak", investigation=report
+    )
+    assert p.options[0] == RETRY_SAME
+    assert sorted(p.options) == sorted(COMMON_OPTIONS)
+
+
+def test_unblock_after_puts_edit_retry_first():
+    report = _full_report(recommended_action="unblock-after: shrink the spec")
+    p = propose(
+        {"id": "t1", "title": "T"}, _attempts(), None, "failure streak", investigation=report
+    )
+    assert p.options[0] == EDIT_RETRY
+
+
+def test_close_recommendation_puts_close_first():
+    report = _full_report(recommended_action="close: already done upstream")
+    p = propose(
+        {"id": "t1", "title": "T"}, _attempts(), None, "failure streak", investigation=report
+    )
+    assert p.options[0] == CLOSE
+
+
+def test_needs_human_leaves_option_order_untouched():
+    report = _full_report(recommended_action="needs-human: which branch?")
+    p = propose(
+        {"id": "t1", "title": "T"}, _attempts(), None, "failure streak", investigation=report
+    )
+    assert p.options == COMMON_OPTIONS
+
+
+def test_merge_conflict_category_puts_resolve_merge_first():
+    report = _full_report(
+        category="merge-conflict: stale branch",
+        recommended_action="close: already done upstream",
+    )
+    p = propose(_conflict_task(), _attempts(), None, _CONFLICT_REASON, investigation=report)
+    assert p.options[0] == RESOLVE_MERGE
+
+
+def test_unoffered_mapped_option_leaves_order_untouched():
+    report = _full_report(
+        category="test-failure", recommended_action="unblock-after: shrink the spec"
+    )
+    p = propose(_conflict_task(), _attempts(), None, _CONFLICT_REASON, investigation=report)
+    assert p.options == [RESOLVE_MERGE, RETRY_SAME, RETRY_OPUS, CLOSE, IGNORE_24H, IGNORE_FOREVER]
+
+
+def test_composed_text_never_exceeds_budget():
+    report = _full_report(
+        root_cause=("root cause words " * 500).strip(),
+        evidence=("evidence words " * 500).strip(),
+        recommended_action="unblock-as-is",
+    )
+    p = propose(
+        {"id": "t1", "title": "T"},
+        _attempts(stderr_tail="x" * 1500),
+        None,
+        "failure streak",
+        investigation=report,
+        investigation_path="/p/INVESTIGATION.md",
+    )
+    assert len(p.text) <= PROMPT_MAX_CHARS
