@@ -209,6 +209,20 @@ class RuntimeConfig:
             "30",
         ),
     )
+    triage_wait_for_investigation: bool = field(
+        default=True,
+        metadata=_meta(
+            "Hold a blocked-task question until its investigation report lands.",
+            "false",
+        ),
+    )
+    triage_investigation_wait_minutes: int = field(
+        default=30,
+        metadata=_meta(
+            "Max minutes triage waits for an investigation report before asking anyway.",
+            "15",
+        ),
+    )
     gc_retention_days: int = field(
         default=30,
         metadata=_meta(

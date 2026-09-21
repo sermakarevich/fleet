@@ -1723,6 +1723,10 @@ export interface components {
             post_merge_command: string;
             /** Triage Interval Minutes */
             triage_interval_minutes: number;
+            /** Triage Wait For Investigation */
+            triage_wait_for_investigation: boolean;
+            /** Triage Investigation Wait Minutes */
+            triage_investigation_wait_minutes: number;
             /** Gc Retention Days */
             gc_retention_days: number;
             /** Gc Archive Days */

@@ -50,6 +50,8 @@ metadata and regenerate.
 | `isolation_exclude` | `str` | `""` | Repo roots that never get a worktree; empty excludes none. | `fleet config set isolation_exclude=/Users/me/.ai` |
 | `post_merge_command` | `str` | `""` | Shell command after a clean worktree merge; empty skips. | `fleet config set post_merge_command=make ui-build` |
 | `triage_interval_minutes` | `int` | `15` | Minutes between blocked-task triage scans; 0 disables. | `fleet config set triage_interval_minutes=30` |
+| `triage_wait_for_investigation` | `bool` | `true` | Hold a blocked-task question until its investigation report lands. | `fleet config set triage_wait_for_investigation=false` |
+| `triage_investigation_wait_minutes` | `int` | `30` | Max minutes triage waits for an investigation report before asking anyway. | `fleet config set triage_investigation_wait_minutes=15` |
 | `gc_retention_days` | `int` | `30` | Days before closed tasks archive; 0 disables archiving. | `fleet config set gc_retention_days=7` |
 | `gc_archive_days` | `int` | `90` | Days before archives delete permanently; 0 disables purging. | `fleet config set gc_archive_days=30` |
 | `gc_beads` | `bool` | `true` | Also run `bd gc`/`bd compact` over gc_retention_days during the daily pass. | `fleet config set gc_beads=false` |

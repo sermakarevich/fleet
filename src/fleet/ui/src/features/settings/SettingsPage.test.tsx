@@ -59,6 +59,8 @@ const CONFIG_FIXTURE: RuntimeConfig = {
   isolation_exclude: '',
   post_merge_command: '',
   triage_interval_minutes: 15,
+  triage_wait_for_investigation: true,
+  triage_investigation_wait_minutes: 30,
   gc_retention_days: 30,
   gc_archive_days: 90,
   gc_beads: true,

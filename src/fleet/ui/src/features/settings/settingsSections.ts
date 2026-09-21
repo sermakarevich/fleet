@@ -76,6 +76,8 @@ export const FIELD_DEFS: Record<SettingKey, FieldDef> = {
   isolation_exclude: { section: 'isolation-merge', kind: 'text', label: 'Isolation exclude', help: 'Repo roots that never get a worktree.', placeholder: '/Users/me/.ai' },
   post_merge_command: { section: 'isolation-merge', kind: 'text', label: 'Post-merge command', help: 'Shell command after a clean worktree merge; empty skips.', placeholder: 'make ui-build' },
   triage_interval_minutes: { section: 'triage', kind: 'number', label: 'Triage interval (min)', help: 'Minutes between blocked-task scans; 0 disables.' },
+  triage_wait_for_investigation: { section: 'triage', kind: 'boolean', label: 'Wait for investigation', help: 'Hold a blocked-task question until its investigation report lands.' },
+  triage_investigation_wait_minutes: { section: 'triage', kind: 'number', label: 'Investigation wait (min)', help: 'Max minutes triage waits for the report before asking anyway.' },
   observer_max_followups: { section: 'triage', kind: 'number', label: 'Observer max follow-ups', help: 'Follow-up tasks opened per observer validation round.' },
   observer_max_rounds: { section: 'triage', kind: 'number', label: 'Observer max rounds', help: 'Partial observer rounds before human review.' },
   job_gate: { section: 'jobs', kind: 'boolean', label: 'Job approval gate', help: 'Ask approval before a job spawns its planned children.' },

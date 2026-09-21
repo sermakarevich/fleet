@@ -91,6 +91,12 @@
 # triage_interval_minutes: Minutes between blocked-task triage scans; 0 disables.
 #   Default 15; e.g. fleet config set triage_interval_minutes=30
 #
+# triage_wait_for_investigation: Hold a blocked-task question until its investigation report lands.
+#   Default true; e.g. fleet config set triage_wait_for_investigation=false
+#
+# triage_investigation_wait_minutes: Max minutes triage waits for an investigation report before asking anyway.
+#   Default 30; e.g. fleet config set triage_investigation_wait_minutes=15
+#
 # gc_retention_days: Days before closed tasks archive; 0 disables archiving.
 #   Default 30; e.g. fleet config set gc_retention_days=7
 #

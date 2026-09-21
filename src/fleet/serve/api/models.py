@@ -372,6 +372,8 @@ class ConfigView(BaseModel):
     isolation_exclude: str
     post_merge_command: str
     triage_interval_minutes: int
+    triage_wait_for_investigation: bool
+    triage_investigation_wait_minutes: int
     gc_retention_days: int
     gc_archive_days: int
     gc_beads: bool

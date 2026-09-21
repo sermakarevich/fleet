@@ -3915,6 +3915,14 @@
             "type": "integer",
             "title": "Triage Interval Minutes"
           },
+          "triage_wait_for_investigation": {
+            "type": "boolean",
+            "title": "Triage Wait For Investigation"
+          },
+          "triage_investigation_wait_minutes": {
+            "type": "integer",
+            "title": "Triage Investigation Wait Minutes"
+          },
           "gc_retention_days": {
             "type": "integer",
             "title": "Gc Retention Days"
@@ -4008,6 +4016,8 @@
           "isolation_exclude",
           "post_merge_command",
           "triage_interval_minutes",
+          "triage_wait_for_investigation",
+          "triage_investigation_wait_minutes",
           "gc_retention_days",
           "gc_archive_days",
           "gc_beads",
