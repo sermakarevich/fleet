@@ -4,7 +4,7 @@ description: >
   Summarize a URL into an LLM-wiki folder in the knowledge base (ai:summary:get recipe).
   The builder fetches the source (yt for YouTube, x for X/Twitter, pdftotext for arXiv/PDF,
   HTML extraction otherwise), splits it into chunks and creates one wiki-page task per chunk,
-  then digest/summary, explainer/questions/critical-thinking/connections, and index.
+  then digest/summary, explainer/questions/critical-thinking, and index.
 builder: summary_get
 defaults:
   cwd: /Users/sergii/.ai

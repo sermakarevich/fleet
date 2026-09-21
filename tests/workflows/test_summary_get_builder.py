@@ -134,7 +134,6 @@ def test_build_expands_five_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "explainer",
         "questions",
         "critical-thinking",
-        "connections",
     ]
     for step in enrich_steps:
         assert step.needs == ("digest", "summary")
@@ -145,7 +144,6 @@ def test_build_expands_five_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "explainer",
         "questions",
         "critical-thinking",
-        "connections",
     )
 
     work = tmp_path / "workflows" / "summary_get" / "r1"

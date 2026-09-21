@@ -6,7 +6,7 @@ input (reusing `builders.sources`), splits it with `builders.chunking`, writes
 the fetched text plus one file per chunk into the run work dir, and returns
 the workflow with five concrete stages: `plan` (one step), `wiki` (one step
 per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
-critical-thinking, connections), and `index` (one step).
+critical-thinking), and `index` (one step).
 
 Step descriptions are worker instructions. Absolute chunk/work paths are
 written into them literally at build time; the knowledge-base folder is only
@@ -186,22 +186,6 @@ Run work dir (absolute, build-time): __WORK__
 
 __TAIL__"""
 
-_CONNECTIONS_DESC = """You are writing the knowledge-base connections for "__TITLE__" (__URL__).
-
-Run work dir (absolute, build-time): __WORK__
-
-1. Read __PAPER_DIR__/digest.md plus __PAPER_DIR__/wiki/*.md for what this source is
-   about (never the source or the web). Then survey the knowledge base:
-   read /Users/sergii/.ai/knowledge/structured_papers/index.md, skim 2–3 category files,
-   and ls /Users/sergii/.ai/knowledge/papers/.
-
-2. Write __PAPER_DIR__/connections.md: 2–6 genuinely related entries, one per line, as
-   - [[<category>/<Folder>/summary|<Title>]] — <relationship>.
-   When nothing is genuinely related, the file holds the single line
-   _No related entries found in the KB as of {{run.date}}._
-
-__TAIL__"""
-
 _INDEX_DESC = """You are writing the folder index for "__TITLE__" (__URL__).
 
 Run work dir (absolute, build-time): __WORK__
@@ -217,7 +201,7 @@ Run work dir (absolute, build-time): __WORK__
    - Heading: # __TITLE__, then 2–3 orientation sentences.
    - ## How to work through this (summary ~2 min → digest ~10 min → wiki pages).
    - ## Read This Folder (links to summary, digest, explainer, critical_thinking,
-     questions, connections).
+     questions).
    - ## Wiki table | Page | Covers | with one row per wiki/*.md in order.
    - ## Original Source (link to __URL__ and the local copy source/source.md).
 
@@ -375,12 +359,6 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
                 description=_fill(_CRITICAL_DESC, **common),
                 needs=("digest", "summary"),
             ),
-            Step(
-                name="connections",
-                title=f"summary_get: connections {source.title}",
-                description=_fill(_CONNECTIONS_DESC, **common),
-                needs=("digest", "summary"),
-            ),
         ),
     )
     index = Stage(
@@ -390,7 +368,7 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
                 name="index",
                 title=f"summary_get: index {source.title}",
                 description=_fill(_INDEX_DESC, **common),
-                needs=("explainer", "questions", "critical-thinking", "connections"),
+                needs=("explainer", "questions", "critical-thinking"),
             ),
         ),
     )
