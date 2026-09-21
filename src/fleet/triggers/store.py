@@ -137,6 +137,13 @@ class TriggerStore:
             for firing in self.firings(trigger_id, limit=10_000)
         )
 
+    def firing_for_event(self, trigger_id: str, event_key: str) -> Firing | None:
+        """Newest non-skipped firing of this trigger for `event_key`, or None."""
+        for firing in self.firings(trigger_id, limit=10_000):
+            if firing.event_key == event_key and not firing.skipped:
+                return firing
+        return None
+
     def last_firing(self, trigger_id: str) -> Firing | None:
         """Newest non-skipped firing, or None when there is none."""
         for firing in self.firings(trigger_id, limit=10_000):

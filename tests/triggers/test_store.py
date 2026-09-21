@@ -101,6 +101,19 @@ def test_has_fired_ignores_skipped(tmp_path: Path) -> None:
     assert store.has_fired("trg-abc123", "key-missing") is False
 
 
+def test_firing_for_event_returns_newest_non_skipped(tmp_path: Path) -> None:
+    store = TriggerStore(tmp_path)
+    assert store.firing_for_event("trg-abc123", "key-1") is None
+    store.append_firing(_firing(n=1, event_key="key-1", skipped=True))
+    assert store.firing_for_event("trg-abc123", "key-1") is None
+    store.append_firing(_firing(n=2, event_key="key-1"))
+    store.append_firing(_firing(n=3, event_key="key-1"))
+    found = store.firing_for_event("trg-abc123", "key-1")
+    assert found is not None
+    assert found.n == 3
+    assert store.firing_for_event("trg-abc123", "key-missing") is None
+
+
 def test_last_firing_ignores_skipped(tmp_path: Path) -> None:
     store = TriggerStore(tmp_path)
     assert store.last_firing("trg-abc123") is None

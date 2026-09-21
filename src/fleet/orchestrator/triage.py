@@ -6,6 +6,12 @@ ask_human question per blocked bead with a rule-based fix proposal (see
 core/triage_policy.py) and applies the operator's answer on the next
 tick.
 
+A question is held while the blocked-task investigator is still working,
+bounded by ``triage_investigation_wait_minutes``: when a blocked_task
+trigger already opened an investigation bead but its INVESTIGATION.md has
+not landed yet, triage waits instead of asking blind, then folds the
+report into the question.
+
 Applied answers change bead state (release/close/ignore), so an
 already-applied question no longer matches its bead's live blocked state
 and is skipped naturally — no consumed-markers needed.
@@ -15,6 +21,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +30,8 @@ from fleet.beads.queue import Queue
 from fleet.core import triage_policy
 from fleet.core.effective import effective_coder_model
 from fleet.core.errors import FleetError
+from fleet.core.investigation import InvestigationReport, parse_report
+from fleet.core.iso import parse_iso
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import TaskOutcome, TaskStatus
@@ -42,10 +51,14 @@ from fleet.state import attempts as attempts_mod
 from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize
 from fleet.state.attempts import latest_attempt_dir
+from fleet.state.investigation import read_report
 from fleet.state.task_meta import TaskMeta
 from fleet.state.task_summary import read_declared_result
+from fleet.triggers.lookup import investigation_task_id
+from fleet.triggers.store import TriggerStore
 
 if TYPE_CHECKING:
+    from fleet.core.config import RuntimeConfig
     from fleet.integrations.ask_human.store import Question, QuestionStore
 
     from .state import SupervisorState
@@ -95,8 +108,30 @@ def _stderr_tail(task_dir: Path) -> str | None:
     return tail or None
 
 
+def _investigation_of(
+    fleet_home: Path, trigger_store: TriggerStore, task_id: str, blocked_at: str | None
+) -> tuple[str | None, InvestigationReport | None, str]:
+    """(investigation bead id, parsed report, report path) for one block.
+
+    The bead id is present as soon as the trigger fired; the report and path
+    stay None/"" until that investigator worker finished writing it.
+    """
+    inv_id = investigation_task_id(trigger_store, task_id, blocked_at)
+    if inv_id is None:
+        return (None, None, "")
+    found = read_report(state_paths.task_dir(fleet_home, inv_id))
+    if found is None:
+        return (inv_id, None, "")
+    text, path = found
+    return (inv_id, parse_report(text), str(path))
+
+
 def collect_candidates(
-    queue: Queue, fleet_home: Path, store: QuestionStore, limit: int = 100
+    queue: Queue,
+    fleet_home: Path,
+    store: QuestionStore,
+    limit: int = 100,
+    trigger_store: TriggerStore | None = None,
 ) -> list[dict]:
     """Blocked beads that need a triage question.
 
@@ -105,6 +140,7 @@ def collect_candidates(
     triage question already pending for their current ``blocked_at``.
     """
     candidates: list[dict] = []
+    trigger_store = trigger_store or TriggerStore(fleet_home)
     try:
         blocked = queue.list_blocked(limit=limit)
     except Exception:
@@ -126,6 +162,9 @@ def collect_candidates(
         rate_limited = any(
             h.get("outcome") == TaskOutcome.RATE_LIMIT.value for h in history[-_RATE_LIMIT_WINDOW:]
         )
+        inv_id, report, report_path = _investigation_of(
+            fleet_home, trigger_store, task_id, blocked_at
+        )
         candidates.append(
             {
                 "id": task_id,
@@ -140,9 +179,26 @@ def collect_candidates(
                 },
                 "result": read_declared_result(task_dir),
                 "meta": _live_meta(queue, meta),
+                "investigation_task_id": inv_id,
+                "investigation": report,
+                "investigation_path": report_path,
             }
         )
     return candidates
+
+
+def waiting_for_investigation(cand: dict, config: RuntimeConfig, now: datetime) -> bool:
+    """True when triage should hold this question until the report lands."""
+    if not config.triage_wait_for_investigation:
+        return False
+    if cand["investigation"] is not None:
+        return False
+    if cand["investigation_task_id"] is None:
+        return False
+    blocked_at = parse_iso(cand["blocked_at"])
+    if blocked_at is None:
+        return False
+    return now - blocked_at < timedelta(minutes=config.triage_investigation_wait_minutes)
 
 
 def _append_note_to_description(queue: Queue, fleet_home: Path, task_id: str, note: str) -> None:
@@ -302,6 +358,10 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
             applied += 1
 
     candidates = collect_candidates(st.queue, st.fleet_home, store)
+    now = st.clock.now()
+    waiting_ids = {c["id"] for c in candidates if waiting_for_investigation(c, st.config, now)}
+    waiting = [c for c in candidates if c["id"] in waiting_ids]
+    candidates = [c for c in candidates if c["id"] not in waiting_ids]
     asked = 0
     if len(candidates) > MAX_PER_TASK_QUESTIONS:
         per_task = candidates[:MAX_PER_TASK_QUESTIONS]
@@ -320,6 +380,8 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
             cand["attempts"],
             cand["result"],
             cand["blocked_reason"],
+            investigation=cand["investigation"],
+            investigation_path=cand["investigation_path"],
         )
         store.ask(
             proposal.text,
@@ -328,7 +390,12 @@ def triage_tick(st: SupervisorState, store: QuestionStore) -> dict:
             context=cand["blocked_at"],
         )
         asked += 1
-    return {"applied": applied, "asked": asked, "candidates": len(candidates)}
+    return {
+        "applied": applied,
+        "asked": asked,
+        "candidates": len(candidates),
+        "waiting": len(waiting),
+    }
 
 
 class Triage:

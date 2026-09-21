@@ -26,6 +26,8 @@ from fleet.core.triage_policy import (
 )
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.orchestrator.triage import Triage, apply_answer, collect_candidates, triage_tick
+from fleet.triggers.model import Firing, Trigger
+from fleet.triggers.store import TriggerStore
 from tests.conftest import FakeQueue as SharedFakeQueue
 from tests.conftest import make_supervisor
 
@@ -142,10 +144,46 @@ def test_reblock_new_blocked_at_gets_fresh_question(tmp_path: Path):
 # --- tick: ask + digest -----------------------------------------------------
 
 
-def _tick(queue: FakeQueue, root: Path, store: QuestionStore) -> dict:
+def _tick(queue: FakeQueue, root: Path, store: QuestionStore, config=None) -> dict:
     """Run one triage pass against the fake queue; return its summary."""
-    sup = make_supervisor(root, queue=queue, services=[], checks=[])  # type: ignore[arg-type]
+    sup = make_supervisor(  # type: ignore[arg-type]
+        root, queue=queue, services=[], checks=[], **({"config": config} if config else {})
+    )
     return triage_tick(sup.state, store)
+
+
+def _firing(root: Path, blocked_id: str, blocked_at: str, inv_id: str) -> None:
+    """Write a blocked_task trigger + one firing row under FLEET_HOME."""
+    store = TriggerStore(root)
+    trigger = Trigger(
+        id="trg-blocked-test",
+        name="blocked test",
+        source="blocked_task",
+        title="Investigate",
+    )
+    store.save(trigger)
+    store.append_firing(
+        Firing(
+            trigger_id=trigger.id,
+            n=store.firing_count(trigger.id) + 1,
+            event_key=f"{blocked_id}@{blocked_at}",
+            fired_at=datetime.now(tz=UTC).isoformat(),
+            task_id=inv_id,
+            skipped=False,
+            reason="",
+        )
+    )
+
+
+def _investigation_report(root: Path, inv_id: str, text: str) -> None:
+    d = root / "tasks" / inv_id / "artifacts"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "INVESTIGATION.md").write_text(text, encoding="utf-8")
+
+
+_REPORT_TEXT = (
+    "## Root cause\nflaky network socket timeout\n\n## Recommended action\nclose as won't do\n"
+)
 
 
 def test_tick_asks_per_task_and_digest(tmp_path: Path):
@@ -168,7 +206,7 @@ def test_tick_asks_per_task_and_digest(tmp_path: Path):
 def test_tick_no_candidates_asks_nothing(tmp_path: Path):
     s = _store(tmp_path)
     summary = _tick(FakeQueue(), tmp_path, s)
-    assert summary == {"applied": 0, "asked": 0, "candidates": 0}
+    assert summary == {"applied": 0, "asked": 0, "candidates": 0, "waiting": 0}
 
 
 # --- apply ------------------------------------------------------------------
@@ -444,3 +482,107 @@ def test_tick_asks_merge_conflict_proposal(tmp_path: Path):
     assert len(pending) == 1
     assert pending[0]["options"][0] == RESOLVE_MERGE
     assert "repair worker" in pending[0]["prompt"]
+
+
+# --- investigation wait -------------------------------------------------------
+
+
+def test_tick_shows_investigation_report(tmp_path: Path):
+    """Report present -> prompt holds the root cause, first option follows it."""
+    blocked_at = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+    q = FakeQueue()
+    q.blocked = [_bead("b-1")]
+    _task(tmp_path, "b-1", blocked_reason="r", blocked_at=blocked_at)
+    _firing(tmp_path, "b-1", blocked_at, "inv-1")
+    _investigation_report(tmp_path, "inv-1", _REPORT_TEXT)
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["waiting"] == 0
+    assert summary["asked"] == 1
+    pending = [row for row in s.list_pending(100) if row["task_id"] == "b-1"]
+    assert len(pending) == 1
+    assert "flaky network socket timeout" in pending[0]["prompt"]
+    assert pending[0]["options"][0] == CLOSE
+
+
+def test_tick_waits_for_missing_report(tmp_path: Path):
+    """Bead fired but no report yet, blocked 5 min ago -> hold the question."""
+    blocked_at = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+    q = FakeQueue()
+    q.blocked = [_bead("b-1")]
+    _task(tmp_path, "b-1", blocked_reason="r", blocked_at=blocked_at)
+    _firing(tmp_path, "b-1", blocked_at, "inv-1")
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["waiting"] == 1
+    assert summary["asked"] == 0
+    assert summary["candidates"] == 0
+    assert s.list_pending(100) == []
+
+
+def test_tick_wait_expires_after_timeout(tmp_path: Path):
+    """Bead fired, no report, blocked 90 min ago -> ask without the block."""
+    blocked_at = (datetime.now(tz=UTC) - timedelta(minutes=90)).isoformat()
+    q = FakeQueue()
+    q.blocked = [_bead("b-1")]
+    _task(tmp_path, "b-1", blocked_reason="r", blocked_at=blocked_at)
+    _firing(tmp_path, "b-1", blocked_at, "inv-1")
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["waiting"] == 0
+    assert summary["asked"] == 1
+    pending = [row for row in s.list_pending(100) if row["task_id"] == "b-1"]
+    assert len(pending) == 1
+    assert "Investigation:" not in pending[0]["prompt"]
+
+
+def test_tick_wait_disabled_asks_immediately(tmp_path: Path):
+    """triage_wait_for_investigation=False -> never waits, even 5 minutes in."""
+    blocked_at = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+    q = FakeQueue()
+    q.blocked = [_bead("b-1")]
+    _task(tmp_path, "b-1", blocked_reason="r", blocked_at=blocked_at)
+    _firing(tmp_path, "b-1", blocked_at, "inv-1")
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s, config=RuntimeConfig(triage_wait_for_investigation=False))
+    assert summary["waiting"] == 0
+    assert summary["asked"] == 1
+
+
+def test_tick_no_firing_asks_immediately(tmp_path: Path):
+    """No firing for the block -> asked at once, waiting stays 0."""
+    blocked_at = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+    q = FakeQueue()
+    q.blocked = [_bead("b-1")]
+    _task(tmp_path, "b-1", blocked_reason="r", blocked_at=blocked_at)
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["waiting"] == 0
+    assert summary["asked"] == 1
+
+
+def test_tick_waiting_excluded_from_digest(tmp_path: Path):
+    """A waiting candidate is not asked about and not folded into the digest."""
+    recent = (datetime.now(tz=UTC) - timedelta(minutes=5)).isoformat()
+    ids = [f"t-{i}" for i in range(7)]
+    q = FakeQueue()
+    q.blocked = [_bead(i) for i in ids]
+    for i in ids:
+        _task(tmp_path, i, blocked_reason="r", blocked_at="ts")
+    # t-0 becomes the waiting candidate: real timestamp + firing, no report.
+    d = tmp_path / "tasks" / "t-0" / "task.json"
+    meta = json.loads(d.read_text())
+    meta["blocked_at"] = recent
+    d.write_text(json.dumps(meta), encoding="utf-8")
+    _firing(tmp_path, "t-0", recent, "inv-1")
+    s = _store(tmp_path)
+    summary = _tick(q, tmp_path, s)
+    assert summary["waiting"] == 1
+    assert summary["candidates"] == 6
+    assert summary["asked"] == 6  # 5 per-task + 1 digest
+    digests = [row for row in s.list_pending(100) if row["task_id"] is None]
+    assert len(digests) == 1
+    assert "t-0" not in digests[0]["context"]
+    assert [row["task_id"] for row in s.list_pending(100) if row["task_id"]] == [
+        f"t-{i}" for i in range(1, 6)
+    ]
