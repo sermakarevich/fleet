@@ -207,5 +207,4 @@ def test_build_repo_without_clone_dir_falls_back_to_text(
         "enrich",
         "index",
         "verify",
-        "file",
     ]

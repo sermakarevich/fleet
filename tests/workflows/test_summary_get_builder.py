@@ -1,4 +1,4 @@
-"""Tests for the summary_get builder: fetch, chunk, plan/wiki/derive/enrich/index/file stages."""
+"""Tests for the summary_get builder: fetch, chunk, plan/wiki/derive/enrich/index/verify stages."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def _fake_source() -> Source:
     )
 
 
-def test_build_expands_seven_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Build writes source/chunks files and returns the fixed stage graph."""
     monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
     result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
@@ -159,7 +159,6 @@ def test_build_expands_seven_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: P
         "enrich",
         "index",
         "verify",
-        "file",
     ]
     by_name = {stage.name: stage for stage in result.stages}
 
@@ -199,11 +198,6 @@ def test_build_expands_seven_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert verify_steps[0].needs == ("index",)
     assert "blocked" in verify_steps[0].description
     assert "Source:" in verify_steps[0].description
-
-    file_steps = by_name["file"].steps
-    assert [step.name for step in file_steps] == ["file"]
-    assert file_steps[0].needs == ("verify",)
-    assert file_steps[0].title.startswith("summary_get: file ")
 
     work = tmp_path / "workflows" / "summary_get" / "r1"
     assert (work / "source.md").exists()
@@ -255,78 +249,16 @@ def test_plan_matches_existing_entry_by_provenance_url(
     assert plan_desc.count("mcp__ask_human__ask_human_question") >= 2
 
 
-def _file_desc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
-    """The rendered file-step description for a throwaway build."""
+def test_build_ends_at_verify_with_no_file_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """summary_get must not move the entry: the last stage is verify, no file stage."""
     monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
     result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
-    by_name = {stage.name: stage for stage in result.stages}
-    return by_name["file"].steps[0].description
-
-
-def test_file_step_classifies_category_with_jev(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The file step classifies via jev choose; ask_human is only the low-confidence fallback."""
-    desc = _file_desc(monkeypatch, tmp_path)
-    assert "jev choose" in desc
-    assert "Which knowledge-base category is the best single home for this entry?" in desc
-    assert "--min-confidence 0.7" in desc
-    # Confident path uses jev's choice directly — no operator question.
-    assert ".answers.answer.choice" in desc
-    # Provenance: category + confidence recorded in outputs.json and index.md.
-    assert "category_confidence" in desc
-    assert "index.md" in desc
-    # ask_human survives only as the exit-2 / error escalation path.
-    assert "exits 2" in desc
-    assert desc.count("mcp__ask_human__ask_human_question") == 1
-
-
-def test_file_step_lists_categories_from_directory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The file step takes categories from `ls structured_papers/`, never invented."""
-    desc = _file_desc(monkeypatch, tmp_path)
-    assert "ls /Users/sergii/.ai/knowledge/structured_papers/" in desc
-    assert "never invent a category" in desc
-    assert "ml_systems" in desc  # named as the canonical non-existent example
-    assert "not a listed directory" in desc or "not a directory" in desc
-
-
-def test_file_step_runs_move_recipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The file step moves the entry and appends an Obsidian ref to the category index."""
-    desc = _file_desc(monkeypatch, tmp_path)
-    assert _PAPER_DIR in desc
-    assert "summary/move" in desc
-    assert "structured_papers" in desc
-    assert "[[Folder/summary]]" in desc
-    assert "ask_human" in desc
-    assert "vault_dir" in desc
-    assert desc.endswith("Do not run git. Do not close the bead yourself.")
-
-
-def test_file_step_skips_investment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Investment-routed entries stay in investment/ and skip filing."""
-    desc = _file_desc(monkeypatch, tmp_path)
-    assert "investment" in desc
-    assert '"reason": "investment"' in desc
-    assert '"filed": false' in desc
-
-
-def test_file_step_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Re-running file on an already-filed entry is a no-op that still checks the index ref."""
-    desc = _file_desc(monkeypatch, tmp_path)
-    assert "already-filed" in desc
-    assert "do NOT move it again" in desc
-
-
-def _file_desc_with_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, inputs: dict[str, str]
-) -> str:
-    """The rendered file-step description for given run inputs."""
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
-    result = summary_get.build(_workflow(), _ctx(tmp_path, inputs))
-    by_name = {stage.name: stage for stage in result.stages}
-    return by_name["file"].steps[0].description
+    assert result.stages[-1].name == "verify"
+    assert [stage.name for stage in result.stages].count("verify") == 1
+    assert "file" not in [stage.name for stage in result.stages]
+    assert "file" not in [step.name for stage in result.stages for step in stage.steps]
 
 
 def test_definition_declares_optional_research_target() -> None:
@@ -335,37 +267,3 @@ def test_definition_declares_optional_research_target() -> None:
     assert "research_target" in inputs
     assert not inputs["research_target"].get("required", False)
     assert inputs["research_target"].get("default") == ""
-
-
-def test_file_step_skips_research_epic_runs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A run spawned by a research epic skips filing into structured_papers."""
-    desc = _file_desc_with_inputs(
-        monkeypatch,
-        tmp_path,
-        {
-            "url": "https://e.com/a",
-            "research_target": "/Users/sergii/.ai/knowledge/research/demo",
-        },
-    )
-    assert "research-epic" in desc
-    assert '"reason": "research-epic"' in desc
-    assert '"filed": false' in desc
-    assert "/Users/sergii/.ai/knowledge/research/demo" in desc
-    assert "do NOT file it into structured_papers" in desc
-    # Traceability: the skip records the provenance target.
-    assert '"research_target"' in desc
-    # The research-epic skip adds no second human-escalation path.
-    assert desc.count("mcp__ask_human__ask_human_question") == 1
-
-
-def test_file_step_standalone_marks_empty_provenance(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Standalone runs bake empty research_target and keep the move recipe."""
-    desc = _file_desc_with_inputs(monkeypatch, tmp_path, {"url": "https://e.com/a"})
-    assert 'research_target=""' in desc
-    assert "structured_papers" in desc
-    assert "MOVE, never copy" in desc
-    assert '"routing": "standalone->structured_papers"' in desc

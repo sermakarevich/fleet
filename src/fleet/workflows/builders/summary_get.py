@@ -1,15 +1,17 @@
-"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify/file.
+"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify.
 
 Called by `workflows.runs` through `builders.expand` at run start. The saved
 workflow carries no stages; `build` fetches the source behind the run's `url`
 input (reusing `builders.sources`), splits it with `builders.chunking`, writes
 the fetched text plus one file per chunk into the run work dir, and returns
-the workflow with seven concrete stages: `plan` (one step), `wiki` (one step
+the workflow with six concrete stages: `plan` (one step), `wiki` (one step
 per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
-critical-thinking), `index` (one step), `verify` (one step that checks
-the finished entry against the recipe and blocks instead of closing),
-and `file` (one step that files the entry into `structured_papers/`
-per the `ai show summary/move` recipe).
+critical-thinking), `index` (one step), and `verify` (one step that checks
+the finished entry against the recipe and blocks instead of closing).
+
+The finished entry stays in papers/<Slug>/ (or investment/ for finance
+topics). Nothing here moves or files it: whoever wants it filed runs the
+`ai show summary/move` recipe on purpose.
 
 Step descriptions are worker instructions. Absolute chunk/work paths are
 written into them literally at build time; the knowledge-base folder is only
@@ -327,106 +329,6 @@ Run work dir (absolute, build-time): __WORK__
 
 __TAIL__"""
 
-_FILE_DESC = """You are filing the finished entry for "__TITLE__" (__URL__) into the
-organized knowledge base (the `ai show summary/move` recipe).
-
-Run work dir (absolute, build-time): __WORK__
-Run provenance (build-time run inputs): research_target="__RESEARCH_TARGET__"
-(empty = standalone run; non-empty = spawned by a research epic), source
-kind __KIND__.
-
-1. Resolve the entry folder: __PAPER_DIR__ (rendered from
-   {{steps.plan.outputs.paper_dir}} at release time).
-
-2. Skip rule (research-epic): if research_target above is non-empty (this run
-   was spawned by a research epic for target __RESEARCH_TARGET__), the
-   entry's ONE home is research/<epic>/sources/<Name>/, owned by the research
-   copy bead — do NOT file it into structured_papers/. Touch neither the
-   folder nor any category index. Write $FLEET_TASK_DIR/outputs.json
-   exactly as {"vault_dir": "<absolute paper dir>", "filed": false,
-   "reason": "research-epic", "research_target": "__RESEARCH_TARGET__"}
-   and finish. No question. Leave the folder in papers/ staging for the
-   copy bead, which MOVEs it (never copies) and clears staging.
-
-3. Skip rule (investment): if the folder is under
-   /Users/sergii/.ai/knowledge/investment/ (the path contains /investment/),
-   investment/finance sources stay there per the move recipe — touch neither
-   the folder nor any category index. Write $FLEET_TASK_DIR/outputs.json
-   exactly as {"vault_dir": "<absolute paper dir>", "filed": false,
-   "reason": "investment"} and finish. No question.
-
-3. Idempotency: if the folder is already under
-   /Users/sergii/.ai/knowledge/structured_papers/<category>/ (i.e. it is NOT
-   under papers/), an earlier run already filed it — do NOT move it again.
-   Verify the category index <category>/<category>.md carries an Obsidian ref
-   to this entry ([[Folder/summary]] — ...); append it in the file's local
-   style only if missing. Write $FLEET_TASK_DIR/outputs.json exactly as
-   {"vault_dir": "<absolute current folder>", "filed": false,
-   "reason": "already-filed", "research_target": "__RESEARCH_TARGET__"}
-   and finish. No question.
-
-4. Otherwise the folder is in papers/ staging — run the move recipe:
-   a. Read <paper_dir>/summary.md (title = first `#` heading; TL;DR = prefer
-      `## Human Readable TL;DR`, fall back to `## TL;DR`; 1–2 sentences,
-      under 30 words, terse). Do not read the whole entry.
-   b. List the authoritative, up-to-date categories with
-      `ls /Users/sergii/.ai/knowledge/structured_papers/` — the directory
-      names are the categories (ignore plain files such as index.md).
-      You may cross-check structured_papers/index.md prose, but the
-      directory listing wins when they disagree. Never use a hardcoded
-      list and never invent a category: a name that is not a directory
-      in that listing (e.g. ml_systems) does not exist.
-   c. Classify the category with jev (the TypeSafe judge-model CLI), never a
-      chat-model guess and never ask_human first. Build the state as the
-      entry title plus the 1-2 sentence TL;DR from (a), then run ONE command
-      with one -o flag per directory from the listing in (b):
-        jev choose "Which knowledge-base category is the best single home for this entry?" \
-          -o <cat1> -o <cat2> ... -s "<title>: <tldr>" --min-confidence 0.7
-      The entry gets exactly one home, never cross-list. Verify the returned
-      `.answers.answer.choice` is one of the listed directories; a choice
-      outside the listing is a jev error — discard it and escalate as below.
-      Use the verified choice directly as the category. Record the choice
-      and `.answers.answer.confidence` in step 5's outputs.json (keys
-      "category" and "category_confidence") AND as a provenance line in the
-      moved entry's index.md (e.g. `filed_via: jev choose, category: <cat>,
-      confidence: <x>` - keep the file's existing front-matter/style valid),
-      so a wrong call can be traced.
-      Escalation (the ONLY case that reaches a human): jev exits 2
-      (confidence below the 0.7 floor) or errors (exit 1, e.g. missing
-      TYPESAFE_API_KEY), or its choice is not a listed directory. Only then
-      fall back to
-      mcp__ask_human__ask_human_question - offer ONLY directories from the
-      listing in (b) as options: propose jev's top listed choice (stdout
-      still carries the JSON on exit 2) with the second-best listed
-      alternative
-      (highest remaining probability), wait for the answer, then proceed.
-      Never offer a category that is not a listed directory.
-      On ties, open the candidate <category>/<category>.md files and compare
-      against listed papers before calling jev.
-   d. Move the folder with its original name preserved into
-      structured_papers/<category>/ (MOVE, never copy — papers/ staging must
-      not retain the entry).
-   e. Read structured_papers/<category>/<category>.md and append
-      `- [[Folder/summary]] — <tldr>.` (bullet starts `- `, em dash with
-      spaces as separator, trailing period; insert alphabetically when the
-      file is alphabetical, else append at the bottom).
-
-5. Write $FLEET_TASK_DIR/outputs.json exactly as {"vault_dir": "<absolute new
-   folder>", "filed": true, "category": "<jev choice>",
-   "category_confidence": <jev confidence float>,
-   "category_source": "jev" (or "ask_human" when step 4c escalated),
-   "research_target": "__RESEARCH_TARGET__",
-   "routing": "standalone->structured_papers"}.
-
-6. Quality checks before finishing: the moved folder is present in the
-   category folder; the new bullet uses `[[...]]` Obsidian syntax (not
-   markdown `[text](path)`); the original staging location no longer contains
-   the entry.
-
-Do not run git commands.
-__TAIL__"""
-
-
 _VERIFY_DESC = """You are verifying the finished knowledge-base entry for "__TITLE__" (__URL__)
 against the `ai show summary/get` recipe. A step counts as done only when the
 entry is usable — never pass a green run over an empty or chrome-filled folder.
@@ -481,11 +383,10 @@ DEFINITION: dict = {
         "repos, HTML extraction otherwise), splits it into chunks (one per macro "
         "component for repos) and creates one wiki-page task per chunk, then "
         "digest/summary, explainer/questions/critical-thinking, index, "
-        "verify (blocks unless the entry satisfies the recipe), "
-        "and a final file step that moves the entry into structured_papers/ "
-        "(ai:summary:move recipe; investment-routed entries stay put; runs "
-        "spawned by a research epic skip filing — the research copy bead owns "
-        "their home under research/<epic>/sources/)."
+        "and verify (blocks unless the entry satisfies the recipe). "
+        "The finished entry stays in papers/<Slug>/ (investment/ for "
+        "finance topics); filing it elsewhere is a separate deliberate act "
+        "via the ai:summary:move recipe, never part of this workflow."
     ),
     "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
     "inputs": [
@@ -504,11 +405,10 @@ DEFINITION: dict = {
         {
             "name": "research_target",
             "description": (
-                "Research epic target owning this run (absolute path under "
+                "Research epic target that spawned this run (absolute path under "
                 "/Users/sergii/.ai/knowledge/research/ or the target slug). "
-                "Empty for standalone runs. Set by research design when a "
-                "research epic spawns this run; the file step then skips "
-                "filing into structured_papers/."
+                "Empty for standalone runs. Recorded for provenance only; "
+                "nothing in this workflow files or moves the entry."
             ),
             "default": "",
         },
@@ -522,7 +422,6 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     url = raw_url.strip() if raw_url else ""
     if not url:
         raise ValueError("input url is required")
-    research_target = (ctx.inputs.get("research_target") or "").strip()
     target = parse_chunk_chars(ctx.inputs.get("chunk_chars"))
     work = ctx.work_dir("summary_get")
     work.mkdir(parents=True, exist_ok=True)
@@ -538,7 +437,7 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
             "(Sponsor, License, Star History, ...) was dropped — not worth an entry"
         )
     _write_chunks(work, chunks)
-    return replace(workflow, stages=_stages(source, chunks, work, url, research_target))
+    return replace(workflow, stages=_stages(source, chunks, work, url))
 
 
 def _write_source(work: Path, source: Source, url: str, ctx: BuildContext) -> None:
@@ -607,9 +506,8 @@ def _stages(
     chunks: list[Chunk],
     work: Path,
     url: str,
-    research_target: str = "",
 ) -> tuple[Stage, ...]:
-    """The seven fixed stages: plan, wiki, derive, enrich, index, verify, file."""
+    """The six fixed stages: plan, wiki, derive, enrich, index, verify."""
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
     total = str(len(chunks))
@@ -710,15 +608,4 @@ def _stages(
             ),
         ),
     )
-    file = Stage(
-        name="file",
-        steps=(
-            Step(
-                name="file",
-                title=f"summary_get: file {source.title}",
-                description=_fill(_FILE_DESC, **common, RESEARCH_TARGET=research_target),
-                needs=("verify",),
-            ),
-        ),
-    )
-    return (plan, wiki, derive, enrich, index, verify, file)
+    return (plan, wiki, derive, enrich, index, verify)

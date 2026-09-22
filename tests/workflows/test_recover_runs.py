@@ -128,7 +128,7 @@ def test_reconstruct_repo_run(tmp_path: Path) -> None:
     assert run.inputs["url"] == "https://github.com/some-owner/some-repo"
     assert run.spec.builder is None
     assert {s.name for st in expanded.stages for s in st.steps} >= {
-        "plan", "chunk-01", "chunk-02", "digest", "verify", "file",
+        "plan", "chunk-01", "chunk-02", "digest", "verify",
     }
     by_step = {i["step_name"]: i for i in infos}
     assert by_step["plan"]["released"] is True
@@ -136,7 +136,7 @@ def test_reconstruct_repo_run(tmp_path: Path) -> None:
     assert by_step["chunk-01"]["released"] is False
     assert by_step["chunk-01"]["stage_index"] == 1
     assert extra == {"missing": ["critical-thinking", "digest", "explainer",
-                                 "file", "index", "questions", "summary", "verify"]}
+                                 "index", "questions", "summary", "verify"]}
 
 
 def test_run_groups_keeps_only_live_runs() -> None:
@@ -190,4 +190,4 @@ def test_build_expanded_spec_needs_no_fetch(tmp_path: Path) -> None:
     title, url, kind, tool = parse_source_header(HEADER)
     expanded = build_expanded_spec(BASE, url, kind, title, tool, chunks, work)
     assert str(work) in expanded.stages[0].steps[0].description
-    assert len(expanded.stages) == 7
+    assert len(expanded.stages) == 6

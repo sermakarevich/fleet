@@ -5,11 +5,11 @@ description: >
   The builder fetches the source (yt for YouTube, x for X/Twitter, pdftotext for arXiv/PDF,
   shallow git clone for GitHub repos, HTML extraction otherwise), splits it into chunks
   (one per macro component for repos) and creates one wiki-page task per chunk,
-  then digest/summary, explainer/questions/critical-thinking, index, a verify step
-  that blocks the run unless the finished entry satisfies the recipe, and a final
-  file step that moves the entry into structured_papers/ (standalone runs;
-  runs spawned by a research epic skip filing — the research copy bead moves
-  the entry into research/<epic>/sources/ instead).
+  then digest/summary, explainer/questions/critical-thinking, index, and a verify step
+  that blocks the run unless the finished entry satisfies the recipe. The finished
+  entry stays in papers/<Slug>/ (investment/ for finance topics); filing it elsewhere
+  is a separate deliberate act via the ai:summary:move recipe, and runs spawned by
+  a research epic are copied into research/<epic>/sources/ by the research copy bead.
 builder: summary_get
 defaults:
   cwd: /Users/sergii/.ai
@@ -25,5 +25,5 @@ inputs:
     description: Target characters per chunk (2000–60000)
     default: "12000"
   - name: research_target
-    description: Research epic target owning this run (absolute path or slug). Empty for standalone runs; set by research design so the file step skips filing.
+    description: Research epic target that spawned this run (absolute path or slug). Empty for standalone runs; recorded for provenance only — nothing in this workflow files or moves the entry.
     default: ""

@@ -108,11 +108,11 @@ def chunks_from_manifest(workdir: Path, records: list[dict]) -> list[Chunk]:
 
 def build_expanded_spec(
     base: Workflow, url: str, kind: SourceKind, title: str, tool: str,
-    chunks: list[Chunk], workdir: Path, research_target: str = "",
+    chunks: list[Chunk], workdir: Path,
 ) -> Workflow:
     """Regenerate the run's frozen spec offline (no fetch, no writes)."""
     source = Source(url=url, kind=kind, title=title, text="", tool=tool)
-    stages = _stages(source, chunks, workdir, url, research_target)
+    stages = _stages(source, chunks, workdir, url)
     expanded = replace(replace(base, stages=stages), builder=None)
     ensure_valid(expanded)
     return expanded
