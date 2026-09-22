@@ -35,7 +35,7 @@ from fleet.state.archive import apply_gc, apply_purge, plan_gc, plan_purge
 from fleet.state.artifact_locator import locate
 from fleet.state.incremental_read import read_new_bytes
 from fleet.state.legacy_task_dir import legacy_state_text
-from fleet.workers.job import spawn_complete
+from fleet.state.spawn_journal import spawn_complete
 
 if TYPE_CHECKING:
     from fleet.beads.queue import BeadsQueue
@@ -206,7 +206,7 @@ def _build_job_view(
         has_tasks=(artifacts / "tasks.json").exists(),
         gate_enabled=(task.job_gate or "") != "off",
         approved=(artifacts / "APPROVED").exists(),
-        has_children=len(children) > 0 and spawn_complete(artifacts),
+        has_children=len(children) > 0 and spawn_complete(artifacts.parent),
     )
     return JobView(
         task_id=task.id,

@@ -22,6 +22,7 @@ from fleet.beads.client import BdClient, BdError, children_of
 from fleet.beads.task_store import TaskStore, build_task, order_ready
 from fleet.core.job_ready import BeadSummary, children_terminal
 from fleet.core.task import Task
+from fleet.state.spawn_journal import spawn_complete
 
 #: Length of the `bd update <id>` prefix: longer argv means text changed.
 _UPDATE_PREFIX_LEN = 2
@@ -307,7 +308,11 @@ class BeadsQueue(Queue):
                 children = self.list_children(epic_id)
             except BdError:
                 continue
-            if not children or not children_terminal(children):
+            # An epic whose spawn phase did not finish must run again even
+            # though its first children are still working, or the rest of
+            # its plan would never be created.
+            resume_spawn = not spawn_complete(self._store.task_dir(str(epic_id)))
+            if not resume_spawn and (not children or not children_terminal(children)):
                 continue
             rows.append(cand)
         return rows
