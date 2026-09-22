@@ -137,7 +137,9 @@ def collect_candidates(
 
     Skipped: beads without task.json ``blocked_reason`` (human-blocked, not
     fleet-blocked), tasks with an active ``ignore_until``, and tasks with a
-    triage question already pending for their current ``blocked_at``.
+    triage question already pending for their current ``blocked_at``. A
+    cancelled question also suppresses re-asking for the same ``blocked_at``
+    ("stop asking me this"); a new ``blocked_at`` asks fresh.
     """
     candidates: list[dict] = []
     trigger_store = trigger_store or TriggerStore(fleet_home)
@@ -154,7 +156,7 @@ def collect_candidates(
         if triage_policy.ignore_active(meta.get("ignore_until")):
             continue
         blocked_at = meta.get("blocked_at")
-        if store.fetch_pending_for_task(task_id, blocked_at):
+        if store.has_suppression_for_task(task_id, blocked_at):
             continue
         task_dir = state_paths.task_dir(fleet_home, task_id)
         history = attempts_mod.load_attempts(task_dir)

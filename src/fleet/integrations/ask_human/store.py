@@ -454,6 +454,30 @@ class QuestionStore:
                 ).fetchall()
         return [_row_to_question(r) for r in rows]
 
+    def has_suppression_for_task(self, task_id: str, context: str | None = None) -> bool:
+        """True when a pending or cancelled question covers (task_id, context).
+
+        A cancelled triage question means "stop asking me this", so it
+        suppresses re-asking for the same block. A re-blocked task gets a
+        new ``blocked_at`` (new context) and is asked again. Expired and
+        answered questions do not suppress: the operator never saw the
+        former, and the latter is applied/skipped via bead state.
+        """
+        with self._conn() as conn:
+            if context is None:
+                row = conn.execute(
+                    "SELECT 1 FROM questions WHERE task_id=? "
+                    "AND status IN ('pending','cancelled') LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT 1 FROM questions WHERE task_id=? AND context=? "
+                    "AND status IN ('pending','cancelled') LIMIT 1",
+                    (task_id, context),
+                ).fetchone()
+        return row is not None
+
     def fetch_answered_triage(self, limit: int = 100) -> list[Question]:
         """Answered triage questions (agent_id='triage'), oldest first.
 
