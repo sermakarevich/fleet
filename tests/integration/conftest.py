@@ -302,6 +302,10 @@ class MemoryQueue(Queue):
         self._children.setdefault(epic_id, []).append(BeadSummary(id=child.id, status="open"))
         return child
 
+    def add_dependency(self, epic_id: str, child_id: str) -> None:
+        """Make *epic_id* depend on an existing bead."""
+        self._children.setdefault(epic_id, []).append(BeadSummary(id=child_id, status="open"))
+
     def list_children(self, epic_id: str) -> list[BeadSummary]:
         """List an epic's child beads with their statuses."""
         return list(self._children.get(epic_id, []))

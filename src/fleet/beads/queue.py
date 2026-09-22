@@ -148,6 +148,11 @@ class Queue(ABC):
         """Open one child bead under an epic; raises when the dep link fails."""
         ...
 
+    @abstractmethod
+    def add_dependency(self, epic_id: str, child_id: str) -> None:
+        """Make *epic_id* depend on an existing bead (bd dep add epic child)."""
+        ...
+
     # -- task.json fields owned by TaskStore (set_* / clear_* / read_*) --
     @abstractmethod
     def set_cwd(self, task_id: str, cwd: str) -> None:
@@ -337,9 +342,12 @@ class BeadsQueue(Queue):
         if spec.get("priority") is not None:
             with contextlib.suppress(BdError, TypeError, ValueError):
                 self._client.run(["update", child.id, "--priority", str(int(spec["priority"]))])
-        self._client.run(["dep", "add", epic_id, child.id])
+        self.add_dependency(epic_id, child.id)
         self._invalidate_snapshot()
         return child
+
+    def add_dependency(self, epic_id: str, child_id: str) -> None:
+        self._client.run(["dep", "add", epic_id, child_id])
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
         """Return a task to open, with an optional retry delay."""

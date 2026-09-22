@@ -9,7 +9,7 @@ steps; ``WorkerRun`` is the handle the orchestrator keeps per in-flight task.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -68,6 +68,21 @@ class QuestionStoreLike(Protocol):
     ) -> str: ...
 
 
+@dataclass(frozen=True, slots=True)
+class RunHandle:
+    """A started workflow run as the job worker sees it: ids only, no workflow types."""
+
+    run_id: str
+    task_ids: tuple[str, ...]  # every bead the run opened, all stages
+    final_task_ids: tuple[str, ...]  # beads of the last stage (what siblings depend on)
+
+
+class WorkflowRunnerLike(Protocol):
+    """Starts a workflow run for a job's workflow-run child (ADR 0015 §2)."""
+
+    def start(self, workflow_ref: str, inputs: Mapping[str, str]) -> RunHandle: ...
+
+
 @dataclass
 class StepContext:
     """Inputs one worker run threads through every step."""
@@ -101,6 +116,10 @@ class StepContext:
     # ask_human question store, injected by orchestrator/spawn.py. Steps use
     # it (never build one: workers must not import integrations).
     question_store: QuestionStoreLike | None = None
+    # Workflow-run starter for a job's workflow-run children (ADR 0015 §2),
+    # injected by orchestrator/spawn.py. Workers never build one: they must
+    # not import fleet.workflows (layering).
+    workflow_runner: WorkflowRunnerLike | None = None
     # Process seam: who spawns coder children. Production runs real
     # subprocesses; tests inject a scripted fake. Steps never touch
     # asyncio.create_subprocess_exec themselves.

@@ -20,7 +20,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import paths as state_paths
 from fleet.workers.base import StepContext, StepStatus
-from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren
+from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren, _normalize_task
 
 
 class FakeQueue:
@@ -162,6 +162,25 @@ def test_spawn_children_isolated(tmp_path: Path) -> None:
     assert [spec["title"] for _, spec in queue.created] == ["title a"]
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "observe"
+
+
+def test_normalize_task_keeps_workflow_and_inputs() -> None:
+    normalized = _normalize_task(
+        {
+            "key": "src-03",
+            "title": "summary_get: a title",
+            "workflow": "summary_get",
+            "inputs": {"url": "https://example.com"},
+        }
+    )
+    assert normalized["workflow"] == "summary_get"
+    assert normalized["inputs"] == {"url": "https://example.com"}
+
+
+def test_normalize_task_defaults_workflow_and_inputs() -> None:
+    normalized = _normalize_task({"key": "a", "title": "t", "body": "b"})
+    assert normalized["workflow"] is None
+    assert normalized["inputs"] == {}
 
 
 def test_block_job_isolated(tmp_path: Path) -> None:

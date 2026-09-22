@@ -341,6 +341,8 @@ def _normalize_task(raw: dict) -> dict:
         "model": raw.get("model"),
         "priority": raw.get("priority"),
         "depends_on": list(raw.get("depends_on") or []),
+        "workflow": raw.get("workflow"),
+        "inputs": dict(raw.get("inputs") or {}),
     }
 
 

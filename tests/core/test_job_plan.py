@@ -144,3 +144,47 @@ def test_validate_tasks_unknown_self_and_cycle() -> None:
     ]
     errors = validate_tasks(_doc(_task("a", depends_on=["b"]), _task("b", depends_on=["a"])))
     assert len(errors) == 1 and "cycle" in errors[0]
+
+
+def _workflow_task(key: str, **kw) -> dict:
+    base = {
+        "key": key,
+        "title": f"title {key}",
+        "workflow": "summary_get",
+        "inputs": {"url": "https://example.com"},
+        "depends_on": [],
+    }
+    base.update(kw)
+    return base
+
+
+def test_validate_tasks_workflow_child_ok() -> None:
+    assert validate_tasks(_doc(_workflow_task("a"))) == []
+
+
+def test_validate_tasks_workflow_child_rejects_body() -> None:
+    assert validate_tasks(_doc(_workflow_task("a", body="nope"))) == [
+        "task 'a': workflow child takes no body"
+    ]
+
+
+def test_validate_tasks_workflow_child_rejects_coder() -> None:
+    assert validate_tasks(_doc(_workflow_task("a", coder="claude"))) == [
+        "task 'a': workflow child takes no coder/model"
+    ]
+
+
+def test_validate_tasks_workflow_child_rejects_depends_on() -> None:
+    assert validate_tasks(_doc(_workflow_task("a", depends_on=["b"]), _task("b"))) == [
+        "task 'a': workflow child cannot depend on siblings"
+    ]
+
+
+def test_validate_tasks_workflow_child_rejects_non_string_inputs() -> None:
+    assert validate_tasks(_doc(_workflow_task("a", inputs={"n": 1}))) == [
+        "task 'a': inputs must be a mapping of strings"
+    ]
+
+
+def test_validate_tasks_plain_child_without_body_still_errors() -> None:
+    assert validate_tasks(_doc(_task("a", body=""))) == ["task 'a' has a blank body"]

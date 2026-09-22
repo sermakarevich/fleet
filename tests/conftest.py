@@ -224,6 +224,10 @@ class FakeQueue(Queue):
         self._children.setdefault(epic_id, []).append(BeadSummary(id=child.id, status="open"))
         return child
 
+    def add_dependency(self, epic_id: str, child_id: str) -> None:
+        """Make *epic_id* depend on an existing bead."""
+        self._children.setdefault(epic_id, []).append(BeadSummary(id=child_id, status="open"))
+
     def set_cwd(self, task_id: str, cwd: str) -> None:
         """Persist the invocation cwd into task.json."""
         if task_id in self._tasks:

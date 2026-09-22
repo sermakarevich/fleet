@@ -114,10 +114,16 @@ def validate_tasks(doc: Json, max_children: int = 30) -> list[str]:  # noqa: PLR
     """Check a parsed tasks.json doc; return error strings (empty when valid).
 
     Expected shape: ``{"tasks": [{key, title, body, cwd, coder, model,
-    priority, depends_on}]}`` where ``depends_on`` names sibling *keys*.
-    Errors: doc not an object, tasks not a list, empty list, too many
-    tasks, blank/duplicate keys, title blank or > 120 chars, body blank,
-    depends_on not a list of strings, unknown/self dependencies, cycles.
+    priority, depends_on, workflow, inputs}]}`` where ``depends_on`` names
+    sibling *keys*. A plain child needs a non-blank ``body``; a workflow
+    child (``workflow`` set, ADR 0015 §2) takes no ``body``/``coder``/
+    ``model``, cannot ``depends_on`` siblings, and its ``inputs`` (default
+    ``{}``) must be a mapping of strings to strings. Errors: doc not an
+    object, tasks not a list, empty list, too many tasks, blank/duplicate
+    keys, title blank or > 120 chars, body blank (plain child) or present
+    (workflow child), coder/model present on a workflow child, depends_on
+    not a list of strings, workflow child depends_on non-empty, inputs not
+    a string mapping, unknown/self dependencies, cycles.
     """
     if not isinstance(doc, dict):
         return ["tasks.json must be an object with a 'tasks' list"]
@@ -143,13 +149,26 @@ def validate_tasks(doc: Json, max_children: int = 30) -> list[str]:  # noqa: PLR
             errors.append(f"task {key!r} has a blank title")
         elif len(title) > _TITLE_MAX_LEN:
             errors.append(f"task {key!r} title exceeds {_TITLE_MAX_LEN} chars")
+        workflow = str(item.get("workflow") or "").strip()
         body = str(item.get("body") or "").strip()
-        if not body:
+        if workflow:
+            if body:
+                errors.append(f"task {key!r}: workflow child takes no body")
+            if item.get("coder") is not None or item.get("model") is not None:
+                errors.append(f"task {key!r}: workflow child takes no coder/model")
+            inputs = item.get("inputs") or {}
+            if not isinstance(inputs, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in inputs.items()
+            ):
+                errors.append(f"task {key!r}: inputs must be a mapping of strings")
+        elif not body:
             errors.append(f"task {key!r} has a blank body")
         depends_on = item.get("depends_on") or []
         if not isinstance(depends_on, list) or not all(isinstance(d, str) for d in depends_on):
             errors.append(f"task {key!r}: depends_on must be a list of keys")
             depends_on = []
+        elif workflow and depends_on:
+            errors.append(f"task {key!r}: workflow child cannot depend on siblings")
         specs.append({"key": key, "depends_on": list(depends_on)})
     keys = [s["key"] for s in specs]
     if len(set(keys)) != len(keys):

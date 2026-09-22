@@ -66,3 +66,11 @@ def test_create_child_links_epic_to_child_on_success(tmp_path: Path) -> None:
         child = q.create_child("epic-1", {"title": "Kid"})
     assert child.id == "kid-1"
     assert ["dep", "add", "epic-1", "kid-1"] in runs
+
+
+def test_add_dependency_runs_bd_dep_add(tmp_path: Path) -> None:
+    """add_dependency runs the same `bd dep add` create_child uses."""
+    q = BeadsQueue(repo_root=tmp_path)
+    with _patched_client(q, None) as runs:
+        q.add_dependency("epic-1", "kid-1")
+    assert runs == [["dep", "add", "epic-1", "kid-1"]]
