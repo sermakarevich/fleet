@@ -84,6 +84,18 @@ async def get_artifact_design(task_id: str, state: StateDep) -> JSONResponse:
     return await asyncio.to_thread(named_artifact, task_id, state, "DESIGN.md")
 
 
+@router.get("/tasks/{task_id}/artifacts/candidates", response_model=ArtifactResponse)
+async def get_artifact_candidates(task_id: str, state: StateDep) -> JSONResponse:
+    """Research worker's scored shortlist, candidates.json (see workers/research.py, ADR 0015)."""
+    return await asyncio.to_thread(named_artifact, task_id, state, "candidates.json")
+
+
+@router.get("/tasks/{task_id}/artifacts/children_runs", response_model=ArtifactResponse)
+async def get_artifact_children_runs(task_id: str, state: StateDep) -> JSONResponse:
+    """Job worker's workflow-run journal, children_runs.json (see workers/job.py)."""
+    return await asyncio.to_thread(named_artifact, task_id, state, "children_runs.json")
+
+
 @router.get("/tasks/{task_id}/diff", response_model=DiffResponse)
 async def get_task_diff(task_id: str, state: StateDep) -> JSONResponse:
     """git diff of the task's cwd (empty when not a git repo)."""

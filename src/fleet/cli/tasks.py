@@ -8,6 +8,7 @@ fleet-fleet_home/queue/config dependencies come from ``cli/bootstrap``.
 
 from __future__ import annotations
 
+import json
 import time
 from enum import StrEnum
 from pathlib import Path
@@ -21,7 +22,7 @@ from fleet.beads.client import BdError
 from fleet.cli import bootstrap, render
 from fleet.cli.errors import ExitCode, fail
 from fleet.cli.options import TaskIdArgument
-from fleet.cli.render import ChildRow, JobView
+from fleet.cli.render import CandidateRow, ChildRow, JobView, RunRow
 from fleet.core.effective import effective_coder_model
 from fleet.core.job_phase import phase_of
 from fleet.core.job_snapshot import JobSnapshot
@@ -112,8 +113,94 @@ def _gate_row(question: Question) -> tuple[str, str]:
     return (str(question.get("id")), first_line)
 
 
+def _read_json(path: Path) -> Any | None:
+    """Best-effort JSON load: None when the file is missing or corrupt."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+_SHORTLIST_STATUSES = {"shortlist", "reserve", "in_kb"}
+_TITLE_MAX = 60
+
+
+def _candidate_rows(artifacts: Path) -> tuple[CandidateRow, ...]:
+    """Shortlist/reserve/in_kb candidates from `candidates.json`, ranked by relevance."""
+    doc = _read_json(artifacts / "candidates.json")
+    if not isinstance(doc, dict):
+        return ()
+    candidates = doc.get("candidates")
+    if not isinstance(candidates, list):
+        return ()
+    kept = [
+        c
+        for c in candidates
+        if isinstance(c, dict) and c.get("status") in _SHORTLIST_STATUSES
+    ]
+
+    def relevance(candidate: dict) -> float:
+        scores = candidate.get("scores")
+        value = scores.get("relevance") if isinstance(scores, dict) else None
+        return value if isinstance(value, int | float) else -1.0
+
+    kept.sort(key=relevance, reverse=True)
+    rows = []
+    for i, c in enumerate(kept, start=1):
+        scores = c.get("scores") if isinstance(c.get("scores"), dict) else {}
+        title = str(c.get("title") or "")
+        if len(title) > _TITLE_MAX:
+            title = title[: _TITLE_MAX - 3] + "..."
+        score = scores.get("relevance")
+        rows.append(
+            CandidateRow(
+                rank=i,
+                status=str(c.get("status") or ""),
+                kind=str(c.get("kind") or ""),
+                score=score if isinstance(score, int | float) else None,
+                subtopic=str(c.get("subtopic") or ""),
+                title=title,
+                url=str(c.get("url") or ""),
+            )
+        )
+    return tuple(rows)
+
+
+def _run_rows(queue: BeadsQueue, artifacts: Path) -> tuple[RunRow, ...]:
+    """Workflow-run rows from `children_runs.json`, with best-effort step status."""
+    doc = _read_json(artifacts / "children_runs.json")
+    if not isinstance(doc, dict):
+        return ()
+    rows = []
+    for key, run in doc.items():
+        if not isinstance(run, dict):
+            continue
+        task_ids = run.get("task_ids")
+        task_ids = task_ids if isinstance(task_ids, list) else []
+        closed = 0
+        for task_id in task_ids:
+            try:
+                if queue.get(str(task_id)).status == "closed":
+                    closed += 1
+            except BdError:
+                continue
+        rows.append(
+            RunRow(
+                key=str(key),
+                run_id=str(run.get("run_id") or ""),
+                closed=closed,
+                total=len(task_ids),
+            )
+        )
+    return tuple(rows)
+
+
 def _build_job_view(
-    fleet_home: Path, task: Task, children: list[Any], pending: list[Question]
+    fleet_home: Path,
+    queue: BeadsQueue,
+    task: Task,
+    children: list[Any],
+    pending: list[Question],
 ) -> JobView:
     """Assemble the JobSnapshot-backed view one `fleet job view` prints."""
     artifacts = state_paths.task_dir(fleet_home, task.id) / "artifacts"
@@ -133,6 +220,8 @@ def _build_job_view(
         has_design=(artifacts / "DESIGN.md").exists(),
         children=tuple(_child_row(c) for c in children),
         gate=tuple(_gate_row(q) for q in pending),
+        candidates=_candidate_rows(artifacts),
+        runs=_run_rows(queue, artifacts),
     )
 
 
@@ -322,12 +411,13 @@ def run_task_artifact(fleet_home: Path, task_id: str, action: TaskAction) -> Non
 
 
 def run_job_view(fleet_home: Path, job_id: str) -> None:
-    """Render one job's phase, children table, and pending gate questions."""
+    """Render one job's phase, children table, pending gate questions, and (for a
+    research bead) its Shortlist and Runs tables."""
     q = bootstrap.queue(fleet_home)
     task = _fetch_job(q, job_id)
     children = _fetch_children(q, job_id)
     render.print_job_view(
-        _build_job_view(fleet_home, task, children, _pending_gate(fleet_home, job_id))
+        _build_job_view(fleet_home, q, task, children, _pending_gate(fleet_home, job_id))
     )
 
 
@@ -482,6 +572,16 @@ def register(app: typer.Typer) -> None:
         job_id: Annotated[str, typer.Argument(help="Job (epic) bead ID.")],
     ) -> None:
         """Show a job's phase, children table, and pending gate question."""
+        run_job_view(bootstrap.fleet_home(), job_id)
+
+    @app.command("research")
+    def research_cmd(
+        job_id: Annotated[str, typer.Argument(help="Research job (epic) bead ID.")],
+    ) -> None:
+        """Show a research job's phase, Shortlist, Runs, children, and pending gate.
+
+        Same view as `fleet job view` (candidates.json and children_runs.json
+        print the same two tables there when present)."""
         run_job_view(bootstrap.fleet_home(), job_id)
 
     @app.command("tail")

@@ -15,6 +15,7 @@ import { AttemptsTab } from './tabs/AttemptsTab';
 import { ChildrenTab } from './tabs/ChildrenTab';
 import { StateTab } from './tabs/StateTab';
 import { JobDocTab } from './tabs/JobDocTab';
+import { ShortlistTab } from './tabs/ShortlistTab';
 import { LogTab } from './tabs/LogTab';
 import { StderrTab } from './tabs/StderrTab';
 import { DiffTab } from './tabs/DiffTab';
@@ -28,7 +29,7 @@ import type { FleetEvent } from '../../../shared/types';
 import { merge } from '../../../shared/styles/recipes';
 import * as T from '../../../shared/styles/tokens';
 
-type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'log' | 'events' | 'stderr' | 'diff' | 'files' | 'dependencies' | 'comments' | 'bead';
+type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'shortlist' | 'log' | 'events' | 'stderr' | 'diff' | 'files' | 'dependencies' | 'comments' | 'bead';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'live', label: 'Live' },
@@ -37,6 +38,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'artifacts', label: 'Artifacts' },
   { id: 'research', label: 'Research' },
   { id: 'design', label: 'Design' },
+  { id: 'shortlist', label: 'Shortlist' },
   { id: 'log', label: 'Log' },
   { id: 'events', label: 'Events' },
   { id: 'stderr', label: 'Stderr' },
@@ -46,6 +48,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'comments', label: 'Comments' },
   { id: 'bead', label: 'Bead' },
 ];
+
+// Research beads run a `research.*` phase worker while discovering/designing,
+// then fall back to the shared `job.*` gate/spawn/observe phases (ADR 0015)
+// — so `research.` is a sufficient, not fully complete, signal, but it's the
+// only per-task field distinguishing a research job from a plain job.
+function isResearchWorker(worker: string | null | undefined): boolean {
+  return !!worker && worker.startsWith('research');
+}
 
 export function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -91,6 +101,7 @@ export function TaskDetailPage() {
       case 'artifacts': return <StateTab taskId={task!.id} result={task!.result} />;
       case 'research': return <JobDocTab taskId={task!.id} kind="research" />;
       case 'design': return <JobDocTab taskId={task!.id} kind="design" />;
+      case 'shortlist': return <ShortlistTab taskId={task!.id} />;
       case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'events': return <EventsTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
       case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
@@ -102,13 +113,15 @@ export function TaskDetailPage() {
     }
   }
 
+  const tabs = TABS.filter(t => t.id !== 'shortlist' || isResearchWorker(task!.worker));
+
   return (
     <div style={styles.page}>
       <TaskDetailHeader task={taskWithStatus ?? task} config={config} bead={bead} />
       <div style={styles.body}>
         <div style={styles.main}>
           <Tabs
-            tabs={TABS}
+            tabs={tabs}
             activeTab={activeTab}
             onTabChange={(id) => setActiveTab(id as TabId)}
             label="Task views"

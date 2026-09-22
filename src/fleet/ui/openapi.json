@@ -759,6 +759,86 @@
         }
       }
     },
+    "/api/tasks/{task_id}/artifacts/candidates": {
+      "get": {
+        "summary": "Get Artifact Candidates",
+        "description": "Research worker's scored shortlist, candidates.json (see workers/research.py, ADR 0015).",
+        "operationId": "get_artifact_candidates_api_tasks__task_id__artifacts_candidates_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/artifacts/children_runs": {
+      "get": {
+        "summary": "Get Artifact Children Runs",
+        "description": "Job worker's workflow-run journal, children_runs.json (see workers/job.py).",
+        "operationId": "get_artifact_children_runs_api_tasks__task_id__artifacts_children_runs_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tasks/{task_id}/diff": {
       "get": {
         "summary": "Get Task Diff",

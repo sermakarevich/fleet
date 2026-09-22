@@ -244,6 +244,29 @@ class ChildRow:
 
 
 @dataclass(frozen=True)
+class CandidateRow:
+    """One `artifacts/candidates.json` entry shown in the Shortlist table."""
+
+    rank: int
+    status: str
+    kind: str
+    score: float | None
+    subtopic: str
+    title: str
+    url: str
+
+
+@dataclass(frozen=True)
+class RunRow:
+    """One `artifacts/children_runs.json` entry shown in the Runs table."""
+
+    key: str
+    run_id: str
+    closed: int
+    total: int
+
+
+@dataclass(frozen=True)
 class JobView:
     """Everything `fleet job view` prints: snapshot, design flag, children, gate."""
 
@@ -255,6 +278,56 @@ class JobView:
     has_design: bool = False
     children: tuple[ChildRow, ...] = ()
     gate: tuple[tuple[str, str], ...] = ()
+    candidates: tuple[CandidateRow, ...] = ()
+    runs: tuple[RunRow, ...] = ()
+
+
+def _shortlist_table(candidates: tuple[CandidateRow, ...]) -> Table:
+    """Rich table of `candidates.json` entries ranked by relevance score."""
+    table = Table(
+        title="Shortlist",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("#", justify="right", no_wrap=True)
+    table.add_column("status", no_wrap=True)
+    table.add_column("kind", no_wrap=True)
+    table.add_column("score", justify="right", no_wrap=True)
+    table.add_column("sub-topic", no_wrap=True)
+    table.add_column("title", overflow="fold")
+    table.add_column("url", style="dim", overflow="fold")
+    for c in candidates:
+        table.add_row(
+            str(c.rank),
+            c.status,
+            c.kind,
+            f"{c.score:.2f}" if c.score is not None else "-",
+            c.subtopic,
+            c.title,
+            c.url,
+        )
+    return table
+
+
+def _runs_table(runs: tuple[RunRow, ...]) -> Table:
+    """Rich table of `children_runs.json` workflow-run entries."""
+    table = Table(
+        title="Runs",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("key", no_wrap=True)
+    table.add_column("run_id", no_wrap=True)
+    table.add_column("closed/total steps", justify="right", no_wrap=True)
+    for r in runs:
+        table.add_row(r.key, r.run_id, f"{r.closed}/{r.total}")
+    return table
 
 
 def print_job_view(view: JobView) -> None:
@@ -284,6 +357,11 @@ def print_job_view(view: JobView) -> None:
             typer.echo(f"  {qid}: {first_line}")
     else:
         typer.echo("gate: no pending questions")
+    wide_console = Console(soft_wrap=False, width=200)
+    if view.candidates:
+        wide_console.print(_shortlist_table(view.candidates))
+    if view.runs:
+        wide_console.print(_runs_table(view.runs))
 
 
 def print_tail_header(task_id: str, stats: runtime_stats.TaskRuntimeStats) -> None:

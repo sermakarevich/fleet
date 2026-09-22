@@ -279,6 +279,10 @@ export const api = {
     return request(`/api/tasks/${id}/artifacts/design`);
   },
 
+  getArtifactCandidates(id: string): Promise<{ content: string; mtime: number; path: string }> {
+    return request(`/api/tasks/${id}/artifacts/candidates`);
+  },
+
   getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {
     return request(`/api/tasks/${id}/logs${qs({ level })}`);
   },

@@ -242,6 +242,69 @@ def test_stderr_empty_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert resp.json()["content"] == ""
 
 
+def test_artifact_candidates_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks/{id}/artifacts/candidates returns candidates.json content."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-candidates")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "candidates.json").write_text('{"candidates": []}')
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-candidates/artifacts/candidates")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert resp.json()["content"] == '{"candidates": []}'
+
+
+def test_artifact_candidates_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /api/tasks/{id}/artifacts/candidates returns 404 when file missing."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    _make_task_dir(tmp_path / "tasks", "task-nocandidates")
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-nocandidates/artifacts/candidates")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 404
+
+
+def test_artifact_children_runs_returns_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks/{id}/artifacts/children_runs returns children_runs.json content."""
+    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
+    task_dir = _make_task_dir(tmp_path / "tasks", "task-runs")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "children_runs.json").write_text('{"src-01": {"run_id": "run-1"}}')
+
+    app = create_app()
+
+    async def _run() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get("/api/tasks/task-runs/artifacts/children_runs")
+
+    resp = asyncio.run(_run())
+    assert resp.status_code == 200
+    assert "run-1" in resp.json()["content"]
+
+
 def test_diff_returns_empty_for_non_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """GET /api/tasks/{id}/diff returns empty diff when cwd is not a git repo (FR-19)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))

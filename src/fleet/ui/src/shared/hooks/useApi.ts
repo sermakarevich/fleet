@@ -253,6 +253,72 @@ export function useArtifactDoc(taskId: string, kind: 'research' | 'design') {
   });
 }
 
+export interface ShortlistRow {
+  rank: number;
+  status: string;
+  kind: string;
+  score: number | null;
+  subtopic: string;
+  title: string;
+  url: string;
+}
+
+const SHORTLIST_STATUSES = new Set(['shortlist', 'reserve', 'in_kb']);
+const SHORTLIST_TITLE_MAX = 60;
+
+// Research worker's scored shortlist (workers/research.py, ADR 0015 candidates.json):
+// shortlist/reserve/in_kb candidates ranked by relevance score. Mirrors the
+// filtering/ranking `fleet research <id>` prints (cli/tasks.py::_candidate_rows).
+export function useShortlist(taskId: string) {
+  const query = useQuery({
+    queryKey: ['task', taskId, 'artifacts', 'candidates'],
+    queryFn: () => api.getArtifactCandidates(taskId),
+    refetchInterval: usePoll('normal'),
+  });
+
+  const rows = (() => {
+    if (!query.data) return null;
+    let doc: unknown;
+    try {
+      doc = JSON.parse(query.data.content);
+    } catch {
+      return null;
+    }
+    if (typeof doc !== 'object' || doc === null || !Array.isArray((doc as { candidates?: unknown }).candidates)) {
+      return null;
+    }
+    const candidates = (doc as { candidates: Record<string, unknown>[] }).candidates;
+    const kept = candidates.filter(
+      c => typeof c === 'object' && c !== null && SHORTLIST_STATUSES.has(String(c.status))
+    );
+    const relevance = (c: Record<string, unknown>): number => {
+      const scores = c.scores as Record<string, unknown> | undefined;
+      const value = scores?.relevance;
+      return typeof value === 'number' ? value : -1;
+    };
+    kept.sort((a, b) => relevance(b) - relevance(a));
+    return kept.map((c, i): ShortlistRow => {
+      const scores = c.scores as Record<string, unknown> | undefined;
+      const score = scores?.relevance;
+      let title = String(c.title ?? '');
+      if (title.length > SHORTLIST_TITLE_MAX) {
+        title = title.slice(0, SHORTLIST_TITLE_MAX - 3) + '...';
+      }
+      return {
+        rank: i + 1,
+        status: String(c.status ?? ''),
+        kind: String(c.kind ?? ''),
+        score: typeof score === 'number' ? score : null,
+        subtopic: String(c.subtopic ?? ''),
+        title,
+        url: String(c.url ?? ''),
+      };
+    });
+  })();
+
+  return { ...query, rows };
+}
+
 // Full-text search for the command palette; disabled for short input.
 export function useSearch(query: string) {
   return useQuery({
