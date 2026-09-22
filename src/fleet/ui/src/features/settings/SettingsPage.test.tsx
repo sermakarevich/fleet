@@ -71,6 +71,7 @@ const CONFIG_FIXTURE: RuntimeConfig = {
   job_child_model: 'sonnet',
   job_max_children: 30,
   job_max_phase_attempts: 2,
+  job_spawn_parallel: 8,
   serve_cors_origins: [],
   serve_host: '0.0.0.0',
   serve_port: 7890,

@@ -85,6 +85,7 @@ export const FIELD_DEFS: Record<SettingKey, FieldDef> = {
   job_child_model: { section: 'jobs', kind: 'model', label: 'Job child model', help: 'Default model for job-spawned child tasks.' },
   job_max_children: { section: 'jobs', kind: 'number', label: 'Job max children', help: 'Max children one job phase may spawn.' },
   job_max_phase_attempts: { section: 'jobs', kind: 'number', label: 'Job max phase attempts', help: 'Research/design attempts before a job blocks.' },
+  job_spawn_parallel: { section: 'jobs', kind: 'number', label: 'Job spawn parallel', help: 'Workflow-run children a job spawn step starts at once.' },
   compaction_enabled: { section: 'compaction', kind: 'boolean', label: 'Compaction enabled', help: 'Compact before continue launches that need it; else truncate.' },
   compaction_coder: { section: 'compaction', kind: 'coder', label: 'Compaction coder', help: 'Coder CLI used for the cheap compaction call.' },
   compaction_model: { section: 'compaction', kind: 'model', label: 'Compaction model', help: 'Model used for the cheap compaction call.' },
