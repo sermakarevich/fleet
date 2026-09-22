@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -192,14 +192,18 @@ Because aggregates are derived (section 4), this is safe. A schedule (ADR
 
 ## Implementation (beads, serial unless noted)
 
-1. `core/job_plan.validate_tasks` + `workers/job.py::SpawnChildren` +
-   `core/job_ready.py`: workflow-run children (section 2), with tests.
-2. `workers/research.py` prompts for discover and design, registered as
-   `--worker research`; `candidates.json` schema and the jev scoring helper.
-3. Copy-bead and aggregation-bead body templates quoting the recipe.
-4. CLI/UI: `fleet research <id>` (alias of `fleet job` with the source table),
-   run detail shows the shortlist and scores.
-5. Docs: guide section, `docs/workflows/` example, this ADR to Accepted.
+- [x] 1. `core/job_plan.validate_tasks` + `workers/job.py::SpawnChildren` +
+  `core/job_ready.py`: workflow-run children (section 2), with tests
+  (`8c7d8db`, `46e7fd3`).
+- [x] 2. `workers/research.py` prompts for discover and design, registered as
+  `--worker research`; `candidates.json` schema and the jev scoring helper
+  (`52aafcf`).
+- [x] 3. Copy-bead and aggregation-bead body templates quoting the recipe
+  (`a9a3426`).
+- [x] 4. CLI/UI: `fleet research <id>` (alias of `fleet job` with the source table),
+  run detail shows the shortlist and scores (`7e190e9`).
+- [x] 5. Docs: guide section, `docs/workflows/` example, this ADR to Accepted
+  (this change).
 
 ## Related
 

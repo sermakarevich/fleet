@@ -120,3 +120,55 @@ child bead; the epic sleeps until they close. `fleet job <id>` prints the
 phase, children, and pending gate; the task detail shows a phase badge plus
 Research/Design tabs. Research/design failing twice blocks the job; pass
 `--job-gate off` (or `job_gate: false` in runtime.toml) to skip approval.
+
+### Research jobs
+
+An epic bead with `--worker research` is a research job: it turns a topic
+into a laddered knowledge-base folder covering what the best N sources say,
+where they agree, where they contradict each other, and what is still open:
+
+```
+fleet bd create "transformer interpretability" -t epic --worker research
+```
+
+The bead description is the input table, as free text or key/value pairs:
+
+```
+topics: transformer interpretability, sparse autoencoders
+focus: what methods locate features in production LLMs, for a practitioner evaluating tooling; ignore philosophy-of-mind debates
+target: transformer-interp
+n_sources: 10
+lenses: tech, ai
+```
+
+It runs one phase per attempt. `discover` collects 3–5× N candidate sources
+as metadata only (title, abstract, authors, date, venue, URL — never full
+content), drops duplicates, dead links, and sources already in the knowledge
+base, then scores every survivor with `jev` — the TypeSafe judge-model CLI
+that scores text with probabilities — on relevance to the focus, source
+depth, and authority, and shortlists N plus a ~30% reserve. `design` turns
+the shortlist into children: one `summary_get` workflow run per new source
+plus a copy bead, then per-subtopic digests, topic-level `digest.md` /
+`overview.md` / `disagreements.md` / `open_questions.md`, one bead per lens,
+and `index.md` + `sources.md` last, each level depending on the one below.
+`gate` posts one ask_human question showing the shortlist with scores and
+one-line reasons — "approve N tasks?" with approve / revise (with a note) /
+cancel. `spawn` starts the workflow runs and beads with dependencies;
+`aggregate` is the children doing the reading and synthesis (each aggregate
+reads only per-source summaries and lower-level aggregates, never raw
+sources); `observe` validates coverage — every approved source has a folder
+and is linked from the topic index — and opens follow-ups otherwise.
+
+Output lands under `/Users/sergii/.ai/knowledge/research/<target>/`
+(`sources/` holds one folder per source, aggregates sit above). The output
+contract — folder layout, every file's shape, the ranking rubric, the naming
+rules, the gate text — lives in the spec `ai show research/get`; if this
+guide and the spec disagree, the spec wins. `fleet research <id>` (an alias
+of `fleet job` with the source table) prints the phase plus the scored
+shortlist; the run detail shows the same table.
+
+A finished target can be re-run with the same or a wider input: `sources.md`
+is the ledger of every source ever considered, so a re-run skips ledger
+entries, processes only new sources, and regenerates every aggregate from
+the now-larger leaf set. A schedule (see ADR 0007) can therefore keep a
+topic current.

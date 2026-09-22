@@ -17,4 +17,4 @@ Index: 0001 store-first beads-as-adapter, 0002 concept-based package layout,
 0011 event triggers (Proposed), 0012 beads-unavailable statuses (Accepted),
 0013 workflow builders (Accepted), 0014 triage shows the
 blocked-task investigation (Accepted), 0015 research
-workflow (Proposed).
+workflow (Accepted).
