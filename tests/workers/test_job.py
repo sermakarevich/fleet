@@ -202,8 +202,8 @@ def test_plan_job_resumes_spawn_when_journal_incomplete(tmp_path: Path) -> None:
     (ctx.task_dir / "artifacts" / "children.json").write_text(json.dumps({"t1": "kid-1"}))
     queue = FakeQueue([{"id": "kid-1", "status": "open"}])
     assert plan_job(_plan(ctx), queue).name == "job.spawn"
-    (ctx.task_dir / "artifacts" / "children.json").write_text(
-        json.dumps({"t1": "kid-1", "t2": "kid-2"})
+    (ctx.task_dir / "artifacts" / "children_skipped.json").write_text(
+        json.dumps({"t2": "builder failed"})
     )
     assert plan_job(_plan(ctx), queue).name == "job.observe"
 

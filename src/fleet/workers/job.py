@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -368,6 +369,35 @@ def _normalize_task(raw: dict) -> dict:
     }
 
 
+@dataclass
+class _SpawnJournals:
+    """The three spawn journals (key -> value) and the files they live in."""
+
+    artifacts_dir: Path
+    created: dict[str, str]
+    runs: dict[str, dict]
+    skipped: dict[str, str]
+
+    @classmethod
+    def load(cls, artifacts_dir: Path) -> _SpawnJournals:
+        return cls(
+            artifacts_dir=artifacts_dir,
+            created=_load_journal(artifacts_dir / "children.json"),
+            runs=_load_runs_journal(artifacts_dir / "children_runs.json"),
+            skipped=_load_journal(artifacts_dir / "children_skipped.json"),
+        )
+
+    def save_created(self) -> None:
+        _write_json_atomic(self.artifacts_dir / "children.json", self.created)
+
+    def save_runs(self) -> None:
+        _write_json_atomic(self.artifacts_dir / "children_runs.json", self.runs)
+
+    def skip(self, key: str, reason: str) -> None:
+        self.skipped[key] = reason
+        _write_json_atomic(self.artifacts_dir / "children_skipped.json", self.skipped)
+
+
 def spawn_complete(artifacts_dir: Path) -> bool:
     """True when children.json covers every key in tasks.json.
 
@@ -385,7 +415,8 @@ def spawn_complete(artifacts_dir: Path) -> bool:
     journal = _load_journal(artifacts_dir / "children.json")
     if not journal:
         return True
-    return all(key in journal for key in keys)
+    skipped = _load_journal(artifacts_dir / "children_skipped.json")
+    return all(key in journal or key in skipped for key in keys)
 
 
 def _load_journal(children_file: Path) -> dict[str, str]:
@@ -432,25 +463,34 @@ class SpawnChildren:
             return early
         assert ordered is not None
         artifacts_dir = ctx.task_dir / "artifacts"
-        children_file = artifacts_dir / "children.json"
-        created = _load_journal(children_file)
+        journals = _SpawnJournals.load(artifacts_dir)
+        created, skipped = journals.created, journals.skipped
         queue = self._queue
         workflow_keys = {task["key"] for task in ordered if task["workflow"]}
         try:
-            self._spawn_missing(ctx, queue, ordered, created, children_file)
+            self._spawn_missing(ctx, queue, ordered, journals)
             labels = [f"run:{v}" if k in workflow_keys else v for k, v in created.items()]
-            queue.comment(
-                ctx.task.id,
-                f"[fleet] job spawned {len(created)} children: {', '.join(labels)}",
-            )
+            note = f"[fleet] job spawned {len(created)} children: {', '.join(labels)}"
+            if skipped:
+                rows = "\n".join(f"- {key}: {reason}" for key, reason in skipped.items())
+                note += f"\n\nskipped {len(skipped)} (artifacts/children_skipped.json):\n{rows}"
+            queue.comment(ctx.task.id, note)
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status=StepStatus.FAIL, reason=f"cannot spawn children: {exc}")
+        if not created:
+            return StepResult(
+                status=StepStatus.FAIL,
+                reason=f"cannot spawn children: every task was skipped ({len(skipped)})",
+            )
         with contextlib.suppress(OSError):
             (artifacts_dir / "DESIGN_ERRORS.md").unlink(missing_ok=True)
+        summary = f"spawned {len(created)} children"
+        if skipped:
+            summary += f", skipped {len(skipped)}"
         _write_result(
             ctx.task_dir,
             status=ResultStatus.PARTIAL,
-            summary=f"spawned {len(created)} children",
+            summary=summary,
             next_step="observe",
         )
         return StepResult(status=StepStatus.OK)
@@ -476,29 +516,38 @@ class SpawnChildren:
         ctx: StepContext,
         queue: Queue,
         ordered: list[dict],
-        created: dict[str, str],
-        children_file: Path,
+        journals: _SpawnJournals,
     ) -> None:
-        """Create every not-yet-spawned child, journaling each id at once."""
-        artifacts_dir = ctx.task_dir / "artifacts"
-        design_path = str(artifacts_dir / "DESIGN.md")
-        runs_file = artifacts_dir / "children_runs.json"
-        runs = _load_runs_journal(runs_file)
+        """Create every not-yet-spawned child, journaling each id at once.
+
+        A workflow child whose builder fails (dead link, no transcript, ...)
+        is journaled in ``children_skipped.json`` instead of aborting the
+        whole spawn; tasks that depended only on skipped keys are skipped
+        too, and other tasks simply drop the skipped dependency.
+        """
+        design_path = str(journals.artifacts_dir / "DESIGN.md")
+        created, runs, skipped = journals.created, journals.runs, journals.skipped
         for task in ordered:
+            if task["key"] in skipped:
+                continue
             if task["workflow"]:
-                self._spawn_workflow_child(
-                    ctx, queue, task, created, runs, runs_file, children_file
-                )
+                self._spawn_workflow_child(ctx, queue, task, journals)
                 continue
             if task["key"] in created:
                 continue
             try:
                 deps = []
                 for dep_key in task["depends_on"]:
+                    if dep_key in skipped:
+                        continue
                     run = runs.get(dep_key)
                     deps.extend(run["final_task_ids"] if run is not None else [created[dep_key]])
             except KeyError as exc:
                 raise PlanError(f"task {task['key']!r} depends on uncreated {exc}") from exc
+            if task["depends_on"] and not deps:
+                gone = ", ".join(task["depends_on"])
+                journals.skip(task["key"], f"every dependency was skipped ({gone})")
+                continue
             body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
             child = queue.create_child(
                 ctx.task.id,
@@ -513,38 +562,42 @@ class SpawnChildren:
                 },
             )
             created[task["key"]] = child.id
-            _write_json_atomic(children_file, created)
+            journals.save_created()
 
     def _spawn_workflow_child(
         self,
         ctx: StepContext,
         queue: Queue,
         task: dict,
-        created: dict[str, str],
-        runs: dict[str, dict],
-        runs_file: Path,
-        children_file: Path,
+        journals: _SpawnJournals,
     ) -> None:
         """Start (once) and re-wire dependencies for one workflow-run child.
 
         The run is journaled before any dependency is registered, so a
         crash never starts it twice; ``add_dependency`` re-runs on every
         attempt (tolerating bd's already-exists error) so a crash between
-        journaling and full dependency wiring still converges.
+        journaling and full dependency wiring still converges. A builder
+        that rejects its inputs (``WorkflowInvalid``/``ValueError``) marks
+        the key skipped rather than failing the step.
         """
         key = task["key"]
+        runs = journals.runs
         if key not in runs:
             if ctx.workflow_runner is None:
                 raise PlanError("workflow children need a workflow runner")
-            handle = ctx.workflow_runner.start(task["workflow"], task["inputs"])
+            try:
+                handle = ctx.workflow_runner.start(task["workflow"], task["inputs"])
+            except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
+                journals.skip(key, str(exc))
+                return
             runs[key] = {
                 "run_id": handle.run_id,
                 "task_ids": list(handle.task_ids),
                 "final_task_ids": list(handle.final_task_ids),
             }
-            created[key] = handle.run_id
-            _write_json_atomic(runs_file, runs)
-            _write_json_atomic(children_file, created)
+            journals.created[key] = handle.run_id
+            journals.save_runs()
+            journals.save_created()
         for task_id in runs[key]["task_ids"]:
             try:
                 queue.add_dependency(ctx.task.id, task_id)

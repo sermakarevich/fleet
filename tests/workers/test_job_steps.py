@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import structlog
 
 from fleet.core.config import RuntimeConfig
+from fleet.core.errors import WorkflowInvalid
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import paths as state_paths
 from fleet.workers.base import RunHandle, StepContext, StepStatus
@@ -222,6 +223,39 @@ def test_spawn_children_workflow_child(tmp_path: Path) -> None:
     sib_spec = next(spec for _, spec in queue.created if spec["title"] == "sibling")
     assert sib_spec["depends_on"] == ["t3"]
     assert runner.calls == [("summary_get", {"url": "https://example.com"})]
+
+
+def test_spawn_children_skips_failed_builder_and_its_dependents(tmp_path: Path) -> None:
+    """A dead source skips its run and the copy that needed it; the rest proceed."""
+    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summary_get: yt failed"]))
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    doc = _workflow_tasks_doc()
+    doc["tasks"].append({"key": "solo", "title": "solo", "body": "solo body", "depends_on": []})
+    doc["tasks"].append(
+        {"key": "agg", "title": "agg", "body": "agg body", "depends_on": ["sib", "solo"]}
+    )
+    _write_tasks(ctx, doc)
+    queue = FakeQueue()
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
+    assert result.status == StepStatus.OK
+    skipped = json.loads((ctx.task_dir / "artifacts" / "children_skipped.json").read_text())
+    assert "yt failed" in skipped["src-03"]
+    assert "src-03" in skipped["sib"]
+    children = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text())
+    assert set(children) == {"solo", "agg"}
+    agg_spec = next(spec for _, spec in queue.created if spec["title"] == "agg")
+    assert agg_spec["depends_on"] == [children["solo"]]
+    assert queue.dependencies == []
+    assert "skipped 2" in queue.comments[-1][1]
+
+
+def test_spawn_children_all_skipped_fails(tmp_path: Path) -> None:
+    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summary_get: yt failed"]))
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.FAIL
+    assert "every task was skipped" in result.reason
 
 
 def test_spawn_children_workflow_without_runner_fails(tmp_path: Path) -> None:
