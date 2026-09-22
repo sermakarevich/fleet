@@ -175,3 +175,35 @@ def test_cli_exit_codes(tmp_path: Path, capsys: object) -> None:
     assert summary_verify.main([str(entry)]) == 1
     assert summary_verify.main([]) == 2
     _ = capsys
+
+
+def test_escaped_pipe_in_table_resolves(tmp_path: Path) -> None:
+    """Obsidian escapes the pipe inside a table; the target is still the file."""
+    entry = _good_entry(tmp_path)
+    index = entry / "index.md"
+    index.write_text(
+        index.read_text(encoding="utf-8").replace(
+            "- [[wiki/01-first-claim|First claim]]",
+            "| Page | What it covers |\n"
+            "| --- | --- |\n"
+            "| [[wiki/01-first-claim\\|First claim]] | the first claim |",
+        ),
+        encoding="utf-8",
+    )
+    assert verify_paper_dir(entry) == []
+
+
+def test_escaped_pipe_still_catches_a_missing_page(tmp_path: Path) -> None:
+    """Stripping the escape must not hide a genuinely absent target."""
+    entry = _good_entry(tmp_path)
+    index = entry / "index.md"
+    index.write_text(
+        index.read_text(encoding="utf-8").replace(
+            "- [[wiki/01-first-claim|First claim]]",
+            "| [[wiki/99-absent\\|Absent]] |",
+        ),
+        encoding="utf-8",
+    )
+    failures = verify_paper_dir(entry)
+    assert any("wiki/99-absent" in f for f in failures)
+    assert not any("\\" in f for f in failures)

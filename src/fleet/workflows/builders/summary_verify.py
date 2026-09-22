@@ -125,9 +125,18 @@ def _check_digest(paper_dir: Path, pages: list[Path]) -> list[str]:
     ]
 
 
+def _clean_target(raw: str) -> str:
+    """Drop the anchor and the markdown escape backslash a table cell adds.
+
+    Obsidian needs the pipe escaped inside a table, so index.md carries
+    ``[[wiki/01-overview\\|Overview]]``; the capture keeps that backslash.
+    """
+    return raw.split("#", 1)[0].strip().rstrip("\\").strip()
+
+
 def _resolve_target(paper_dir: Path, raw: str) -> Path | None:
     """Resolve one link target under the entry; None when external/anchor."""
-    target = raw.split("#", 1)[0].strip()
+    target = _clean_target(raw)
     if not target or target.startswith(("http://", "https://", "mailto:")):
         return None
     if "://" in target:
@@ -158,7 +167,7 @@ def _check_index_links(paper_dir: Path) -> list[str]:
     failures = []
     seen: set[str] = set()
     for raw in targets:
-        target = raw.split("#", 1)[0].strip()
+        target = _clean_target(raw)
         if not target or target in seen:
             continue
         seen.add(target)
