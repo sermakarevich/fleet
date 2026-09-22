@@ -94,8 +94,8 @@ def _result(question: Question) -> dict[str, Any]:
     }
 
 
-def _default_agent_id() -> str | None:
-    """Derive a task-id agent_id from the FLEET_TASK_DIR env var when none is passed."""
+def _task_id_from_env() -> str | None:
+    """Bead id from the FLEET_TASK_DIR env var (its last path segment)."""
     task_dir = os.environ.get("FLEET_TASK_DIR")
     if task_dir:
         # Extract task id from path like /.../.fleet/tasks/fleet-xxxx
@@ -103,6 +103,16 @@ def _default_agent_id() -> str | None:
         if name:
             return name
     return None
+
+
+def _default_agent_id() -> str | None:
+    """Derive a task-id agent_id from the FLEET_TASK_DIR env var when none is passed."""
+    return _task_id_from_env()
+
+
+def _default_task_id() -> str | None:
+    """Derive the asking bead's id from FLEET_TASK_DIR when none is passed."""
+    return _task_id_from_env()
 
 
 async def _await_answer(
@@ -147,13 +157,15 @@ async def _await_answer(
 
 
 @mcp.tool()
-async def ask_human_question(
+async def ask_human_question(  # noqa: PLR0913, PLR0917  # MCP tool: one flag per question facet
     prompt: str,
     options: list[str] | None = None,
     multi_select: bool = False,
     agent_id: str | None = None,
     session_id: str | None = None,
     priority: int = 0,
+    task_id: str | None = None,
+    context: str | None = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     """Ask the human operator a question and BLOCK until they answer.
@@ -174,6 +186,14 @@ async def ask_human_question(
             operator can tell concurrent questions apart.
         session_id: Optional grouping key (e.g. the workflow run id).
         priority: Higher numbers surface first in the operator's queue.
+        task_id: Your bead id (basename of $FLEET_TASK_DIR; defaults from the
+            env when omitted). Pass together with `context` for a question a
+            retried step might ask again.
+        context: Stable key for this exact question (e.g. the source URL a
+            provenance-collision question is about). When a pending question
+            already exists for the (task_id, context) pair, NO new row is
+            created — this call blocks on the existing question instead, so a
+            retried step never shows the operator the same question twice.
 
     Returns:
         {"id", "status", "answer", "note", "answered_by"}. `status` is "answered"
@@ -187,8 +207,17 @@ async def ask_human_question(
     # Default agent_id from FLEET_TASK_DIR env var when none is passed,
     # so the operator always sees attribution (env default > none).
     effective_agent_id = agent_id or _default_agent_id()
+    effective_task_id = task_id or _default_task_id()
 
     store = get_store()
+    existing = store.find_pending(effective_task_id, context)
+    if existing is not None:
+        _log.info(
+            "ask_human reusing pending question",
+            existing_id=existing["id"],
+            task_id=effective_task_id,
+        )
+        return _result(await _await_answer(store, existing["id"], ctx))
     qid = store.create(
         prompt=prompt,
         options=options,
@@ -196,6 +225,8 @@ async def ask_human_question(
         agent_id=effective_agent_id,
         session_id=session_id,
         priority=priority,
+        task_id=effective_task_id,
+        context=context,
     )
     return _result(await _await_answer(store, qid, ctx))
 

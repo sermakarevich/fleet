@@ -398,7 +398,7 @@ class QuestionStore:
             )
         return qid
 
-    def create(
+    def create(  # noqa: PLR0913, PLR0917  # one row, one call-site shape
         self,
         prompt: str,
         options: list[str] | None = None,
@@ -408,15 +408,23 @@ class QuestionStore:
         timeout_s: float | None = None,
         default_answer: Json = None,
         priority: int = 0,
+        task_id: str | None = None,
+        context: str | None = None,
     ) -> str:
-        """Insert a new pending question and return its id."""
+        """Insert a new pending question and return its id.
+
+        ``task_id``/``context`` optionally key the question (e.g. a workflow
+        step's bead id plus the source URL it is asking about) so a later
+        call can find it again via ``find_pending`` instead of asking twice.
+        """
         qid = uuid.uuid4().hex[:12]
         now = time.time()
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO questions (id, agent_id, session_id, prompt, options, "
-                "multi_select, priority, status, default_answer, timeout_s, created_at) "
-                "VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?)",
+                "multi_select, priority, status, default_answer, timeout_s, created_at, "
+                "task_id, context) "
+                "VALUES (?,?,?,?,?,?,?, 'pending', ?,?,?,?,?)",
                 (
                     qid,
                     agent_id,
@@ -428,9 +436,24 @@ class QuestionStore:
                     _dumps(default_answer),
                     timeout_s,
                     now,
+                    task_id,
+                    context,
                 ),
             )
         return qid
+
+    def find_pending(self, task_id: str | None, context: str | None) -> Question | None:
+        """Oldest pending question for the exact (task_id, context) pair, if any.
+
+        Provenance-style asks key on (bead id, source URL) so a retried step
+        reuses the already-pending question instead of creating a second
+        row. Empty keys never match: callers must pass both, otherwise every
+        unkeyed question from one task would collapse onto the first one.
+        """
+        if not task_id or not context:
+            return None
+        rows = self.fetch_pending_for_task(task_id, context)
+        return rows[0] if rows else None
 
     def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[Question]:
         """Pending questions about one bead, optionally for one context.

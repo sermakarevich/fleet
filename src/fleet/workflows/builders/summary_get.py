@@ -80,7 +80,10 @@ Run work dir (absolute, build-time): __WORK__
         reuse the folder: refresh <paper_dir>/source/source.md from __SOURCE_MD__,
         write outputs.json (step 5), and continue. No question.
      2. Genuine conflict: the provenance url differs, or source.md is missing or
-        unreadable → ask with mcp__ask_human__ask_human_question. Never guess,
+        unreadable → ask with mcp__ask_human__ask_human_question, passing
+        task_id=<your bead id: the basename of $FLEET_TASK_DIR> and
+        context=<this run's source url __URL__> so a retried plan step blocks
+        on the already-pending question instead of asking twice. Never guess,
         never overwrite an existing folder.
    - macOS rule: the filesystem is case-insensitive, so papers/Livekit and
      papers/LiveKit are the same folder. A candidate slug that differs only in
