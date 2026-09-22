@@ -40,6 +40,46 @@ def test_chunk_text_splits_headings_and_preserves_text() -> None:
     assert normalize("".join(chunk.text for chunk in chunks)) == normalize(text)
 
 
+def test_chunk_text_drops_readme_boilerplate() -> None:
+    """Sponsor/License/Star History/TOC sections never become chunks."""
+    readme = (
+        "# CyberVerse\n\nA virtual world for agents.\n\n"
+        + "## Features\n\n" + ("Real-time simulation. " * 200) + "\n\n"
+        + "## Sponsor\n\nThanks to Compshare. [Referral](https://example.com/ref)\n\n"
+        + "## Star History\n\n[![Star](https://img.shields.io/badge/star-x)]()\n\n"
+        + "## License\n\nMIT\n\n"
+        + "## Table of Contents\n\n- [Features](#features)\n"
+    )
+    chunks = chunk_text(readme, 2000)
+    assert chunks, "the Features section must survive"
+    titles = [chunk.title.lower() for chunk in chunks]
+    assert not any("sponsor" in title for title in titles)
+    assert not any(title in ("license", "star history", "table of contents") for title in titles)
+    assert not any("compshare" in chunk.text.lower() for chunk in chunks)
+
+
+def test_chunk_text_sponsor_only_yields_no_chunks() -> None:
+    """A README with only a Sponsor block yields zero chunks."""
+    readme = "# Empty\n\n## Sponsor\n\nThanks to Compshare [link](https://e.com).\n"
+    assert chunk_text(readme, 2000) == []
+
+
+def test_build_fails_when_only_boilerplate_remains(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Build fails loudly instead of filing a boilerplate-only source."""
+    sponsor_only = Source(
+        url="https://e.com/sponsor-only",
+        kind=SourceKind.article,
+        title="Empty",
+        text="# Empty\n\n## Sponsor\n\nThanks to Compshare [link](https://e.com).\n",
+        tool="test",
+    )
+    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: sponsor_only)
+    with pytest.raises(SourceError, match="boilerplate"):
+        summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/sponsor-only"}))
+
+
 def test_parse_chunk_chars_bounds() -> None:
     """Unset, blank, and garbage inputs fall back to the default; numbers clamp."""
     assert parse_chunk_chars(None) == CHUNK_CHARS_DEFAULT
@@ -237,6 +277,17 @@ def test_file_step_classifies_category_with_jev(monkeypatch: pytest.MonkeyPatch,
     # ask_human survives only as the exit-2 / error escalation path.
     assert "exits 2" in desc
     assert desc.count("mcp__ask_human__ask_human_question") == 1
+
+
+def test_file_step_lists_categories_from_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The file step takes categories from `ls structured_papers/`, never invented."""
+    desc = _file_desc(monkeypatch, tmp_path)
+    assert "ls /Users/sergii/.ai/knowledge/structured_papers/" in desc
+    assert "never invent a category" in desc
+    assert "ml_systems" in desc  # named as the canonical non-existent example
+    assert "not a listed directory" in desc or "not a directory" in desc
 
 
 def test_file_step_runs_move_recipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

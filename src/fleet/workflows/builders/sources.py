@@ -33,7 +33,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from fleet.core.errors import FleetError, WorkflowSourceUnavailable
-from fleet.workflows.builders.chunking import REPO_SKIP_DIRS
+from fleet.workflows.builders.chunking import (
+    REPO_SKIP_DIRS,
+    is_boilerplate_heading,
+    strip_boilerplate,
+)
 
 _FETCH_TIMEOUT_S = 60
 _CLI_TIMEOUT_S = 180
@@ -516,7 +520,7 @@ def _repo_overview(owner: str, repo: str, dest: Path, sha: str) -> str:
     for readme in _REPO_READMES:
         path = dest / readme
         if path.is_file():
-            sections += ["## README", "", _read_text_capped(path, 12_000), ""]
+            sections += ["## README", "", strip_boilerplate(_read_text_capped(path, 12_000)), ""]
             break
     for manifest in _REPO_MANIFESTS:
         path = dest / manifest
@@ -698,10 +702,15 @@ def _github_raw_readme(owner: str, repo: str) -> str | None:
 
 
 def _readme_title(text: str, owner: str, repo: str) -> str:
-    """First README heading, else `owner/repo` so chunks never take a chrome name."""
-    match = re.search(r"^#{1,3} +(.+?)\s*$", text, re.MULTILINE)
-    if match is not None and match.group(1).strip("# ").strip():
-        return match.group(1).strip("# ").strip()[:160]
+    """First substantive README heading, else `owner/repo`.
+
+    Boilerplate headings (Sponsor, License, ...) are skipped so chunks never
+    take a chrome name; falls back to `owner/repo` when nothing else remains.
+    """
+    for match in re.finditer(r"^#{1,3} +(.+?)\s*$", text, re.MULTILINE):
+        title = match.group(1).strip("# ").strip()
+        if title and not is_boilerplate_heading(title):
+            return title[:160]
     return f"{owner}/{repo}"
 
 

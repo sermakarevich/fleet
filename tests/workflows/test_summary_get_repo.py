@@ -136,6 +136,14 @@ def test_chunk_repo_is_one_chunk_per_component(tmp_path: Path) -> None:
     assert "class Store:" in chunks[2].text
 
 
+def test_readme_title_skips_boilerplate_headings() -> None:
+    """A README opening on Sponsor/License still titles from the real heading."""
+    text = "# CyberVerse\n\nA world.\n\n## Sponsor\n\nThanks.\n"
+    assert sources._readme_title(text, "acme", "widgets") == "CyberVerse"
+    boilerplate_only = "## Sponsor\n\nThanks to Compshare.\n\n## License\n\nMIT\n"
+    assert sources._readme_title(boilerplate_only, "acme", "widgets") == "acme/widgets"
+
+
 def _ctx(tmp_path: Path, inputs: dict[str, str]) -> BuildContext:
     """Build context rooted at tmp_path for run r1."""
     return BuildContext(run_id="r1", fleet_home=tmp_path, now=_AT, inputs=inputs)

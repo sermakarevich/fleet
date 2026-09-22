@@ -109,6 +109,20 @@ def test_rejects_all_chrome_names(tmp_path: Path) -> None:
     assert any("04-sign-in.md" in failure for failure in failures)
 
 
+def test_rejects_boilerplate_wiki_pages(tmp_path: Path) -> None:
+    """Sponsor/License/Star History pages fail like site chrome."""
+    entry = _good_entry(tmp_path)
+    _write(entry / "wiki" / "03-sponsor.md", "# Sponsor\n**In one sentence:** Thanks.\n")
+    _write(entry / "wiki" / "04-license.md", "# License\n**In one sentence:** MIT.\n")
+    _write(
+        entry / "wiki" / "05-star-history.md", "# Star History\n**In one sentence:** Stars.\n"
+    )
+    failures = verify_paper_dir(entry)
+    assert any("03-sponsor.md" in failure for failure in failures)
+    assert any("04-license.md" in failure for failure in failures)
+    assert any("05-star-history.md" in failure for failure in failures)
+
+
 def test_trivial_file_fails(tmp_path: Path) -> None:
     """A 100-byte summary.md counts as missing, not done."""
     entry = _good_entry(tmp_path)

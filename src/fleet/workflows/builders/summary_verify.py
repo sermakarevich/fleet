@@ -8,7 +8,8 @@ in, list of failure strings out, so the same logic is unit-testable:
 - index/summary/digest/explainer/questions/critical_thinking exist and are
   non-trivial (> ``MIN_BYTES`` bytes).
 - source/source.md exists and carries the ``Source:`` provenance line.
-- wiki/ holds at least one page and no page stemmed from site chrome.
+- wiki/ holds at least one page and no page stemmed from site chrome or
+  README boilerplate.
 - digest.md mentions every wiki page name (cheap proxy: each page's
   "In one sentence" line was quoted into the digest verbatim).
 - every link in index.md resolves to a file that exists.
@@ -21,6 +22,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+from fleet.workflows.builders.chunking import BOILERPLATE_WIKI_SUBSTRINGS
 
 #: A derived file at or below this size counts as missing/trivial.
 MIN_BYTES = 500
@@ -36,8 +39,14 @@ REQUIRED_FILES = (
 )
 
 #: Wiki page stems containing any of these came from site chrome
-#: (GitHub nav, sign-in walls), not from the source's argument.
-BANNED_WIKI_SUBSTRINGS = ("latest-commit", "skip-to-content", "sign-in")
+#: (GitHub nav, sign-in walls) or README boilerplate (Sponsor, License,
+#: Star History, ...), not from the source's argument.
+BANNED_WIKI_SUBSTRINGS = (
+    "latest-commit",
+    "skip-to-content",
+    "sign-in",
+    *BOILERPLATE_WIKI_SUBSTRINGS,
+)
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")

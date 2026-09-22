@@ -31,7 +31,7 @@ from fleet.workflows.builders.chunking import (
     chunk_text,
     parse_chunk_chars,
 )
-from fleet.workflows.builders.sources import Source, SourceKind, fetch
+from fleet.workflows.builders.sources import Source, SourceError, SourceKind, fetch
 from fleet.workflows.model import Stage, Step, Workflow
 
 #: Template every later stage uses for the knowledge-base folder chosen by `plan`.
@@ -352,16 +352,23 @@ Run work dir (absolute, build-time): __WORK__
    a. Read <paper_dir>/summary.md (title = first `#` heading; TL;DR = prefer
       `## Human Readable TL;DR`, fall back to `## TL;DR`; 1–2 sentences,
       under 30 words, terse). Do not read the whole entry.
-   b. Read /Users/sergii/.ai/knowledge/structured_papers/index.md for the
-      authoritative, up-to-date category list (never a hardcoded list).
+   b. List the authoritative, up-to-date categories with
+      `ls /Users/sergii/.ai/knowledge/structured_papers/` — the directory
+      names are the categories (ignore plain files such as index.md).
+      You may cross-check structured_papers/index.md prose, but the
+      directory listing wins when they disagree. Never use a hardcoded
+      list and never invent a category: a name that is not a directory
+      in that listing (e.g. ml_systems) does not exist.
    c. Classify the category with jev (the TypeSafe judge-model CLI), never a
       chat-model guess and never ask_human first. Build the state as the
       entry title plus the 1-2 sentence TL;DR from (a), then run ONE command
-      with one -o flag per category from the list in (b):
+      with one -o flag per directory from the listing in (b):
         jev choose "Which knowledge-base category is the best single home for this entry?" \
           -o <cat1> -o <cat2> ... -s "<title>: <tldr>" --min-confidence 0.7
-      The entry gets exactly one home, never cross-list. Use the returned
-      `.answers.answer.choice` directly as the category. Record the choice
+      The entry gets exactly one home, never cross-list. Verify the returned
+      `.answers.answer.choice` is one of the listed directories; a choice
+      outside the listing is a jev error — discard it and escalate as below.
+      Use the verified choice directly as the category. Record the choice
       and `.answers.answer.confidence` in step 5's outputs.json (keys
       "category" and "category_confidence") AND as a provenance line in the
       moved entry's index.md (e.g. `filed_via: jev choose, category: <cat>,
@@ -369,10 +376,14 @@ Run work dir (absolute, build-time): __WORK__
       so a wrong call can be traced.
       Escalation (the ONLY case that reaches a human): jev exits 2
       (confidence below the 0.7 floor) or errors (exit 1, e.g. missing
-      TYPESAFE_API_KEY). Only then fall back to
-      mcp__ask_human__ask_human_question - propose jev's top choice (stdout
-      still carries the JSON on exit 2) with the second-best alternative
+      TYPESAFE_API_KEY), or its choice is not a listed directory. Only then
+      fall back to
+      mcp__ask_human__ask_human_question - offer ONLY directories from the
+      listing in (b) as options: propose jev's top listed choice (stdout
+      still carries the JSON on exit 2) with the second-best listed
+      alternative
       (highest remaining probability), wait for the answer, then proceed.
+      Never offer a category that is not a listed directory.
       On ties, open the candidate <category>/<category>.md files and compare
       against listed papers before calling jev.
    d. Move the folder with its original name preserved into
@@ -413,7 +424,10 @@ Entry folder: __PAPER_DIR__ (from {{steps.plan.outputs.paper_dir}}).
    - source/source.md exists and carries the `Source:` provenance line.
    - wiki/ holds at least one page; no page name derived from site chrome
      (reject any page whose stem contains `latest-commit`, `skip-to-content`,
-     or `sign-in`).
+     or `sign-in`) or from README boilerplate (reject any page whose stem
+     contains `sponsor`, `star-history`, `stargazer`, `license`,
+     `contributing`, `citation`, `code-of-conduct`, `changelog`,
+     `table-of-contents`, `related-project`, or `acknowledgement`).
    - digest.md mentions every wiki page name (each page's **In one sentence:**
      line must be quoted there, so the rungs actually differ).
    - every link in index.md ([[wikilink]] or [markdown](link)) resolves to a
@@ -484,6 +498,11 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
         chunks = chunk_repo(work / "repo", target)
     else:
         chunks = chunk_text(source.text, target)
+    if not chunks:
+        raise SourceError(
+            f"fetch {url}: source has no substantive content after README boilerplate "
+            "(Sponsor, License, Star History, ...) was dropped — not worth an entry"
+        )
     _write_chunks(work, chunks)
     return replace(workflow, stages=_stages(source, chunks, work, url))
 

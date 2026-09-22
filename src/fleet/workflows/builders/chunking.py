@@ -95,6 +95,140 @@ _REPO_BINARY_SUFFIXES = frozenset(
 #: Largest single file read into a chunk; bigger files are noted, not held.
 _REPO_MAX_FILE_BYTES = 200_000
 
+#: README boilerplate headings dropped before chunking (case-insensitive,
+#: normalized match): sponsorship asks, stargazing, legal/meta sections and
+#: nav — never the source's own argument. Kept narrow on purpose: "related
+#: projects" is boilerplate but "related work" in a paper is not.
+_BOILERPLATE_HEADINGS = frozenset(
+    {
+        "sponsor",
+        "sponsors",
+        "sponsorship",
+        "acknowledgement",
+        "acknowledgements",
+        "acknowledgment",
+        "acknowledgments",
+        "star history",
+        "stargazers",
+        "stargazer",
+        "license",
+        "contributing",
+        "contribution",
+        "contributions",
+        "citation",
+        "citations",
+        "cite",
+        "citing",
+        "code of conduct",
+        "changelog",
+        "table of contents",
+        "related projects",
+        "related project",
+    }
+)
+
+#: Wiki page stems containing any of these came from README boilerplate, not
+#: from the source's argument. Mirrors _BOILERPLATE_HEADINGS in slug form so
+#: the verify stage rejects what the chunker should already have dropped.
+BOILERPLATE_WIKI_SUBSTRINGS = (
+    "sponsor",
+    "acknowledgement",
+    "acknowledgment",
+    "star-history",
+    "stargazer",
+    "contributing",
+    "contribution",
+    "citation",
+    "citing",
+    "code-of-conduct",
+    "changelog",
+    "table-of-contents",
+    "related-project",
+)
+
+#: A section whose body carries less substantive text than this (after badge,
+#: image, link and HTML markup is removed) is badges-only nav, not content.
+#: Deliberately small: a one-paragraph real section is ~200+ characters.
+_BADGES_ONLY_CHARS = 60
+
+#: Markup that marks a section as badge/link chrome rather than prose.
+_BADGE_MARKUP_RE = re.compile(r"!\[[^\]]*\]\(|<img\b|shields\.io|opencollective", re.IGNORECASE)
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_IMAGE_RE = re.compile(r"\[?\![^\]]*\]\([^)]*\)")
+
+
+def _normalize_heading(title: str) -> str:
+    """Lowercase alphanumeric-words form of a heading for boilerplate matching."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", title.lower())).strip()
+
+
+def is_boilerplate_heading(title: str) -> bool:
+    """True when a section heading names README boilerplate, not content."""
+    normalized = _normalize_heading(title)
+    if not normalized:
+        return False
+    for boilerplate in _BOILERPLATE_HEADINGS:
+        if normalized == boilerplate or normalized.startswith(boilerplate + " "):
+            return True
+    return False
+
+
+def _substantive_chars(body: str) -> int:
+    """Alphanumeric characters left after badge/image/link/HTML markup is gone."""
+    text = re.sub(r"<!--.*?-->", " ", body, flags=re.DOTALL)
+    text = _MD_IMAGE_RE.sub(" ", text)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"[#>*`\-_|:\[\]()!]", " ", text)
+    return len(re.sub(r"\s+", "", text))
+
+
+def _is_badges_only(section: str) -> bool:
+    """True when a section is badge/link chrome with no substantive prose."""
+    lines = section.splitlines()
+    body = "\n".join(lines[1:]) if lines and lines[0].lstrip().startswith("#") else section
+    if _substantive_chars(body) >= _BADGES_ONLY_CHARS:
+        return False
+    if _BADGE_MARKUP_RE.search(section):
+        return True
+    content = [line for line in body.splitlines() if line.strip()]
+    if not content:
+        return True
+    return all(
+        re.fullmatch(r"\s*[-*+]?\s*(\[[^\]]*\]\([^)]*\)\s*)+", line) is not None
+        for line in content
+    )
+
+
+def _section_heading(section: str) -> str | None:
+    """The section's own `#`-heading text, else None."""
+    match = re.match(r"\s*#{1,3} +(.+?)\s*$", section.splitlines()[0] if section else "")
+    if match is not None:
+        return match.group(1).strip("# ").strip()
+    return None
+
+
+def strip_boilerplate(text: str) -> str:
+    """Drop README boilerplate sections; the substantive remainder stays ordered."""
+    body = text.strip()
+    if not body:
+        return ""
+    starts = [m.start() for m in _HEADING_RE.finditer(body)]
+    if not starts:
+        return "" if _is_badges_only(body) else body
+    if starts[0] > 0:
+        starts.insert(0, 0)
+    kept = []
+    for start, end in zip(starts, [*starts[1:], len(body)], strict=True):
+        section = body[start:end]
+        heading = _section_heading(section)
+        if heading is not None and is_boilerplate_heading(heading):
+            continue
+        if _is_badges_only(section):
+            continue
+        kept.append(section)
+    return "\n\n".join(kept).strip()
+
 #: Root files folded into the overview chunk instead of their own component.
 _REPO_ROOT_DOCS = frozenset(
     {
@@ -210,8 +344,13 @@ def _merge_to_cap(pieces: list[str], cap: int) -> list[str]:
 
 
 def chunk_text(text: str, target: int = CHUNK_CHARS_DEFAULT) -> list[Chunk]:
-    """Cut `text` into structure-aligned chunks of roughly `target` characters."""
-    body = text.strip()
+    """Cut `text` into structure-aligned chunks of roughly `target` characters.
+
+    README boilerplate sections (Sponsor, License, Star History, ...) are
+    dropped first; a source with nothing substantive left yields zero chunks
+    so the builder fails the run instead of filing chrome as knowledge.
+    """
+    body = strip_boilerplate(text)
     if not body:
         return []
     pieces: list[str] = []
@@ -337,7 +476,8 @@ def _repo_overview_chunk(repo: Path, components: list[str]) -> str:
         path = repo / readme
         if path.is_file():
             try:
-                text = path.read_text(encoding="utf-8", errors="replace")[:12_000]
+                raw = path.read_text(encoding="utf-8", errors="replace")[:12_000]
+                text = strip_boilerplate(raw)
             except OSError:
                 text = ""
             if text.strip():
