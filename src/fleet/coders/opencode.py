@@ -225,8 +225,11 @@ class OpencodeCoder:
         full_id = _model_ref(self.model, self.default_model).full_id
         # opencode >= 2.0 dropped `run --dir`; the process already starts in
         # ctx.workdir (LlmSession passes it as the subprocess cwd), so the
-        # working directory needs no flag.
-        return ["opencode", "run", "--format", "json", "--model", full_id, prompt]
+        # working directory needs no flag. `--auto` approves permissions that
+        # the injected config does not explicitly deny: v2 `run` otherwise
+        # auto-rejects `external_directory` (writing $FLEET_TASK_DIR/RESULT.json
+        # from a worktree) even with `permission.external_directory: allow`.
+        return ["opencode", "run", "--auto", "--format", "json", "--model", full_id, prompt]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         bedrock = self.settings.bedrock if self.is_bedrock else None

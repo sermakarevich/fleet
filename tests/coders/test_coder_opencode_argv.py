@@ -143,6 +143,12 @@ def test_build_argv_has_no_dir_flag_when_task_has_cwd(tmp_path: Path):
     assert "/Users/me/project" not in argv[:-1]
 
 
+def test_build_argv_auto_approves_permissions(tmp_path: Path):
+    """opencode 2.x `run` auto-rejects external_directory without --auto."""
+    argv = _coder().build_argv(_task(), tmp_path)
+    assert argv[:3] == ["opencode", "run", "--auto"]
+
+
 def test_build_argv_omits_dir_flag_when_no_cwd(tmp_path: Path):
     argv = _coder().build_argv(_task(), tmp_path)
     assert "--dir" not in argv
