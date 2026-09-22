@@ -263,7 +263,9 @@ def _file_desc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     return by_name["file"].steps[0].description
 
 
-def test_file_step_classifies_category_with_jev(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_file_step_classifies_category_with_jev(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """The file step classifies via jev choose; ask_human is only the low-confidence fallback."""
     desc = _file_desc(monkeypatch, tmp_path)
     assert "jev choose" in desc

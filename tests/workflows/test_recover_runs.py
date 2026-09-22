@@ -18,6 +18,7 @@ from recover_workflow_runs import (  # noqa: E402
     reconstruct_run,
     run_groups,
 )
+
 from fleet.workflows.model import Defaults, StepRun, Workflow  # noqa: E402
 from fleet.workflows.store import WorkflowStore  # noqa: E402
 
@@ -77,7 +78,7 @@ def _bead(
     return {
         "id": task_id,
         "status": status,
-        "labels": [f"workflow:wf-hgtt7ao2", f"run:{run_id}", f"step:{step}"],
+        "labels": ["workflow:wf-hgtt7ao2", f"run:{run_id}", f"step:{step}"],
         "metadata": {
             "fleet_workflow_id": "wf-hgtt7ao2",
             "fleet_workflow_run": run_id,
