@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import replace
@@ -55,6 +56,10 @@ logger = logging.getLogger(__name__)
 #: Far-future deferral for later-stage beads: parked until the release pass
 #: renders their text and un-defers them (never claimed while deferred).
 DEFER_FAR = "+30d"
+
+#: One `outputs_missing` entry (`steps.<name>.outputs.<key>`) back to its
+#: upstream step name; mirrors the entry shape built by `templates.py`.
+_MISSING_OUTPUT_RE = re.compile(r"steps\.([a-z0-9][a-z0-9_-]*)\.outputs\.(.+)")
 
 
 def resolve_inputs(workflow: Workflow, given: Mapping[str, str] | None) -> dict[str, str]:
@@ -261,6 +266,12 @@ def _collect_outputs(
     return fresh
 
 
+def _missing_step_name(entry: str) -> str | None:
+    """Upstream step name of an `outputs_missing` entry, or None when foreign."""
+    match = _MISSING_OUTPUT_RE.fullmatch(entry)
+    return match.group(1) if match is not None else None
+
+
 def _release_ready(
     run: WorkflowRun,
     steps: list[StepRun],
@@ -269,19 +280,30 @@ def _release_ready(
     queue: Queue,
     now: datetime,
     stamp: str,
-) -> None:
+) -> str | None:
     """Render and un-defer steps whose dependencies all closed.
 
     Text is written to the bead before it is un-deferred, so no claim
     can ever see unrendered placeholders. One failing bead never stops
     the rest of the pass; it retries on the next one.
+
+    A step whose text needs an upstream output that does not exist yet is
+    held deferred (its `outputs_missing` warning is still recorded) so no
+    worker ever receives a prompt with an empty substitution; the next
+    refresh releases it once the output lands. When the upstream step
+    already closed without writing that key, the output can never arrive:
+    the step stays held and the returned reason asks the caller to finish
+    the run as `failed` instead of stalling silently. None means no step
+    is doomed.
     """
     by_name = _step_by_name(run)
+    by_step = {item.step_name: item for item in steps}
     closed = {
         item.step_name
         for item in steps
         if live.get(item.task_id, item.task_status) == TaskStatus.CLOSED.value
     }
+    doomed: list[str] = []
     for step in steps:
         if step.released:
             continue
@@ -310,6 +332,25 @@ def _release_ready(
             # nothing to un-defer, just record the warning and move on.
             store.mark_step_released(run.id, step.step_name, warning, stamp)
             continue
+        if missing:
+            # Hold the bead deferred: releasing it now would hand a worker
+            # instructions with an empty substitution. The warning stays so
+            # the stall is visible on the run detail view.
+            store.set_step_warning(run.id, step.step_name, warning, stamp)
+            dead = sorted(
+                {
+                    entry
+                    for entry in missing
+                    if (_missing_step_name(entry) not in by_step)
+                    or (_missing_step_name(entry) in closed)
+                }
+            )
+            if dead:
+                doomed.append(
+                    f"step {step.step_name} needs {', '.join(dead)} "
+                    "from a closed step that never wrote it"
+                )
+            continue
         try:
             queue.update_task(step.task_id, title=title, description=description, undefer=True)
         except BdError as exc:
@@ -321,13 +362,16 @@ def _release_ready(
             )
             continue
         store.mark_step_released(run.id, step.step_name, warning, stamp)
+    if doomed:
+        return f"outputs_missing: {'; '.join(doomed)}"
+    return None
 
 
 def refresh_run_with_tasks(
     run: WorkflowRun, *, store: WorkflowStore, queue: Queue, now: datetime
 ) -> tuple[WorkflowRun, list[Task]]:
     """Refresh a run and return the fetched tasks (one bd call, shared)."""
-    if run.status in (RunStatus.cancelled, RunStatus.succeeded):
+    if run.status in (RunStatus.cancelled, RunStatus.succeeded, RunStatus.failed):
         return run, []
     stamp = now.isoformat()
     try:
@@ -343,7 +387,11 @@ def refresh_run_with_tasks(
     if run.status == RunStatus.running:
         fleet_home = store.db_path.parent
         fresh = _collect_outputs(run, steps, live, fleet_home, store, stamp)
-        _release_ready(run, fresh, live, store, queue, now, stamp)
+        doomed = _release_ready(run, fresh, live, store, queue, now, stamp)
+        if doomed is not None:
+            store.finish_run(run.id, RunStatus.failed, doomed, stamp)
+            finished = store.get_run(run.id)
+            return (finished if finished is not None else run), tasks
     states = [step_state_of(live.get(step.task_id, step.task_status)) for step in steps]
     status = derive_status(states, cancelled=False)
     if run.status == RunStatus.running and status is not RunStatus.running:

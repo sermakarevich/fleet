@@ -88,8 +88,13 @@ Notation) object of string values, for example
 reads the file when the step's bead closes; a missing file means the step
 publishes no outputs. Non-string values are stringified, a non-object or
 unparseable file is ignored with a warning, and later steps reference the
-values as `{{steps.<name>.outputs.<key>}}` (a missing key renders as the
-empty string and records an `outputs_missing` warning on the later step).
+values as `{{steps.<name>.outputs.<key>}}`. A later step whose text needs
+a key that does not exist yet is held deferred (never released with an
+empty substitution) and records an `outputs_missing` warning; a later
+refresh releases it once the output lands. When the upstream step already
+closed without writing that key, the output can never arrive, so the run
+finishes as `failed` with an `outputs_missing` reason instead of stalling
+silently.
 
 ## What fleet does with each outcome
 

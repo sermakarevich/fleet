@@ -48,6 +48,7 @@ const RUN_FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'running', label: 'Running' },
   { key: 'attention', label: 'Attention' },
+  { key: 'failed', label: 'Failed' },
   { key: 'succeeded', label: 'Succeeded' },
   { key: 'cancelled', label: 'Cancelled' },
 ] as const;

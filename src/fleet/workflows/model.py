@@ -39,12 +39,21 @@ class Trigger(StrEnum):
 
 
 class RunStatus(StrEnum):
-    """Whole-run outcome, derived from its step runs, never hand-edited."""
+    """Whole-run outcome: derived from step states, except `failed`.
+
+    `running`/`succeeded`/`attention`/`cancelled` come from the step-state
+    table in `planning.derive_status`; `failed` is set explicitly by the
+    release pass (`runs._release_ready`) when a step waits on an upstream
+    output whose step already closed without writing it, so the output can
+    never arrive. Like `cancelled`/`succeeded`, `failed` is terminal: the
+    refresh paths never touch a failed run again.
+    """
 
     running = "running"
     succeeded = "succeeded"
     attention = "attention"
     cancelled = "cancelled"
+    failed = "failed"
 
 
 class StepState(StrEnum):

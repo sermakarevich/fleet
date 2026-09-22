@@ -434,6 +434,22 @@ class WorkflowStore:
             )
             return cur.rowcount > 0
 
+    def set_step_warning(
+        self, run_id: str, step_name: str, warning: str | None, updated_at: str
+    ) -> bool:
+        """Record one step's warning without releasing it; False when unknown.
+
+        Used by the release pass to keep an `outputs_missing` warning on a
+        step held deferred: the step stays unreleased until the output lands.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_run_steps SET warning=?, updated_at=? "
+                "WHERE run_id=? AND step_name=?",
+                (warning, updated_at, run_id, step_name),
+            )
+            return cur.rowcount > 0
+
     def mark_step_released(
         self, run_id: str, step_name: str, warning: str | None, updated_at: str
     ) -> bool:

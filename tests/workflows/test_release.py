@@ -137,7 +137,34 @@ def test_refresh_waits_for_dependencies(tmp_path: Path) -> None:
     assert queue.get(publish_id).status == "deferred"
 
 
-def test_refresh_missing_output_renders_empty_and_warns(tmp_path: Path) -> None:
+def test_refresh_missing_output_holds_step_and_warns(tmp_path: Path) -> None:
+    queue = FakeQueue()
+    store = _store(tmp_path)
+    run, fetch_id, publish_id = _start(queue, tmp_path)
+    _defer(queue, publish_id)
+    # fetch closed without the keys publish needs: they can never arrive.
+    _write_outputs(tmp_path, fetch_id, '{"other": "1"}')
+    queue.close(fetch_id, "done")
+
+    refreshed, _ = refresh_run_with_tasks(
+        run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00")
+    )
+    assert refreshed.status is RunStatus.failed
+    assert refreshed.finished_at == "2026-09-09T02:30:00+00:00"
+    assert refreshed.reason.startswith("outputs_missing:")
+    assert "steps.fetch.outputs.paper_dir" in refreshed.reason
+    steps = {item.step_name: item for item in store.step_runs(run.id)}
+    assert steps["publish"].released is False
+    assert steps["publish"].warning == (
+        "outputs_missing: steps.fetch.outputs.paper_dir, steps.fetch.outputs.slug"
+    )
+    # The bead was never given the broken text: still deferred, untouched.
+    assert queue.updated == []
+    assert queue.get(publish_id).status == "deferred"
+    assert queue.get(publish_id).title == "Post {{steps.fetch.outputs.slug}}"
+
+
+def test_refresh_failed_run_is_terminal(tmp_path: Path) -> None:
     queue = FakeQueue()
     store = _store(tmp_path)
     run, fetch_id, publish_id = _start(queue, tmp_path)
@@ -145,15 +172,93 @@ def test_refresh_missing_output_renders_empty_and_warns(tmp_path: Path) -> None:
     _write_outputs(tmp_path, fetch_id, '{"other": "1"}')
     queue.close(fetch_id, "done")
 
-    refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
+    failed, _ = refresh_run_with_tasks(
+        run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00")
+    )
+    assert failed.status is RunStatus.failed
+    queue.updated.clear()
+    again, _ = refresh_run_with_tasks(
+        failed, store=store, queue=queue, now=_at("2026-09-09T03:00:00+00:00")
+    )
+    assert again.status is RunStatus.failed
+    assert again.finished_at == failed.finished_at
+    assert queue.updated == []
+    assert queue.get(publish_id).status == "deferred"
+
+
+def _hold_workflow() -> Workflow:
+    """publish quotes its dependency fetch plus same-stage helper (not a dep)."""
+    return Workflow(
+        id="wf-outputs002",
+        name="pipe-hold",
+        description="d",
+        defaults=Defaults(priority=2),
+        stages=(
+            Stage(name="first", steps=(Step(name="fetch", title="Fetch"),)),
+            Stage(
+                name="second",
+                steps=(
+                    Step(
+                        name="publish",
+                        title="Post {{steps.fetch.outputs.slug}}",
+                        description="Note {{steps.helper.outputs.note}}.",
+                    ),
+                    Step(name="helper", title="Helper"),
+                ),
+            ),
+        ),
+    )
+
+
+def test_refresh_holds_until_open_upstream_output_lands(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "workflows.db")
+    store.save(
+        replace(
+            _hold_workflow(),
+            created_at="2026-09-09T00:00:00+00:00",
+            updated_at="2026-09-09T00:00:00+00:00",
+        )
+    )
+    queue = FakeQueue()
+    run = start_run(
+        _hold_workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    fetch_id, publish_id, helper_id = (item["id"] for item in queue.created)
+    _defer(queue, publish_id)
+    _defer(queue, helper_id)
+    _write_outputs(tmp_path, fetch_id, '{"slug": "x"}')
+    queue.close(fetch_id, "done")
+
+    # helper still open: publish is held deferred with its warning, run waits.
+    waiting, _ = refresh_run_with_tasks(
+        run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00")
+    )
+    assert waiting.status is RunStatus.running
+    steps = {item.step_name: item for item in store.step_runs(run.id)}
+    assert steps["publish"].released is False
+    assert steps["publish"].warning == "outputs_missing: steps.helper.outputs.note"
+    assert steps["helper"].released is True
+    assert [item for item in queue.updated if item["id"] == publish_id] == []
+    assert queue.get(publish_id).status == "deferred"
+
+    # helper closes with the missing key: the next refresh releases publish.
+    _write_outputs(tmp_path, helper_id, '{"note": "hi"}')
+    queue.close(helper_id, "done")
+    released, _ = refresh_run_with_tasks(
+        run, store=store, queue=queue, now=_at("2026-09-09T02:45:00+00:00")
+    )
+    assert released.status is RunStatus.running
     steps = {item.step_name: item for item in store.step_runs(run.id)}
     assert steps["publish"].released is True
-    assert steps["publish"].warning == (
-        "outputs_missing: steps.fetch.outputs.paper_dir, steps.fetch.outputs.slug"
-    )
+    assert steps["publish"].warning is None
     published = queue.get(publish_id)
-    assert published.title == "Post "
-    assert published.description == f"Folder  by {fetch_id}."
+    assert published.status == "open"
+    assert published.title == "Post x"
+    assert published.description == "Note hi."
 
 
 def test_cancel_run_closes_deferred_beads(tmp_path: Path) -> None:

@@ -178,6 +178,7 @@ def _previous_workflow_run(
         if workflow_run is None or workflow_run.status in (
             RunStatus.succeeded,
             RunStatus.cancelled,
+            RunStatus.failed,
         ):
             return run.workflow_run_id, "closed"
         return run.workflow_run_id, workflow_run.status.value

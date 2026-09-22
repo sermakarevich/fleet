@@ -92,8 +92,12 @@ step's `outputs.json`. Running a workflow (a
 wired with bead dependencies — from then on every step is a normal task,
 and one metadata query finds the whole run. Each step records a **step
 run** (its task id and last known task status); the run status
-(`running`, `succeeded`, `attention`, `cancelled`) is derived from the
-steps, never hand-edited. The `workflows` package
+(`running`, `succeeded`, `attention`, `cancelled`, plus `failed` when a
+step waits on an upstream output its closed step never wrote) is derived
+from the steps, except `failed` which the release pass sets explicitly —
+a step held for a missing output stays deferred with an
+`outputs_missing` warning instead of reaching a worker with an empty
+substitution. The `workflows` package
 (`src/fleet/workflows/`) owns the definition model, the YAML
 import/export, the run engine, and the SQLite store
 (`~/.fleet/workflows.db`); the `workflow_refresh` service

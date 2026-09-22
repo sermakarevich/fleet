@@ -35,6 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
   succeeded: 'Succeeded',
   attention: 'Attention',
   cancelled: 'Cancelled',
+  failed: 'Failed',
   unknown: 'Unknown',
 };
 
@@ -42,12 +43,14 @@ export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
-// Workflow run statuses (ADR 0008): derived, never hand-edited.
+// Workflow run statuses (ADR 0008, plus failed for doomed missing outputs):
+// derived, except failed which the release pass sets explicitly.
 const RUN_STATUS_STYLES: Record<string, StatusStyle> = {
   running: { bg: T.colors.info, fg: T.colors.white },
   succeeded: { bg: T.colors.green, fg: T.colors.white },
   attention: { bg: T.colors.amberDark, fg: T.colors.white },
   cancelled: { bg: T.colors.gray, fg: T.colors.white },
+  failed: { bg: T.colors.redDark, fg: T.colors.white },
 };
 
 /** Chip colors for a workflow run status; unknown statuses get the default. */

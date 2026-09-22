@@ -255,4 +255,32 @@ def test_step_run_outputs_released_warning_round_trip(tmp_path: Path) -> None:
     assert store.step_runs(run.id)[0].warning == "outputs_missing: a"
     assert not store.set_step_outputs(run.id, "ghost", {}, "2026-09-09T01:33:00Z")
     assert not store.mark_step_released(run.id, "ghost", None, "2026-09-09T01:33:00Z")
+    assert not store.set_step_warning(run.id, "ghost", "outputs_missing: a", "2026-09-09T01:33:00Z")
+    store.close()
+
+
+def test_set_step_warning_keeps_step_unreleased(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    run = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    store.save_run(run)
+    store.save_step_runs(
+        [
+            StepRun(
+                run_id=run.id,
+                step_name="collect",
+                stage_index=0,
+                task_id="t1",
+                task_status="open",
+                updated_at="2026-09-09T01:00:00Z",
+                released=False,
+            )
+        ]
+    )
+    assert store.set_step_warning(
+        run.id, "collect", "outputs_missing: steps.x.outputs.y", "2026-09-09T01:30:00Z"
+    )
+    held = store.step_runs(run.id)[0]
+    assert held.released is False
+    assert held.warning == "outputs_missing: steps.x.outputs.y"
     store.close()
