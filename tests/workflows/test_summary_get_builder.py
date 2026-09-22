@@ -315,3 +315,55 @@ def test_file_step_is_idempotent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     desc = _file_desc(monkeypatch, tmp_path)
     assert "already-filed" in desc
     assert "do NOT move it again" in desc
+
+
+def _file_desc_with_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, inputs: dict[str, str]
+) -> str:
+    """The rendered file-step description for given run inputs."""
+    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
+    result = summary_get.build(_workflow(), _ctx(tmp_path, inputs))
+    by_name = {stage.name: stage for stage in result.stages}
+    return by_name["file"].steps[0].description
+
+
+def test_definition_declares_optional_research_target() -> None:
+    """Provenance input exists, is optional, and defaults to standalone."""
+    inputs = {item["name"]: item for item in summary_get.DEFINITION["inputs"]}
+    assert "research_target" in inputs
+    assert not inputs["research_target"].get("required", False)
+    assert inputs["research_target"].get("default") == ""
+
+
+def test_file_step_skips_research_epic_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A run spawned by a research epic skips filing into structured_papers."""
+    desc = _file_desc_with_inputs(
+        monkeypatch,
+        tmp_path,
+        {
+            "url": "https://e.com/a",
+            "research_target": "/Users/sergii/.ai/knowledge/research/demo",
+        },
+    )
+    assert "research-epic" in desc
+    assert '"reason": "research-epic"' in desc
+    assert '"filed": false' in desc
+    assert "/Users/sergii/.ai/knowledge/research/demo" in desc
+    assert "do NOT file it into structured_papers" in desc
+    # Traceability: the skip records the provenance target.
+    assert '"research_target"' in desc
+    # The research-epic skip adds no second human-escalation path.
+    assert desc.count("mcp__ask_human__ask_human_question") == 1
+
+
+def test_file_step_standalone_marks_empty_provenance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Standalone runs bake empty research_target and keep the move recipe."""
+    desc = _file_desc_with_inputs(monkeypatch, tmp_path, {"url": "https://e.com/a"})
+    assert 'research_target=""' in desc
+    assert "structured_papers" in desc
+    assert "MOVE, never copy" in desc
+    assert '"routing": "standalone->structured_papers"' in desc

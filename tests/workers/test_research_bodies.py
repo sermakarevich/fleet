@@ -79,6 +79,16 @@ def test_copy_contains_sources_md() -> None:
     assert "sources.md" in body
 
 
+def test_copy_moves_instead_of_copying() -> None:
+    """Research owns the ONE home: the bead MOVEs staging, never copies."""
+    body = render_body("copy", **FULL_FIELDS["copy"])
+    assert "MOVE, never copy" in body
+    assert "mv " in body
+    assert "cp -R" not in body
+    # Staging is cleared: the old path must be gone after the move.
+    assert "test ! -e" in body
+
+
 def test_every_template_contains_do_not_run_git() -> None:
     for kind in KINDS:
         body = render_body(kind, **FULL_FIELDS[kind])

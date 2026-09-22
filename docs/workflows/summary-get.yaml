@@ -7,7 +7,9 @@ description: >
   (one per macro component for repos) and creates one wiki-page task per chunk,
   then digest/summary, explainer/questions/critical-thinking, index, a verify step
   that blocks the run unless the finished entry satisfies the recipe, and a final
-  file step that moves the entry into structured_papers/.
+  file step that moves the entry into structured_papers/ (standalone runs;
+  runs spawned by a research epic skip filing — the research copy bead moves
+  the entry into research/<epic>/sources/ instead).
 builder: summary_get
 defaults:
   cwd: /Users/sergii/.ai
@@ -22,3 +24,6 @@ inputs:
   - name: chunk_chars
     description: Target characters per chunk (2000–60000)
     default: "12000"
+  - name: research_target
+    description: Research epic target owning this run (absolute path or slug). Empty for standalone runs; set by research design so the file step skips filing.
+    default: ""

@@ -1,5 +1,6 @@
 <!-- placeholders: {{url}} {{name}} {{origin}} {{target}} -->
-Copy one processed source folder into the research target.
+Move one processed source folder into the research target (MOVE, never copy —
+every entry has exactly ONE home; papers/ staging must not retain it).
 
 Locate the summary_get folder for `{{url}}`:
 - When `{{origin}}` is non-empty, the folder is `{{origin}}` (a source already
@@ -8,16 +9,34 @@ Locate the summary_get folder for `{{url}}`:
   and `/Users/sergii/.ai/knowledge/investment` for the folder whose `index.md`
   front-matter `sources[].resource` matches `{{url}}` (normalised: drop scheme
   and `www.`; for arXiv compare the id; for YouTube compare the video id).
+  Fresh research-epic summary_get runs skip their file step, so the folder is
+  still in papers/ staging waiting for this move.
 
-Copy it recursively, keeping the name:
+Routing (exactly one home):
+- Located folder under papers/ staging → its home is now
+  `{{target}}/sources/{{name}}/`. MOVE it there (below) and leave nothing
+  behind in papers/.
+- Located folder under /investment/ or /structured_papers/ (already homed
+  outside staging) → do NOT duplicate it. Stop with an error instead of
+  copying, so the operator decides (move the home vs reference it). Never
+  `cp` a homed entry silently; never leave two folders with the same
+  summary.md content.
+- Located folder already under `{{target}}/sources/{{name}}/` → already
+  moved; verify `test -s` below and finish without moving again.
+
+Move it, keeping the name:
 
 ```bash
-cp -R "<located folder>" "{{target}}/sources/{{name}}/"
+mv "<located folder>" "{{target}}/sources/{{name}}/"
 test -s "{{target}}/sources/{{name}}/index.md"
+test ! -e "<located folder>"
 ```
 
 `test -s` must succeed; if the located folder has no non-empty `index.md`,
-stop with an error instead of writing a ledger row.
+stop with an error instead of writing a ledger row. The final
+`test ! -e "<located folder>"` must also succeed: the staging path is gone
+(MOVE, never copy). When already-moved, both tests pass trivially against
+the existing target folder.
 
 Append one row to `{{target}}/sources.md` for `{{name}}`. When the file does
 not exist yet, create it with exactly this header line first:

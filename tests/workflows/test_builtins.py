@@ -11,7 +11,7 @@ from fleet.workflows.builtins import (
     ensure_builtin_workflows,
     workflow_from_definition,
 )
-from fleet.workflows.model import ensure_valid
+from fleet.workflows.model import Workflow, ensure_valid
 from fleet.workflows.store import WorkflowStore
 
 _NOW = datetime(2026, 9, 22, 9, 0, tzinfo=UTC)
@@ -46,3 +46,35 @@ def test_ensure_builtin_workflows_adds_once_and_keeps_edits(tmp_path: Path) -> N
     assert again is not None
     assert again.description == "edited by operator"
     assert again.id == saved.id
+
+
+def test_ensure_builtin_backfills_missing_optional_inputs(tmp_path: Path) -> None:
+    """Older saved workflows gain new optional inputs without losing edits."""
+    store = WorkflowStore(tmp_path / "w.db")
+    ensure_builtin_workflows(store, _NOW)
+    saved = store.get_by_name("summary_get")
+    assert saved is not None
+    assert "research_target" in {item.name for item in saved.inputs}
+
+    # Simulate an install saved before research_target existed.
+    assert isinstance(saved, Workflow)
+    stripped = replace(
+        saved,
+        inputs=tuple(item for item in saved.inputs if item.name != "research_target"),
+        description="edited by operator",
+    )
+    store.save(stripped)
+    assert "research_target" not in {
+        item.name for item in store.get_by_name("summary_get").inputs  # type: ignore[union-attr]
+    }
+
+    assert ensure_builtin_workflows(store, _NOW) == []
+    refilled = store.get_by_name("summary_get")
+    assert refilled is not None
+    names = [item.name for item in refilled.inputs]
+    assert "research_target" in names
+    # Operator edits survive; old inputs keep order, backfill appends.
+    assert refilled.description == "edited by operator"
+    assert names.index("url") < names.index("research_target")
+    backfilled = next(item for item in refilled.inputs if item.name == "research_target")
+    assert backfilled.required is False

@@ -328,11 +328,24 @@ _FILE_DESC = """You are filing the finished entry for "__TITLE__" (__URL__) into
 organized knowledge base (the `ai show summary/move` recipe).
 
 Run work dir (absolute, build-time): __WORK__
+Run provenance (build-time run inputs): research_target="__RESEARCH_TARGET__"
+(empty = standalone run; non-empty = spawned by a research epic), source
+kind __KIND__.
 
 1. Resolve the entry folder: __PAPER_DIR__ (rendered from
    {{steps.plan.outputs.paper_dir}} at release time).
 
-2. Skip rule (investment): if the folder is under
+2. Skip rule (research-epic): if research_target above is non-empty (this run
+   was spawned by a research epic for target __RESEARCH_TARGET__), the
+   entry's ONE home is research/<epic>/sources/<Name>/, owned by the research
+   copy bead — do NOT file it into structured_papers/. Touch neither the
+   folder nor any category index. Write $FLEET_TASK_DIR/outputs.json
+   exactly as {"vault_dir": "<absolute paper dir>", "filed": false,
+   "reason": "research-epic", "research_target": "__RESEARCH_TARGET__"}
+   and finish. No question. Leave the folder in papers/ staging for the
+   copy bead, which MOVEs it (never copies) and clears staging.
+
+3. Skip rule (investment): if the folder is under
    /Users/sergii/.ai/knowledge/investment/ (the path contains /investment/),
    investment/finance sources stay there per the move recipe — touch neither
    the folder nor any category index. Write $FLEET_TASK_DIR/outputs.json
@@ -346,7 +359,8 @@ Run work dir (absolute, build-time): __WORK__
    to this entry ([[Folder/summary]] — ...); append it in the file's local
    style only if missing. Write $FLEET_TASK_DIR/outputs.json exactly as
    {"vault_dir": "<absolute current folder>", "filed": false,
-   "reason": "already-filed"} and finish. No question.
+   "reason": "already-filed", "research_target": "__RESEARCH_TARGET__"}
+   and finish. No question.
 
 4. Otherwise the folder is in papers/ staging — run the move recipe:
    a. Read <paper_dir>/summary.md (title = first `#` heading; TL;DR = prefer
@@ -387,7 +401,8 @@ Run work dir (absolute, build-time): __WORK__
       On ties, open the candidate <category>/<category>.md files and compare
       against listed papers before calling jev.
    d. Move the folder with its original name preserved into
-      structured_papers/<category>/.
+      structured_papers/<category>/ (MOVE, never copy — papers/ staging must
+      not retain the entry).
    e. Read structured_papers/<category>/<category>.md and append
       `- [[Folder/summary]] — <tldr>.` (bullet starts `- `, em dash with
       spaces as separator, trailing period; insert alphabetically when the
@@ -396,7 +411,9 @@ Run work dir (absolute, build-time): __WORK__
 5. Write $FLEET_TASK_DIR/outputs.json exactly as {"vault_dir": "<absolute new
    folder>", "filed": true, "category": "<jev choice>",
    "category_confidence": <jev confidence float>,
-   "category_source": "jev" (or "ask_human" when step 4c escalated)}.
+   "category_source": "jev" (or "ask_human" when step 4c escalated),
+   "research_target": "__RESEARCH_TARGET__",
+   "routing": "standalone->structured_papers"}.
 
 6. Quality checks before finishing: the moved folder is present in the
    category folder; the new bullet uses `[[...]]` Obsidian syntax (not
@@ -463,7 +480,9 @@ DEFINITION: dict = {
         "digest/summary, explainer/questions/critical-thinking, index, "
         "verify (blocks unless the entry satisfies the recipe), "
         "and a final file step that moves the entry into structured_papers/ "
-        "(ai:summary:move recipe; investment-routed entries stay put)."
+        "(ai:summary:move recipe; investment-routed entries stay put; runs "
+        "spawned by a research epic skip filing — the research copy bead owns "
+        "their home under research/<epic>/sources/)."
     ),
     "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
     "inputs": [
@@ -479,6 +498,17 @@ DEFINITION: dict = {
             "description": "Target characters per chunk (2000-60000)",
             "default": str(CHUNK_CHARS_DEFAULT),
         },
+        {
+            "name": "research_target",
+            "description": (
+                "Research epic target owning this run (absolute path under "
+                "/Users/sergii/.ai/knowledge/research/ or the target slug). "
+                "Empty for standalone runs. Set by research design when a "
+                "research epic spawns this run; the file step then skips "
+                "filing into structured_papers/."
+            ),
+            "default": "",
+        },
     ],
 }
 
@@ -489,6 +519,7 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     url = raw_url.strip() if raw_url else ""
     if not url:
         raise ValueError("input url is required")
+    research_target = (ctx.inputs.get("research_target") or "").strip()
     target = parse_chunk_chars(ctx.inputs.get("chunk_chars"))
     work = ctx.work_dir("summary_get")
     work.mkdir(parents=True, exist_ok=True)
@@ -504,7 +535,7 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
             "(Sponsor, License, Star History, ...) was dropped — not worth an entry"
         )
     _write_chunks(work, chunks)
-    return replace(workflow, stages=_stages(source, chunks, work, url))
+    return replace(workflow, stages=_stages(source, chunks, work, url, research_target))
 
 
 def _write_source(work: Path, source: Source, url: str, ctx: BuildContext) -> None:
@@ -568,7 +599,13 @@ def _common(source: Source, work: Path, url: str) -> dict[str, str]:
     }
 
 
-def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[Stage, ...]:
+def _stages(
+    source: Source,
+    chunks: list[Chunk],
+    work: Path,
+    url: str,
+    research_target: str = "",
+) -> tuple[Stage, ...]:
     """The seven fixed stages: plan, wiki, derive, enrich, index, verify, file."""
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
@@ -676,7 +713,7 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
             Step(
                 name="file",
                 title=f"summary_get: file {source.title}",
-                description=_fill(_FILE_DESC, **common),
+                description=_fill(_FILE_DESC, **common, RESEARCH_TARGET=research_target),
                 needs=("verify",),
             ),
         ),
