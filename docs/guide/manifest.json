@@ -110,7 +110,7 @@
     },
     {
       "slug": "adr-0006",
-      "title": "ADR 0006: One Owner, One Level, One Registry \u2014 the Codebase-Wide Clean Code Program",
+      "title": "ADR 0006: One Owner, One Level, One Registry — the Codebase-Wide Clean Code Program",
       "section": "Internals",
       "file": "docs/adr/0006-codebase-wide-clean-code-program.md"
     },
@@ -122,13 +122,13 @@
     },
     {
       "slug": "adr-0008",
-      "title": "ADR 0008: Workflows \u2014 ordered stages of workers on top of the beads queue",
+      "title": "ADR 0008: Workflows — ordered stages of workers on top of the beads queue",
       "section": "Internals",
       "file": "docs/adr/0008-workflows.md"
     },
     {
       "slug": "adr-0009",
-      "title": "ADR 0009: UI information architecture \u2014 workers and workflows, four tabs",
+      "title": "ADR 0009: UI information architecture — workers and workflows, four tabs",
       "section": "Internals",
       "file": "docs/adr/0009-ui-information-architecture.md"
     },
@@ -167,6 +167,12 @@
       "title": "ADR 0014: Triage shows the blocked-task investigation",
       "section": "Internals",
       "file": "docs/adr/0014-triage-shows-the-investigation.md"
+    },
+    {
+      "slug": "adr-0015",
+      "title": "ADR 0015: Research workflow — many sources into one laddered knowledge-base topic",
+      "section": "Internals",
+      "file": "docs/adr/0015-research-workflow.md"
     }
   ]
 }
