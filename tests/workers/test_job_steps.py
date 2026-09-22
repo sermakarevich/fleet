@@ -18,9 +18,10 @@ from types import SimpleNamespace
 import structlog
 
 from fleet.core.config import RuntimeConfig
-from fleet.core.errors import WorkflowInvalid
+from fleet.core.errors import WorkflowInvalid, WorkflowSourceUnavailable
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import paths as state_paths
+from fleet.state.spawn_journal import spawn_complete
 from fleet.workers.base import RunHandle, StepContext, StepStatus
 from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren, _normalize_task
 
@@ -249,6 +250,69 @@ def test_spawn_children_skips_failed_builder_and_its_dependents(tmp_path: Path) 
     assert agg_spec["depends_on"] == [children["solo"]]
     assert queue.dependencies == []
     assert "skipped 2" in queue.comments[-1][1]
+
+
+def test_spawn_children_defers_a_transient_source_instead_of_skipping(tmp_path: Path) -> None:
+    """A rate limit must not write the source off; the key is left for a retry."""
+    runner = FakeWorkflowRunner(
+        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+    )
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    doc = _workflow_tasks_doc()
+    doc["tasks"].append({"key": "solo", "title": "solo", "body": "solo body", "depends_on": []})
+    _write_tasks(ctx, doc)
+    queue = FakeQueue()
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
+    assert result.status == StepStatus.OK
+    artifacts = ctx.task_dir / "artifacts"
+    # Nothing skipped: children_skipped.json must not claim the source is dead.
+    assert not (artifacts / "children_skipped.json").exists()
+    deferred = json.loads((artifacts / "children_deferred.json").read_text())
+    assert "rate limited" in deferred["src-03"]
+    # the copy that needs that source waits with it instead of being created
+    assert "src-03" in deferred["sib"]
+    children = json.loads((artifacts / "children.json").read_text())
+    assert set(children) == {"solo"}
+    # spawn is not finished, so the epic stays claimable and retries the keys
+    assert not spawn_complete(ctx.task_dir)
+    assert "deferred 2" in queue.comments[-1][1]
+
+
+def test_spawn_children_retries_a_deferred_key_on_the_next_attempt(tmp_path: Path) -> None:
+    """Once the source answers again, the deferred key spawns normally."""
+    blocked = FakeWorkflowRunner(
+        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+    )
+    ctx = _ctx(tmp_path, workflow_runner=blocked)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+
+    ok = FakeWorkflowRunner(handle=RunHandle("run-1", ("t1", "t2", "t3"), ("t3",)))
+    ctx = _ctx(tmp_path, workflow_runner=ok)
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.OK
+    assert ok.calls, "the deferred key must be tried again"
+    children = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text())
+    assert children["src-03"] == "run-1"
+    assert json.loads((ctx.task_dir / "artifacts" / "children_deferred.json").read_text()) == {}
+
+
+def test_spawn_children_blocks_when_an_attempt_makes_no_progress(tmp_path: Path) -> None:
+    """All that is left is unreachable: block rather than spin on the same host."""
+    blocked = FakeWorkflowRunner(
+        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+    )
+    ctx = _ctx(tmp_path, workflow_runner=blocked)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    artifacts = ctx.task_dir / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "children.json").write_text(json.dumps({"done": "kid-0"}))
+
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.OK
+    written = json.loads((ctx.task_dir / "RESULT.json").read_text())
+    assert written["status"] == "blocked"
+    assert "children_deferred.json" in written["blocked_reason"]
 
 
 def test_spawn_children_all_skipped_fails(tmp_path: Path) -> None:

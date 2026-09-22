@@ -16,9 +16,13 @@ import json
 import re
 import shutil
 import subprocess
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from html.parser import HTMLParser
@@ -30,6 +34,8 @@ _FETCH_TIMEOUT_S = 60
 _CLI_TIMEOUT_S = 180
 _MAX_BYTES = 50_000_000
 _USER_AGENT = "Mozilla/5.0 (compatible; fleet-summary_get/1.0)"
+_HTTP_TOO_MANY_REQUESTS = 429
+_HTTP_SERVER_ERROR = 500
 
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 _X_HOSTS = ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com")
@@ -40,9 +46,63 @@ _BLOCK_TAGS = frozenset(
 )
 _HEADING_TAGS = {"h1": "#", "h2": "##", "h3": "###", "h4": "####"}
 
+#: (pattern, transient, message) read out of a CLI's whole output. A rich
+#: traceback ends in boilerplate ("...no open issues which already describe
+#: your problem!"), so the last line is a useless detail; these say what
+#: actually went wrong and whether the URL deserves another try.
+_CLI_CAUSES: tuple[tuple[re.Pattern[str], bool, str], ...] = (
+    (
+        re.compile(r"IpBlocked|RequestBlocked|blocking requests from your IP", re.I),
+        True,
+        "YouTube is blocking this machine's IP (too many requests); retry later",
+    ),
+    (
+        re.compile(r"\b429\b|too many requests|rate.?limit", re.I),
+        True,
+        "rate limited by the server; retry later",
+    ),
+    (
+        re.compile(r"PoTokenRequired", re.I),
+        True,
+        "YouTube asked for a proof-of-origin token; retry later",
+    ),
+    (
+        re.compile(r"\b5\d\d\b|temporarily unavailable|service unavailable", re.I),
+        True,
+        "the server failed temporarily; retry later",
+    ),
+    (
+        re.compile(r"transcripts are disabled", re.I),
+        False,
+        "transcripts are disabled for this video",
+    ),
+    (
+        re.compile(r"NoTranscriptFound|no transcript", re.I),
+        False,
+        "no transcript in the wanted languages",
+    ),
+    (
+        re.compile(r"VideoUnavailable|video unavailable|\b404\b|not found", re.I),
+        False,
+        "the source is gone (404 / unavailable)",
+    ),
+)
+
 
 class SourceError(FleetError):
-    """The source behind a URL could not be fetched or read."""
+    """The source behind a URL could not be fetched or read.
+
+    ``transient`` marks a failure that says nothing about the source: a
+    rate limit, an IP block, a timeout, a server-side 5xx. The same URL
+    is likely to work later, so callers retry it instead of writing the
+    source off. A dead link, a disabled transcript or an empty page is
+    permanent and leaves ``transient`` false.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        """Remember the message and whether retrying could help."""
+        super().__init__(message)
+        self.transient = transient
 
 
 class SourceKind(StrEnum):
@@ -52,6 +112,16 @@ class SourceKind(StrEnum):
     x = "x"
     pdf = "pdf"
     article = "article"
+
+
+#: Per-kind politeness: how many fetches of this kind may run at once and
+#: how long to wait between two of them. The spawn step starts many runs in
+#: parallel and each one shells out to a CLI, which is what got this machine
+#: rate limited by YouTube; `x` is serialized because every call costs money.
+_KIND_LIMITS: dict[str, tuple[int, float]] = {
+    SourceKind.youtube: (1, 1.5),
+    SourceKind.x: (1, 1.0),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,20 +209,75 @@ def _fetch_local_file(url: str, path: Path, kind: SourceKind, work_dir: Path) ->
     return Source(url=url, kind=kind, title=first[:160], text=text, tool="local-file")
 
 
-def _run(argv: list[str], *, what: str) -> str:
+class _Throttle:
+    """Cap how many fetches of one kind run at once, and space them out.
+
+    The spawn step starts many workflow runs in parallel and every one of
+    them fetches its source, so without this the CLIs hit a single host as
+    fast as the pool allows. Shared process-wide; a fetch of an unlisted
+    kind is not held back at all.
+    """
+
+    def __init__(self) -> None:
+        """Start with no gates; each kind gets one the first time it is used."""
+        self._guard = threading.Lock()
+        self._gates: dict[str, tuple[threading.Semaphore, threading.Lock, list[float]]] = {}
+
+    def _gate(self, kind: str) -> tuple[threading.Semaphore, threading.Lock, list[float]] | None:
+        limit = _KIND_LIMITS.get(kind)
+        if limit is None:
+            return None
+        with self._guard:
+            gate = self._gates.get(kind)
+            if gate is None:
+                gate = (threading.Semaphore(limit[0]), threading.Lock(), [0.0])
+                self._gates[kind] = gate
+            return gate
+
+    @contextmanager
+    def hold(self, kind: str | None) -> Iterator[None]:
+        """Wait for a slot of this kind, and for the gap since the last one."""
+        gate = self._gate(kind) if kind is not None else None
+        if gate is None:
+            yield
+            return
+        slots, clock, last = gate
+        gap = _KIND_LIMITS[kind][1]
+        with slots:
+            with clock:
+                wait = last[0] + gap - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                last[0] = time.monotonic()
+            yield
+
+
+_THROTTLE = _Throttle()
+
+
+def _cli_failure(what: str, argv: list[str], output: str, returncode: int) -> SourceError:
+    """Name the cause in a CLI's output and say whether a retry could help."""
+    for pattern, transient, message in _CLI_CAUSES:
+        if pattern.search(output):
+            return SourceError(f"{what}: `{' '.join(argv)}` failed: {message}", transient=transient)
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    tail = lines[-1] if lines else f"exit {returncode}"
+    return SourceError(f"{what}: `{' '.join(argv)}` failed: {tail}")
+
+
+def _run(argv: list[str], *, what: str, kind: str | None = None) -> str:
     """Run one CLI and return stdout; missing binary or failure is a SourceError."""
     if shutil.which(argv[0]) is None:
         raise SourceError(f"{what}: `{argv[0]}` is not installed or not on PATH")
     try:
-        done = subprocess.run(
-            argv, capture_output=True, text=True, timeout=_CLI_TIMEOUT_S, check=False
-        )
+        with _THROTTLE.hold(kind):
+            done = subprocess.run(
+                argv, capture_output=True, text=True, timeout=_CLI_TIMEOUT_S, check=False
+            )
     except subprocess.TimeoutExpired:
-        raise SourceError(f"{what}: `{' '.join(argv)}` timed out") from None
+        raise SourceError(f"{what}: `{' '.join(argv)}` timed out", transient=True) from None
     if done.returncode != 0:
-        detail = (done.stderr or done.stdout).strip().splitlines()
-        tail = detail[-1] if detail else f"exit {done.returncode}"
-        raise SourceError(f"{what}: `{' '.join(argv)}` failed: {tail}")
+        raise _cli_failure(what, argv, f"{done.stderr}\n{done.stdout}", done.returncode)
     if not done.stdout.strip():
         raise SourceError(f"{what}: `{' '.join(argv)}` returned no text")
     return done.stdout
@@ -165,12 +290,24 @@ def _http_get(url: str) -> tuple[bytes, str]:
         with urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_S) as response:  # noqa: S310
             return response.read(_MAX_BYTES), str(response.headers.get("Content-Type", ""))
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        raise SourceError(f"fetch {url}: {exc}") from None
+        raise SourceError(f"fetch {url}: {exc}", transient=_http_transient(exc)) from None
+
+
+def _http_transient(exc: BaseException) -> bool:
+    """True when a failed GET says nothing about the URL, only about now."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == _HTTP_TOO_MANY_REQUESTS or exc.code >= _HTTP_SERVER_ERROR
+    # A refused connection, a DNS hiccup or a timeout is about the network.
+    return isinstance(exc, urllib.error.URLError | TimeoutError | ConnectionError)
 
 
 def _fetch_youtube(url: str) -> Source:
     """Transcript through the `yt` CLI; title through YouTube's oEmbed endpoint."""
-    text = _run(["yt", "transcript", url, "--format", "txt"], what="youtube transcript")
+    text = _run(
+        ["yt", "transcript", url, "--format", "txt"],
+        what="youtube transcript",
+        kind=SourceKind.youtube,
+    )
     return Source(url=url, kind=SourceKind.youtube, title=_youtube_title(url), text=text, tool="yt")
 
 
@@ -186,7 +323,9 @@ def _youtube_title(url: str) -> str:
 
 def _fetch_x(url: str) -> Source:
     """Tweet or thread as markdown through the `x` CLI (costs paid credits)."""
-    text = _run(["x", "tweet", url, "--thread", "--format", "md"], what="x thread")
+    text = _run(
+        ["x", "tweet", url, "--thread", "--format", "md"], what="x thread", kind=SourceKind.x
+    )
     first = next((line.strip("# ").strip() for line in text.splitlines() if line.strip()), url)
     return Source(url=url, kind=SourceKind.x, title=first[:120], text=text, tool="x")
 

@@ -53,6 +53,17 @@ class WorkflowInvalid(FleetError, ValueError):
         self.problems = items
 
 
+class WorkflowSourceUnavailable(WorkflowInvalid):
+    """A builder could not reach its source for a reason that may pass.
+
+    A rate limit, an IP block, a timeout or a 5xx says nothing about the
+    workflow or its inputs, so a caller starting many runs leaves this one
+    for its next attempt instead of writing the source off. It subclasses
+    ``WorkflowInvalid`` so existing handlers keep treating it as a failed
+    start; only callers that retry need to name it.
+    """
+
+
 class WorkflowNotFound(FleetError, KeyError):
     """No workflow with this id in the workflows store."""
 

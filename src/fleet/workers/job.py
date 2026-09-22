@@ -20,13 +20,13 @@ import contextlib
 import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
-from fleet.core.errors import Json, PlanError
+from fleet.core.errors import Json, PlanError, WorkflowSourceUnavailable
 from fleet.core.job_phase import phase_failures, phase_of
 from fleet.core.job_plan import validate_tasks
 from fleet.core.job_snapshot import JobSnapshot
@@ -379,6 +379,7 @@ class _SpawnJournals:
     created: dict[str, str]
     runs: dict[str, dict]
     skipped: dict[str, str]
+    deferred: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, artifacts_dir: Path) -> _SpawnJournals:
@@ -398,6 +399,16 @@ class _SpawnJournals:
     def skip(self, key: str, reason: str) -> None:
         self.skipped[key] = reason
         _write_json_atomic(self.artifacts_dir / "children_skipped.json", self.skipped)
+
+    def save_deferred(self) -> None:
+        """Record keys left for the next attempt; a report, not a gate.
+
+        Nothing reads this back — the keys are simply absent from the other
+        journals, so `spawn_complete` stays false and the next spawn retries
+        them. It exists so an operator can see why an attempt ended with
+        work outstanding.
+        """
+        _write_json_atomic(self.artifacts_dir / "children_deferred.json", self.deferred)
 
 
 def _load_journal(children_file: Path) -> dict[str, str]:
@@ -446,6 +457,7 @@ class SpawnChildren:
         artifacts_dir = ctx.task_dir / "artifacts"
         journals = _SpawnJournals.load(artifacts_dir)
         created, skipped = journals.created, journals.skipped
+        before = len(created)
         queue = self._queue
         workflow_keys = {task["key"] for task in ordered if task["workflow"]}
         try:
@@ -455,6 +467,12 @@ class SpawnChildren:
             if skipped:
                 rows = "\n".join(f"- {key}: {reason}" for key, reason in skipped.items())
                 note += f"\n\nskipped {len(skipped)} (artifacts/children_skipped.json):\n{rows}"
+            if journals.deferred:
+                note += (
+                    f"\n\ndeferred {len(journals.deferred)} to the next attempt "
+                    "(artifacts/children_deferred.json): the source could not be reached "
+                    "right now (rate limit, IP block, timeout)"
+                )
             queue.comment(ctx.task.id, note)
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status=StepStatus.FAIL, reason=f"cannot spawn children: {exc}")
@@ -463,11 +481,30 @@ class SpawnChildren:
                 status=StepStatus.FAIL,
                 reason=f"cannot spawn children: every task was skipped ({len(skipped)})",
             )
+        if journals.deferred and len(created) == before:
+            # Nothing moved and the rest is unreachable. Spawn stays incomplete,
+            # so the epic would be handed straight back and would hammer the
+            # same host again; block instead and let a human release it once
+            # the source answers.
+            reason = (
+                f"{len(journals.deferred)} children could not be spawned: their sources "
+                "are unreachable right now (rate limit, IP block, timeout). "
+                "See artifacts/children_deferred.json; unblock this job to retry them."
+            )
+            _write_result(
+                ctx.task_dir,
+                status=ResultStatus.BLOCKED,
+                summary=reason,
+                blocked_reason=reason,
+            )
+            return StepResult(status=StepStatus.OK)
         with contextlib.suppress(OSError):
             (artifacts_dir / "DESIGN_ERRORS.md").unlink(missing_ok=True)
         summary = f"spawned {len(created)} children"
         if skipped:
             summary += f", skipped {len(skipped)}"
+        if journals.deferred:
+            summary += f", deferred {len(journals.deferred)}"
         _write_result(
             ctx.task_dir,
             status=ResultStatus.PARTIAL,
@@ -501,21 +538,29 @@ class SpawnChildren:
     ) -> None:
         """Create every not-yet-spawned child, journaling each id at once.
 
-        A workflow child whose builder fails (dead link, no transcript, ...)
-        is journaled in ``children_skipped.json`` instead of aborting the
-        whole spawn; tasks that depended only on skipped keys are skipped
-        too, and other tasks simply drop the skipped dependency.
+        A workflow child whose builder fails for good (dead link, no
+        transcript, ...) is journaled in ``children_skipped.json`` instead
+        of aborting the whole spawn; tasks that depended only on skipped
+        keys are skipped too, and other tasks simply drop the skipped
+        dependency. A child whose source was merely unreachable is deferred
+        instead, and so is anything waiting on it: neither is created, so
+        the next attempt picks both up.
         """
         design_path = str(journals.artifacts_dir / "DESIGN.md")
         created, runs, skipped = journals.created, journals.runs, journals.skipped
         self._start_workflow_runs(ctx, ordered, journals)
+        deferred = journals.deferred
         for task in ordered:
-            if task["key"] in skipped:
+            if task["key"] in skipped or task["key"] in deferred:
                 continue
             if task["workflow"]:
                 self._spawn_workflow_child(ctx, queue, task, journals)
                 continue
             if task["key"] in created:
+                continue
+            waits = [key for key in task["depends_on"] if key in deferred]
+            if waits:
+                deferred[task["key"]] = f"waits for deferred {', '.join(waits)}"
                 continue
             try:
                 deps = []
@@ -545,6 +590,7 @@ class SpawnChildren:
             )
             created[task["key"]] = child.id
             journals.save_created()
+        journals.save_deferred()
 
     def _start_workflow_runs(
         self,
@@ -572,6 +618,8 @@ class SpawnChildren:
         if ctx.workflow_runner is None:
             raise PlanError("workflow children need a workflow runner")
         runner = ctx.workflow_runner
+        deferred = journals.deferred
+        deferred.clear()
         width = max(1, min(ctx.config.job_spawn_parallel, len(todo)))
         with ThreadPoolExecutor(max_workers=width) as pool:
             futures = {
@@ -582,6 +630,12 @@ class SpawnChildren:
                 key = futures[future]
                 try:
                     handle = future.result()
+                except WorkflowSourceUnavailable as exc:
+                    # Rate limit, IP block, timeout: the source is fine, this
+                    # moment is not. Journaling a skip here would drop it from
+                    # the run for good, so leave the key for the next attempt.
+                    deferred[key] = str(exc)
+                    continue
                 except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
                     journals.skip(key, str(exc))
                     continue
@@ -593,6 +647,7 @@ class SpawnChildren:
                 journals.created[key] = handle.run_id
                 journals.save_runs()
                 journals.save_created()
+        journals.save_deferred()
 
     def _spawn_workflow_child(
         self,
@@ -601,33 +656,18 @@ class SpawnChildren:
         task: dict,
         journals: _SpawnJournals,
     ) -> None:
-        """Start (once) and re-wire dependencies for one workflow-run child.
+        """Wire the epic to one already-started workflow run.
 
-        The run is journaled before any dependency is registered, so a
-        crash never starts it twice; ``add_dependency`` re-runs on every
-        attempt (tolerating bd's already-exists error) so a crash between
-        journaling and full dependency wiring still converges. A builder
-        that rejects its inputs (``WorkflowInvalid``/``ValueError``) marks
-        the key skipped rather than failing the step.
+        Every run is started by ``_start_workflow_runs``; a key missing
+        from the journal was deferred there (its source could not be
+        reached) and is left for the next attempt. ``add_dependency``
+        re-runs on every attempt (tolerating bd's already-exists error) so
+        a crash between journaling and full wiring still converges.
         """
         key = task["key"]
         runs = journals.runs
         if key not in runs:
-            if ctx.workflow_runner is None:
-                raise PlanError("workflow children need a workflow runner")
-            try:
-                handle = ctx.workflow_runner.start(task["workflow"], task["inputs"])
-            except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
-                journals.skip(key, str(exc))
-                return
-            runs[key] = {
-                "run_id": handle.run_id,
-                "task_ids": list(handle.task_ids),
-                "final_task_ids": list(handle.final_task_ids),
-            }
-            journals.created[key] = handle.run_id
-            journals.save_runs()
-            journals.save_created()
+            return
         # The steps inside a run are chained, so waiting for its last stage
         # is waiting for the whole run; wiring every step would cost one bd
         # call per step (thousands for a large research job).

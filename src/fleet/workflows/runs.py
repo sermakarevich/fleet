@@ -20,7 +20,7 @@ from pathlib import Path
 
 from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
-from fleet.core.errors import WorkflowInvalid
+from fleet.core.errors import WorkflowInvalid, WorkflowSourceUnavailable
 from fleet.core.task import Task, TaskStatus
 from fleet.state import task_actions
 from fleet.state.paths import read_outputs, task_dir
@@ -186,7 +186,10 @@ def start_run(
     try:
         expanded = builders.expand(workflow, ctx)
     except (SourceError, ValueError) as exc:
-        raise WorkflowInvalid([f"builder {workflow.builder}: {exc}"]) from exc
+        problem = f"builder {workflow.builder}: {exc}"
+        if isinstance(exc, SourceError) and exc.transient:
+            raise WorkflowSourceUnavailable([problem]) from exc
+        raise WorkflowInvalid([problem]) from exc
     if expanded is not workflow:
         expanded = replace(expanded, builder=None)  # concrete stages now; no re-expansion
         ensure_valid(expanded)
