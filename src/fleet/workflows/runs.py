@@ -427,6 +427,29 @@ def refresh_run(
     return refreshed
 
 
+def _close_cancelled_step(
+    store: WorkflowStore,
+    queue: Queue,
+    run_id: str,
+    step: StepRun,
+    reason: str,
+    stamp: str,
+) -> None:
+    """Close one step's bead and sync its stored row; one failure never aborts."""
+    try:
+        queue.close(step.task_id, reason)
+    except BdError as exc:
+        logger.warning(
+            "workflow_cancel_close_failed: run %s step %s (%s): %s",
+            run_id,
+            step.step_name,
+            step.task_id,
+            exc,
+        )
+        return
+    store.update_step_status(run_id, step.step_name, TaskStatus.CLOSED.value, stamp)
+
+
 def cancel_run(
     run: WorkflowRun,
     *,
@@ -436,25 +459,64 @@ def cancel_run(
     reason: str = "cancelled by operator",
     supervisor_running: bool = False,
 ) -> WorkflowRun:
-    """Close waiting beads, kill running ones, and mark the run cancelled.
+    """Close every live step bead, kill running ones, mark the run cancelled.
 
-    Deferred (not yet released) beads close like any other waiting bead.
+    Live status (from the run's beads) wins over the stored step rows, so a
+    bead the db thinks is closed but is actually open still gets closed.
+    Deferred (not yet released) beads count as live and close like any other
+    waiting bead. Each close is best effort: one failing bead is logged and
+    never orphans the rest. Stored rows are synced to closed, so cancelling
+    twice is a no-op. Bead close reason is always
+    ``workflow run <run id> cancelled``; ``reason`` only labels the run.
     """
     fleet_home = store.db_path.parent
-    for step in store.step_runs(run.id):
-        if step.task_status == TaskStatus.CLOSED.value:
+    stamp = now.isoformat()
+    close_reason = f"workflow run {run.id} cancelled"
+    steps = store.step_runs(run.id)
+    try:
+        live = {task.id: task.status for task in queue.list_by_metadata(META_RUN_ID, run.id)}
+    except BdError as exc:
+        logger.warning("workflow_cancel_list_failed: run %s: %s", run.id, exc)
+        live = {}
+    step_ids = {step.task_id for step in steps}
+    for step in steps:
+        status = live.get(step.task_id, step.task_status)
+        if status == TaskStatus.CLOSED.value:
+            if step.task_status != TaskStatus.CLOSED.value:
+                store.update_step_status(run.id, step.step_name, TaskStatus.CLOSED.value, stamp)
             continue
-        if step.task_status == TaskStatus.IN_PROGRESS.value:
-            task_actions.kill(
-                fleet_home,
-                queue,
-                step.task_id,
-                status=step.task_status,
-                supervisor_running=supervisor_running,
+        if status == TaskStatus.IN_PROGRESS.value:
+            try:
+                task_actions.kill(
+                    fleet_home,
+                    queue,
+                    step.task_id,
+                    status=status,
+                    supervisor_running=supervisor_running,
+                )
+            except task_actions.TaskNotFound:
+                # Task dir is gone so no worker can hold it: close directly.
+                logger.warning(
+                    "workflow_cancel_missing_task_dir: run %s step %s (%s)",
+                    run.id,
+                    step.step_name,
+                    step.task_id,
+                )
+                _close_cancelled_step(store, queue, run.id, step, close_reason, stamp)
+            continue
+        _close_cancelled_step(store, queue, run.id, step, close_reason, stamp)
+    for task_id, status in live.items():
+        if task_id in step_ids or status == TaskStatus.CLOSED.value:
+            continue
+        if status == TaskStatus.IN_PROGRESS.value:
+            continue  # running beads are killed through their step rows above
+        try:
+            queue.close(task_id, close_reason)
+        except BdError as exc:
+            logger.warning(
+                "workflow_cancel_close_failed: run %s orphan %s: %s", run.id, task_id, exc
             )
-        else:
-            queue.close(step.task_id, reason)
-    store.finish_run(run.id, RunStatus.cancelled, reason, now.isoformat())
+    store.finish_run(run.id, RunStatus.cancelled, reason, stamp)
     finished = store.get_run(run.id)
     return finished if finished is not None else run
 
