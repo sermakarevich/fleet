@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,7 +18,10 @@ def _ok() -> subprocess.CompletedProcess:
 
 @contextmanager
 def _stubbed(
-    queue: BeadsQueue, ready_rows: list[dict], show_bodies: dict[str, dict]
+    queue: BeadsQueue,
+    ready_rows: list[dict],
+    show_bodies: dict[str, dict],
+    list_rows: list[dict] | None = None,
 ) -> Iterator[list[list[str]]]:
     """Patch BdClient: ready/list/show read from memory, updates are recorded."""
     runs: list[list[str]] = []
@@ -25,6 +29,8 @@ def _stubbed(
     def fake_run_json(argv: list[str], **kwargs: object) -> object:
         if argv[0] == "ready":
             return ready_rows
+        if argv[0] == "list":
+            return list(list_rows or [])
         if argv[0] == "show":
             return dict(show_bodies.get(argv[1], {"id": argv[1], "title": argv[1]}))
         return []
@@ -108,3 +114,60 @@ def test_claim_next_skips_retry_wait(tmp_path: Path) -> None:
         q.release("t-1", reason="flaky", wait_sec=3600)
         assert q.claim_next("worker-1") is None
     assert [r for r in runs if "--claim" in r] == []
+
+
+def _unfinished_spawn(task_dir: Path) -> None:
+    """Journals that say: two children planned, one created — spawn unfinished."""
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    plan = {"tasks": [{"key": "a"}, {"key": "b"}]}
+    (artifacts / "tasks.json").write_text(json.dumps(plan), encoding="utf-8")
+    (artifacts / "children.json").write_text(json.dumps({"a": "t-a"}), encoding="utf-8")
+
+
+def _epic_row() -> dict:
+    return {
+        "id": "t-epic",
+        "title": "epic",
+        "priority": 1,
+        "status": "open",
+        "issue_type": "epic",
+        "created_at": "2026-01-02T00:00:00Z",
+    }
+
+
+def test_claim_next_lets_a_resumable_epic_outrank_ready_children(tmp_path: Path) -> None:
+    """An epic that still owes its spawn phase competes on priority, not last.
+
+    Drained as a second source, it waited behind every ready child, so a job
+    with hundreds of ready children never created the rest of its plan.
+    """
+    q = BeadsQueue(repo_root=tmp_path)
+    ready = [
+        {"id": "t-child", "title": "child", "priority": 2, "created_at": "2026-01-01T00:00:00Z"}
+    ]
+    epic = _epic_row()
+    _unfinished_spawn(q._store.task_dir("t-epic"))
+    bodies = {"t-child": {**ready[0], "status": "open"}, "t-epic": epic}
+    with (
+        _stubbed(q, ready, bodies, list_rows=[epic]) as runs,
+        patch("fleet.beads.queue.children_of", return_value=[]),
+    ):
+        task = q.claim_next("worker-1")
+    assert task is not None and task.id == "t-epic"
+    assert [r for r in runs if "--claim" in r] == [["update", "t-epic", "--claim"]]
+
+
+def test_claim_next_claims_an_epic_listed_by_both_sources_once(tmp_path: Path) -> None:
+    """A row in `bd ready` and in the epic list is one candidate, not two."""
+    q = BeadsQueue(repo_root=tmp_path)
+    epic = _epic_row()
+    _unfinished_spawn(q._store.task_dir("t-epic"))
+    with (
+        _stubbed(q, [epic], {"t-epic": epic}, list_rows=[epic]) as runs,
+        patch("fleet.beads.queue.children_of", return_value=[]),
+    ):
+        assert q._claim_candidates() == [epic]
+        task = q.claim_next("worker-1")
+    assert task is not None and task.id == "t-epic"
+    assert [r for r in runs if "--claim" in r] == [["update", "t-epic", "--claim"]]

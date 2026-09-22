@@ -269,22 +269,35 @@ class BeadsQueue(Queue):
     ) -> Task | None:
         # `bd ready` only lists issues whose dependencies all closed. An epic
         # with a `blocked` child never becomes ready, so ready epics whose
-        # children are all terminal are appended as extra candidates. Both
-        # sources flow through the single claim(id) below.
-        for rows in (self._ready_rows(), self._ready_epic_rows()):
-            for cand in order_ready(rows):
-                task_id = cand.get("id") if isinstance(cand, dict) else None
-                if not task_id:
-                    continue
-                if self._store.retry_after_active(task_id):
-                    continue
-                if can_claim is not None and not can_claim(self._store.coder_of(task_id, cand)):
-                    continue
-                try:
-                    return self.claim(task_id, claimer_id)
-                except BdError:
-                    continue
+        # children are all terminal are extra candidates. The two sources are
+        # merged before ordering: drained one after the other, any ready child
+        # would always be claimed first and an epic that still owes its spawn
+        # phase hundreds of tasks would never get a turn.
+        for cand in order_ready(self._claim_candidates()):
+            task_id = cand.get("id") if isinstance(cand, dict) else None
+            if not task_id:
+                continue
+            if self._store.retry_after_active(task_id):
+                continue
+            if can_claim is not None and not can_claim(self._store.coder_of(task_id, cand)):
+                continue
+            try:
+                return self.claim(task_id, claimer_id)
+            except BdError:
+                continue
         return None
+
+    def _claim_candidates(self) -> list[dict]:
+        """Ready rows plus resumable epics, each id once, in source order."""
+        merged: dict[str, dict] = {}
+        for rows in (self._ready_rows(), self._ready_epic_rows()):
+            for cand in rows:
+                if not isinstance(cand, dict):
+                    continue
+                task_id = cand.get("id")
+                if task_id and str(task_id) not in merged:
+                    merged[str(task_id)] = cand
+        return list(merged.values())
 
     def _ready_rows(self) -> list[dict]:
         """Raw `bd ready` rows (unlimited; we sort and filter above)."""
