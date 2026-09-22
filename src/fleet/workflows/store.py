@@ -13,7 +13,7 @@ import builtins
 import json
 import sqlite3
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -364,6 +364,30 @@ class WorkflowStore:
                 "SELECT COUNT(*) FROM workflow_runs WHERE workflow_id=?", (workflow_id,)
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def find_run_by_inputs(self, workflow_id: str, inputs: Mapping[str, str]) -> WorkflowRun | None:
+        """Newest live-or-succeeded run of a workflow with identical inputs.
+
+        Crash-safety dedupe: a spawn attempt killed after its run was created
+        but before the journal entry was saved leaves an orphan run; the retry
+        reuses it instead of starting a second chain. Cancelled and failed
+        runs never match — those ended on purpose (or died), so a retry must
+        start fresh. Inputs compare as decoded maps, so JSON key order never
+        matters.
+        """
+        wanted = {str(key): str(value) for key, value in dict(inputs).items()}
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_runs WHERE workflow_id=? "
+                "AND status NOT IN ('cancelled', 'failed') "
+                "ORDER BY started_at DESC, n DESC, id DESC",
+                (workflow_id,),
+            ).fetchall()
+        for row in rows:
+            run = _row_to_run(row)
+            if run.inputs == wanted:
+                return run
+        return None
 
     def finish_run(self, run_id: str, status: RunStatus, reason: str, finished_at: str) -> bool:
         """Close a run with its final status; False when the run is unknown."""

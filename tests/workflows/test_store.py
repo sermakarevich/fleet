@@ -259,6 +259,100 @@ def test_step_run_outputs_released_warning_round_trip(tmp_path: Path) -> None:
     store.close()
 
 
+def _run_with_inputs(
+    wid: str, rid: str, n: int, started: str, inputs: dict[str, str]
+) -> WorkflowRun:
+    """One run row carrying *inputs* for find_run_by_inputs tests."""
+    run = _run(wid, rid, n, started)
+    return WorkflowRun(
+        id=run.id,
+        workflow_id=run.workflow_id,
+        n=run.n,
+        trigger=run.trigger,
+        schedule_id=run.schedule_id,
+        spec=run.spec,
+        status=run.status,
+        started_at=run.started_at,
+        inputs=inputs,
+    )
+
+
+def test_find_run_by_inputs_matches_exact_inputs(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z", {"url": "https://a.test"}
+        )
+    )
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000002", 2, "2026-09-09T02:00:00Z", {"url": "https://b.test"}
+        )
+    )
+    found = store.find_run_by_inputs("wf-test0001", {"url": "https://b.test"})
+    assert found is not None and found.id == "wfr-00000002"
+    assert store.find_run_by_inputs("wf-test0001", {"url": "https://missing.test"}) is None
+    store.close()
+
+
+def test_find_run_by_inputs_ignores_cancelled_and_failed(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z", {"url": "https://a.test"}
+        )
+    )
+    store.finish_run("wfr-00000001", RunStatus.cancelled, "operator", "2026-09-09T02:00:00Z")
+    assert store.find_run_by_inputs("wf-test0001", {"url": "https://a.test"}) is None
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000002", 2, "2026-09-09T03:00:00Z", {"url": "https://a.test"}
+        )
+    )
+    store.finish_run("wfr-00000002", RunStatus.failed, "doomed", "2026-09-09T04:00:00Z")
+    assert store.find_run_by_inputs("wf-test0001", {"url": "https://a.test"}) is None
+    store.close()
+
+
+def test_find_run_by_inputs_prefers_newest_and_matches_succeeded(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z", {"url": "https://a.test"}
+        )
+    )
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001", "wfr-00000002", 2, "2026-09-09T02:00:00Z", {"url": "https://a.test"}
+        )
+    )
+    store.finish_run("wfr-00000002", RunStatus.succeeded, "", "2026-09-09T03:00:00Z")
+    found = store.find_run_by_inputs("wf-test0001", {"url": "https://a.test"})
+    assert found is not None and found.id == "wfr-00000002"
+    store.close()
+
+
+def test_find_run_by_inputs_ignores_key_order_and_other_workflows(tmp_path: Path) -> None:
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    store.save(_workflow(name="other", wid="wf-other0001"))
+    store.save_run(
+        _run_with_inputs(
+            "wf-test0001",
+            "wfr-00000001",
+            1,
+            "2026-09-09T01:00:00Z",
+            {"b": "2", "a": "1"},
+        )
+    )
+    assert store.find_run_by_inputs("wf-test0001", {"a": "1", "b": "2"}) is not None
+    assert store.find_run_by_inputs("wf-other0001", {"a": "1", "b": "2"}) is None
+    store.close()
+
+
 def test_set_step_warning_keeps_step_unreleased(tmp_path: Path) -> None:
     store = WorkflowStore(tmp_path / "w.db")
     store.save(_workflow())

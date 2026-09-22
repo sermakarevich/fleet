@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -443,7 +444,7 @@ def _load_journal(children_file: Path) -> dict[str, str]:
 
 
 def _load_runs_journal(runs_file: Path) -> dict[str, dict]:
-    """Read the workflow-run journal (key -> {run_id, task_ids, final_task_ids})."""
+    """Read the workflow-run journal (key -> run entry or starting intent)."""
     try:
         existing = json.loads(runs_file.read_text(encoding="utf-8"))
         return dict(existing) if isinstance(existing, dict) else {}
@@ -461,6 +462,11 @@ def _write_json_atomic(path: Path, data: Any) -> None:
 def _is_dep_conflict(exc: BdError) -> bool:
     """True when *exc* is bd rejecting a dependency that already exists."""
     return "already exists" in str(exc).lower()
+
+
+def _run_entry_complete(entry: dict | None) -> bool:
+    """True when a children_runs.json entry claims a started run (has run_id)."""
+    return entry is not None and bool(entry.get("run_id"))
 
 
 class SpawnChildren:
@@ -595,7 +601,10 @@ class SpawnChildren:
                     if dep_key in skipped:
                         continue
                     run = runs.get(dep_key)
-                    deps.extend(run["final_task_ids"] if run is not None else [created[dep_key]])
+                    if run is not None and run.get("final_task_ids") is not None:
+                        deps.extend(run["final_task_ids"])
+                    else:
+                        deps.append(created[dep_key])
             except KeyError as exc:
                 raise PlanError(f"task {task['key']!r} depends on uncreated {exc}") from exc
             if task["depends_on"] and not deps:
@@ -631,14 +640,21 @@ class SpawnChildren:
         source over the network, so starting 150 of them one after another
         takes far longer than one attempt. Workflow children never depend
         on each other, so they start concurrently; each result is journaled
-        on this thread as it arrives.
+        as it arrives, guarded by a lock because the completions land on
+        pool threads sharing one journals object.
+
+        The intent (``{"status": "starting", ...}``) is journaled BEFORE the
+        pool starts, so an attempt killed mid-spawn leaves a breadcrumb: the
+        next attempt retries those keys, and the runner's inputs dedupe
+        reuses the orphaned run instead of starting a second chain.
         """
+        runs = journals.runs
         todo = [
             task
             for task in ordered
             if task["workflow"]
-            and task["key"] not in journals.runs
             and task["key"] not in journals.skipped
+            and not _run_entry_complete(runs.get(task["key"]))
         ]
         if not todo:
             return
@@ -647,6 +663,14 @@ class SpawnChildren:
         runner = ctx.workflow_runner
         previous = dict(journals.deferred)
         journals.deferred.clear()
+        for task in todo:
+            runs[task["key"]] = {
+                "status": "starting",
+                "workflow": task["workflow"],
+                "inputs": dict(task["inputs"]),
+            }
+        journals.save_runs()
+        journal_lock = threading.Lock()
         width = max(1, min(ctx.config.job_spawn_parallel, len(todo)))
         with ThreadPoolExecutor(max_workers=width) as pool:
             futures = {
@@ -661,19 +685,26 @@ class SpawnChildren:
                     # Rate limit, IP block, timeout: the source is fine, this
                     # moment is not. Journaling a skip here would drop it from
                     # the run for good, so leave the key for the next attempt.
-                    journals.defer(key, str(exc), previous)
+                    with journal_lock:
+                        journals.defer(key, str(exc), previous)
+                        journals.runs.pop(key, None)
+                        journals.save_runs()
                     continue
                 except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
-                    journals.skip(key, str(exc))
+                    with journal_lock:
+                        journals.skip(key, str(exc))
+                        journals.runs.pop(key, None)
+                        journals.save_runs()
                     continue
-                journals.runs[key] = {
-                    "run_id": handle.run_id,
-                    "task_ids": list(handle.task_ids),
-                    "final_task_ids": list(handle.final_task_ids),
-                }
-                journals.created[key] = handle.run_id
-                journals.save_runs()
-                journals.save_created()
+                with journal_lock:
+                    journals.runs[key] = {
+                        "run_id": handle.run_id,
+                        "task_ids": list(handle.task_ids),
+                        "final_task_ids": list(handle.final_task_ids),
+                    }
+                    journals.created[key] = handle.run_id
+                    journals.save_runs()
+                    journals.save_created()
         journals.save_deferred()
 
     def _spawn_workflow_child(
@@ -686,19 +717,21 @@ class SpawnChildren:
         """Wire the epic to one already-started workflow run.
 
         Every run is started by ``_start_workflow_runs``; a key missing
-        from the journal was deferred there (its source could not be
-        reached) and is left for the next attempt. ``add_dependency``
-        re-runs on every attempt (tolerating bd's already-exists error) so
-        a crash between journaling and full wiring still converges.
+        from the journal (or holding only a ``starting`` intent left by a
+        killed attempt) was deferred there and is left for the next attempt.
+        ``add_dependency`` re-runs on every attempt (tolerating bd's
+        already-exists error) so a crash between journaling and full wiring
+        still converges.
         """
         key = task["key"]
-        runs = journals.runs
-        if key not in runs:
+        run = journals.runs.get(key)
+        if not _run_entry_complete(run):
             return
+        assert run is not None
         # The steps inside a run are chained, so waiting for its last stage
         # is waiting for the whole run; wiring every step would cost one bd
         # call per step (thousands for a large research job).
-        wait_for = runs[key]["final_task_ids"] or runs[key]["task_ids"]
+        wait_for = run["final_task_ids"] or run["task_ids"]
         for task_id in wait_for:
             try:
                 queue.add_dependency(ctx.task.id, task_id)

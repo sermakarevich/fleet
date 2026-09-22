@@ -454,3 +454,75 @@ def test_spawn_children_starts_workflow_runs_concurrently(tmp_path: Path) -> Non
     assert result.status == StepStatus.OK
     runs = json.loads((ctx.task_dir / "artifacts" / "children_runs.json").read_text())
     assert len(runs) == 3
+
+
+def test_spawn_journals_starting_intent_before_start(tmp_path: Path) -> None:
+    """The intent hits children_runs.json before runner.start runs.
+
+    A spawn attempt killed mid-start leaves this breadcrumb instead of an
+    orphan run nobody claims.
+    """
+    seen: dict = {}
+
+    class IntentPeekingRunner:
+        def start(self, workflow_ref: str, inputs):
+            seen.update(json.loads((artifacts_dir / "children_runs.json").read_text()))
+            return RunHandle("run-1", ("t1",), ("t1",))
+
+    ctx = _ctx(tmp_path, workflow_runner=IntentPeekingRunner())
+    _write_tasks(ctx, _workflow_tasks_doc())
+    artifacts_dir = ctx.task_dir / "artifacts"
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.OK
+    assert seen["src-03"]["status"] == "starting"
+    assert seen["src-03"]["inputs"] == {"url": "https://example.com"}
+    completed = json.loads((artifacts_dir / "children_runs.json").read_text())
+    assert completed["src-03"]["run_id"] == "run-1"
+
+
+def test_spawn_retries_stale_starting_intent_without_second_chain(tmp_path: Path) -> None:
+    """A killed attempt's breadcrumb is retried; a deduping runner starts once."""
+    orphan_inputs = {"url": "https://example.com"}
+
+    class DedupeRunner:
+        """Mimics WorkflowRunner's inputs dedupe: one run per input set."""
+
+        def __init__(self) -> None:
+            self.starts = 0
+            self.known: dict = {}
+
+        def start(self, workflow_ref: str, inputs):
+            key = (workflow_ref, tuple(sorted(inputs.items())))
+            if key not in self.known:
+                self.starts += 1
+                self.known[key] = RunHandle(
+                    f"run-{self.starts}", (f"t{self.starts}",), (f"t{self.starts}",)
+                )
+            return self.known[key]
+
+    runner = DedupeRunner()
+    # Attempt 1: the run was created, but the attempt died after journaling
+    # only the intent — the run is an orphan no journal claims.
+    orphan = runner.start("summary_get", orphan_inputs)
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    artifacts = ctx.task_dir / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "children_runs.json").write_text(
+        json.dumps(
+            {
+                "src-03": {
+                    "status": "starting",
+                    "workflow": "summary_get",
+                    "inputs": dict(orphan_inputs),
+                }
+            }
+        )
+    )
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.OK
+    assert runner.starts == 1, "the retry must reuse the orphan, not start again"
+    runs = json.loads((artifacts / "children_runs.json").read_text())
+    assert runs["src-03"]["run_id"] == orphan.run_id
+    children = json.loads((artifacts / "children.json").read_text())
+    assert children["src-03"] == orphan.run_id
