@@ -75,3 +75,14 @@ def test_job_family_receives_queue_and_store(tmp_path: Path) -> None:
 
     assert worker.name == "job.research"
     assert worker.steps[0].name == "job_prepare"
+
+
+def test_research_family_starts_at_discover(tmp_path: Path) -> None:
+    """A research worker with no RESEARCH.md yet starts at research.discover."""
+    task = Task(id="t-001", title="t", description=None, status="in_progress", worker="research")
+    ctx = _ctx(tmp_path)
+    queue = FakeQueue()
+
+    worker = select_worker(task, ctx, queue)
+
+    assert worker.name == "research.discover"

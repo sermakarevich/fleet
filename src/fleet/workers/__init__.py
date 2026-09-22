@@ -32,6 +32,7 @@ from fleet.core.task import Task
 from .base import QuestionStoreLike, StepContext, Worker
 from .job import plan_job
 from .observe import plan_observer
+from .research import plan_research
 from .task_family import plan_task
 
 PlanFn = Callable[[PlanInput, Queue | None, QuestionStoreLike | None], Worker]
@@ -41,6 +42,9 @@ WORKERS: dict[str, PlanFn] = {
     "task": lambda plan, queue, store: plan_task(plan),
     "observer": lambda plan, queue, store: plan_observer(plan, _need_queue("observer", queue)),
     "job": lambda plan, queue, store: plan_job(plan, _need_queue("job", queue), store),
+    "research": lambda plan, queue, store: plan_research(
+        plan, _need_queue("research", queue), store
+    ),
 }
 
 

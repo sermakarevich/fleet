@@ -19,7 +19,15 @@ def _ctx(tmp_path: Path, plan: LaunchPlan | None = None) -> PromptContext:
 
 
 def test_mode_templates_covers_all_modes():
-    assert set(MODE_TEMPLATES) == {"fresh", "continue", "validate", "research", "design"}
+    assert set(MODE_TEMPLATES) == {
+        "fresh",
+        "continue",
+        "validate",
+        "research",
+        "design",
+        "research_discover",
+        "research_design",
+    }
 
 
 def test_every_referenced_template_file_exists():

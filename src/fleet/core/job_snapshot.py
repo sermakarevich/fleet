@@ -4,7 +4,7 @@
 of research/design/gate/spawn/observe. Callers do the file reads (three
 ``artifacts/`` existence checks plus the child list) and build this type;
 there is exactly one such type, owned here. Readers are ``workers/job.py``
-(``_snapshot_for``) and ``cli/tasks.py`` (``job`` command) — both import
+(``snapshot_for``) and ``cli/tasks.py`` (``job`` command) — both import
 from this module, so there is no second parser and no second definition.
 The snapshot is in-memory only; it is never written under ``~/.fleet``.
 """

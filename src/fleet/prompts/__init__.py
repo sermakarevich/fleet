@@ -17,7 +17,15 @@ from fleet.core.task import Task
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 _ISOLATED_PROTOCOL = "ISOLATED_PROTOCOL.md"
 
-LaunchMode = Literal["fresh", "continue", "validate", "research", "design"]
+LaunchMode = Literal[
+    "fresh",
+    "continue",
+    "validate",
+    "research",
+    "design",
+    "research_discover",
+    "research_design",
+]
 
 
 @dataclass(frozen=True)
@@ -46,6 +54,12 @@ MODE_TEMPLATES: dict[LaunchMode, TemplateSet] = {
     ),
     "design": TemplateSet(
         ("coder_header.md.tmpl", "INSTRUCTION_DESIGN.md", "INSTRUCTION_COMMON.md")
+    ),
+    "research_discover": TemplateSet(
+        ("coder_header.md.tmpl", "INSTRUCTION_RESEARCH_DISCOVER.md", "INSTRUCTION_COMMON.md")
+    ),
+    "research_design": TemplateSet(
+        ("coder_header.md.tmpl", "INSTRUCTION_RESEARCH_DESIGN.md", "INSTRUCTION_COMMON.md")
     ),
 }
 

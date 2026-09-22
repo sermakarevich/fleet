@@ -50,11 +50,16 @@ from .task_family import ensure_state
 
 # artifacts/RESEARCH.md cap the research prompt enforces (also truncates reads).
 RESEARCH_MAX_BYTES = 12 * 1024
+# artifacts/candidates.json cap packed into the research_design launch pack.
+CANDIDATES_MAX_BYTES = 64 * 1024
 # Design pack caps: operator notes and validation errors are bounded inputs.
 DESIGN_NOTES_MAX_CHARS = 4 * 1024
 DESIGN_ERRORS_MAX_CHARS = 4 * 1024
 # ask_human context disambiguating the gate question from triage questions.
 JOB_GATE_CONTEXT = "job_gate"
+# Research gate prompt: first slice of RESEARCH.md shown instead of task titles.
+RESEARCH_GATE_MAX_CHARS = 2500
+_DESIGN_MODES = ("design", "research_design")
 
 GATE_OPTION_APPROVE = "approve"
 GATE_OPTION_REVISE = "revise (write note)"
@@ -121,17 +126,23 @@ class JobPrepare:
     name = "job_prepare"
 
     def __init__(self, mode: str) -> None:
-        assert mode in ("research", "design")
+        assert mode in ("research", "design", "research_discover", "research_design")
         self._mode = mode
 
     async def run(self, ctx: StepContext) -> StepResult:
         _ensure_artifact_stubs(ctx.task_dir, ctx.task.id)
         artifacts_dir = ctx.task_dir / "artifacts"
-        if self._mode == "design":
+        if self._mode in _DESIGN_MODES:
             parts = []
             research = _read_text_capped(artifacts_dir / "RESEARCH.md", RESEARCH_MAX_BYTES)
             if research:
                 parts.append(f"# RESEARCH.md\n\n{research}")
+            if self._mode == "research_design":
+                candidates = _read_text_capped(
+                    artifacts_dir / "candidates.json", CANDIDATES_MAX_BYTES
+                )
+                if candidates:
+                    parts.append(f"# candidates.json\n\n{candidates}")
             notes = _read_text_capped(artifacts_dir / "DESIGN_NOTES.md", DESIGN_NOTES_MAX_CHARS)
             if notes:
                 parts.append(f"# Operator revision notes\n\n{notes}")
@@ -173,8 +184,9 @@ class AskApproval:
 
     name = "ask_approval"
 
-    def __init__(self, store: QuestionStoreLike | None = None) -> None:
+    def __init__(self, store: QuestionStoreLike | None = None, *, research: bool = False) -> None:
         self._store = store
+        self._research = research
 
     def _store_for(self, ctx: StepContext) -> QuestionStoreLike | None:
         """Explicit store first, else the store orchestrator/spawn.py injected."""
@@ -246,9 +258,18 @@ class AskApproval:
     def _ask(self, ctx: StepContext, store: QuestionStoreLike, doc: Json) -> StepResult:
         """Post the approval question, then wait for the operator."""
         titles = _task_titles(doc)
-        prompt = f"Job {ctx.task.id}: approve {len(titles)} tasks?\n" + "\n".join(
-            f"- {t}" for t in titles
-        )
+        if self._research:
+            research_md = (
+                _read_text_capped(
+                    ctx.task_dir / "artifacts" / "RESEARCH.md", RESEARCH_GATE_MAX_CHARS
+                )
+                or ""
+            )
+            prompt = f"{research_md}\napprove {len(titles)} tasks?"
+        else:
+            prompt = f"Job {ctx.task.id}: approve {len(titles)} tasks?\n" + "\n".join(
+                f"- {t}" for t in titles
+            )
         try:
             store.ask(
                 prompt,
@@ -544,7 +565,7 @@ class BlockJob:
         return StepResult(status=StepStatus.OK)
 
 
-def _snapshot_for(plan: PlanInput, queue: Queue) -> JobSnapshot:
+def snapshot_for(plan: PlanInput, queue: Queue) -> JobSnapshot:
     """Read the task directory + children into a pure phase snapshot (I/O here)."""
     artifacts_dir = plan.task_dir / "artifacts"
     has_research = (artifacts_dir / "RESEARCH.md").exists()
@@ -584,7 +605,7 @@ def plan_job(
     the worker factory (``workers/__init__.py``); this module never builds
     either.
     """
-    snapshot = _snapshot_for(plan, queue)
+    snapshot = snapshot_for(plan, queue)
     current_phase = phase_of(snapshot)
     if current_phase in ("research", "design"):
         history = [
