@@ -192,6 +192,22 @@ def test_plan_job_spawn_when_gate_off(tmp_path: Path) -> None:
     assert worker.name == "job.spawn"
 
 
+def test_plan_job_resumes_spawn_when_journal_incomplete(tmp_path: Path) -> None:
+    """A crash after the first child must not skip the rest: stay in spawn."""
+    ctx = _ctx(tmp_path)
+    (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    (ctx.task_dir / "artifacts" / "RESEARCH.md").write_text("research")
+    _write_tasks(ctx, _valid_tasks("t1", "t2"))
+    (ctx.task_dir / "artifacts" / "APPROVED").write_text("approved\n")
+    (ctx.task_dir / "artifacts" / "children.json").write_text(json.dumps({"t1": "kid-1"}))
+    queue = FakeQueue([{"id": "kid-1", "status": "open"}])
+    assert plan_job(_plan(ctx), queue).name == "job.spawn"
+    (ctx.task_dir / "artifacts" / "children.json").write_text(
+        json.dumps({"t1": "kid-1", "t2": "kid-2"})
+    )
+    assert plan_job(_plan(ctx), queue).name == "job.observe"
+
+
 def test_plan_job_observe_when_children_exist(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     (ctx.task_dir / "artifacts").mkdir(parents=True, exist_ok=True)

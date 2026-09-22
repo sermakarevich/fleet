@@ -35,6 +35,7 @@ from fleet.state.archive import apply_gc, apply_purge, plan_gc, plan_purge
 from fleet.state.artifact_locator import locate
 from fleet.state.incremental_read import read_new_bytes
 from fleet.state.legacy_task_dir import legacy_state_text
+from fleet.workers.job import spawn_complete
 
 if TYPE_CHECKING:
     from fleet.beads.queue import BeadsQueue
@@ -133,11 +134,7 @@ def _candidate_rows(artifacts: Path) -> tuple[CandidateRow, ...]:
     candidates = doc.get("candidates")
     if not isinstance(candidates, list):
         return ()
-    kept = [
-        c
-        for c in candidates
-        if isinstance(c, dict) and c.get("status") in _SHORTLIST_STATUSES
-    ]
+    kept = [c for c in candidates if isinstance(c, dict) and c.get("status") in _SHORTLIST_STATUSES]
 
     def relevance(candidate: dict) -> float:
         scores = candidate.get("scores")
@@ -209,7 +206,7 @@ def _build_job_view(
         has_tasks=(artifacts / "tasks.json").exists(),
         gate_enabled=(task.job_gate or "") != "off",
         approved=(artifacts / "APPROVED").exists(),
-        has_children=len(children) > 0,
+        has_children=len(children) > 0 and spawn_complete(artifacts),
     )
     return JobView(
         task_id=task.id,

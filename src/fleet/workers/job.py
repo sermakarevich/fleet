@@ -368,6 +368,26 @@ def _normalize_task(raw: dict) -> dict:
     }
 
 
+def spawn_complete(artifacts_dir: Path) -> bool:
+    """True when children.json covers every key in tasks.json.
+
+    Unreadable or key-less tasks.json, or a missing journal (children made
+    outside SpawnChildren), counts as complete so the phase table falls
+    back to "children exist -> observe" as before.
+    """
+    doc, error = _load_tasks_doc(artifacts_dir.parent)
+    if error is not None:
+        return True
+    tasks = doc.get("tasks") if isinstance(doc, dict) else None
+    keys = [str(t["key"]) for t in tasks if isinstance(t, dict) and t.get("key")] if tasks else []
+    if not keys:
+        return True
+    journal = _load_journal(artifacts_dir / "children.json")
+    if not journal:
+        return True
+    return all(key in journal for key in keys)
+
+
 def _load_journal(children_file: Path) -> dict[str, str]:
     """Read the spawn journal (key -> child id); empty when missing/corrupt."""
     try:
@@ -576,11 +596,12 @@ def snapshot_for(plan: PlanInput, queue: Queue) -> JobSnapshot:
         children = queue.list_children(plan.task.id)
         has_children = len(list(children)) > 0
     except Exception:  # noqa: BLE001 - fall back to the spawn journal
-        try:
-            doc = json.loads((artifacts_dir / "children.json").read_text(encoding="utf-8"))
-            has_children = bool(doc)
-        except (OSError, ValueError):
-            has_children = False
+        has_children = bool(_load_journal(artifacts_dir / "children.json"))
+    # Spawn journals each child as it is created, so a crash mid-spawn leaves
+    # some children behind. Stay in the spawn phase until every tasks.json
+    # key has been journaled; SpawnChildren skips the ones already created.
+    if has_children and not spawn_complete(artifacts_dir):
+        has_children = False
     return JobSnapshot(
         has_research=has_research,
         has_tasks=has_tasks,
