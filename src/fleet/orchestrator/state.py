@@ -18,7 +18,7 @@ from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcomeRecord
 from fleet.integrations.ask_human.store import QuestionStore
 from fleet.state import paths as state_paths
-from fleet.workers.base import WorkerRun
+from fleet.workers.base import WorkerRun, WorkflowRunnerLike
 
 if TYPE_CHECKING:
     from fleet.orchestrator.rate_gauge import RateGauge
@@ -60,6 +60,10 @@ class SupervisorState:
     # Writer: the CLI entry point injects the shared ask_human store once;
     # spawn.py forwards it to StepContext.
     question_store: QuestionStore | None = None
+    # Writer: the CLI entry point injects the shared WorkflowRunner once
+    # (ADR 0015 §2); spawn.py forwards it to StepContext. None in tests
+    # that build a StepContext by hand.
+    workflow_runner: WorkflowRunnerLike | None = None
     # Reader: every service. The injected clock (FakeClock in tests) for
     # now()/monotonic() — no direct datetime.now/time.monotonic in services.
     clock: Clock = field(default_factory=SystemClock)

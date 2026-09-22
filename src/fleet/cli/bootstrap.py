@@ -8,6 +8,7 @@ assembly also lives here so `fleet run foreground` stays a thin command.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,10 +24,13 @@ from fleet.integrations.ollama_tunnel import TunnelSettings, ensure_tunnel
 from fleet.orchestrator import Supervisor, SupervisorState, default_services
 from fleet.orchestrator.checks import DEFAULT_CHECKS
 from fleet.orchestrator.rate_gauge import RateGauge
+from fleet.orchestrator.workflow_runner import WorkflowRunner
 from fleet.state import paths
 from fleet.state.config_file import load as load_config
 from fleet.state.journal import setup_supervisor_logger
 from fleet.state.paths import log_dir as resolve_log_dir
+from fleet.state.paths import workflows_db_path
+from fleet.workflows.store import WorkflowStore
 
 if TYPE_CHECKING:
     import structlog
@@ -69,6 +73,11 @@ def bootstrap_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
     log = setup_supervisor_logger(resolve_log_dir(fleet_home))
     ensure_ollama_tunnel(fleet_home, config, log)
     question_store = QuestionStore(ask_human_db_path(fleet_home))
+    workflow_runner = WorkflowRunner(
+        WorkflowStore(workflows_db_path(fleet_home)),
+        queue(fleet_home),
+        lambda: datetime.now(UTC),
+    )
     return Supervisor(
         state=SupervisorState(
             config=config,
@@ -78,6 +87,7 @@ def bootstrap_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
             log=log,
             rate_gauge=RateGauge(log=log),
             question_store=question_store,
+            workflow_runner=workflow_runner,
         ),
         services=default_services(question_store=question_store),
         checks=DEFAULT_CHECKS,

@@ -145,7 +145,38 @@ def _render_child_section(child_id: str, bead_status: str, digest: dict) -> str:
     return "\n".join(lines)[:CHILD_SECTION_MAX_CHARS]
 
 
-def _write_digest(ctx: StepContext, raw: list) -> str:
+def _workflow_run_lines(ctx: StepContext, queue: Queue) -> list[str]:
+    """One line per workflow-run child (ADR 0015 §2), best effort.
+
+    Reads artifacts/children_runs.json (key -> {run_id, task_ids,
+    final_task_ids}); a missing or corrupt file yields no lines rather
+    than failing observe.
+    """
+    try:
+        runs = json.loads(
+            (ctx.task_dir / "artifacts" / "children_runs.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return []
+    if not isinstance(runs, dict):
+        return []
+    lines: list[str] = []
+    for key, entry in runs.items():
+        if not isinstance(entry, dict) or not entry.get("run_id"):
+            continue
+        task_ids = entry.get("task_ids") or []
+        if not isinstance(task_ids, list) or not task_ids:
+            continue
+        closed = 0
+        for task_id in task_ids:
+            with suppress(Exception):  # noqa: BLE001 - best effort status lookup
+                if queue.get(str(task_id)).status == TaskStatus.CLOSED.value:
+                    closed += 1
+        lines.append(f"- run {entry['run_id']} ({key}): {closed}/{len(task_ids)} steps closed")
+    return lines
+
+
+def _write_digest(ctx: StepContext, raw: list, queue: Queue) -> str:
     """Render child sections into artifacts/CHILDREN.md (≤ 8 KB) and return it."""
     sections = [
         _render_child_section(
@@ -163,6 +194,9 @@ def _write_digest(ctx: StepContext, raw: list) -> str:
         body = "# Children digest\n\n" + "\n\n".join(sections)
     else:
         body = "# Children digest\n\n(none)"
+    run_lines = _workflow_run_lines(ctx, queue)
+    if run_lines:
+        body += "\n\n# Workflow runs\n\n" + "\n".join(run_lines)
     artifacts_dir = ctx.task_dir / "artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     (artifacts_dir / "CHILDREN.md").write_text(body, encoding="utf-8")
@@ -182,7 +216,7 @@ class CollectChildren:
         if early is not None:
             return early
         assert raw is not None
-        body = _write_digest(ctx, raw)
+        body = _write_digest(ctx, raw, self._queue)
         blocked = sum(
             1 for c in raw if isinstance(c, dict) and c.get("status") == TaskStatus.BLOCKED.value
         )

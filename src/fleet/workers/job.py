@@ -22,6 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from fleet.beads.client import BdError
 from fleet.beads.queue import Queue
 from fleet.core.errors import Json, PlanError
 from fleet.core.job_phase import phase_failures, phase_of
@@ -355,6 +356,27 @@ def _load_journal(children_file: Path) -> dict[str, str]:
         return {}
 
 
+def _load_runs_journal(runs_file: Path) -> dict[str, dict]:
+    """Read the workflow-run journal (key -> {run_id, task_ids, final_task_ids})."""
+    try:
+        existing = json.loads(runs_file.read_text(encoding="utf-8"))
+        return dict(existing) if isinstance(existing, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_json_atomic(path: Path, data: Any) -> None:
+    """Write *data* as JSON to *path* via a tmp file + replace (crash-safe)."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _is_dep_conflict(exc: BdError) -> bool:
+    """True when *exc* is bd rejecting a dependency that already exists."""
+    return "already exists" in str(exc).lower()
+
+
 class SpawnChildren:
     """Create child beads from tasks.json, idempotent across crashes."""
 
@@ -372,11 +394,13 @@ class SpawnChildren:
         children_file = artifacts_dir / "children.json"
         created = _load_journal(children_file)
         queue = self._queue
+        workflow_keys = {task["key"] for task in ordered if task["workflow"]}
         try:
             self._spawn_missing(ctx, queue, ordered, created, children_file)
+            labels = [f"run:{v}" if k in workflow_keys else v for k, v in created.items()]
             queue.comment(
                 ctx.task.id,
-                f"[fleet] job spawned {len(created)} children: {', '.join(created.values())}",
+                f"[fleet] job spawned {len(created)} children: {', '.join(labels)}",
             )
         except Exception as exc:  # noqa: BLE001 - step contract
             return StepResult(status=StepStatus.FAIL, reason=f"cannot spawn children: {exc}")
@@ -417,11 +441,21 @@ class SpawnChildren:
         """Create every not-yet-spawned child, journaling each id at once."""
         artifacts_dir = ctx.task_dir / "artifacts"
         design_path = str(artifacts_dir / "DESIGN.md")
+        runs_file = artifacts_dir / "children_runs.json"
+        runs = _load_runs_journal(runs_file)
         for task in ordered:
+            if task["workflow"]:
+                self._spawn_workflow_child(
+                    ctx, queue, task, created, runs, runs_file, children_file
+                )
+                continue
             if task["key"] in created:
                 continue
             try:
-                deps = [created[d] for d in task["depends_on"]]
+                deps = []
+                for dep_key in task["depends_on"]:
+                    run = runs.get(dep_key)
+                    deps.extend(run["final_task_ids"] if run is not None else [created[dep_key]])
             except KeyError as exc:
                 raise PlanError(f"task {task['key']!r} depends on uncreated {exc}") from exc
             body = task["body"] + (f"\n\nPart of job {ctx.task.id}; DESIGN.md at {design_path}")
@@ -438,9 +472,44 @@ class SpawnChildren:
                 },
             )
             created[task["key"]] = child.id
-            tmp = children_file.with_name(children_file.name + ".tmp")
-            tmp.write_text(json.dumps(created, indent=2), encoding="utf-8")
-            tmp.replace(children_file)
+            _write_json_atomic(children_file, created)
+
+    def _spawn_workflow_child(
+        self,
+        ctx: StepContext,
+        queue: Queue,
+        task: dict,
+        created: dict[str, str],
+        runs: dict[str, dict],
+        runs_file: Path,
+        children_file: Path,
+    ) -> None:
+        """Start (once) and re-wire dependencies for one workflow-run child.
+
+        The run is journaled before any dependency is registered, so a
+        crash never starts it twice; ``add_dependency`` re-runs on every
+        attempt (tolerating bd's already-exists error) so a crash between
+        journaling and full dependency wiring still converges.
+        """
+        key = task["key"]
+        if key not in runs:
+            if ctx.workflow_runner is None:
+                raise PlanError("workflow children need a workflow runner")
+            handle = ctx.workflow_runner.start(task["workflow"], task["inputs"])
+            runs[key] = {
+                "run_id": handle.run_id,
+                "task_ids": list(handle.task_ids),
+                "final_task_ids": list(handle.final_task_ids),
+            }
+            created[key] = handle.run_id
+            _write_json_atomic(runs_file, runs)
+            _write_json_atomic(children_file, created)
+        for task_id in runs[key]["task_ids"]:
+            try:
+                queue.add_dependency(ctx.task.id, task_id)
+            except BdError as exc:
+                if not _is_dep_conflict(exc):
+                    raise
 
     def _invalid(self, ctx: StepContext, errors: list[str]) -> StepResult:
         artifacts_dir = ctx.task_dir / "artifacts"

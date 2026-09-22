@@ -19,17 +19,18 @@ import structlog
 from fleet.core.config import RuntimeConfig
 from fleet.core.task import Task, TaskOutcome
 from fleet.state import paths as state_paths
-from fleet.workers.base import StepContext, StepStatus
+from fleet.workers.base import RunHandle, StepContext, StepStatus
 from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren, _normalize_task
 
 
 class FakeQueue:
-    """Queue double: canned children, recorded creates/comments."""
+    """Queue double: canned children, recorded creates/comments/dependencies."""
 
     def __init__(self, children: list | None = None) -> None:
         self._children = children or []
         self.created: list[tuple[str, dict]] = []
         self.comments: list[tuple[str, str]] = []
+        self.dependencies: list[tuple[str, str]] = []
 
     def list_children(self, epic_id: str):
         return self._children
@@ -41,6 +42,24 @@ class FakeQueue:
 
     def comment(self, task_id: str, body: str) -> None:
         self.comments.append((task_id, body))
+
+    def add_dependency(self, epic_id: str, child_id: str) -> None:
+        self.dependencies.append((epic_id, child_id))
+
+
+class FakeWorkflowRunner:
+    """WorkflowRunnerLike double: returns a canned handle, records calls."""
+
+    def __init__(self, handle=None, error: Exception | None = None) -> None:
+        self.handle = handle
+        self.error = error
+        self.calls: list[tuple[str, dict]] = []
+
+    def start(self, workflow_ref: str, inputs):
+        self.calls.append((workflow_ref, dict(inputs)))
+        if self.error is not None:
+            raise self.error
+        return self.handle
 
 
 class FakeStore:
@@ -76,7 +95,7 @@ class StubCoder:
         return None
 
 
-def _ctx(tmp_path: Path, task_id: str = "job-1") -> StepContext:
+def _ctx(tmp_path: Path, task_id: str = "job-1", workflow_runner=None) -> StepContext:
     task_dir = state_paths.task_dir(tmp_path, task_id)
     task_dir.mkdir(parents=True, exist_ok=True)
     return StepContext(
@@ -97,6 +116,7 @@ def _ctx(tmp_path: Path, task_id: str = "job-1") -> StepContext:
         log=structlog.get_logger(),
         attempt_dir=task_dir / "attempts" / "1",
         attempt_n=1,
+        workflow_runner=workflow_runner,
     )
 
 
@@ -162,6 +182,80 @@ def test_spawn_children_isolated(tmp_path: Path) -> None:
     assert [spec["title"] for _, spec in queue.created] == ["title a"]
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "observe"
+
+
+def _workflow_tasks_doc() -> dict:
+    return {
+        "tasks": [
+            {
+                "key": "src-03",
+                "title": "summary_get: a title",
+                "workflow": "summary_get",
+                "inputs": {"url": "https://example.com"},
+            },
+            {
+                "key": "sib",
+                "title": "sibling",
+                "body": "sibling body",
+                "depends_on": ["src-03"],
+            },
+        ]
+    }
+
+
+def test_spawn_children_workflow_child(tmp_path: Path) -> None:
+    runner = FakeWorkflowRunner(handle=RunHandle("run-1", ("t1", "t2", "t3"), ("t3",)))
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    queue = FakeQueue()
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
+    assert result.status == StepStatus.OK
+    assert queue.dependencies == [("job-1", "t1"), ("job-1", "t2"), ("job-1", "t3")]
+    children = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text())
+    assert children["src-03"] == "run-1"
+    runs = json.loads((ctx.task_dir / "artifacts" / "children_runs.json").read_text())
+    assert runs["src-03"] == {
+        "run_id": "run-1",
+        "task_ids": ["t1", "t2", "t3"],
+        "final_task_ids": ["t3"],
+    }
+    sib_spec = next(spec for _, spec in queue.created if spec["title"] == "sibling")
+    assert sib_spec["depends_on"] == ["t3"]
+    assert runner.calls == [("summary_get", {"url": "https://example.com"})]
+
+
+def test_spawn_children_workflow_without_runner_fails(tmp_path: Path) -> None:
+    ctx = _ctx(tmp_path, workflow_runner=None)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    queue = FakeQueue()
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
+    assert result.status == StepStatus.FAIL
+    assert "workflow runner" in result.reason
+
+
+def test_spawn_children_workflow_journal_is_idempotent(tmp_path: Path) -> None:
+    runner = FakeWorkflowRunner(handle=RunHandle("run-1", ("t1", "t2", "t3"), ("t3",)))
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    _write_tasks(ctx, _workflow_tasks_doc())
+    artifacts = ctx.task_dir / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "children.json").write_text(json.dumps({"src-03": "run-1"}))
+    (artifacts / "children_runs.json").write_text(
+        json.dumps(
+            {
+                "src-03": {
+                    "run_id": "run-1",
+                    "task_ids": ["t1", "t2", "t3"],
+                    "final_task_ids": ["t3"],
+                }
+            }
+        )
+    )
+    queue = FakeQueue()
+    result = asyncio.run(SpawnChildren(queue).run(ctx))
+    assert result.status == StepStatus.OK
+    assert runner.calls == []
+    assert queue.dependencies == [("job-1", "t1"), ("job-1", "t2"), ("job-1", "t3")]
 
 
 def test_normalize_task_keeps_workflow_and_inputs() -> None:

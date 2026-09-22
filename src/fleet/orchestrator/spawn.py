@@ -193,6 +193,7 @@ def _build_step_context(
         attempt_dir=adir,
         attempt_n=attempt_n,
         question_store=st.question_store,
+        workflow_runner=st.workflow_runner,
     )
 
 
