@@ -354,11 +354,27 @@ Run work dir (absolute, build-time): __WORK__
       under 30 words, terse). Do not read the whole entry.
    b. Read /Users/sergii/.ai/knowledge/structured_papers/index.md for the
       authoritative, up-to-date category list (never a hardcoded list).
-   c. Pick the single best-fit category (on ties, open the candidate
-      <category>/<category>.md files and compare against listed papers; the
-      entry gets exactly one home, never cross-list). Propose it through
-      mcp__ask_human__ask_human_question with the second-best alternative,
-      wait for the answer, then proceed. Never guess silently.
+   c. Classify the category with jev (the TypeSafe judge-model CLI), never a
+      chat-model guess and never ask_human first. Build the state as the
+      entry title plus the 1-2 sentence TL;DR from (a), then run ONE command
+      with one -o flag per category from the list in (b):
+        jev choose "Which knowledge-base category is the best single home for this entry?" \
+          -o <cat1> -o <cat2> ... -s "<title>: <tldr>" --min-confidence 0.7
+      The entry gets exactly one home, never cross-list. Use the returned
+      `.answers.answer.choice` directly as the category. Record the choice
+      and `.answers.answer.confidence` in step 5's outputs.json (keys
+      "category" and "category_confidence") AND as a provenance line in the
+      moved entry's index.md (e.g. `filed_via: jev choose, category: <cat>,
+      confidence: <x>` - keep the file's existing front-matter/style valid),
+      so a wrong call can be traced.
+      Escalation (the ONLY case that reaches a human): jev exits 2
+      (confidence below the 0.7 floor) or errors (exit 1, e.g. missing
+      TYPESAFE_API_KEY). Only then fall back to
+      mcp__ask_human__ask_human_question - propose jev's top choice (stdout
+      still carries the JSON on exit 2) with the second-best alternative
+      (highest remaining probability), wait for the answer, then proceed.
+      On ties, open the candidate <category>/<category>.md files and compare
+      against listed papers before calling jev.
    d. Move the folder with its original name preserved into
       structured_papers/<category>/.
    e. Read structured_papers/<category>/<category>.md and append
@@ -367,7 +383,9 @@ Run work dir (absolute, build-time): __WORK__
       file is alphabetical, else append at the bottom).
 
 5. Write $FLEET_TASK_DIR/outputs.json exactly as {"vault_dir": "<absolute new
-   folder>", "filed": true}.
+   folder>", "filed": true, "category": "<jev choice>",
+   "category_confidence": <jev confidence float>,
+   "category_source": "jev" (or "ask_human" when step 4c escalated)}.
 
 6. Quality checks before finishing: the moved folder is present in the
    category folder; the new bullet uses `[[...]]` Obsidian syntax (not

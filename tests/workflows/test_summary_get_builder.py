@@ -223,6 +223,22 @@ def _file_desc(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     return by_name["file"].steps[0].description
 
 
+def test_file_step_classifies_category_with_jev(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The file step classifies via jev choose; ask_human is only the low-confidence fallback."""
+    desc = _file_desc(monkeypatch, tmp_path)
+    assert "jev choose" in desc
+    assert "Which knowledge-base category is the best single home for this entry?" in desc
+    assert "--min-confidence 0.7" in desc
+    # Confident path uses jev's choice directly — no operator question.
+    assert ".answers.answer.choice" in desc
+    # Provenance: category + confidence recorded in outputs.json and index.md.
+    assert "category_confidence" in desc
+    assert "index.md" in desc
+    # ask_human survives only as the exit-2 / error escalation path.
+    assert "exits 2" in desc
+    assert desc.count("mcp__ask_human__ask_human_question") == 1
+
+
 def test_file_step_runs_move_recipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The file step moves the entry and appends an Obsidian ref to the category index."""
     desc = _file_desc(monkeypatch, tmp_path)
