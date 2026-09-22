@@ -107,12 +107,19 @@ def _fake_source() -> Source:
     )
 
 
-def test_build_expands_five_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Build writes source/chunks files and returns the fixed stage graph."""
     monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
     result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
 
-    assert [stage.name for stage in result.stages] == ["plan", "wiki", "derive", "enrich", "index"]
+    assert [stage.name for stage in result.stages] == [
+        "plan",
+        "wiki",
+        "derive",
+        "enrich",
+        "index",
+        "verify",
+    ]
     by_name = {stage.name: stage for stage in result.stages}
 
     plan_steps = by_name["plan"].steps
@@ -145,6 +152,12 @@ def test_build_expands_five_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "questions",
         "critical-thinking",
     )
+
+    verify_steps = by_name["verify"].steps
+    assert [step.name for step in verify_steps] == ["verify"]
+    assert verify_steps[0].needs == ("index",)
+    assert "blocked" in verify_steps[0].description
+    assert "Source:" in verify_steps[0].description
 
     work = tmp_path / "workflows" / "summary_get" / "r1"
     assert (work / "source.md").exists()

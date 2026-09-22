@@ -1,10 +1,19 @@
-"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index.
+"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify.
 
 Called by `workflows.runs` through `builders.expand` at run start. The saved
 workflow carries no stages; `build` fetches the source behind the run's `url`
 input (reusing `builders.sources`), splits it with `builders.chunking`, writes
 the fetched text plus one file per chunk into the run work dir, and returns
-the workflow with five concrete stages: `plan` (one step), `wiki` (one step
+the workflow with six concrete stages: `plan` (one step), `wiki` (one step
+per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
+critical-thinking), `index` (one step), and `verify` (one step that checks
+the finished entry against the recipe and blocks instead of closing).
+
+Called by `workflows.runs` through `builders.expand` at run start. The saved
+workflow carries no stages; `build` fetches the source behind the run's `url`
+input (reusing `builders.sources`), splits it with `builders.chunking`, writes
+the fetched text plus one file per chunk into the run work dir, and returns
+the workflow with six concrete stages: `plan` (one step), `wiki` (one step
 per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
 critical-thinking), and `index` (one step).
 
@@ -230,6 +239,46 @@ Run work dir (absolute, build-time): __WORK__
 __TAIL__"""
 
 
+_VERIFY_DESC = """You are verifying the finished knowledge-base entry for "__TITLE__" (__URL__)
+against the `ai show summary/get` recipe. A step counts as done only when the
+entry is usable — never pass a green run over an empty or chrome-filled folder.
+
+Run work dir (absolute, build-time): __WORK__
+Entry folder: __PAPER_DIR__ (from {{steps.plan.outputs.paper_dir}}).
+
+1. Resolve the entry folder from {{steps.plan.outputs.paper_dir}} (the plan
+   step's outputs.json `paper_dir`). If the folder is missing or unreadable,
+   that is itself a failure.
+
+2. Check every recipe rule and collect one failure string per problem:
+   - index.md, summary.md, digest.md, explainer.md, questions.md,
+     critical_thinking.md each exist and are non-trivial (>500 bytes).
+   - source/source.md exists and carries the `Source:` provenance line.
+   - wiki/ holds at least one page; no page name derived from site chrome
+     (reject any page whose stem contains `latest-commit`, `skip-to-content`,
+     or `sign-in`).
+   - digest.md mentions every wiki page name (each page's **In one sentence:**
+     line must be quoted there, so the rungs actually differ).
+   - every link in index.md ([[wikilink]] or [markdown](link)) resolves to a
+     file that exists (external http/mailto URLs and #anchors excluded).
+   - Fast path: run
+     `uv run python -m fleet.workflows.builders.summary_verify <paper_dir>`
+     from the fleet repo (or `python3 -m fleet.workflows.builders.summary_verify`
+     with the fleet venv); it prints one line per problem and exits nonzero
+     on failure. Fall back to the manual checks above (wc -c, grep, ls) when
+     the module is unavailable.
+
+3. Outcome:
+   - All checks pass → write $FLEET_TASK_DIR/RESULT.json with status done and
+     a one-sentence summary of what was verified.
+   - Any check fails → write $FLEET_TASK_DIR/RESULT.json with status blocked
+     and blocked_reason listing EVERY failure (one per line), so the operator
+     sees WHY instead of a green run. Do NOT fix other workers' files
+     silently; report, then stop.
+
+__TAIL__"""
+
+
 #: Saved definition created on fleet start when no workflow of this name exists
 #: (see `fleet.workflows.builtins`). Operators may edit the saved copy freely.
 DEFINITION: dict = {
@@ -239,7 +288,9 @@ DEFINITION: dict = {
         "(ai:summary:get recipe). The builder fetches the source (yt for YouTube, "
         "x for X/Twitter, pdftotext for arXiv/PDF, HTML extraction otherwise), "
         "splits it into chunks and creates one wiki-page task per chunk, then "
-        "digest/summary, explainer/questions/critical-thinking, and index."
+        "digest/summary, explainer/questions/critical-thinking, index, "
+        "and a verify step that blocks the run unless the entry satisfies "
+        "the recipe."
     ),
     "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
     "inputs": [
@@ -330,7 +381,7 @@ def _common(source: Source, work: Path, url: str) -> dict[str, str]:
 
 
 def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[Stage, ...]:
-    """The five fixed stages: plan, wiki, derive, enrich, index."""
+    """The six fixed stages: plan, wiki, derive, enrich, index, verify."""
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
     total = str(len(chunks))
@@ -416,4 +467,15 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
             ),
         ),
     )
-    return (plan, wiki, derive, enrich, index)
+    verify = Stage(
+        name="verify",
+        steps=(
+            Step(
+                name="verify",
+                title=f"summary_get: verify {source.title}",
+                description=_fill(_VERIFY_DESC, **common),
+                needs=("index",),
+            ),
+        ),
+    )
+    return (plan, wiki, derive, enrich, index, verify)
