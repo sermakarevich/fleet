@@ -176,3 +176,21 @@ def test_build_missing_url_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
         summary_get.build(_workflow(), _ctx(tmp_path, {}))
     with pytest.raises(ValueError, match="input url is required"):
         summary_get.build(_workflow(), _ctx(tmp_path, {"url": "   "}))
+
+
+def test_plan_matches_existing_entry_by_provenance_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Plan step searches papers/ + investment/ by Source url before deriving a name."""
+    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
+    result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
+    plan_desc = next(
+        step.description for stage in result.stages if stage.name == "plan" for step in stage.steps
+    )
+    # Provenance-first: same url reuses the folder no matter the derived slug.
+    assert "papers/*/source/source.md" in plan_desc
+    assert "investment/*/source/source.md" in plan_desc
+    assert "no matter what slug" in plan_desc
+    # Genuine conflict (different url, same slug) still asks the human.
+    assert "Genuine conflict" in plan_desc
+    assert plan_desc.count("mcp__ask_human__ask_human_question") >= 2

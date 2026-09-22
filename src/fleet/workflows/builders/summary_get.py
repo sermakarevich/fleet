@@ -54,6 +54,15 @@ Run work dir (absolute, build-time): __WORK__
    Do not read __WORK__/chunks/*.md — chunk bodies belong to later workers.
 
 2. Decide the route from the title and chunk list:
+   - Provenance-first rule (BEFORE deriving any folder name): search
+     /Users/sergii/.ai/knowledge/papers/*/source/source.md and
+     /Users/sergii/.ai/knowledge/investment/*/source/source.md for a `Source:`
+     line that equals this run's input (__URL__, exact string match). If one
+     exists, reuse that folder no matter what slug this run would have derived:
+     refresh <paper_dir>/source/source.md from __SOURCE_MD__, write
+     outputs.json (step 5) with that folder's absolute path and its existing
+     folder basename as the slug, and continue. No question. Only when no such
+     entry exists, derive a candidate folder below.
    - Investment/finance topic → base /Users/sergii/.ai/knowledge/investment with a new
      folder <YYYY-MM-DD>-<PascalName>, using {{run.date}} for the date.
    - Anything else → /Users/sergii/.ai/knowledge/papers/<PascalName>.
