@@ -442,15 +442,9 @@ class BeadsQueue(Queue):
     def list_by_metadata(self, field: str, value: str) -> list[Task]:
         """Tasks whose bd metadata `field` equals `value` (one workflow run)."""
         items = [
-            item
-            for item in self._snapshot()
-            if (item.get("metadata") or {}).get(field) == value
+            item for item in self._snapshot() if (item.get("metadata") or {}).get(field) == value
         ]
-        return [
-            build_task(item, self._store.read(item["id"]))
-            for item in items
-            if item.get("id")
-        ]
+        return [build_task(item, self._store.read(item["id"])) for item in items if item.get("id")]
 
     def _rows(self, query: str, limit: int) -> list[dict]:
         """Rows for one list-shaped query: `bd ready`, or a snapshot filter by status."""
