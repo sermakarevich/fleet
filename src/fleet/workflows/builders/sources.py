@@ -3,10 +3,13 @@
 Called by `builders/summary_get.py`. One function per source kind, chosen
 from the URL alone (`detect`): YouTube through the `yt` CLI, X/Twitter
 through the `x` CLI, PDFs (including arXiv) through `pdftotext`, anything
-else as a web page stripped to text with the standard library. Every
-subprocess carries a timeout; every failure surfaces as `SourceError`
-with the route that was tried, so the run fails loudly at start instead
-of opening beads for a source nobody could read.
+else as a web page stripped to text with the standard library. A
+github.com repo landing page fetches the repo README from
+raw.githubusercontent.com first (falling back to the page's `#readme` /
+`article` element, then to a repo-named stub) so page chrome never becomes
+a "Latest commit" chunk. Every subprocess carries a timeout; every failure
+surfaces as `SourceError` with the route that was tried, so the run fails
+loudly at start instead of opening beads for a source nobody could read.
 """
 
 from __future__ import annotations
@@ -39,6 +42,14 @@ _HTTP_SERVER_ERROR = 500
 
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 _X_HOSTS = ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com")
+_GITHUB_HOSTS = ("github.com", "www.github.com")
+_GITHUB_RAW_HOST = "raw.githubusercontent.com"
+#: Refs tried in order for a repo README; HEAD tracks the default branch.
+_GITHUB_README_REFS = ("HEAD", "main", "master")
+#: Lines the scoped GitHub extractor drops even when they survive scoping.
+_GITHUB_NOISE_RE = re.compile(r"(?i)skip to content|you signed in with another tab or window")
+#: A scoped page that still opens on the commit widget is chrome, not a README.
+_GITHUB_CHROME_HEADING_RE = re.compile(r"(?m)^#{1,4}\s+latest commit\b", re.IGNORECASE)
 _ARXIV_ID_RE = re.compile(r"arxiv\.org/(?:abs|pdf|html)/([0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?)")
 _LOCAL_TEXT_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
 _BLOCK_TAGS = frozenset(
@@ -427,6 +438,9 @@ def _fetch_article(url: str) -> Source:
         raise SourceError(
             f"fetch {url}: served a PDF without a .pdf path; pass the PDF link directly"
         )
+    repo = _github_repo_root(url)
+    if repo is not None:
+        return _fetch_github_article(url, repo[0], repo[1], body)
     parser = _MarkdownExtractor()
     parser.feed(body.decode("utf-8", errors="replace"))
     text = parser.text()
@@ -434,3 +448,185 @@ def _fetch_article(url: str) -> Source:
         raise SourceError(f"fetch {url}: page yielded only {len(text)} characters of text")
     title = re.sub(r"\s+", " ", parser.title).strip() or url
     return Source(url=url, kind=SourceKind.article, title=title[:160], text=text, tool="urllib")
+
+
+def _github_repo_root(url: str) -> tuple[str, str] | None:
+    """(owner, repo) when `url` is a github.com repo landing page, else None."""
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+    except ValueError:
+        return None
+    if parsed.netloc.lower() not in _GITHUB_HOSTS:
+        return None
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if len(segments) != 2:  # noqa: PLR2004  # owner + repo, nothing deeper
+        return None
+    return segments[0], segments[1]
+
+
+def _fetch_github_article(url: str, owner: str, repo: str, body: bytes) -> Source:
+    """A repo landing page as its README, never as the surrounding page chrome."""
+    raw = _github_raw_readme(owner, repo)
+    if raw is not None:
+        return Source(
+            url=url,
+            kind=SourceKind.article,
+            title=_readme_title(raw, owner, repo),
+            text=raw,
+            tool="raw-github",
+        )
+    scoped = _github_readme_text(body)
+    if len(scoped) >= 200 and not _GITHUB_CHROME_HEADING_RE.search(scoped):  # noqa: PLR2004
+        return Source(
+            url=url,
+            kind=SourceKind.article,
+            title=_readme_title(scoped, owner, repo),
+            text=scoped,
+            tool="urllib",
+        )
+    description = _html_meta_description(body.decode("utf-8", errors="replace"))
+    text = f"# {owner}/{repo}\n"
+    if description:
+        text += f"\n{description}\n"
+    text += f"\nRepository: {url}\nNo README found for this repository."
+    return Source(
+        url=url,
+        kind=SourceKind.article,
+        title=f"{owner}/{repo}",
+        text=text,
+        tool="urllib",
+    )
+
+
+def _github_raw_readme(owner: str, repo: str) -> str | None:
+    """README.md off raw.githubusercontent.com; None when no ref has one."""
+    for ref in _GITHUB_README_REFS:
+        try:
+            body, _ = _http_get(f"https://{_GITHUB_RAW_HOST}/{owner}/{repo}/{ref}/README.md")
+        except SourceError as exc:
+            if exc.transient:
+                raise
+            continue
+        text = body.decode("utf-8", errors="replace").strip()
+        if text:
+            return text
+    return None
+
+
+def _readme_title(text: str, owner: str, repo: str) -> str:
+    """First README heading, else `owner/repo` so chunks never take a chrome name."""
+    match = re.search(r"^#{1,3} +(.+?)\s*$", text, re.MULTILINE)
+    if match is not None and match.group(1).strip("# ").strip():
+        return match.group(1).strip("# ").strip()[:160]
+    return f"{owner}/{repo}"
+
+
+def _github_readme_text(body: bytes) -> str:
+    """Markdown of the landing page's `#readme` (else first `article`) subtree."""
+    probe = _SubtreeExtractor()
+    probe.feed(body.decode("utf-8", errors="replace"))
+    subtree = probe.subtree()
+    if subtree is None:
+        return ""
+    parser = _MarkdownExtractor()
+    parser.feed(subtree)
+    lines = [
+        line for line in parser.text().splitlines() if not _GITHUB_NOISE_RE.search(line.strip())
+    ]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _html_meta_description(page: str) -> str:
+    """The page's meta description (usually the repo tagline), else empty."""
+    for match in re.finditer(r"<meta\s[^>]*>", page, re.IGNORECASE):
+        attrs = dict(re.findall(r'(\w+)\s*=\s*"([^"]*)"', match.group(0)))
+        name = f"{attrs.get('name', '')} {attrs.get('property', '')}".lower()
+        if "description" in name and attrs.get("content", "").strip():
+            return html.unescape(attrs["content"].strip())
+    return ""
+
+
+class _SubtreeExtractor(HTMLParser):
+    """Raw inner HTML of the `#readme` element, else the first `article` element."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.title = ""
+        self._in_title = False
+        self._capture: list[str] | None = None
+        self._capture_tag = ""
+        self._capture_readme = False
+        self._depth = 0
+        self.readme: list[str] | None = None
+        self.article: list[str] | None = None
+
+    def subtree(self) -> str | None:
+        """The preferred captured subtree, including a truncated trailing one."""
+        if self.readme is not None:
+            return "".join(self.readme)
+        if self.article is not None:
+            return "".join(self.article)
+        if self._capture is not None:
+            return "".join(self._capture)
+        return None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "title" and self._capture is None:
+            self._in_title = True
+            return
+        if self._capture is not None:
+            self._capture.append(self.get_starttag_text() or "")
+            if tag == self._capture_tag:
+                self._depth += 1
+            return
+        if dict(attrs).get("id") == "readme":
+            self._start_capture(tag, is_readme=True)
+        elif tag == "article" and self.article is None and self.readme is None:
+            self._start_capture(tag, is_readme=False)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._capture is not None:
+            self._capture.append(self.get_starttag_text() or "")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title" and self._in_title:
+            self._in_title = False
+            return
+        if self._capture is None:
+            return
+        self._capture.append(f"</{tag}>")
+        if tag == self._capture_tag:
+            self._depth -= 1
+            if self._depth <= 0:
+                self._finish_capture()
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+        if self._capture is not None:
+            self._capture.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        if self._capture is not None:
+            self._capture.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if self._capture is not None:
+            self._capture.append(f"&#{name};")
+
+    def _start_capture(self, tag: str, *, is_readme: bool) -> None:
+        """Begin recording an element's inner HTML, nested depth included."""
+        self._capture = [self.get_starttag_text() or ""]
+        self._capture_tag = tag
+        self._capture_readme = is_readme
+        self._depth = 1
+
+    def _finish_capture(self) -> None:
+        """File the finished subtree as the readme or the article fallback."""
+        if self._capture_readme:
+            self.readme = self._capture
+        else:
+            self.article = self._capture
+        self._capture = None
+        self._capture_tag = ""
+        self._depth = 0
