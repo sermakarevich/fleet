@@ -23,7 +23,14 @@ from fleet.core.task import Task, TaskOutcome
 from fleet.state import paths as state_paths
 from fleet.state.spawn_journal import spawn_complete
 from fleet.workers.base import RunHandle, StepContext, StepStatus
-from fleet.workers.job import AskApproval, BlockJob, JobPrepare, SpawnChildren, _normalize_task
+from fleet.workers.job import (
+    _DEFER_MAX_ATTEMPTS,
+    AskApproval,
+    BlockJob,
+    JobPrepare,
+    SpawnChildren,
+    _normalize_task,
+)
 
 
 class FakeQueue:
@@ -268,9 +275,10 @@ def test_spawn_children_defers_a_transient_source_instead_of_skipping(tmp_path: 
     # Nothing skipped: children_skipped.json must not claim the source is dead.
     assert not (artifacts / "children_skipped.json").exists()
     deferred = json.loads((artifacts / "children_deferred.json").read_text())
-    assert "rate limited" in deferred["src-03"]
+    assert "rate limited" in deferred["src-03"]["reason"]
+    assert deferred["src-03"]["attempts"] == 1
     # the copy that needs that source waits with it instead of being created
-    assert "src-03" in deferred["sib"]
+    assert "src-03" in deferred["sib"]["reason"]
     children = json.loads((artifacts / "children.json").read_text())
     assert set(children) == {"solo"}
     # spawn is not finished, so the epic stays claimable and retries the keys
@@ -295,6 +303,28 @@ def test_spawn_children_retries_a_deferred_key_on_the_next_attempt(tmp_path: Pat
     children = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text())
     assert children["src-03"] == "run-1"
     assert json.loads((ctx.task_dir / "artifacts" / "children_deferred.json").read_text()) == {}
+
+
+def test_spawn_children_skips_a_key_that_stays_unreachable(tmp_path: Path) -> None:
+    """The retry budget runs out, so a source nobody can read stops blocking the job."""
+    runner = FakeWorkflowRunner(
+        error=WorkflowSourceUnavailable(["builder summary_get: no transcript offered"])
+    )
+    artifacts = None
+    for attempt in range(_DEFER_MAX_ATTEMPTS):
+        ctx = _ctx(tmp_path, workflow_runner=runner)
+        _write_tasks(ctx, _workflow_tasks_doc())
+        artifacts = ctx.task_dir / "artifacts"
+        artifacts.mkdir(parents=True, exist_ok=True)
+        (artifacts / "children.json").write_text(json.dumps({"done": "kid-0"}))
+        asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+        deferred = json.loads((artifacts / "children_deferred.json").read_text())
+        if attempt < _DEFER_MAX_ATTEMPTS - 1:
+            assert deferred["src-03"]["attempts"] == attempt + 1
+    assert artifacts is not None
+    skipped = json.loads((artifacts / "children_skipped.json").read_text())
+    assert f"unreachable on {_DEFER_MAX_ATTEMPTS} attempts" in skipped["src-03"]
+    assert "src-03" not in json.loads((artifacts / "children_deferred.json").read_text())
 
 
 def test_spawn_children_blocks_when_an_attempt_makes_no_progress(tmp_path: Path) -> None:

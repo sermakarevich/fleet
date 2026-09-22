@@ -371,6 +371,12 @@ def _normalize_task(raw: dict) -> dict:
     }
 
 
+#: How often one key may be deferred before it counts as a dead source.
+#: A host-side block clears in minutes; a source that is still unreachable
+#: after this many spawn attempts is written off so the job can finish.
+_DEFER_MAX_ATTEMPTS = 5
+
+
 @dataclass
 class _SpawnJournals:
     """The three spawn journals (key -> value) and the files they live in."""
@@ -379,7 +385,7 @@ class _SpawnJournals:
     created: dict[str, str]
     runs: dict[str, dict]
     skipped: dict[str, str]
-    deferred: dict[str, str] = field(default_factory=dict)
+    deferred: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def load(cls, artifacts_dir: Path) -> _SpawnJournals:
@@ -388,6 +394,7 @@ class _SpawnJournals:
             created=_load_journal(artifacts_dir / "children.json"),
             runs=_load_runs_journal(artifacts_dir / "children_runs.json"),
             skipped=_load_journal(artifacts_dir / "children_skipped.json"),
+            deferred=_load_runs_journal(artifacts_dir / "children_deferred.json"),
         )
 
     def save_created(self) -> None:
@@ -399,6 +406,21 @@ class _SpawnJournals:
     def skip(self, key: str, reason: str) -> None:
         self.skipped[key] = reason
         _write_json_atomic(self.artifacts_dir / "children_skipped.json", self.skipped)
+
+    def defer(self, key: str, reason: str, previous: dict[str, dict]) -> None:
+        """Leave *key* for the next attempt, or skip it once the budget is out.
+
+        A source can be unreachable because the host is blocking us, which
+        passes, or because it is genuinely unreadable in a way the host
+        reports ambiguously (YouTube hides caption tracks while it blocks,
+        so "transcripts are disabled" means either). Counting attempts lets
+        the first case recover and still writes the second one off.
+        """
+        attempts = int(previous.get(key, {}).get("attempts", 0)) + 1
+        if attempts >= _DEFER_MAX_ATTEMPTS:
+            self.skip(key, f"unreachable on {attempts} attempts; last: {reason}")
+            return
+        self.deferred[key] = {"reason": reason, "attempts": attempts}
 
     def save_deferred(self) -> None:
         """Record keys left for the next attempt; a report, not a gate.
@@ -560,7 +582,12 @@ class SpawnChildren:
                 continue
             waits = [key for key in task["depends_on"] if key in deferred]
             if waits:
-                deferred[task["key"]] = f"waits for deferred {', '.join(waits)}"
+                # Following a deferred dependency is not the task's own
+                # failure, so it spends no retry budget.
+                deferred[task["key"]] = {
+                    "reason": f"waits for deferred {', '.join(waits)}",
+                    "attempts": 0,
+                }
                 continue
             try:
                 deps = []
@@ -618,8 +645,8 @@ class SpawnChildren:
         if ctx.workflow_runner is None:
             raise PlanError("workflow children need a workflow runner")
         runner = ctx.workflow_runner
-        deferred = journals.deferred
-        deferred.clear()
+        previous = dict(journals.deferred)
+        journals.deferred.clear()
         width = max(1, min(ctx.config.job_spawn_parallel, len(todo)))
         with ThreadPoolExecutor(max_workers=width) as pool:
             futures = {
@@ -634,7 +661,7 @@ class SpawnChildren:
                     # Rate limit, IP block, timeout: the source is fine, this
                     # moment is not. Journaling a skip here would drop it from
                     # the run for good, so leave the key for the next attempt.
-                    deferred[key] = str(exc)
+                    journals.defer(key, str(exc), previous)
                     continue
                 except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
                     journals.skip(key, str(exc))

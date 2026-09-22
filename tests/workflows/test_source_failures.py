@@ -43,7 +43,10 @@ def test_ip_block_is_transient_and_names_the_cause(monkeypatch: pytest.MonkeyPat
     assert "blocking this machine's IP" in str(caught.value)
 
 
-def test_disabled_transcript_is_permanent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_disabled_transcript_is_transient_because_a_block_looks_the_same(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """YouTube hides caption tracks while it blocks, so this is not a verdict."""
     monkeypatch.setattr(sources.shutil, "which", lambda _name: "/usr/bin/yt")
     monkeypatch.setattr(
         sources.subprocess,
@@ -52,8 +55,19 @@ def test_disabled_transcript_is_permanent(monkeypatch: pytest.MonkeyPatch) -> No
     )
     with pytest.raises(sources.SourceError) as caught:
         sources._run(["yt", "transcript", "u"], what="youtube transcript")
+    assert caught.value.transient is True
+    assert "no transcript offered" in str(caught.value)
+
+
+def test_gone_video_is_permanent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 404 is a real answer about the URL, so it is not worth retrying."""
+    monkeypatch.setattr(sources.shutil, "which", lambda _name: "/usr/bin/yt")
+    monkeypatch.setattr(
+        sources.subprocess, "run", lambda *a, **k: _Done(1, stderr="VideoUnavailable: gone")
+    )
+    with pytest.raises(sources.SourceError) as caught:
+        sources._run(["yt", "transcript", "u"], what="youtube transcript")
     assert caught.value.transient is False
-    assert "transcripts are disabled" in str(caught.value)
 
 
 def test_unrecognised_failure_keeps_the_last_line_and_is_permanent(

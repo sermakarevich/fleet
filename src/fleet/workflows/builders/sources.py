@@ -71,15 +71,17 @@ _CLI_CAUSES: tuple[tuple[re.Pattern[str], bool, str], ...] = (
         True,
         "the server failed temporarily; retry later",
     ),
+    # Measured 2026-09-22: a video whose transcript was fetched minutes
+    # earlier reports "transcripts are disabled", and so does a control
+    # video with known captions. While YouTube is rate-limiting a machine
+    # it hides the caption tracks, so these two mean "disabled, or blocked
+    # and unable to tell". Treating them as permanent would write a good
+    # source off exactly when the block is on, so they are transient and
+    # the caller's retry budget decides when to give up.
     (
-        re.compile(r"transcripts are disabled", re.I),
-        False,
-        "transcripts are disabled for this video",
-    ),
-    (
-        re.compile(r"NoTranscriptFound|no transcript", re.I),
-        False,
-        "no transcript in the wanted languages",
+        re.compile(r"transcripts are disabled|NoTranscriptFound|no transcript", re.I),
+        True,
+        "no transcript offered (the video has none, or YouTube is hiding them); retry later",
     ),
     (
         re.compile(r"VideoUnavailable|video unavailable|\b404\b|not found", re.I),
