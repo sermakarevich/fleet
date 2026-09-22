@@ -54,7 +54,7 @@ from fleet.workflows.model import (  # noqa: E402
     dependencies_of,
     ensure_valid,
 )
-from fleet.workflows.planning import META_RUN_ID, plan  # noqa: E402
+from fleet.workflows.planning import plan  # noqa: E402
 from fleet.workflows.runs import DEFER_FAR, _open_step  # noqa: E402
 from fleet.workflows.store import WorkflowStore  # noqa: E402
 from fleet.workflows.templates import TemplateContext, render_with_missing  # noqa: E402
