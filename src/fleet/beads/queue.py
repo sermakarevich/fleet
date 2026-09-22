@@ -150,7 +150,7 @@ class Queue(ABC):
 
     @abstractmethod
     def add_dependency(self, epic_id: str, child_id: str) -> None:
-        """Make *epic_id* depend on an existing bead (bd dep add epic child)."""
+        """Link an existing bead under *epic_id* (bd dep add epic child --type parent-child)."""
         ...
 
     # -- task.json fields owned by TaskStore (set_* / clear_* / read_*) --
@@ -347,7 +347,10 @@ class BeadsQueue(Queue):
         return child
 
     def add_dependency(self, epic_id: str, child_id: str) -> None:
-        self._client.run(["dep", "add", epic_id, child_id])
+        # bd >= 1.0 rejects a plain "blocks" link between an epic and a task
+        # ("epics can only block other epics, not tasks"); parent-child is
+        # the relation it allows, and children_of() reads it back.
+        self._client.run(["dep", "add", epic_id, child_id, "--type", "parent-child"])
 
     def release(self, task_id: str, reason: str = "", wait_sec: int = 0) -> None:
         """Return a task to open, with an optional retry delay."""

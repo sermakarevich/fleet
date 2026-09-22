@@ -65,7 +65,7 @@ def test_create_child_links_epic_to_child_on_success(tmp_path: Path) -> None:
     with _patched_client(q, None) as runs:
         child = q.create_child("epic-1", {"title": "Kid"})
     assert child.id == "kid-1"
-    assert ["dep", "add", "epic-1", "kid-1"] in runs
+    assert ["dep", "add", "epic-1", "kid-1", "--type", "parent-child"] in runs
 
 
 def test_add_dependency_runs_bd_dep_add(tmp_path: Path) -> None:
@@ -73,4 +73,4 @@ def test_add_dependency_runs_bd_dep_add(tmp_path: Path) -> None:
     q = BeadsQueue(repo_root=tmp_path)
     with _patched_client(q, None) as runs:
         q.add_dependency("epic-1", "kid-1")
-    assert runs == [["dep", "add", "epic-1", "kid-1"]]
+    assert runs == [["dep", "add", "epic-1", "kid-1", "--type", "parent-child"]]
