@@ -60,6 +60,7 @@ metadata and regenerate.
 | `job_gate` | `bool` | `true` | Ask approval before a job spawns its planned children. | `fleet config set job_gate=false` |
 | `job_child_coder` | `str` | `"claude"` | Default coder for job-spawned child tasks. | `fleet config set job_child_coder=opencode` |
 | `job_child_model` | `str` | `"sonnet"` | Default model for job-spawned child tasks. | `fleet config set job_child_model=opus` |
+| `job_spawn_parallel` | `int` | `8` | How many workflow-run children a job spawn step starts at once (each start fetches its source, so serial starts are slow). | `fleet config set job_spawn_parallel=4` |
 | `job_max_children` | `int` | `30` | Max children one job phase may spawn. | `fleet config set job_max_children=10` |
 | `job_max_phase_attempts` | `int` | `2` | Max research/design attempts before a job blocks. | `fleet config set job_max_phase_attempts=3` |
 | `serve_cors_origins` | `list[str]` | `[]` | Browser origins allowed cross-origin; empty is same-origin only. | `fleet config set serve_cors_origins=https://fleet.example.com` |

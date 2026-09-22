@@ -1783,6 +1783,8 @@ export interface components {
             job_child_coder: string;
             /** Job Child Model */
             job_child_model: string;
+            /** Job Spawn Parallel */
+            job_spawn_parallel: number;
             /** Job Max Children */
             job_max_children: number;
             /** Job Max Phase Attempts */

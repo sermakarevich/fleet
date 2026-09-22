@@ -4035,6 +4035,10 @@
             "type": "string",
             "title": "Job Child Model"
           },
+          "job_spawn_parallel": {
+            "type": "integer",
+            "title": "Job Spawn Parallel"
+          },
           "job_max_children": {
             "type": "integer",
             "title": "Job Max Children"
@@ -4106,6 +4110,7 @@
           "job_gate",
           "job_child_coder",
           "job_child_model",
+          "job_spawn_parallel",
           "job_max_children",
           "job_max_phase_attempts",
           "serve_cors_origins",

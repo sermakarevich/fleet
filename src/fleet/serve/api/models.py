@@ -382,6 +382,7 @@ class ConfigView(BaseModel):
     job_gate: bool
     job_child_coder: str
     job_child_model: str
+    job_spawn_parallel: int
     job_max_children: int
     job_max_phase_attempts: int
     serve_cors_origins: list[str]

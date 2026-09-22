@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -527,6 +528,7 @@ class SpawnChildren:
         """
         design_path = str(journals.artifacts_dir / "DESIGN.md")
         created, runs, skipped = journals.created, journals.runs, journals.skipped
+        self._start_workflow_runs(ctx, ordered, journals)
         for task in ordered:
             if task["key"] in skipped:
                 continue
@@ -564,6 +566,54 @@ class SpawnChildren:
             created[task["key"]] = child.id
             journals.save_created()
 
+    def _start_workflow_runs(
+        self,
+        ctx: StepContext,
+        ordered: list[dict],
+        journals: _SpawnJournals,
+    ) -> None:
+        """Start every not-yet-started workflow child, several at a time.
+
+        A workflow run expands its builder at start, which fetches the
+        source over the network, so starting 150 of them one after another
+        takes far longer than one attempt. Workflow children never depend
+        on each other, so they start concurrently; each result is journaled
+        on this thread as it arrives.
+        """
+        todo = [
+            task
+            for task in ordered
+            if task["workflow"]
+            and task["key"] not in journals.runs
+            and task["key"] not in journals.skipped
+        ]
+        if not todo:
+            return
+        if ctx.workflow_runner is None:
+            raise PlanError("workflow children need a workflow runner")
+        runner = ctx.workflow_runner
+        width = max(1, min(ctx.config.job_spawn_parallel, len(todo)))
+        with ThreadPoolExecutor(max_workers=width) as pool:
+            futures = {
+                pool.submit(runner.start, task["workflow"], task["inputs"]): task["key"]
+                for task in todo
+            }
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    handle = future.result()
+                except ValueError as exc:  # WorkflowInvalid, unknown workflow, bad input
+                    journals.skip(key, str(exc))
+                    continue
+                journals.runs[key] = {
+                    "run_id": handle.run_id,
+                    "task_ids": list(handle.task_ids),
+                    "final_task_ids": list(handle.final_task_ids),
+                }
+                journals.created[key] = handle.run_id
+                journals.save_runs()
+                journals.save_created()
+
     def _spawn_workflow_child(
         self,
         ctx: StepContext,
@@ -598,7 +648,11 @@ class SpawnChildren:
             journals.created[key] = handle.run_id
             journals.save_runs()
             journals.save_created()
-        for task_id in runs[key]["task_ids"]:
+        # The steps inside a run are chained, so waiting for its last stage
+        # is waiting for the whole run; wiring every step would cost one bd
+        # call per step (thousands for a large research job).
+        wait_for = runs[key]["final_task_ids"] or runs[key]["task_ids"]
+        for task_id in wait_for:
             try:
                 queue.add_dependency(ctx.task.id, task_id)
             except BdError as exc:

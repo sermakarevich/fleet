@@ -276,6 +276,14 @@ class RuntimeConfig:
         default="sonnet",
         metadata=_meta("Default model for job-spawned child tasks.", "opus"),
     )
+    job_spawn_parallel: int = field(
+        default=8,
+        metadata=_meta(
+            "How many workflow-run children a job spawn step starts at once "
+            "(each start fetches its source, so serial starts are slow).",
+            "4",
+        ),
+    )
     job_max_children: int = field(
         default=30,
         metadata=_meta("Max children one job phase may spawn.", "10"),

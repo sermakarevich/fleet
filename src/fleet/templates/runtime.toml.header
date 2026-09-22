@@ -121,6 +121,9 @@
 # job_child_model: Default model for job-spawned child tasks.
 #   Default "sonnet"; e.g. fleet config set job_child_model=opus
 #
+# job_spawn_parallel: How many workflow-run children a job spawn step starts at once (each start fetches its source, so serial starts are slow).
+#   Default 8; e.g. fleet config set job_spawn_parallel=4
+#
 # job_max_children: Max children one job phase may spawn.
 #   Default 30; e.g. fleet config set job_max_children=10
 #

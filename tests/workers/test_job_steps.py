@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -211,7 +212,8 @@ def test_spawn_children_workflow_child(tmp_path: Path) -> None:
     queue = FakeQueue()
     result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == StepStatus.OK
-    assert queue.dependencies == [("job-1", "t1"), ("job-1", "t2"), ("job-1", "t3")]
+    # Only the run's last stage is wired: its earlier steps are its own deps.
+    assert queue.dependencies == [("job-1", "t3")]
     children = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text())
     assert children["src-03"] == "run-1"
     runs = json.loads((ctx.task_dir / "artifacts" / "children_runs.json").read_text())
@@ -289,7 +291,7 @@ def test_spawn_children_workflow_journal_is_idempotent(tmp_path: Path) -> None:
     result = asyncio.run(SpawnChildren(queue).run(ctx))
     assert result.status == StepStatus.OK
     assert runner.calls == []
-    assert queue.dependencies == [("job-1", "t1"), ("job-1", "t2"), ("job-1", "t3")]
+    assert queue.dependencies == [("job-1", "t3")]
 
 
 def test_normalize_task_keeps_workflow_and_inputs() -> None:
@@ -318,3 +320,43 @@ def test_block_job_isolated(tmp_path: Path) -> None:
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "blocked"
     assert declared["blocked_reason"] == "too many failures"
+
+
+def test_spawn_children_starts_workflow_runs_concurrently(tmp_path: Path) -> None:
+    """Workflow children start in parallel: a slow start must not block the others."""
+    started = threading.Barrier(3, timeout=10)
+
+    class BarrierRunner:
+        """Each start waits for two siblings; serial starts would time out."""
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+            self._lock = threading.Lock()
+
+        def start(self, workflow_ref: str, inputs):
+            started.wait()
+            with self._lock:
+                self.calls.append((workflow_ref, dict(inputs)))
+                n = len(self.calls)
+            return RunHandle(f"run-{n}", (f"t{n}a", f"t{n}b"), (f"t{n}b",))
+
+    runner = BarrierRunner()
+    ctx = _ctx(tmp_path, workflow_runner=runner)
+    _write_tasks(
+        ctx,
+        {
+            "tasks": [
+                {
+                    "key": f"src-{i}",
+                    "title": f"summary_get {i}",
+                    "workflow": "summary_get",
+                    "inputs": {"url": f"https://example.com/{i}"},
+                }
+                for i in range(3)
+            ]
+        },
+    )
+    result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
+    assert result.status == StepStatus.OK
+    runs = json.loads((ctx.task_dir / "artifacts" / "children_runs.json").read_text())
+    assert len(runs) == 3
