@@ -6,7 +6,7 @@ The `opencode` coder runs the [opencode](https://opencode.ai) CLI locally and ro
 
 ### Architecture
 
-- **Binary:** `opencode` on your `PATH` (tested with v1.3.17 at `~/.opencode/bin/opencode`).
+- **Binary:** `opencode` on your `PATH` (tested with v2.0.12 at `~/.opencode/bin/opencode`; v2 dropped `run --dir`, so fleet relies on the subprocess cwd — the launchd daemon's `PATH` must reach the binary, e.g. via a `~/.local/bin/opencode` symlink).
 - **Backend:** Ollama on the rtx box, reached via an SSH tunnel: `127.0.0.1:11435` → `rtx:127.0.0.1:11434`. Port 11434 is reserved for a local Ollama install; fleet uses 11435.
 - **Config injection:** Before each spawn, fleet writes/refreshes an `ollama-rtx` provider entry in the target project's `opencode.json`. This is how opencode discovers the remote Ollama — environment variables (`OPENCODE_CONFIG`, `OLLAMA_HOST`) are ignored by opencode 1.3.17.
 

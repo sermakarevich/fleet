@@ -223,11 +223,10 @@ class OpencodeCoder:
         mode, ctx = prompt_context(task, task_dir, plan)
         prompt = render(mode, ctx)
         full_id = _model_ref(self.model, self.default_model).full_id
-        argv = ["opencode", "run", "--format", "json", "--model", full_id]
-        if ctx.workdir:
-            argv += ["--dir", ctx.workdir]
-        argv.append(prompt)
-        return argv
+        # opencode >= 2.0 dropped `run --dir`; the process already starts in
+        # ctx.workdir (LlmSession passes it as the subprocess cwd), so the
+        # working directory needs no flag.
+        return ["opencode", "run", "--format", "json", "--model", full_id, prompt]
 
     def env(self, task: Task, task_dir: Path) -> dict[str, str]:
         bedrock = self.settings.bedrock if self.is_bedrock else None
