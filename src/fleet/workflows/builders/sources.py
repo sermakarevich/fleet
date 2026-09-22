@@ -45,6 +45,7 @@ _HTTP_SERVER_ERROR = 500
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 _X_HOSTS = ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com")
 _GITHUB_HOSTS = ("github.com", "www.github.com")
+#: Repo roots on those hosts are cloned; other GitHub pages stay articles.
 _GITHUB_RAW_HOST = "raw.githubusercontent.com"
 #: Refs tried in order for a repo README; HEAD tracks the default branch.
 _GITHUB_README_REFS = ("HEAD", "main", "master")
@@ -129,9 +130,6 @@ class SourceKind(StrEnum):
     article = "article"
     repo = "repo"
 
-
-#: Hosts whose repository roots are cloned instead of scraped as pages.
-_GITHUB_HOSTS = ("github.com", "www.github.com")
 
 #: Manifest files read into a cloned repo's overview, first match wins per name.
 _REPO_MANIFESTS = (
