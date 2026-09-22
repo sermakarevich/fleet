@@ -5478,6 +5478,17 @@
               }
             ],
             "title": "Isolation"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker"
           }
         },
         "type": "object",

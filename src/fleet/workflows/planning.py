@@ -29,6 +29,10 @@ META_MODEL = "fleet_model"
 #: step's task in place instead of a git worktree.
 META_ISOLATION = "fleet_isolation"
 
+#: Worker family override (`fleet bd create --worker`), read by
+#: `fleet.workers.select_worker` before the type-based routing.
+META_WORKER = "fleet_worker"
+
 
 @dataclass(frozen=True, slots=True)
 class PlannedStep:
@@ -78,6 +82,8 @@ def metadata_for(workflow_id: str, run_id: str, step: Step) -> dict[str, str]:
         meta[META_MODEL] = step.model
     if step.isolation is not None:
         meta[META_ISOLATION] = step.isolation
+    if step.worker is not None:
+        meta[META_WORKER] = step.worker
     return meta
 
 

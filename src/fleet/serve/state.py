@@ -9,6 +9,7 @@ env, offset file) built from here by create_app — never app.state itself.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -23,6 +24,7 @@ from fleet.integrations.telegram.token import telegram_token
 from fleet.serve.event_stream import FileWatcher, WebSocketBroadcaster
 from fleet.state import paths as state_paths
 from fleet.state.config_file import load as load_config
+from fleet.workflows.builtins import ensure_builtin_workflows
 from fleet.workflows.store import WorkflowStore
 
 
@@ -47,11 +49,13 @@ def build_state(queue: Queue | None = None) -> AppState:
     """Build the state for create_app; refreshes config in the lifespan."""
     fleet_home = state_paths.fleet_home()
     mgr = WebSocketBroadcaster()
+    workflow_store = WorkflowStore(fleet_home / "workflows.db")
+    ensure_builtin_workflows(workflow_store, datetime.now(UTC))
     return AppState(
         fleet_home=fleet_home,
         queue=queue if queue is not None else BeadsQueue(fleet_home),
         question_store=QuestionStore(ask_human_db_path(fleet_home)),
-        workflow_store=WorkflowStore(fleet_home / "workflows.db"),
+        workflow_store=workflow_store,
         config_path=fleet_home / "runtime.toml",
         watcher=FileWatcher(mgr=mgr),
         connection_manager=mgr,

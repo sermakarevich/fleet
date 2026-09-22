@@ -2321,6 +2321,8 @@ export interface components {
             needs?: string[];
             /** Isolation */
             isolation?: string | null;
+            /** Worker */
+            worker?: string | null;
         };
         /**
          * StepRunView

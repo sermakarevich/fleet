@@ -1,3 +1,5 @@
+"""Tests for fleet.state.home_env: parsing ~/.env and loading it without overriding."""
+
 from __future__ import annotations
 
 from pathlib import Path

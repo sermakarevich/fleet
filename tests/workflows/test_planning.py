@@ -104,3 +104,10 @@ def test_derive_status_table() -> None:
     assert derive_status([], cancelled=False) is RunStatus.running
     assert derive_status([done, done], cancelled=True) is RunStatus.cancelled
     assert derive_status([blocked], cancelled=True) is RunStatus.cancelled
+
+
+def test_metadata_for_carries_worker_when_set() -> None:
+    step = Step(name="epic", title="Research", worker="research")
+    meta = metadata_for("wf-1", "wfr-2", step)
+    assert meta["fleet_worker"] == "research"
+    assert "fleet_worker" not in metadata_for("wf-1", "wfr-2", Step(name="a", title="A"))

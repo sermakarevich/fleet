@@ -94,6 +94,9 @@ class Step:
     priority: int | None = None
     needs: tuple[str, ...] = ()
     isolation: str | None = None
+    #: Worker family override (`fleet bd create --worker`), e.g. "research" or
+    #: "job"; None routes by bead type like any plain task.
+    worker: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +324,7 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
         "priority": step.priority,
         "needs": list(step.needs),
         "isolation": step.isolation,
+        "worker": step.worker,
     }
 
 
@@ -337,6 +341,7 @@ def _step_from_dict(data: dict[str, Any]) -> Step:
         priority=data.get("priority"),
         needs=tuple(str(item) for item in needs),
         isolation=data.get("isolation"),
+        worker=data.get("worker"),
     )
 
 

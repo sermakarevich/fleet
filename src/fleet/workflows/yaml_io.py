@@ -86,6 +86,8 @@ def _step_to_yaml(step: Step) -> dict[str, Any]:
         doc["priority"] = step.priority
     if step.isolation is not None:
         doc["isolation"] = step.isolation
+    if step.worker is not None:
+        doc["worker"] = step.worker
     if step.needs:
         doc["needs"] = list(step.needs)
     return doc

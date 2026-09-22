@@ -312,3 +312,16 @@ def test_run_dict_round_trip_with_inputs() -> None:
         inputs={"url": "https://example.test/paper"},
     )
     assert WorkflowRun.from_dict(run.to_dict()) == run
+
+
+def test_dict_round_trip_keeps_step_worker() -> None:
+    step = Step(name="epic", title="Research", worker="research")
+    wf = Workflow(
+        id="wf-test0002",
+        name="research-run",
+        description="d",
+        defaults=Defaults(),
+        stages=(Stage(name="research", steps=(step,)),),
+    )
+    restored = Workflow.from_dict(wf.to_dict())
+    assert restored.stages[0].steps[0].worker == "research"

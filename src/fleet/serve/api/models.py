@@ -816,6 +816,7 @@ class StepRequest(BaseModel):
     priority: int | None = None
     needs: list[str] = Field(default_factory=list)
     isolation: str | None = None
+    worker: str | None = None
 
 
 class StageRequest(BaseModel):

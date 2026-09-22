@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 #: Builder name -> module path; every module exposes `build(workflow, ctx)`.
 BUILDER_MODULES: dict[str, str] = {
+    "research": "fleet.workflows.builders.research",
     "summary_get": "fleet.workflows.builders.summary_get",
 }
 

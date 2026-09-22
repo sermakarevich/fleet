@@ -83,6 +83,7 @@ def _step_from_request(raw: Any) -> Step:
         priority=raw.priority,
         needs=tuple(str(item) for item in needs),
         isolation=raw.isolation,
+        worker=getattr(raw, "worker", None),
     )
 
 

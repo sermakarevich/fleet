@@ -134,7 +134,8 @@ def test_create_returns_201_and_get_returns_it(
 
     listed = _request(app, "GET", "/api/workflows")
     assert listed.status_code == 200
-    assert [item["id"] for item in listed.json()["workflows"]] == [body["id"]]
+    ids = [item["id"] for item in listed.json()["workflows"]]
+    assert body["id"] in ids  # built-in builders (research, summary_get) are listed too
 
 
 def test_create_invalid_needs_answers_422_with_problem_text(

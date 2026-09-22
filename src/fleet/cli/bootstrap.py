@@ -30,6 +30,7 @@ from fleet.state.config_file import load as load_config
 from fleet.state.journal import setup_supervisor_logger
 from fleet.state.paths import log_dir as resolve_log_dir
 from fleet.state.paths import workflows_db_path
+from fleet.workflows.builtins import ensure_builtin_workflows
 from fleet.workflows.store import WorkflowStore
 
 if TYPE_CHECKING:
@@ -73,11 +74,9 @@ def bootstrap_supervisor(fleet_home: Path, config: RuntimeConfig) -> Supervisor:
     log = setup_supervisor_logger(resolve_log_dir(fleet_home))
     ensure_ollama_tunnel(fleet_home, config, log)
     question_store = QuestionStore(ask_human_db_path(fleet_home))
-    workflow_runner = WorkflowRunner(
-        WorkflowStore(workflows_db_path(fleet_home)),
-        queue(fleet_home),
-        lambda: datetime.now(UTC),
-    )
+    workflow_store = WorkflowStore(workflows_db_path(fleet_home))
+    ensure_builtin_workflows(workflow_store, datetime.now(UTC))
+    workflow_runner = WorkflowRunner(workflow_store, queue(fleet_home), lambda: datetime.now(UTC))
     return Supervisor(
         state=SupervisorState(
             config=config,

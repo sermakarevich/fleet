@@ -21,7 +21,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from fleet.workflows.builders import BuildContext
-from fleet.workflows.builders.chunking import Chunk, chunk_text, parse_chunk_chars
+from fleet.workflows.builders.chunking import (
+    CHUNK_CHARS_DEFAULT,
+    Chunk,
+    chunk_text,
+    parse_chunk_chars,
+)
 from fleet.workflows.builders.sources import Source, SourceKind, fetch
 from fleet.workflows.model import Stage, Step, Workflow
 
@@ -211,6 +216,33 @@ Run work dir (absolute, build-time): __WORK__
    other workers' files silently.
 
 __TAIL__"""
+
+
+#: Saved definition created on fleet start when no workflow of this name exists
+#: (see `fleet.workflows.builtins`). Operators may edit the saved copy freely.
+DEFINITION: dict = {
+    "name": "summary_get",
+    "description": (
+        "Summarize a URL into an LLM-wiki folder in the knowledge base "
+        "(ai:summary:get recipe). The builder fetches the source (yt for YouTube, "
+        "x for X/Twitter, pdftotext for arXiv/PDF, HTML extraction otherwise), "
+        "splits it into chunks and creates one wiki-page task per chunk, then "
+        "digest/summary, explainer/questions/critical-thinking, and index."
+    ),
+    "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
+    "inputs": [
+        {
+            "name": "url",
+            "description": "Source URL (YouTube, X/Twitter, arXiv/PDF, or an article page)",
+            "required": True,
+        },
+        {
+            "name": "chunk_chars",
+            "description": "Target characters per chunk (2000-60000)",
+            "default": str(CHUNK_CHARS_DEFAULT),
+        },
+    ],
+}
 
 
 def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
