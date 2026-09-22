@@ -378,3 +378,44 @@ def test_set_step_warning_keeps_step_unreleased(tmp_path: Path) -> None:
     assert held.released is False
     assert held.warning == "outputs_missing: steps.x.outputs.y"
     store.close()
+
+
+def test_resave_workflow_preserves_runs_and_steps(tmp_path: Path) -> None:
+    """Re-saving a workflow must update it in place, not cascade-delete runs."""
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    run = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    store.save_run(run)
+    store.save_step_runs(
+        [
+            StepRun(
+                run_id=run.id,
+                step_name="collect",
+                stage_index=0,
+                task_id="t1",
+                task_status="open",
+                updated_at="2026-09-09T01:00:00Z",
+            )
+        ]
+    )
+    updated = _workflow()
+    updated = Workflow(
+        id=updated.id,
+        name=updated.name,
+        description="updated",
+        defaults=updated.defaults,
+        stages=updated.stages,
+        created_at="1999-01-01T00:00:00Z",  # must not overwrite original
+        updated_at="2026-09-10T00:00:00Z",
+    )
+    store.save(updated)
+    assert store.run_count("wf-test0001") == 1
+    assert store.get_run(run.id) is not None
+    assert len(store.step_runs(run.id)) == 1
+    row = store.get("wf-test0001")
+    assert row is not None and row.description == "updated"
+    raw = sqlite3.connect(tmp_path / "w.db").execute(
+        "SELECT created_at FROM workflows WHERE id=?", ("wf-test0001",)
+    ).fetchone()
+    assert raw[0] == "2026-09-09T00:00:00Z"
+    store.close()

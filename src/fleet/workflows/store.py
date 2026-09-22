@@ -238,7 +238,7 @@ class WorkflowStore:
     # -- workflows ----------------------------------------------------------
 
     def save(self, workflow: Workflow) -> None:
-        """Insert or replace a workflow by id; duplicate names raise."""
+        """Insert or update a workflow by id; duplicate names raise."""
         with self._conn() as conn:
             clash = conn.execute(
                 "SELECT id FROM workflows WHERE name=?", (workflow.name,)
@@ -246,9 +246,12 @@ class WorkflowStore:
             if clash is not None and str(clash["id"]) != workflow.id:
                 raise WorkflowNameTaken(workflow.name)
             conn.execute(
-                "INSERT OR REPLACE INTO workflows "
+                "INSERT INTO workflows "
                 "(id, name, description, spec_json, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "name=excluded.name, description=excluded.description, "
+                "spec_json=excluded.spec_json, updated_at=excluded.updated_at",
                 (
                     workflow.id,
                     workflow.name,
