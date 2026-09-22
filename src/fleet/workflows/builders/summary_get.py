@@ -1,21 +1,15 @@
-"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify.
+"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify/file.
 
 Called by `workflows.runs` through `builders.expand` at run start. The saved
 workflow carries no stages; `build` fetches the source behind the run's `url`
 input (reusing `builders.sources`), splits it with `builders.chunking`, writes
 the fetched text plus one file per chunk into the run work dir, and returns
-the workflow with six concrete stages: `plan` (one step), `wiki` (one step
+the workflow with seven concrete stages: `plan` (one step), `wiki` (one step
 per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
-critical-thinking), `index` (one step), and `verify` (one step that checks
-the finished entry against the recipe and blocks instead of closing).
-
-Called by `workflows.runs` through `builders.expand` at run start. The saved
-workflow carries no stages; `build` fetches the source behind the run's `url`
-input (reusing `builders.sources`), splits it with `builders.chunking`, writes
-the fetched text plus one file per chunk into the run work dir, and returns
-the workflow with six concrete stages: `plan` (one step), `wiki` (one step
-per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
-critical-thinking), and `index` (one step).
+critical-thinking), `index` (one step), `verify` (one step that checks
+the finished entry against the recipe and blocks instead of closing),
+and `file` (one step that files the entry into `structured_papers/`
+per the `ai show summary/move` recipe).
 
 Step descriptions are worker instructions. Absolute chunk/work paths are
 written into them literally at build time; the knowledge-base folder is only
@@ -247,6 +241,59 @@ Run work dir (absolute, build-time): __WORK__
 
 __TAIL__"""
 
+_FILE_DESC = """You are filing the finished entry for "__TITLE__" (__URL__) into the
+organized knowledge base (the `ai show summary/move` recipe).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Resolve the entry folder: __PAPER_DIR__ (rendered from
+   {{steps.plan.outputs.paper_dir}} at release time).
+
+2. Skip rule (investment): if the folder is under
+   /Users/sergii/.ai/knowledge/investment/ (the path contains /investment/),
+   investment/finance sources stay there per the move recipe — touch neither
+   the folder nor any category index. Write $FLEET_TASK_DIR/outputs.json
+   exactly as {"vault_dir": "<absolute paper dir>", "filed": false,
+   "reason": "investment"} and finish. No question.
+
+3. Idempotency: if the folder is already under
+   /Users/sergii/.ai/knowledge/structured_papers/<category>/ (i.e. it is NOT
+   under papers/), an earlier run already filed it — do NOT move it again.
+   Verify the category index <category>/<category>.md carries an Obsidian ref
+   to this entry ([[Folder/summary]] — ...); append it in the file's local
+   style only if missing. Write $FLEET_TASK_DIR/outputs.json exactly as
+   {"vault_dir": "<absolute current folder>", "filed": false,
+   "reason": "already-filed"} and finish. No question.
+
+4. Otherwise the folder is in papers/ staging — run the move recipe:
+   a. Read <paper_dir>/summary.md (title = first `#` heading; TL;DR = prefer
+      `## Human Readable TL;DR`, fall back to `## TL;DR`; 1–2 sentences,
+      under 30 words, terse). Do not read the whole entry.
+   b. Read /Users/sergii/.ai/knowledge/structured_papers/index.md for the
+      authoritative, up-to-date category list (never a hardcoded list).
+   c. Pick the single best-fit category (on ties, open the candidate
+      <category>/<category>.md files and compare against listed papers; the
+      entry gets exactly one home, never cross-list). Propose it through
+      mcp__ask_human__ask_human_question with the second-best alternative,
+      wait for the answer, then proceed. Never guess silently.
+   d. Move the folder with its original name preserved into
+      structured_papers/<category>/.
+   e. Read structured_papers/<category>/<category>.md and append
+      `- [[Folder/summary]] — <tldr>.` (bullet starts `- `, em dash with
+      spaces as separator, trailing period; insert alphabetically when the
+      file is alphabetical, else append at the bottom).
+
+5. Write $FLEET_TASK_DIR/outputs.json exactly as {"vault_dir": "<absolute new
+   folder>", "filed": true}.
+
+6. Quality checks before finishing: the moved folder is present in the
+   category folder; the new bullet uses `[[...]]` Obsidian syntax (not
+   markdown `[text](path)`); the original staging location no longer contains
+   the entry.
+
+Do not run git commands.
+__TAIL__"""
+
 
 _VERIFY_DESC = """You are verifying the finished knowledge-base entry for "__TITLE__" (__URL__)
 against the `ai show summary/get` recipe. A step counts as done only when the
@@ -298,8 +345,9 @@ DEFINITION: dict = {
         "x for X/Twitter, pdftotext for arXiv/PDF, HTML extraction otherwise), "
         "splits it into chunks and creates one wiki-page task per chunk, then "
         "digest/summary, explainer/questions/critical-thinking, index, "
-        "and a verify step that blocks the run unless the entry satisfies "
-        "the recipe."
+        "verify (blocks unless the entry satisfies the recipe), "
+        "and a final file step that moves the entry into structured_papers/ "
+        "(ai:summary:move recipe; investment-routed entries stay put)."
     ),
     "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
     "inputs": [
@@ -390,7 +438,7 @@ def _common(source: Source, work: Path, url: str) -> dict[str, str]:
 
 
 def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[Stage, ...]:
-    """The six fixed stages: plan, wiki, derive, enrich, index, verify."""
+    """The seven fixed stages: plan, wiki, derive, enrich, index, verify, file."""
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
     total = str(len(chunks))
@@ -487,4 +535,15 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
             ),
         ),
     )
-    return (plan, wiki, derive, enrich, index, verify)
+    file = Stage(
+        name="file",
+        steps=(
+            Step(
+                name="file",
+                title=f"summary_get: file {source.title}",
+                description=_fill(_FILE_DESC, **common),
+                needs=("verify",),
+            ),
+        ),
+    )
+    return (plan, wiki, derive, enrich, index, verify, file)
