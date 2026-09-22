@@ -222,7 +222,7 @@ def start_run(
             task = _open_step(expanded, run, n, run_date, planned, task_ids, queue, defer)
         except BdError as exc:
             reason = f"create failed at step {planned.step.name}: {exc}"
-            store.finish_run(run.id, RunStatus.attention, reason, stamp)
+            store.finish_run(run.id, RunStatus.failed, reason, stamp)
             raise
         task_ids[planned.step.name] = task.id
         store.save_step_runs([_step_run(run.id, planned, task.id, stamp, defer is None)])
@@ -370,7 +370,12 @@ def _release_ready(
 def refresh_run_with_tasks(
     run: WorkflowRun, *, store: WorkflowStore, queue: Queue, now: datetime
 ) -> tuple[WorkflowRun, list[Task]]:
-    """Refresh a run and return the fetched tasks (one bd call, shared)."""
+    """Refresh a run and return the fetched tasks (one bd call, shared).
+
+    `running` and `attention` are both live: attention is transient by
+    design (it holds only while some step is blocked), so an attention run
+    whose block clears re-derives `running` and reopens.
+    """
     if run.status in (RunStatus.cancelled, RunStatus.succeeded, RunStatus.failed):
         return run, []
     stamp = now.isoformat()
@@ -384,7 +389,7 @@ def refresh_run_with_tasks(
         status = live.get(step.task_id)
         if status is not None and status != step.task_status:
             store.update_step_status(run.id, step.step_name, status, stamp)
-    if run.status == RunStatus.running:
+    if run.status in (RunStatus.running, RunStatus.attention):
         fleet_home = store.db_path.parent
         fresh = _collect_outputs(run, steps, live, fleet_home, store, stamp)
         doomed = _release_ready(run, fresh, live, store, queue, now, stamp)
@@ -396,6 +401,13 @@ def refresh_run_with_tasks(
     status = derive_status(states, cancelled=False)
     if run.status == RunStatus.running and status is not RunStatus.running:
         store.finish_run(run.id, status, run.reason, stamp)
+        finished = store.get_run(run.id)
+        return (finished if finished is not None else run), tasks
+    if run.status == RunStatus.attention and status is not RunStatus.attention:
+        if status is RunStatus.running:
+            store.reopen_run(run.id)
+        else:
+            store.finish_run(run.id, status, run.reason, stamp)
         finished = store.get_run(run.id)
         return (finished if finished is not None else run), tasks
     return run, tasks

@@ -251,7 +251,7 @@ class FailingQueue(RecordingQueue):
         )
 
 
-def test_start_run_create_failure_marks_attention_keeps_steps(tmp_path: Path) -> None:
+def test_start_run_create_failure_marks_failed_keeps_steps(tmp_path: Path) -> None:
     store = _store(tmp_path)
     queue = FailingQueue()
     with pytest.raises(BdError):
@@ -264,9 +264,28 @@ def test_start_run_create_failure_marks_attention_keeps_steps(tmp_path: Path) ->
         )
     run_id = store.list_runs()[0].id
     run = store.get_run(run_id)
-    assert run is not None and run.status is RunStatus.attention
+    assert run is not None and run.status is RunStatus.failed
     assert run.reason == "create failed at step summary: boom"
     assert [item.step_name for item in store.step_runs(run_id)] == ["lint", "tests"]
+
+
+def test_start_run_create_failure_is_terminal_never_revived(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    queue = FailingQueue()
+    with pytest.raises(BdError):
+        start_run(
+            _workflow(),
+            store=store,
+            queue=queue,
+            now=_at("2026-09-09T02:00:00+00:00"),
+            trigger=Trigger.manual,
+        )
+    run = store.list_runs()[0]
+    assert run.status is RunStatus.failed
+    finished_at = run.finished_at
+    again = refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T03:00:00+00:00"))
+    assert again.status is RunStatus.failed
+    assert again.finished_at == finished_at
 
 
 def test_refresh_run_moves_statuses_and_finishes_once(tmp_path: Path) -> None:
@@ -312,6 +331,57 @@ def test_refresh_run_blocked_step_means_attention(tmp_path: Path) -> None:
     refreshed = refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
     assert refreshed.status is RunStatus.attention
     assert refreshed.finished_at == "2026-09-09T02:30:00+00:00"
+
+
+def test_refresh_run_attention_stays_when_still_blocked(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    queue.set_blocked(queue.creates[0]["id"], "need a human")
+    waiting = refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
+    assert waiting.status is RunStatus.attention
+    still = refresh_run(waiting, store=store, queue=queue, now=_at("2026-09-09T03:00:00+00:00"))
+    assert still.status is RunStatus.attention
+    assert still.finished_at == "2026-09-09T02:30:00+00:00"
+
+
+def test_refresh_run_attention_recovers_and_releases_when_block_clears(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    queue = RecordingQueue()
+    run = start_run(
+        _workflow(),
+        store=store,
+        queue=queue,
+        now=_at("2026-09-09T02:00:00+00:00"),
+        trigger=Trigger.manual,
+    )
+    queue.set_blocked(queue.creates[0]["id"], "need a human")
+    waiting = refresh_run(run, store=store, queue=queue, now=_at("2026-09-09T02:30:00+00:00"))
+    assert waiting.status is RunStatus.attention
+    # Block clears: both first-stage beads close, so summary becomes releasable.
+    queue.close(queue.creates[0]["id"], "done")
+    queue.close(queue.creates[1]["id"], "done")
+    recovered = refresh_run(
+        waiting, store=store, queue=queue, now=_at("2026-09-09T03:00:00+00:00")
+    )
+    assert recovered.status is RunStatus.running
+    assert recovered.finished_at is None
+    assert recovered.reason == ""
+    steps = {item.step_name: item for item in store.step_runs(run.id)}
+    assert steps["summary"].released is True
+    summary_id = queue.creates[2]["id"]
+    assert any(
+        item["id"] == summary_id and item["undefer"] for item in queue.updated
+    )
+    assert queue.get(summary_id).status == "open"
 
 
 def test_refresh_run_finished_run_skips_queue(tmp_path: Path) -> None:

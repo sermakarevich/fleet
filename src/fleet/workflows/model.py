@@ -46,7 +46,8 @@ class RunStatus(StrEnum):
     release pass (`runs._release_ready`) when a step waits on an upstream
     output whose step already closed without writing it, so the output can
     never arrive. Like `cancelled`/`succeeded`, `failed` is terminal: the
-    refresh paths never touch a failed run again.
+    refresh paths never touch a failed run again. `attention` is transient:
+    refresh reopens the run back to `running` once no step needs attention.
     """
 
     running = "running"

@@ -374,6 +374,19 @@ class WorkflowStore:
             )
             return cur.rowcount > 0
 
+    def reopen_run(self, run_id: str) -> bool:
+        """Reopen an attention run back to running; False when unknown.
+
+        Clears the reason and finished_at stamped when the run went to
+        attention, so the next refresh treats it like any live run.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_runs SET status=?, reason=?, finished_at=? WHERE id=?",
+                (RunStatus.running.value, "", None, run_id),
+            )
+            return cur.rowcount > 0
+
     # -- step runs ----------------------------------------------------------
 
     def save_step_runs(self, steps: builtins.list[StepRun]) -> None:
