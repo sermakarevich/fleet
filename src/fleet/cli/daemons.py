@@ -48,6 +48,7 @@ from fleet.observability.daemon import (
 from fleet.observability.process import service_status
 from fleet.orchestrator.checks import StartupAborted, check_bd_binary
 from fleet.serve.auth import warn_if_exposed
+from fleet.state.home_env import load_home_env
 
 _RUN_EPILOG = "Examples:\n\n  fleet run start\n  fleet run status\n  fleet run restart"
 
@@ -153,6 +154,9 @@ def _register_run_commands(app: typer.Typer) -> None:
     @run_app.command("foreground")
     def run_foreground() -> None:
         """Run the supervisor in the foreground (blocks). This is what `start` execs."""
+        added = load_home_env()
+        if added:
+            logger.info("loaded %d keys from ~/.env: %s", len(added), ", ".join(sorted(added)))
         fleet_home = bootstrap.fleet_home()
         lock_fh = acquire_supervisor_lock(fleet_home)
         if lock_fh is None:
@@ -209,7 +213,7 @@ def _register_serve_commands(app: typer.Typer) -> None:
         host: HostOption = options.DEFAULT_SERVE_HOST,
     ) -> None:
         """Run the UI server in the foreground (blocks). This is what `start` execs."""
-
+        load_home_env()
         problem = check_bd_binary()
         if problem is not None:
             logger.error("bd_binary_found failed: %s", problem)
