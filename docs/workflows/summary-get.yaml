@@ -3,9 +3,11 @@ name: summary_get
 description: >
   Summarize a URL into an LLM-wiki folder in the knowledge base (ai:summary:get recipe).
   The builder fetches the source (yt for YouTube, x for X/Twitter, pdftotext for arXiv/PDF,
-  HTML extraction otherwise), splits it into chunks and creates one wiki-page task per chunk,
-  then digest/summary, explainer/questions/critical-thinking, index, and a verify step
-  that blocks the run unless the finished entry satisfies the recipe.
+  shallow git clone for GitHub repos, HTML extraction otherwise), splits it into chunks
+  (one per macro component for repos) and creates one wiki-page task per chunk,
+  then digest/summary, explainer/questions/critical-thinking, index, a verify step
+  that blocks the run unless the finished entry satisfies the recipe, and a final
+  file step that moves the entry into structured_papers/.
 builder: summary_get
 defaults:
   cwd: /Users/sergii/.ai
@@ -15,7 +17,7 @@ defaults:
   isolation: none
 inputs:
   - name: url
-    description: Source URL (YouTube, X/Twitter, arXiv/PDF, or an article page)
+    description: Source URL (YouTube, X/Twitter, arXiv/PDF, GitHub repo, or an article page)
     required: true
   - name: chunk_chars
     description: Target characters per chunk (2000–60000)

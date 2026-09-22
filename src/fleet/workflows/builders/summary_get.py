@@ -27,6 +27,7 @@ from fleet.workflows.builders import BuildContext
 from fleet.workflows.builders.chunking import (
     CHUNK_CHARS_DEFAULT,
     Chunk,
+    chunk_repo,
     chunk_text,
     parse_chunk_chars,
 )
@@ -44,6 +45,7 @@ _TYPE_OF: dict[SourceKind, str] = {
     SourceKind.pdf: "Paper",
     SourceKind.x: "Article",
     SourceKind.article: "Article",
+    SourceKind.repo: "Codebase",
 }
 
 _PLAN_DESC = """You are planning where a fetched source will live in the knowledge base.
@@ -97,10 +99,19 @@ Run work dir (absolute, build-time): __WORK__
 5. Write $FLEET_TASK_DIR/outputs.json exactly as {"paper_dir": "<absolute paper dir>",
    "slug": "<PascalName>", "title": "__TITLE__", "type": "__TYPE__"}.
    Type rule from the source kind (__KIND__): youtube → Video, pdf → Paper,
-   x/article → Article. This run: __TYPE__.
+   x/article → Article, repo → Codebase. This run: __TYPE__.
 
 Do not run git commands.
 __TAIL__"""
+
+#: Appended to the plan instructions on the codebase track: chunks are macro
+#: components, so pages are named after components, not chapter topics.
+_PLAN_REPO_ADDENDUM = """
+6. Codebase track (this run, kind repo): the chunk list is one entry per macro
+   component plus an overview. Name each wiki page after its component
+   (NN-<kebab-component>.md, e.g. 02-graph-storage.md), overview first,
+   ordered by structural importance. The outputs.json "type" for this run is
+   "Codebase"."""
 
 _CHUNK_DESC = """You are writing one wiki page for chunk __NN__/__TOTAL__
 ("__CHUNK_TITLE__") of "__TITLE__".
@@ -129,6 +140,37 @@ Run work dir (absolute, build-time): __WORK__
 The knowledge base syncs itself and parallel workers share the tree; no git commands.
 __TAIL__"""
 
+_CHUNK_DESC_REPO = """You are writing one wiki page for macro component "__CHUNK_TITLE__"
+(chunk __NN__/__TOTAL__) of codebase "__TITLE__" (__URL__).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY these two files:
+   - __CHUNK_MD__ (the component's source files; your only source of facts)
+   - __PAPER_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
+     name; default __DEFAULT_PAGE__ when absent)
+   Do not read any other chunk file or the web. The clone lives outside the
+   knowledge base; never copy it in.
+
+2. Write __PAPER_DIR__/wiki/<page from plan.md> with exactly this contract:
+   > [[../index|Wiki]] | [[../summary|Summary]] | [[../digest|Digest]]
+   # <Component>
+   **In one sentence:** <the component's whole job in one sentence>
+   ## Key points
+   - 5–8 bullets, each a complete claim about what the component does, each
+     with file:line citations, not topic labels
+   ---
+   ## <subsections mirroring the component's modules>  (verbatim code excerpts,
+     exact parameter names, tables for config/flags)
+   **Covers:** <files/directories this page is grounded in>
+
+3. Every structural claim cites file:line. Never invent content: only claims
+   present in the chunk. If the chunk notes truncated files, say which files
+   were cut instead of guessing their contents.
+
+The knowledge base syncs itself and parallel workers share the tree; no git commands.
+__TAIL__"""
+
 _DIGEST_DESC = """You are writing the digest for "__TITLE__" (__URL__).
 
 Run work dir (absolute, build-time): __WORK__
@@ -141,8 +183,8 @@ Run work dir (absolute, build-time): __WORK__
    - Then one section per wiki page in order: ## N. [[wiki/NN-x|Title]] with that page's
      **In one sentence:** line and its ## Key points bullets copied VERBATIM (no
      rewording, no merging).
-   - End with ## The argument in five moves (5–7 numbered clauses tracing the whole
-     source's argument across the pages).
+   - End with ## __FIVE_MOVES__ (5–7 numbered clauses tracing the whole
+     source's arc across the pages).
 
 __TAIL__"""
 
@@ -162,6 +204,47 @@ Run work dir (absolute, build-time): __WORK__
      with bold names), ## Key Findings, ## Suggestions & Future Directions,
      ## Authors & Institutions.
    - Flowing paragraphs throughout, never one-sentence-per-line.
+
+__TAIL__"""
+
+_SUMMARY_DESC_REPO = """You are writing the technical analysis summary for codebase "__TITLE__"
+(__URL__, type Codebase).
+
+Run work dir (absolute, build-time): __WORK__
+
+1. Read ONLY __PAPER_DIR__/wiki/*.md (never the clone, the chunk files, or the web).
+
+2. Write __PAPER_DIR__/summary.md with exactly this layout, grounded in the
+   component pages and their file:line citations:
+   - Heading: # Technical Analysis: __TITLE__
+   - Metadata lines: **Repository:** __URL__ / **Version analyzed:** <from the
+     manifest or unknown> / **Date:** {{run.date}} / **Wiki:** [[index]]
+   - Then these 11 sections in order (omit one only if it genuinely does not
+     apply; never leave a stub):
+     ## 1. Overview / What Problem It Solves (problem space, then how the repo
+     addresses it; name the primary user)
+     ## 2. High-Level Architecture (ASCII diagram with │ ▼ ─ ► connectors,
+     then a 4–6 step data-flow narrative; state where persistent state lives)
+     ## 3. <The Core Abstraction> (renamed after the repo's central concept;
+     representation, named kinds/types with file:line, key queries with a
+     verbatim snippet)
+     ## 4. LLM / External Service Integration (providers, required vs optional
+     calls, env vars; or state explicitly that the repo calls no LLM/API)
+     ## 5. <The Main Pipeline> (renamed after the primary workflow; step by
+     step with file.py:line for every function)
+     ## 6. Key Files (table File | Lines | What It Does, 10–20 files by
+     structural importance)
+     ## 7. Dependencies (table Package | Version constraint | Purpose,
+     required first, exact constraint strings)
+     ## 8. CLI / Usage Surface (entry points, commands, env-var and config
+     tables)
+     ## 9. Extensibility Points (which file/class to extend per extension)
+     ## 10. Limitations and Gotchas (at least 3 real ones, bold-led bullets)
+     ## 11. How It Compares to Alternatives (3–4 real named projects plus a
+     positioning sentence)
+     ## Appendix: Selected Code Snippets (2–4 verbatim snippets with file and
+     line ranges)
+   - Direct, dense, analytical prose. No marketing adjectives, no emojis.
 
 __TAIL__"""
 
@@ -342,8 +425,9 @@ DEFINITION: dict = {
     "description": (
         "Summarize a URL into an LLM-wiki folder in the knowledge base "
         "(ai:summary:get recipe). The builder fetches the source (yt for YouTube, "
-        "x for X/Twitter, pdftotext for arXiv/PDF, HTML extraction otherwise), "
-        "splits it into chunks and creates one wiki-page task per chunk, then "
+        "x for X/Twitter, pdftotext for arXiv/PDF, shallow git clone for GitHub "
+        "repos, HTML extraction otherwise), splits it into chunks (one per macro "
+        "component for repos) and creates one wiki-page task per chunk, then "
         "digest/summary, explainer/questions/critical-thinking, index, "
         "verify (blocks unless the entry satisfies the recipe), "
         "and a final file step that moves the entry into structured_papers/ "
@@ -353,7 +437,9 @@ DEFINITION: dict = {
     "inputs": [
         {
             "name": "url",
-            "description": "Source URL (YouTube, X/Twitter, arXiv/PDF, or an article page)",
+            "description": (
+                "Source URL (YouTube, X/Twitter, arXiv/PDF, GitHub repo, or an article page)"
+            ),
             "required": True,
         },
         {
@@ -376,7 +462,10 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     work.mkdir(parents=True, exist_ok=True)
     source = fetch(url, work)
     _write_source(work, source, url, ctx)
-    chunks = chunk_text(source.text, target)
+    if source.kind is SourceKind.repo and (work / "repo").is_dir():
+        chunks = chunk_repo(work / "repo", target)
+    else:
+        chunks = chunk_text(source.text, target)
     _write_chunks(work, chunks)
     return replace(workflow, stages=_stages(source, chunks, work, url))
 
@@ -431,6 +520,11 @@ def _common(source: Source, work: Path, url: str) -> dict[str, str]:
         "KIND": source.kind.value,
         "TOOL": source.tool,
         "TYPE": _TYPE_OF[source.kind],
+        "FIVE_MOVES": (
+            "The system in five moves"
+            if source.kind is SourceKind.repo
+            else "The argument in five moves"
+        ),
         "WORK": str(work),
         "SOURCE_MD": str(work / "source.md"),
         "CHUNKS_JSON": str(work / "chunks.json"),
@@ -442,13 +536,17 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
     total = str(len(chunks))
+    is_repo = source.kind is SourceKind.repo
+    plan_desc = _PLAN_DESC + _PLAN_REPO_ADDENDUM if is_repo else _PLAN_DESC
+    chunk_desc = _CHUNK_DESC_REPO if is_repo else _CHUNK_DESC
+    summary_desc = _SUMMARY_DESC_REPO if is_repo else _SUMMARY_DESC
     plan = Stage(
         name="plan",
         steps=(
             Step(
                 name="plan",
                 title=f"summary_get: plan {source.title}",
-                description=_fill(_PLAN_DESC, **common),
+                description=_fill(plan_desc, **common),
             ),
         ),
     )
@@ -459,7 +557,7 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
                 name=name,
                 title=f"summary_get: wiki {chunk.index:02d}/{total} {chunk.title}",
                 description=_fill(
-                    _CHUNK_DESC,
+                    chunk_desc,
                     **common,
                     NN=f"{chunk.index:02d}",
                     TOTAL=total,
@@ -485,7 +583,7 @@ def _stages(source: Source, chunks: list[Chunk], work: Path, url: str) -> tuple[
             Step(
                 name="summary",
                 title=f"summary_get: summary {source.title}",
-                description=_fill(_SUMMARY_DESC, **common),
+                description=_fill(summary_desc, **common),
                 needs=chunk_names,
             ),
         ),

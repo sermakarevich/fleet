@@ -190,6 +190,8 @@ def start_run(
     )
     try:
         expanded = builders.expand(workflow, ctx)
+    except WorkflowSourceUnavailable:
+        raise
     except (SourceError, ValueError) as exc:
         problem = f"builder {workflow.builder}: {exc}"
         if isinstance(exc, SourceError) and exc.transient:

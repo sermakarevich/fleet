@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -31,7 +32,8 @@ from enum import StrEnum
 from html.parser import HTMLParser
 from pathlib import Path
 
-from fleet.core.errors import FleetError
+from fleet.core.errors import FleetError, WorkflowSourceUnavailable
+from fleet.workflows.builders.chunking import REPO_SKIP_DIRS
 
 _FETCH_TIMEOUT_S = 60
 _CLI_TIMEOUT_S = 180
@@ -125,6 +127,27 @@ class SourceKind(StrEnum):
     x = "x"
     pdf = "pdf"
     article = "article"
+    repo = "repo"
+
+
+#: Hosts whose repository roots are cloned instead of scraped as pages.
+_GITHUB_HOSTS = ("github.com", "www.github.com")
+
+#: Manifest files read into a cloned repo's overview, first match wins per name.
+_REPO_MANIFESTS = (
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "Gemfile",
+    "setup.py",
+    "setup.cfg",
+    "composer.json",
+    "dune-project",
+)
+_REPO_READMES = ("README.md", "README.rst", "README.txt", "README")
 
 
 #: Per-kind politeness: how many fetches of this kind may run at once and
@@ -161,16 +184,41 @@ def _local_path(url: str) -> Path | None:
     return None
 
 
+def _github_repo_parts(url: str) -> tuple[str, str] | None:
+    """(owner, repo) when `url` names a repo root or a tree path; None otherwise.
+
+    A bare `github.com/<owner>/<repo>` root and any `/tree/...` path mean
+    "analyze the codebase". Every other github.com path (blob, issues,
+    pulls, ...), gists, and `*.github.io` Pages sites are single documents
+    and stay on the article track.
+    """
+    parsed = urllib.parse.urlparse(url.strip())
+    host = parsed.netloc.lower()
+    if host in _GITHUB_HOSTS:
+        parts = [segment for segment in parsed.path.split("/") if segment]
+        if len(parts) == 2:  # noqa: PLR2004  # owner + repo
+            return parts[0], parts[1].removesuffix(".git")
+        if len(parts) >= 4 and parts[2] == "tree":  # noqa: PLR2004
+            return parts[0], parts[1].removesuffix(".git")
+        return None
+    return None
+
+
+def _detect_local(url: str, local: Path) -> SourceKind:
+    """Fetch route from a local file's suffix; junk suffixes are rejected loudly."""
+    suffix = local.suffix.lower()
+    if suffix == ".pdf":
+        return SourceKind.pdf
+    if suffix in _LOCAL_TEXT_SUFFIXES:
+        return SourceKind.article
+    raise SourceError(f"url {url!r}: local files must be .pdf, .md or .txt")
+
+
 def detect(url: str) -> SourceKind:
     """Pick the fetch route from the URL's host and path, or from a local file suffix."""
     local = _local_path(url)
     if local is not None:
-        suffix = local.suffix.lower()
-        if suffix == ".pdf":
-            return SourceKind.pdf
-        if suffix in _LOCAL_TEXT_SUFFIXES:
-            return SourceKind.article
-        raise SourceError(f"url {url!r}: local files must be .pdf, .md or .txt")
+        return _detect_local(url, local)
     parsed = urllib.parse.urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise SourceError(f"url {url!r}: must be an http(s) URL or an absolute local path")
@@ -179,6 +227,8 @@ def detect(url: str) -> SourceKind:
         return SourceKind.youtube
     if host in _X_HOSTS:
         return SourceKind.x
+    if _github_repo_parts(url) is not None:
+        return SourceKind.repo
     if _ARXIV_ID_RE.search(url) or parsed.path.lower().endswith(".pdf"):
         return SourceKind.pdf
     return SourceKind.article
@@ -196,6 +246,8 @@ def fetch(url: str, work_dir: Path) -> Source:
         return _fetch_x(url)
     if kind is SourceKind.pdf:
         return _fetch_pdf(url, work_dir)
+    if kind is SourceKind.repo:
+        return _fetch_repo(url, work_dir)
     return _fetch_article(url)
 
 
@@ -383,6 +435,140 @@ def _pdf_title(path: Path, text: str) -> str:
                 return line[6:].strip()[:120]
     first = next((line.strip() for line in text.splitlines() if line.strip()), path.name)
     return first[:120]
+
+
+def _clone_cause(output: str) -> str:
+    """One-line reason a `git clone` failed, from its combined output."""
+    if re.search(r"repository not found|not found|404|not exist", output, re.I):
+        return "repository not found or private (404)"
+    if re.search(r"authentication|permission denied|access denied|credentials", output, re.I):
+        return "authentication required (private repository?)"
+    if re.search(r"could not resolve|network|timed out|connection", output, re.I):
+        return "network unreachable; retry later"
+    lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+    return lines[-1] if lines else "unknown error"
+
+
+def _repo_sha(dest: Path) -> str:
+    """HEAD sha of a fresh clone; 'unknown' when even that lookup fails."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(dest), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=_FETCH_TIMEOUT_S,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return "unknown"
+    sha = done.stdout.strip()
+    return sha if done.returncode == 0 and sha else "unknown"
+
+
+def _read_text_capped(path: Path, cap: int) -> str:
+    """File text up to `cap` characters, with a truncation marker past it."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if len(text) > cap:
+        return text[:cap] + f"\n\n... (truncated, {len(text) - cap} more characters)"
+    return text
+
+
+def _repo_tree(dest: Path) -> str:
+    """One line per top-level entry: kind, file count and line count."""
+    rows = []
+    for entry in sorted(dest.iterdir(), key=lambda p: p.name.lower()):
+        if entry.name == ".git":
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            files, lines = _count_tree(entry)
+            rows.append(f"- {entry.name}/ (dir, {files} files, ~{lines} lines)")
+        elif entry.is_file():
+            rows.append(f"- {entry.name} (~{_count_lines(entry)} lines)")
+    return "\n".join(rows) if rows else "(empty repository)"
+
+
+def _count_lines(path: Path) -> int:
+    """Newline count of a text file; 0 when it cannot be read as text."""
+    try:
+        if path.stat().st_size > _MAX_BYTES:
+            return 0
+        with path.open(encoding="utf-8", errors="strict") as handle:
+            return sum(1 for _ in handle)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return 0
+
+
+def _count_tree(root: Path) -> tuple[int, int]:
+    """(text files, lines) under `root`, skipping VCS and build output."""
+    files = 0
+    lines = 0
+    for current, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in REPO_SKIP_DIRS]
+        for name in names:
+            files += 1
+            if files > 5_000:  # noqa: PLR2004  # bound inventory work on huge trees
+                return files, lines
+            lines += _count_lines(Path(current) / name)
+    return files, lines
+
+
+def _repo_overview(owner: str, repo: str, dest: Path, sha: str) -> str:
+    """Provenance plus README, manifests and tree: the Source text of a clone."""
+    sections = [f"# {owner}/{repo}", "", f"Commit: {sha}", ""]
+    for readme in _REPO_READMES:
+        path = dest / readme
+        if path.is_file():
+            sections += ["## README", "", _read_text_capped(path, 12_000), ""]
+            break
+    for manifest in _REPO_MANIFESTS:
+        path = dest / manifest
+        if path.is_file():
+            sections += [f"## {manifest}", "", "```", _read_text_capped(path, 8_000), "```", ""]
+    sections += ["## Top-level layout", "", _repo_tree(dest)]
+    return "\n".join(sections).strip() + "\n"
+
+
+def _fetch_repo(url: str, work_dir: Path) -> Source:
+    """Shallow-clone a GitHub repo into `work_dir/repo`; the overview is the text.
+
+    When the clone itself cannot run (no git, timeout, execution failure) the
+    error surfaces as `WorkflowSourceUnavailable` so the spawn step defers the
+    key for a later attempt instead of crashing on a raw subprocess error.
+    When the clone runs but the repo is unreachable (private repo, 404, no
+    network), fall back to the README-first article fetch so a repo page still
+    yields its README instead of nothing.
+    """
+    parts = _github_repo_parts(url)
+    if parts is None:
+        raise SourceError(f"fetch {url}: not a GitHub repository root or tree URL")
+    owner, repo = parts
+    if shutil.which("git") is None:
+        return _fetch_article(url)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    dest = work_dir / "repo"
+    if dest.exists():
+        shutil.rmtree(dest)
+    clone_url = f"https://github.com/{owner}/{repo}.git"
+    argv = ["git", "clone", "--depth", "1", clone_url, str(dest)]
+    cmd = " ".join(argv)
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=_CLI_TIMEOUT_S, check=False
+        )
+    except subprocess.TimeoutExpired:
+        raise WorkflowSourceUnavailable(f"repo: `{cmd}` timed out") from None
+    except OSError as exc:
+        raise WorkflowSourceUnavailable(f"repo: `{cmd}` could not start: {exc}") from None
+    if done.returncode != 0:
+        return _fetch_article(url)
+    sha = _repo_sha(dest)
+    return Source(
+        url=url,
+        kind=SourceKind.repo,
+        title=f"{owner}/{repo}",
+        text=_repo_overview(owner, repo, dest, sha),
+        tool="git-clone",
+    )
 
 
 class _MarkdownExtractor(HTMLParser):
