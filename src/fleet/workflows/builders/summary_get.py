@@ -57,8 +57,20 @@ Run work dir (absolute, build-time): __WORK__
    - Investment/finance topic → base /Users/sergii/.ai/knowledge/investment with a new
      folder <YYYY-MM-DD>-<PascalName>, using {{run.date}} for the date.
    - Anything else → /Users/sergii/.ai/knowledge/papers/<PascalName>.
-   - If the route is genuinely unclear, or the target folder already exists, ask with
-     mcp__ask_human__ask_human_question. Never guess, never overwrite an existing folder.
+   - If the route is genuinely unclear, ask with
+     mcp__ask_human__ask_human_question. Never guess.
+   - Folder-exists rule. If the candidate folder already exists, do NOT overwrite
+     it and do NOT treat it as free — first check which case applies:
+     1. Same source (re-run): read <candidate>/source/source.md and compare its
+        `Source:` provenance url with this run's input (__URL__). If they match,
+        reuse the folder: refresh <paper_dir>/source/source.md from __SOURCE_MD__,
+        write outputs.json (step 5), and continue. No question.
+     2. Genuine conflict: the provenance url differs, or source.md is missing or
+        unreadable → ask with mcp__ask_human__ask_human_question. Never guess,
+        never overwrite an existing folder.
+   - macOS rule: the filesystem is case-insensitive, so papers/Livekit and
+     papers/LiveKit are the same folder. A candidate slug that differs only in
+     case from an existing folder is case 2 above, not a new folder.
 
 3. Create the layout and copy the source:
    - mkdir -p <paper_dir>/source <paper_dir>/wiki/images
