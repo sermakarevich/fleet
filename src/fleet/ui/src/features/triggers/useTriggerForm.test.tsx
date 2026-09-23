@@ -158,7 +158,7 @@ describe('buildTriggerPayload', () => {
 
   it('passes workflow run inputs through, dropping blank values', () => {
     const payload = buildTriggerPayload('workflow', {
-      name: 'paper-summary',
+      name: 'source-summary',
       cron: '0 9 * * 1-5',
       timezone: 'UTC',
       enabled: true,

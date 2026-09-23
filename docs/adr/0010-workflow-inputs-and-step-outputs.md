@@ -92,3 +92,14 @@ placeholders, left as written until WI 2/3 lands). It must keep passing
 - Risk: a schedule saved with inputs keeps working if the workflow later
   declares that input required with no default — firing records a skip
   with the reason instead of opening a broken run.
+
+## Amendment 2026-09-23: paper-summary removed
+
+`docs/workflows/paper-summary.yaml` and the registered workflow
+`wf-t8fmztw7` (plus its single 2026-09-09 run) were removed
+(`fleet-5ei0k`; YAML and run JSON backed up to the task outputs). The
+workflow predated the `summary_get` builder: it hardcoded the old
+get/slack/move shape, named the removed `paper_dir` output key, and
+posted to #ai-papers. `summary_get` (`docs/workflows/summary-get.yaml`)
+replaced it, and filing a finished entry elsewhere is now a separate
+deliberate act. The `paper-summary.yaml` references above are historical.

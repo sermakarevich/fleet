@@ -110,8 +110,8 @@ def test_garbage_yaml_rejected() -> None:
 
 INPUTS_EXAMPLE = """\
 fleet_workflow: 1
-name: paper-summary
-description: Summarise a paper.
+name: source-summary
+description: Summarise a source.
 inputs:
   - name: paper_url
     description: URL of the paper.

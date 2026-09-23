@@ -28,8 +28,8 @@ function wrapper({ children }: { children: ReactNode }) {
 function makeWorkflow(): Workflow {
   return {
     id: 'wf-1',
-    name: 'paper-summary',
-    description: 'Summarise a paper',
+    name: 'source-summary',
+    description: 'Summarise a source',
     defaults: { cwd: null, coder: null, model: null, priority: 2, isolation: null },
     inputs: [
       { name: 'url', description: 'Link to the source to summarise.', required: true, default: null },
@@ -49,7 +49,7 @@ function makeRun(): WorkflowRun {
   return {
     id: 'run-9',
     workflow_id: 'wf-1',
-    workflow_name: 'paper-summary',
+    workflow_name: 'source-summary',
     n: 1,
     trigger: 'manual',
     schedule_id: null,
@@ -73,7 +73,7 @@ afterEach(() => {
 describe('RunWorkflowModal', () => {
   it('renders one field per input with the default pre-filled', () => {
     render(<RunWorkflowModal workflow={makeWorkflow()} onClose={() => undefined} />, { wrapper });
-    expect(screen.getByText('Run paper-summary')).toBeInTheDocument();
+    expect(screen.getByText('Run source-summary')).toBeInTheDocument();
     expect(screen.getByText('Link to the source to summarise.')).toBeInTheDocument();
     // Required marker on url, default pre-filled on channel.
     expect(screen.getByLabelText('url (required)')).toHaveValue('');

@@ -119,18 +119,18 @@ describe('WorkflowsPage', () => {
     const withInputs: Workflow = {
       ...makeWorkflow(),
       id: 'wf-inputs',
-      name: 'paper-summary',
+      name: 'source-summary',
       inputs: [
         { name: 'url', description: 'Link to the source.', required: true, default: null },
       ],
     };
     vi.mocked(api.listWorkflows).mockResolvedValue([withInputs]);
     render(<WorkflowsPage />, { wrapper });
-    await waitFor(() => expect(screen.getByText('paper-summary')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('source-summary')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     // The run form opens instead of running immediately.
-    expect(await screen.findByText('Run paper-summary')).toBeInTheDocument();
+    expect(await screen.findByText('Run source-summary')).toBeInTheDocument();
     expect(screen.getByLabelText('url (required)')).toBeInTheDocument();
   });
 
