@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fleet.workers.research_bodies import KINDS
+from fleet.workers.research_bodies import KINDS, render_body
 
 _TEMPLATES = Path(__file__).resolve().parent.parent.parent / "src" / "fleet" / "templates"
 
@@ -74,3 +74,43 @@ def test_discover_requires_topic() -> None:
     """The bead description carries the topic so discover/design phases see it."""
     text = _read("INSTRUCTION_RESEARCH_DISCOVER.md")
     assert "| `topic` | yes |" in text
+
+
+def test_design_target_lives_under_topic() -> None:
+    """TARGET is research_topics/<topic>/research/<target>, not knowledge/research/<target>."""
+    text = _read("INSTRUCTION_RESEARCH_DESIGN.md")
+    assert "research_topics/<TOPIC>/research/<target>" in text
+    assert "knowledge/research/<target>" not in text
+
+
+def test_discover_target_row_points_under_topic() -> None:
+    """The target input is a slug under research_topics/<topic>/research/."""
+    text = _read("INSTRUCTION_RESEARCH_DISCOVER.md")
+    assert "research_topics/<topic>/research/" in text
+
+
+def test_discover_dedup_covers_new_and_old_aggregates() -> None:
+    """The already-in-KB scan covers new topic-nested research folders and old ones."""
+    text = _read("INSTRUCTION_RESEARCH_DISCOVER.md")
+    assert "research_topics/*/research/*/index.md" in text
+    assert "/Users/sergii/.ai/knowledge/research/*/index.md" in text
+
+
+def test_agg_index_registers_in_topic_page() -> None:
+    """agg-index registers under ## Research in the topic page, not research/index.md."""
+    target = "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo"
+    body = render_body(
+        "agg_index",
+        target=target,
+        topic="agent_memory",
+        focus="How do agents remember?",
+        lenses="tech ai",
+        topics="memory-types retrieval",
+    )
+    assert "{{" not in body
+    assert "research_topics/agent_memory/research/demo" in body
+    assert "knowledge/research/demo" not in body
+    assert "knowledge/research/index.md" not in body
+    assert "## Research" in body
+    assert "## Tutorials" in body
+    assert "research/<slug>/index|<slug>" in body

@@ -8,7 +8,7 @@ from fleet.workers.research_bodies import KINDS, render_body
 
 FULL_FIELDS: dict[str, dict[str, str]] = {
     "topic_digest": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "nn": "01",
         "subtopic": "memory-types",
         "title": "Memory Types",
@@ -17,33 +17,33 @@ FULL_FIELDS: dict[str, dict[str, str]] = {
         "linked": "",
     },
     "agg_digest": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
     },
     "agg_overview": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
     },
     "agg_disagreements": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
     },
     "agg_open_questions": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
     },
     "lens": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "lens": "tech",
         "audience": "engineer",
     },
     "agg_index": {
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
         "lenses": "tech ai",

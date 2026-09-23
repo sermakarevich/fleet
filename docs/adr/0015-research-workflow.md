@@ -277,6 +277,19 @@ child is terminal (`BeadsQueue._ready_epic_rows`), i.e. never while a
 digest is still pending, so no job-side step can beat the claim race —
 resolution has to live in the dependent's own body plus its template.
 
+## Output under topic (2026-09-23)
+
+Research aggregates moved in with their topic: `TARGET` is now
+`research_topics/<topic>/research/<target>/` (index, overview, digest,
+disagreements, open_questions, `lenses/`, `topics/`, `sources.md`). Paper
+summaries stay at `research_topics/<topic>/<Name>/`, filed by their
+summarise `file` stage. The `agg-index` bead registers the research in the
+topic page `research_topics/<topic>/<topic>.md` under a `## Research`
+section (above `## Tutorials` when present) instead of
+`knowledge/research/index.md`. Old research folders still under
+`knowledge/research/<target>/` keep working: the discover dedup scan covers
+both locations. Existing KB content is moved by the operator, not by fleet.
+
 ## Related
 
 - ADR 0007 recurring workers (schedules), ADR 0008 workflows, ADR 0010 run

@@ -6,10 +6,14 @@ Read `$FLEET_TASK_DIR/artifacts/RESEARCH.md` and
 revision note first. If `$FLEET_TASK_DIR/artifacts/DESIGN_ERRORS.md`
 exists, fix the listed validation errors.
 
-Let `TARGET` = `/Users/sergii/.ai/knowledge/research/<target>` (`<target>`
-from `candidates.json`'s `inputs.target`).
 Let `TOPIC` = `<topic>` from `candidates.json`'s `inputs.topic` (a folder
 under `/Users/sergii/.ai/knowledge/research_topics/`).
+Let `TARGET` = `/Users/sergii/.ai/knowledge/research_topics/<TOPIC>/research/<target>`
+(`<target>` from `candidates.json`'s `inputs.target`). Every aggregate
+(`index.md`, `overview.md`, `digest.md`, `disagreements.md`,
+`open_questions.md`, `lenses/`, `topics/`, `sources.md`) lives under
+`TARGET`; paper summaries stay under `research_topics/<TOPIC>/<Name>/`,
+filed by their summarise runs.
 
 Each child body is the file
 `/Users/sergii/git/fleet/src/fleet/templates/research/<kind>.md` with its

@@ -31,7 +31,7 @@ DEFINITION: dict = {
         "Discovers and ranks candidate sources with jev, asks you to approve the "
         "shortlist, runs summarise on every approved source, then builds "
         "hierarchical digests, lenses (business/product/tech/ai), disagreements "
-        "and open questions under ~/.ai/knowledge/research/<target>/."
+        "and open questions under ~/.ai/knowledge/research_topics/<topic>/research/<target>/."
     ),
     "defaults": {"cwd": KB_ROOT, "priority": 1, "isolation": "none"},
     "inputs": [
@@ -47,7 +47,7 @@ DEFINITION: dict = {
         },
         {
             "name": "target",
-            "description": "Folder slug under ~/.ai/knowledge/research/",
+            "description": "Folder slug under ~/.ai/knowledge/research_topics/<topic>/research/",
             "required": True,
         },
         {

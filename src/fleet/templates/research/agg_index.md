@@ -39,9 +39,16 @@ where the folder would go — never `pending`. A missing or skipped source
 is a ledger row, never a reason to return partial: write every row the
 evidence supports and finish.
 
-Append one bullet (folder link + one-line description of `{{topic}}`) to
-`/Users/sergii/.ai/knowledge/research/index.md`, registering this topic.
-That index file is the only file outside `{{target}}` this task may write
-(besides its own `$FLEET_TASK_DIR/RESULT.json`).
+Register this research in the topic page
+`/Users/sergii/.ai/knowledge/research_topics/{{topic}}/{{topic}}.md` under a
+`## Research` section: create the section right above `## Tutorials` if it
+is missing (`## Tutorials` itself stays where it is), or at the end of the
+file when there is no `## Tutorials`. Add one bullet:
+`- [[research/<slug>/index|<slug>]] — <one-line description of {{topic}}>`,
+where `<slug>` is the basename of `{{target}}` (the `<target>` slug from
+the run inputs).
+When a bullet for the same target already exists, replace it instead of
+duplicating. That topic page is the only file outside `{{target}}` this
+task may write (besides its own `$FLEET_TASK_DIR/RESULT.json`).
 
 Read only the files named above. Never fetch the web or read raw sources. Do not run git — the knowledge base syncs itself. Write $FLEET_TASK_DIR/RESULT.json as the protocol says. Do not close the bead yourself.

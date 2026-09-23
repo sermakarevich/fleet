@@ -7,7 +7,7 @@ pairs, per `ai show research/get`):
 |---|---|---|---|
 | `topics` | yes | one topic or a list of sub-topics | — |
 | `focus` | yes | 2-5 sentences: what question the research must answer, for whom, what to ignore | — |
-| `target` | yes | folder slug under `/Users/sergii/.ai/knowledge/research/` | — |
+| `target` | yes | folder slug under `research_topics/<topic>/research/` | — |
 | `topic` | yes | research topic folder under `/Users/sergii/.ai/knowledge/research_topics/` (snake_case, must exist; sources are filed there) | — |
 | `n_sources` | no | how many sources to shortlist | 10 |
 | `lenses` | no | audiences for the top-level views | `tech, ai` |
@@ -46,7 +46,8 @@ Drop a candidate if any of these hold:
   id) and compare against every `sources[].resource` entry in the
   front-matter of `/Users/sergii/.ai/knowledge/research/*/index.md`,
   `/Users/sergii/.ai/knowledge/investment/*/index.md`,
-  `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`, and
+  `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`,
+  `/Users/sergii/.ai/knowledge/research_topics/*/research/*/index.md`, and
   `/Users/sergii/.ai/knowledge/research_topics/*/*/index.md`, plus the URL
   strings in `/Users/sergii/.ai/knowledge/research_topics/*/*/summary.md`
   (topic entries whose summary carries no front-matter). A match is
