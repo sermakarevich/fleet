@@ -149,7 +149,7 @@ src/fleet/
     client.py              # subprocess calls to bd + envelope unwrap
     create_args.py         # _FLAGS: rewriting for `bd create` / `bd new` argv
     queue.py               # Beads-backed queue: the orchestrator's view of bd
-    reconcile.py           # the one rule merging bd status into on-disk metadata
+    reconcile.py           # re-export of the core merge rule for beads callers
     status_cache.py        # TTL-cached map of beads status by task id
     task_store.py          # task.json access inside beads/ (state/ owns the file)
 
@@ -207,6 +207,7 @@ src/fleet/
     redact.py              # credential redaction before events are stored/broadcast
     result.py              # RESULT.json contract: the worker's outcome declaration
     retry_policy.py        # RETRY_TABLE: retry policy as data (pure)
+    status.py              # the one rule merging bd status into on-disk metadata
     task.py                # Task, Event, EventKind, TaskOutcome core types
     triage_policy.py       # TRIAGE_RULES: fix proposals for blocked tasks (pure)
 

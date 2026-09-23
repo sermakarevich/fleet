@@ -9,8 +9,9 @@ test bodies.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 
 def wait_until(pred: Callable[[], bool], timeout: float = 5.0, step: float = 0.02) -> bool:
@@ -24,11 +25,20 @@ def wait_until(pred: Callable[[], bool], timeout: float = 5.0, step: float = 0.0
         time.sleep(step)
 
 
-async def await_until(pred: Callable[[], bool], timeout: float = 5.0, step: float = 0.02) -> bool:
-    """Async version of wait_until for tests already inside a running loop."""
+async def await_until(
+    pred: Callable[[], bool | Awaitable[bool]], timeout: float = 5.0, step: float = 0.02
+) -> bool:
+    """Async version of wait_until for tests already inside a running loop.
+
+    Accepts a sync predicate or an async one; an awaitable result is
+    awaited before truth-testing so a coroutine is never mistaken for True.
+    """
     deadline = time.monotonic() + timeout
     while True:
-        if pred():
+        result = pred()
+        if inspect.isawaitable(result):
+            result = await result
+        if result:
             return True
         if time.monotonic() >= deadline:
             return False

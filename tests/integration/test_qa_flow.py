@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 def _status_is(queue, task_id: str, status: str):
     """Poll predicate: the task currently has *status* (False when unreadable)."""
 
-    async def _check() -> bool:
+    def _check() -> bool:
         try:
             return queue.get(task_id).status == status
         except Exception:

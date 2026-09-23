@@ -15,6 +15,7 @@ import pytest
 
 from fleet.integrations.ask_human import server
 from fleet.integrations.ask_human.store import QuestionStore
+from tests.helpers.wait import await_until
 
 SOURCE = "https://github.com/abdufelsayed/talkio"
 
@@ -71,7 +72,8 @@ def test_retry_reuses_pending_question_creates_no_new_row(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.1)
+            # Wait for the asker to block on the pending row, then answer it.
+            assert await await_until(lambda: s.count_pending() > 0, timeout=5.0)
             assert s.answer(first, "research/Talkio", answered_by="op")
 
         op = asyncio.create_task(operator())
@@ -103,7 +105,8 @@ def test_different_source_asks_fresh(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.1)
+            # Wait for both rows (original + fresh-context ask) before answering.
+            assert await await_until(lambda: len(s.fetch_pending_for_task("t")) == 2, timeout=5.0)
             pending = s.fetch_pending_for_task("t")
             assert len(pending) == 2
             for q in pending:
@@ -127,12 +130,16 @@ def test_unkeyed_questions_keep_old_behavior(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            answered = 0
-            while answered < 2:
-                await asyncio.sleep(0.05)
+            # Answer each unkeyed question as soon as it appears (two total).
+            seen: set[str] = set()
+            for _ in range(2):
+                assert await await_until(
+                    lambda: any(q["id"] not in seen for q in s.list_pending()),
+                    timeout=5.0,
+                )
                 for q in s.list_pending():
-                    if s.answer(q["id"], "x", answered_by="op"):
-                        answered += 1
+                    if q["id"] not in seen and s.answer(q["id"], "x", answered_by="op"):
+                        seen.add(q["id"])
 
         op = asyncio.create_task(operator())
         with _use_store(s):
@@ -155,7 +162,8 @@ def test_env_default_task_id_dedupes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.1)
+            # Wait for the asker to block on the pending row, then answer it.
+            assert await await_until(lambda: s.count_pending() > 0, timeout=5.0)
             assert s.answer(first, "research/Talkio", answered_by="op")
 
         op = asyncio.create_task(operator())
@@ -174,7 +182,10 @@ def test_answered_question_does_not_suppress_reask(tmp_path: Path):
 
     async def scenario():
         async def operator():
-            await asyncio.sleep(0.1)
+            # Wait for the re-asked row (distinct from the answered qid), then answer.
+            assert await await_until(
+                lambda: len(s.fetch_pending_for_task("t", SOURCE)) == 1, timeout=5.0
+            )
             pending = s.fetch_pending_for_task("t", SOURCE)
             assert len(pending) == 1
             assert pending[0]["id"] != qid
