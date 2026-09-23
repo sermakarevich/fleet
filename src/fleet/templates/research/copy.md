@@ -9,6 +9,10 @@ Locate the summary_get folder for `{{url}}`:
   and `/Users/sergii/.ai/knowledge/investment` for the folder whose `index.md`
   front-matter `sources[].resource` matches `{{url}}` (normalised: drop scheme
   and `www.`; for arXiv compare the id; for YouTube compare the video id).
+  Skip epic hubs while scanning: a folder whose `index.md` front-matter has
+  `type: Research` (or that contains a `sources/` subdirectory) holds counts,
+  not resources, so it can never match — only entry folders (with
+  `source/source.md`) and `sources/*/` subfolders can.
   summary_get never files its output, so the folder is still at
   `/Users/sergii/.ai/knowledge/research/<Name>/` waiting for this move.
 
@@ -21,6 +25,9 @@ Routing (exactly one home):
   copying, so the operator decides (move the home vs reference it). Never
   `cp` a homed entry silently; never leave two folders with the same
   summary.md content.
+- Located folder already under a DIFFERENT epic's `<other-target>/sources/`
+  (not `{{target}}`) → same as above: stop with an error instead of
+  duplicating it into this epic, so the operator decides.
 - Located folder already under `{{target}}/sources/{{name}}/` → already
   moved; verify `test -s` below and finish without moving again.
 

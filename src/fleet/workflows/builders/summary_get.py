@@ -90,6 +90,14 @@ Run work dir (absolute, build-time): __WORK__
    - macOS rule: the filesystem is case-insensitive, so research/Livekit and
      research/LiveKit are the same folder. A candidate slug that differs only in
      case from an existing folder is case 2 above, not a new folder.
+   - Epic-hub rule: a research/<Name>/ folder that contains a `sources/`
+     subdirectory (plural) or whose index.md front-matter has
+     `type: Research` is a research epic hub, not an entry. It is NEVER
+     reusable as this run's folder — not even when the provenance search
+     above found nothing (epic hubs carry no source/source.md, so that
+     search never matches them). A candidate that collides with an epic hub,
+     including a case-only collision per the macOS rule, is always case 2
+     above: ask, never reuse, never write entry files into the hub.
 
 3. Create the layout and copy the source:
    - mkdir -p <research_dir>/source <research_dir>/wiki/images

@@ -48,6 +48,12 @@ Drop a candidate if any of these hold:
   `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`. A match is
   kept with `status: "in_kb"` and `origin: "<folder that matched>"` — it is
   not scored again, only shortlisted for the copy step later.
+- **Skip epic hubs**: a `research/*/` folder that contains a `sources/`
+  subdirectory (plural) or whose `index.md` front-matter has
+  `type: Research` is a research epic hub, not an entry — skip it for the
+  `research/*/index.md` glob. Its `sources` front-matter holds counts, not
+  resources, so it can never be an `in_kb` origin. Only folders with
+  `source/source.md` (singular) are entries.
 
 Everything that survives (including `in_kb` matches) becomes a candidate
 row; anything dropped is not recorded further.
