@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
 from contextlib import suppress
 from pathlib import Path
@@ -12,6 +11,7 @@ import pytest
 
 from fleet.core.retry_policy import rounds_for_history
 from fleet.state.attempts import load_attempts
+from fleet.state.events import iter_events
 from tests.helpers.wait import await_until
 from tests.integration.conftest import (
     FakeClaudeCoder,
@@ -135,10 +135,10 @@ def test_qa_block_and_resume(tmp_path: Path) -> None:  # noqa: PLR0915  # ADR 00
 
     assert closed_event.is_set(), "task should be closed after read_qa_and_close scenario"
 
-    # events.jsonl should have records from both runs (append-only across runs)
-    events_path = task_dir / "events.jsonl"
-    assert events_path.exists()
-    lines = [json.loads(line) for line in events_path.read_text().splitlines() if line.strip()]
+    # Each attempt now writes its own attempts/<n>/events.jsonl; iter_events
+    # aggregates across all of them in order, so this still checks that
+    # both runs' events survive (no attempt overwrites another's file).
+    lines = list(iter_events(task_dir))
     assert len(lines) >= 2, f"events from both runs should be appended; got {len(lines)} records"
 
 
