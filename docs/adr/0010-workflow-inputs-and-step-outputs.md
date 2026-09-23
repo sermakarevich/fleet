@@ -100,6 +100,7 @@ placeholders, left as written until WI 2/3 lands). It must keep passing
 (`fleet-5ei0k`; YAML and run JSON backed up to the task outputs). The
 workflow predated the `summary_get` builder: it hardcoded the old
 get/slack/move shape, named the removed `paper_dir` output key, and
-posted to #ai-papers. `summary_get` (`docs/workflows/summary-get.yaml`)
-replaced it, and filing a finished entry elsewhere is now a separate
-deliberate act. The `paper-summary.yaml` references above are historical.
+posted to #ai-papers. `summary_get` (since renamed to `summarise`,
+`docs/workflows/summarise.yaml`) replaced it, and filing a finished
+entry elsewhere is now a separate deliberate act. The
+`paper-summary.yaml` references above are historical.
