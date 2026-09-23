@@ -239,6 +239,19 @@ def _repair_live(queue: Queue, repair_task_id: str) -> bool:
         return True
 
 
+def _bd_closed(queue: Queue, task_id: str) -> bool:
+    """True when the bead is provably closed in bd (lookup errors count as open).
+
+    Fleet meta (task.json) can lag a human ``bd close``; without this live
+    check a late triage "retry" answer would ``queue.release`` the closed
+    bead back open.
+    """
+    try:
+        return queue.get(task_id).status == TaskStatus.CLOSED.value
+    except Exception:
+        return False
+
+
 def _apply_repair(
     queue: Queue, fleet_home: Path, task_id: str, meta: dict, note: str | None
 ) -> TriageApplyOutcome:
@@ -300,6 +313,13 @@ def apply_answer(  # noqa: PLR0911  # ADR 0006 bead 20
     if meta.get("status") != TaskStatus.BLOCKED.value or meta.get("blocked_at") != question.get(
         "context"
     ):
+        return TriageApplyOutcome.SKIPPED
+
+    if _bd_closed(queue, task_id):
+        # Human closed the bead via bd after the question was asked; the
+        # answer is stale. Skip without touching the bead (the answered
+        # row is then skipped naturally on every later tick, like any
+        # already-applied question).
         return TriageApplyOutcome.SKIPPED
 
     if is_repair_answer(answer):

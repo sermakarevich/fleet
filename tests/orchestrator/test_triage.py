@@ -37,6 +37,11 @@ class FakeQueue:
         self.calls: list[tuple] = []
         self.blocked: list[Task] = []
         self.descriptions: dict[str, str] = {}
+        self.statuses: dict[str, str] = {}
+
+    def get(self, task_id: str) -> Task:
+        status = self.statuses.get(task_id, "blocked")
+        return Task(id=task_id, title=f"Title {task_id}", description=None, status=status)
 
     def list_blocked(self, limit: int = 100) -> list[Task]:
         return self.blocked[:limit]
@@ -303,6 +308,20 @@ def test_stale_answer_skipped(tmp_path: Path):
     _task(tmp_path, "t2", blocked_reason="r", blocked_at="ts", status="open")
     assert apply_answer(q, tmp_path, _answered("t2", RETRY_SAME)) == "skipped"
     assert q.calls == []
+
+
+def test_retry_skipped_when_bead_closed_in_bd(tmp_path: Path):
+    """A retry answer for a bead closed via bd (stale fleet meta) must not reopen it."""
+    q = FakeQueue()
+    q.statuses["t"] = "closed"
+    _task(tmp_path, "t", blocked_reason="r", blocked_at="ts")
+    assert apply_answer(q, tmp_path, _answered("t", RETRY_SAME)) == "skipped"
+    assert q.calls == []
+    q2 = FakeQueue()
+    q2.statuses["t"] = "closed"
+    _task(tmp_path, "t", blocked_reason="r", blocked_at="ts")
+    assert apply_answer(q2, tmp_path, _answered("t", RETRY_OPUS)) == "skipped"
+    assert q2.calls == []
 
 
 def test_ignore_honoured_after_apply(tmp_path: Path):
