@@ -5,7 +5,8 @@ Topic slugs (space-separated): `{{topics}}`. Lenses (space-separated): `{{lenses
 Focus (verbatim into the front-matter): `{{focus}}`.
 
 Read ONLY `{{target}}/*.md`, `{{target}}/topics/*/digest.md`,
-`{{target}}/sources.md`, and `{{target}}/lenses/*.md`. Read nothing else:
+`{{target}}/sources.md`, `{{target}}/lenses/*.md`, and
+`$FLEET_TASK_DIR/artifacts/candidates.json`. Read nothing else:
 no source folders beyond what those files say, no wiki pages, no raw
 sources, never the web.
 
@@ -19,11 +20,19 @@ sections `## How to work through this`, `## Cross-cutting`,
 (`| sub-topic | in one sentence | sources |`), and `## Sources`
 (`| source | kind | folder |`).
 
-Confirm `{{target}}/sources.md` already lists every processed/in_kb source
-(one row per source with the header
-`| # | status | kind | score | source | sub-topic | folder | origin |`); do
-not rewrite rows written by the copy tasks, only add rows for statuses they
-do not cover if any source is missing.
+Own the `{{target}}/sources.md` ledger: when the file does not exist yet,
+create it with exactly this header line first:
+
+```
+| # | status | kind | score | source | sub-topic | folder | origin |
+```
+
+Then ensure it lists every shortlisted source from `candidates.json` (one
+row per source; never rewrite rows written for other sources, only append
+missing ones): fresh sources with `status=processed` and the folder
+`research_topics/<topic>/<Name>` where they were filed by their summarise
+file stage; already-in-the-KB sources with `status=in_kb` and their
+`origin` folder.
 
 Append one bullet (folder link + one-line description of `{{topic}}`) to
 `/Users/sergii/.ai/knowledge/research/index.md`, registering this topic.

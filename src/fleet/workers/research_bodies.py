@@ -12,7 +12,6 @@ import re
 from pathlib import Path
 
 KINDS = (
-    "copy",
     "topic_digest",
     "agg_digest",
     "agg_overview",

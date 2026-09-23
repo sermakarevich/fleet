@@ -4,8 +4,9 @@ Write the disagreements file for the research topic `{{topic}}`.
 Focus (what this research must answer): `{{focus}}`.
 
 Read ONLY `{{target}}/topics/*/digest.md` and the source summaries they
-link (`{{target}}/sources/<Name>/summary.md`). Read nothing else: no wiki
-pages, no raw sources, never the web.
+link (the `[[<knowledge-relative folder>/summary|...]]` targets, e.g.
+`/Users/sergii/.ai/knowledge/research_topics/<topic>/<Name>/summary.md`).
+Read nothing else: no wiki pages, no raw sources, never the web.
 
 Write `{{target}}/disagreements.md`: one section per real contradiction,
 `## <claim A> vs <claim B>`, who says what with source links, the likely

@@ -6,7 +6,7 @@ defaults, inputs). ``ensure_builtin_workflows`` saves one workflow per such
 builder when the store has none with that name. Existing definitions keep
 operator edits (description, defaults); only *new optional inputs* declared
 by the builder are backfilled, so older installs accept runs the current
-code starts (e.g. research spawning summarise with research_target).
+code starts (e.g. research spawning summarise with research_target/topic).
 """
 
 from __future__ import annotations

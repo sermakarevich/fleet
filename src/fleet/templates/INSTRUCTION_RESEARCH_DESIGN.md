@@ -8,6 +8,8 @@ exists, fix the listed validation errors.
 
 Let `TARGET` = `/Users/sergii/.ai/knowledge/research/<target>` (`<target>`
 from `candidates.json`'s `inputs.target`).
+Let `TOPIC` = `<topic>` from `candidates.json`'s `inputs.topic` (a folder
+under `/Users/sergii/.ai/knowledge/research_topics/`).
 
 Each child body is the file
 `/Users/sergii/git/fleet/src/fleet/templates/research/<kind>.md` with its
@@ -20,47 +22,34 @@ focus, lens and audience); the pasted body must contain no `{{` tokens.
 Write `$FLEET_TASK_DIR/artifacts/DESIGN.md` (approach: how many sources,
 how many sub-topics, the dependency shape below) and
 `$FLEET_TASK_DIR/artifacts/tasks.json` with exactly this task graph.
+There is no copy step: every source lives in exactly ONE place and the
+summarise file stage puts it there.
 
 ## Per shortlisted source not already in the KB (`status == "shortlist"`, `origin == null`)
 
-Two tasks (the summarise run carries the research provenance so its file
-step skips filing into research_topics/ — the copy bead below owns the
-entry's ONE home under research; MOVE, never copy):
+One task: the summarise run carries the research provenance AND the topic,
+so its file stage MOVEs the finished entry to
+`research_topics/<TOPIC>/<Name>/` and appends the category bullet — no
+follow-up move bead:
 
 ```json
-{"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>"}}
+{"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>", "topic": "<TOPIC>"}}
 ```
 
-```json
-{
-  "key": "copy-NN",
-  "title": "move <Name> into <target>",
-  "body": "<templates/research/copy.md with {{url}}, {{name}}, {{origin}} (empty), {{target}} filled>",
-  "cwd": "/Users/sergii/.ai",
-  "depends_on": ["src-NN"]
-}
-```
-
-`<TARGET>` is the absolute target from above
-(`/Users/sergii/.ai/knowledge/research/<target>`). The copy bead MOVEs the entry
-folder `research/<Name>/` into `<TARGET>/sources/<Name>/`, leaving nothing behind;
-nothing is filed into research_topics/ for these sources.
+`<TOPIC>` is the topic folder name from above (not a path). Derive each
+source's `<Name>` folder the way the summarise plan step would
+(`<PascalName>`, `YYYY-MM-DD-<PascalName>` for investment/finance topics)
+and use it in the depending topic digests' `{{sources}}`.
 
 ## Per shortlisted source already in the KB (`status == "shortlist"`, `origin != null`)
 
-The copy task only, moving from `origin` instead of a fresh summarise
-folder, with no `depends_on` (MOVE, never copy — when `origin` is already
-homed under investment/ or research_topics/, the copy bead stops with an
-error instead of duplicating it, so the operator decides):
-
-```json
-{
-  "key": "copy-NN",
-  "title": "move <Name> into <target>",
-  "body": "<templates/research/copy.md with {{url}}, {{name}}, {{origin}}, {{target}} filled>",
-  "cwd": "/Users/sergii/.ai"
-}
-```
+No task at all: the source is linked, never re-summarised and never moved.
+Record its knowledge-relative folder (its `origin` relative to
+`/Users/sergii/.ai/knowledge/`, e.g. `research_topics/<other>/<Name>`,
+`investment/2026-01-01-<Name>`, or `research/<Name>`) and pass it in the
+depending topic digests' `{{linked}}` so they read and link
+`<origin>/summary.md` in place. When `origin` is already filed under
+`research_topics/<TOPIC>/`, the topic digest links it like a fresh source.
 
 ## Per sub-topic in `topics`
 
@@ -68,11 +57,16 @@ error instead of duplicating it, so the operator decides):
 {
   "key": "topic-NN",
   "title": "digest: <subtopic>",
-  "body": "<templates/research/topic_digest.md with {{target}}, {{nn}}, {{subtopic}}, {{title}}, {{sources}} filled>",
+  "body": "<templates/research/topic_digest.md with {{target}}, {{nn}}, {{subtopic}}, {{title}}, {{sources}} (fresh <Name> folders), {{topic}} (<TOPIC>), {{linked}} (knowledge-relative in-KB folders, empty when none) filled>",
   "cwd": "/Users/sergii/.ai",
-  "depends_on": ["copy-NN", "..."]
+  "depends_on": ["src-NN", "..."]
 }
 ```
+
+`depends_on` lists the `src-NN` keys of this sub-topic's fresh sources
+only (a workflow run child is depended on, never depending: it takes no
+`depends_on` itself). Sub-topics with only linked sources have no
+`depends_on`.
 
 ## Aggregation (topic level), each depending on every `topic-*` key
 
@@ -112,7 +106,7 @@ error instead of duplicating it, so the operator decides):
   "title": "index.md + sources.md + research index",
   "body": "<templates/research/agg_index.md with {{target}}, {{topic}}, {{focus}}, {{lenses}}, {{topics}} filled>",
   "cwd": "/Users/sergii/.ai",
-  "depends_on": ["copy-01", "...", "agg-digest", "agg-overview", "agg-disagreements", "agg-open", "lens-tech", "..."]
+  "depends_on": ["src-01", "...", "topic-01", "...", "agg-digest", "agg-overview", "agg-disagreements", "agg-open", "lens-tech", "..."]
 }
 ```
 

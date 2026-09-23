@@ -7,11 +7,15 @@ the fetched text plus one file per chunk into the run work dir, and returns
 the workflow with six concrete stages: `plan` (one step), `wiki` (one step
 per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
 critical-thinking), `index` (one step), and `verify` (one step that checks
-the finished entry against the recipe and blocks instead of closing).
+the finished entry against the recipe and blocks instead of closing), plus
+an optional seventh `file` stage when the `topic` input names a
+research_topics/ folder (MOVEs the entry there and indexes it, per the
+`ai show summary/move` recipe but with no confirmation question).
 
 The finished entry stays in research/<Slug>/ (or investment/ for finance
-topics). Nothing here moves or files it: whoever wants it filed runs the
-`ai show summary/move` recipe on purpose.
+topics) unless `topic` is set. The run's `research_target` (the research
+epic that spawned it, if any) and `topic` are recorded as provenance lines
+in the fetched source header the plan step copies to source/source.md.
 
 Step descriptions are worker instructions. Absolute chunk/work paths are
 written into them literally at build time; the knowledge-base folder is only
@@ -34,6 +38,7 @@ from fleet.workflows.builders.chunking import (
     parse_chunk_chars,
 )
 from fleet.workflows.builders.sources import Source, SourceError, SourceKind, fetch
+from fleet.workflows.builders.topics import validate_topic
 from fleet.workflows.model import Stage, Step, Workflow
 
 #: Template every later stage uses for the knowledge-base folder chosen by `plan`.
@@ -385,9 +390,54 @@ Entry folder: __RESEARCH_DIR__ (from {{steps.plan.outputs.research_dir}}).
 
 __TAIL__"""
 
+_FILE_DESC = """You are filing the finished knowledge-base entry for "__TITLE__" (__URL__)
+into research topic "__TOPIC__". The topic was chosen up front: do NOT ask
+any confirmation question, just file it.
+
+Entry folder: __RESEARCH_DIR__ (from {{steps.plan.outputs.research_dir}}).
+Run work dir (absolute, build-time): __WORK__
+
+1. Resolve the entry folder from {{steps.plan.outputs.research_dir}} (the plan
+   step's outputs.json `research_dir`). If the folder is missing or unreadable,
+   write $FLEET_TASK_DIR/RESULT.json with status blocked naming the problem,
+   then stop.
+
+2. Destination rule. Let <Name> be the entry folder's basename; the destination
+   is /Users/sergii/.ai/knowledge/research_topics/__TOPIC__/<Name>/. If the destination
+   already exists, write $FLEET_TASK_DIR/RESULT.json with status blocked
+   (naming the collision) and stop. Never overwrite, never merge, never
+   rename: fail loudly instead.
+
+3. MOVE the entry (never copy):
+   ```bash
+   mv "<entry folder>" "/Users/sergii/.ai/knowledge/research_topics/__TOPIC__/<Name>/"
+   test -s "/Users/sergii/.ai/knowledge/research_topics/__TOPIC__/<Name>/index.md"
+   test ! -e "<entry folder>"
+   ```
+   Both tests must succeed: a non-empty index.md at the destination and
+   nothing left behind.
+
+4. Read the first ~200 lines of
+   /Users/sergii/.ai/knowledge/research_topics/__TOPIC__/<Name>/summary.md and extract the
+   TL;DR: prefer the ## Human Readable TL;DR section, fall back to ## TL;DR.
+   Keep it to 1-2 sentences, under 30 words.
+
+5. Read /Users/sergii/.ai/knowledge/research_topics/__TOPIC__/__TOPIC__.md to match its
+   convention, then append one bullet:
+   `- [[<Name>/summary]] — <tldr>.`
+   (Obsidian ref, em dash separator, trailing period; keep above any
+   ## Tutorials section, never inside it).
+
+6. Write $FLEET_TASK_DIR/RESULT.json with status done, reporting the final
+   path and the exact bullet added.
+
+__TAIL__"""
+
 
 #: Saved definition created on fleet start when no workflow of this name exists
 #: (see `fleet.workflows.builtins`). Operators may edit the saved copy freely.
+#: Only *new optional inputs* are backfilled (e.g. summarise's `topic`;
+#: research spawning summarise passes `research_target` and `topic`).
 DEFINITION: dict = {
     "name": "summarise",
     "description": (
@@ -399,8 +449,11 @@ DEFINITION: dict = {
         "digest/summary, explainer/questions/critical-thinking, index, "
         "and verify (blocks unless the entry satisfies the recipe). "
         "The finished entry stays in research/<Slug>/ (investment/ for "
-        "finance topics); filing it elsewhere is a separate deliberate act "
-        "via the ai:summary:move recipe, never part of this workflow."
+        "finance topics) unless the optional `topic` input names a "
+        "research_topics/ folder: then a final `file` stage MOVEs the entry "
+        "to research_topics/<topic>/<Slug>/ and appends a bullet to "
+        "research_topics/<topic>/<topic>.md (ai:summary:move recipe, no "
+        "confirmation question)."
     ),
     "defaults": {"cwd": str(Path.home() / ".ai"), "priority": 2, "isolation": "none"},
     "inputs": [
@@ -410,6 +463,16 @@ DEFINITION: dict = {
                 "Source URL (YouTube, X/Twitter, arXiv/PDF, GitHub repo, or an article page)"
             ),
             "required": True,
+        },
+        {
+            "name": "topic",
+            "description": (
+                "Research topic folder under /Users/sergii/.ai/knowledge/research_topics/ "
+                "(snake_case, must exist). When set, a final `file` stage MOVEs the "
+                "finished entry there and indexes it; empty keeps the entry in "
+                "research/<Slug>/."
+            ),
+            "default": "",
         },
         {
             "name": "chunk_chars",
@@ -437,10 +500,13 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     if not url:
         raise ValueError("input url is required")
     target = parse_chunk_chars(ctx.inputs.get("chunk_chars"))
+    raw_topic = (ctx.inputs.get("topic") or "").strip()
+    topic = validate_topic(raw_topic) if raw_topic else ""
+    research_target = (ctx.inputs.get("research_target") or "").strip()
     work = ctx.work_dir("summarise")
     work.mkdir(parents=True, exist_ok=True)
     source = fetch(url, work)
-    _write_source(work, source, url, ctx)
+    _write_source(work, source, url, ctx, research_target=research_target, topic=topic)
     if source.kind is SourceKind.repo and (work / "repo").is_dir():
         chunks = chunk_repo(work / "repo", target)
     else:
@@ -451,20 +517,37 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
             "(Sponsor, License, Star History, ...) was dropped — not worth an entry"
         )
     _write_chunks(work, chunks)
-    return replace(workflow, stages=_stages(source, chunks, work, url))
+    return replace(workflow, stages=_stages(source, chunks, work, url, topic=topic))
 
 
-def _write_source(work: Path, source: Source, url: str, ctx: BuildContext) -> None:
-    """Write the fetched text with a provenance header into the run work dir."""
-    header = (
-        f"# {source.title}\n"
-        f"Source: {url}\n"
-        f"Kind: {source.kind.value}\n"
-        f"Fetched: {ctx.now.isoformat()}\n"
-        f"Tool: {source.tool}\n"
-        f"\n"
-        f"{source.text}\n"
-    )
+def _write_source(
+    work: Path,
+    source: Source,
+    url: str,
+    ctx: BuildContext,
+    *,
+    research_target: str = "",
+    topic: str = "",
+) -> None:
+    """Write the fetched text with a provenance header into the run work dir.
+
+    ``research_target`` (the research epic that spawned this run) and
+    ``topic`` (the research_topics/ folder the file stage will move the
+    entry to) are recorded as provenance lines when set; the plan step
+    copies this header into the entry's ``source/source.md``.
+    """
+    lines = [
+        f"# {source.title}",
+        f"Source: {url}",
+        f"Kind: {source.kind.value}",
+        f"Fetched: {ctx.now.isoformat()}",
+        f"Tool: {source.tool}",
+    ]
+    if research_target:
+        lines.append(f"Research-Target: {research_target}")
+    if topic:
+        lines.append(f"Topic: {topic}")
+    header = "\n".join(lines) + f"\n\n{source.text}\n"
     (work / "source.md").write_text(header, encoding="utf-8")
 
 
@@ -520,8 +603,10 @@ def _stages(
     chunks: list[Chunk],
     work: Path,
     url: str,
+    *,
+    topic: str = "",
 ) -> tuple[Stage, ...]:
-    """The six fixed stages: plan, wiki, derive, enrich, index, verify."""
+    """The fixed stages: plan, wiki, derive, enrich, index, verify (+ file when topic set)."""
     common = _common(source, work, url)
     chunk_names = tuple(f"chunk-{chunk.index:02d}" for chunk in chunks)
     total = str(len(chunks))
@@ -622,4 +707,17 @@ def _stages(
             ),
         ),
     )
-    return (plan, wiki, derive, enrich, index, verify)
+    if not topic:
+        return (plan, wiki, derive, enrich, index, verify)
+    file = Stage(
+        name="file",
+        steps=(
+            Step(
+                name="file",
+                title=f"summarise: file {source.title} into {topic}",
+                description=_fill(_FILE_DESC, **common, TOPIC=topic),
+                needs=("verify",),
+            ),
+        ),
+    )
+    return (plan, wiki, derive, enrich, index, verify, file)

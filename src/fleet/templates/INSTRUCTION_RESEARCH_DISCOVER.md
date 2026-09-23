@@ -8,13 +8,14 @@ pairs, per `ai show research/get`):
 | `topics` | yes | one topic or a list of sub-topics | — |
 | `focus` | yes | 2-5 sentences: what question the research must answer, for whom, what to ignore | — |
 | `target` | yes | folder slug under `/Users/sergii/.ai/knowledge/research/` | — |
+| `topic` | yes | research topic folder under `/Users/sergii/.ai/knowledge/research_topics/` (snake_case, must exist; sources are filed there) | — |
 | `n_sources` | no | how many sources to shortlist | 10 |
 | `lenses` | no | audiences for the top-level views | `tech, ai` |
 | `gate` | no | `on`/`off` | `on` |
 | `date_from` | no | ignore sources older than this (ISO date) | none |
 | `kinds` | no | restrict to some of `paper`, `article`, `video`, `repo`, `thread` | all |
 
-If `topics`, `focus` or `target` is missing from the description, stop and
+If `topics`, `focus`, `target` or `topic` is missing from the description, stop and
 call `mcp__ask_human__ask_human_question` to get it — never invent a focus.
 
 ## 1. Collect candidates (metadata only, never full content)
@@ -44,10 +45,14 @@ Drop a candidate if any of these hold:
   `www.`; for arXiv compare the arXiv id; for YouTube compare the video
   id) and compare against every `sources[].resource` entry in the
   front-matter of `/Users/sergii/.ai/knowledge/research/*/index.md`,
-  `/Users/sergii/.ai/knowledge/investment/*/index.md`, and
-  `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`. A match is
+  `/Users/sergii/.ai/knowledge/investment/*/index.md`,
+  `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`, and
+  `/Users/sergii/.ai/knowledge/research_topics/*/*/index.md`, plus the URL
+  strings in `/Users/sergii/.ai/knowledge/research_topics/*/*/summary.md`
+  (topic entries whose summary carries no front-matter). A match is
   kept with `status: "in_kb"` and `origin: "<folder that matched>"` — it is
-  not scored again, only shortlisted for the copy step later.
+  not scored again, only shortlisted for linking later (no re-summarise,
+  no move).
 - **Skip epic hubs**: a `research/*/` folder that contains a `sources/`
   subdirectory (plural) or whose `index.md` front-matter has
   `type: Research` is a research epic hub, not an entry — skip it for the
@@ -99,7 +104,7 @@ shortlist entry, whose `status` becomes `"reserve"`).
 
 ```json
 {
-  "inputs": {"topics": [...], "focus": "...", "target": "...", "n_sources": 10, "lenses": [...], "gate": "on", "date_from": null, "kinds": null},
+  "inputs": {"topics": [...], "focus": "...", "target": "...", "topic": "...", "n_sources": 10, "lenses": [...], "gate": "on", "date_from": null, "kinds": null},
   "candidates": [
     {
       "url": "...", "title": "...", "kind": "paper", "authors": "...", "date": "...",

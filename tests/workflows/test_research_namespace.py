@@ -32,10 +32,3 @@ def test_plan_never_reuses_epic_hub() -> None:
     assert "Epic-hub rule" in summarise._PLAN_DESC
     assert "NEVER" in summarise._PLAN_DESC
     assert "type: Research" in summarise._PLAN_DESC
-
-
-def test_copy_skips_epic_hubs() -> None:
-    """The copy locate step must skip epic hubs while scanning for origins."""
-    text = _read("research/copy.md")
-    assert "type: Research" in text
-    assert "source/source.md" in text

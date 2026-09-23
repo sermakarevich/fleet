@@ -15,6 +15,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from fleet.workflows.builders import BuildContext
+from fleet.workflows.builders.topics import validate_topic
 from fleet.workflows.model import Stage, Step, Workflow
 
 KB_ROOT = str(Path.home() / ".ai")
@@ -50,6 +51,14 @@ DEFINITION: dict = {
             "required": True,
         },
         {
+            "name": "topic",
+            "description": (
+                "Research topic folder under /Users/sergii/.ai/knowledge/research_topics/ "
+                "(snake_case, must exist; summarised sources are filed there)"
+            ),
+            "required": True,
+        },
+        {
             "name": "n_sources",
             "description": "How many sources to process",
             "default": N_SOURCES_DEFAULT,
@@ -67,12 +76,12 @@ DEFINITION: dict = {
         {"name": "date_from", "description": "Ignore sources older than YYYY-MM-DD"},
         {
             "name": "kinds",
-            "description": "Restrict source kinds, e.g. papers, articles, youtube, github",
+            "description": "Restrict source kinds: paper, article, video, repo, thread",
         },
     ],
 }
 
-_REQUIRED = ("topics", "focus", "target")
+_REQUIRED = ("topics", "focus", "target", "topic")
 _OPTIONAL = ("date_from", "kinds")
 
 
@@ -100,6 +109,8 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     target = inputs["target"]
     if "/" in target or target in {".", ".."}:
         raise ValueError("input target must be a folder slug, not a path")
+    topic = validate_topic(inputs.get("topic"))
+    inputs["topic"] = topic
     step = Step(
         name="epic",
         title=f"research: {inputs['topics'][:80]}",

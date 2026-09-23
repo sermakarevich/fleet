@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from fleet.workflows.builders import BuildContext, summarise
+from fleet.workflows.builders import topics as topics_mod
 from fleet.workflows.builders.chunking import CHUNK_CHARS_DEFAULT, chunk_text, parse_chunk_chars
 from fleet.workflows.builders.sources import Source, SourceError, SourceKind, detect, fetch
 from fleet.workflows.model import Workflow, ensure_valid
@@ -267,3 +268,104 @@ def test_definition_declares_optional_research_target() -> None:
     assert "research_target" in inputs
     assert not inputs["research_target"].get("required", False)
     assert inputs["research_target"].get("default") == ""
+
+
+def test_definition_declares_optional_topic() -> None:
+    """Filing input exists, is optional, and defaults to staying in research/."""
+    inputs = {item["name"]: item for item in summarise.DEFINITION["inputs"]}
+    assert "topic" in inputs
+    assert not inputs["topic"].get("required", False)
+    assert inputs["topic"].get("default") == ""
+
+
+def _topics_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Fake research_topics/ with one topic; build() validates against it."""
+    base = tmp_path / "research_topics"
+    (base / "voice_agents").mkdir(parents=True)
+    monkeypatch.setattr(topics_mod, "research_topics_dir", lambda: base)
+    return base
+
+
+def test_build_with_topic_appends_file_stage_after_verify(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """topic set → a seventh `file` stage depending on verify, moving into the topic."""
+    _topics_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    result = summarise.build(
+        _workflow(),
+        _ctx(
+            tmp_path,
+            {
+                "url": "https://e.com/a",
+                "research_target": "/Users/sergii/.ai/knowledge/research/demo",
+                "topic": "voice_agents",
+            },
+        ),
+    )
+    assert [stage.name for stage in result.stages] == [
+        "plan",
+        "wiki",
+        "derive",
+        "enrich",
+        "index",
+        "verify",
+        "file",
+    ]
+    (file_step,) = result.stages[-1].steps
+    assert file_step.name == "file"
+    assert file_step.needs == ("verify",)
+    desc = file_step.description
+    assert "research_topics/voice_agents" in desc
+    assert "mv " in desc
+    assert "already exists" in desc
+    assert "confirmation" in desc
+    assert "[[<Name>/summary]]" in desc
+    assert _RESEARCH_DIR in desc
+    assert desc.endswith("Do not run git. Do not close the bead yourself.")
+    assert ensure_valid(result) is not None
+
+
+def test_build_with_topic_rejects_unknown_topic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """topic set to a missing folder fails fast, naming ai new."""
+    _topics_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    with pytest.raises(ValueError, match="ai new nosuch_topic"):
+        summarise.build(
+            _workflow(), _ctx(tmp_path, {"url": "https://e.com/a", "topic": "nosuch_topic"})
+        )
+
+
+def test_build_records_research_target_and_topic_provenance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """research_target/topic land in the fetched source header the plan copies on."""
+    _topics_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    summarise.build(
+        _workflow(),
+        _ctx(
+            tmp_path,
+            {
+                "url": "https://e.com/a",
+                "research_target": "/Users/sergii/.ai/knowledge/research/demo",
+                "topic": "voice_agents",
+            },
+        ),
+    )
+    header = (tmp_path / "workflows" / "summarise" / "r1" / "source.md").read_text(encoding="utf-8")
+    assert "Research-Target: /Users/sergii/.ai/knowledge/research/demo" in header
+    assert "Topic: voice_agents" in header
+
+
+def test_build_without_provenance_writes_no_provenance_lines(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Standalone runs keep the old header shape exactly."""
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
+    header = (tmp_path / "workflows" / "summarise" / "r1" / "source.md").read_text(encoding="utf-8")
+    assert "Research-Target:" not in header
+    assert "Topic:" not in header

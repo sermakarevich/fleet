@@ -205,6 +205,39 @@ Because aggregates are derived (section 4), this is safe. A schedule (ADR
 - [x] 5. Docs: guide section, `docs/workflows/` example, this ADR to Accepted
   (this change).
 
+## Amendment 2026-09-23 — topic-first research, summarise files its own entry
+
+Research runs take a new required input `topic`: a folder name under
+`~/.ai/knowledge/research_topics/` (snake_case, must exist — `ai new
+<topic>` creates one). The research builder validates it and adds it to
+the bead description, so discover/design phases see it without asking.
+The `kinds` input vocabulary is `paper, article, video, repo, thread`,
+matching the discover prompt.
+
+Every source now lives in exactly one place,
+`research_topics/<topic>/<Name>/`, filed by the summarise run itself: the
+summarise builder's new optional `topic` input appends a final `file`
+stage after `verify` that MOVEs the finished entry there and appends a
+`- [[<Name>/summary]] — <tldr>.` bullet to
+`research_topics/<topic>/<topic>.md` (the `ai show summary/move` recipe
+minus the confirmation question; a present destination fails loudly).
+Without `topic` the entry stays in `research/<Slug>/` as before. The
+long-declared-but-never-read `research_target` input is now recorded as
+provenance (`Research-Target:` / `Topic:` lines in the fetched source
+header the plan step copies to `source/source.md`).
+
+The design phase passes `topic` (plus `research_target`) to every
+`src-NN` summarise child and emits no `copy-NN` step:
+`templates/research/copy.md` is deleted. Already-in-the-KB shortlist
+entries get no task — topic digests link their `origin` in place via the
+new `{{linked}}` field. The discover dedup scan additionally covers
+`research_topics/*/*/index.md` (front-matter resources) and
+`research_topics/*/*/summary.md` (URL strings). The `agg-index` bead owns
+the `sources.md` ledger rows the copy beads used to write.
+
+Operator note: the saved `research` workflow row needs the required
+`topic` input added by hand — builtins backfill optional inputs only.
+
 ## Related
 
 - ADR 0007 recurring workers (schedules), ADR 0008 workflows, ADR 0010 run

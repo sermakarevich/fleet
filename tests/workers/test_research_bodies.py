@@ -7,18 +7,14 @@ import pytest
 from fleet.workers.research_bodies import KINDS, render_body
 
 FULL_FIELDS: dict[str, dict[str, str]] = {
-    "copy": {
-        "url": "https://arxiv.org/abs/1234.5678",
-        "name": "PaperName",
-        "origin": "",
-        "target": "/Users/sergii/.ai/knowledge/research/demo",
-    },
     "topic_digest": {
         "target": "/Users/sergii/.ai/knowledge/research/demo",
         "nn": "01",
         "subtopic": "memory-types",
         "title": "Memory Types",
         "sources": "PaperA PaperB",
+        "topic": "agent_memory",
+        "linked": "",
     },
     "agg_digest": {
         "target": "/Users/sergii/.ai/knowledge/research/demo",
@@ -63,10 +59,10 @@ def test_every_kind_renders_without_placeholders() -> None:
 
 
 def test_render_body_missing_field_raises_keyerror() -> None:
-    fields = dict(FULL_FIELDS["copy"])
-    del fields["url"]
+    fields = dict(FULL_FIELDS["topic_digest"])
+    del fields["sources"]
     with pytest.raises(KeyError):
-        render_body("copy", **fields)
+        render_body("topic_digest", **fields)
 
 
 def test_agg_digest_contains_verbatim() -> None:
@@ -74,19 +70,11 @@ def test_agg_digest_contains_verbatim() -> None:
     assert "verbatim" in body.lower()
 
 
-def test_copy_contains_sources_md() -> None:
-    body = render_body("copy", **FULL_FIELDS["copy"])
-    assert "sources.md" in body
-
-
-def test_copy_moves_instead_of_copying() -> None:
-    """Research owns the ONE home: the bead MOVEs staging, never copies."""
-    body = render_body("copy", **FULL_FIELDS["copy"])
-    assert "MOVE, never copy" in body
-    assert "mv " in body
-    assert "cp -R" not in body
-    # Staging is cleared: the old path must be gone after the move.
-    assert "test ! -e" in body
+def test_topic_digest_links_into_research_topics() -> None:
+    """Topic digests read/link sources where the file stage filed them."""
+    body = render_body("topic_digest", **FULL_FIELDS["topic_digest"])
+    assert "research_topics/" in body
+    assert "never re-summarised" in body
 
 
 def test_every_template_contains_do_not_run_git() -> None:
