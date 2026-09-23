@@ -337,6 +337,8 @@ Run work dir (absolute, build-time): __WORK__
      questions).
    - ## Wiki table | Page | Covers | with one row per wiki/*.md in order.
    - ## Original Source (link to __URL__ and the local copy source/source.md).
+   - Link only to files, never to a folder: write [01](wiki/01-<stem>.md), not
+     [wiki](wiki/) (the verifier rejects folder links).
 
 3. Sanity checklist before finishing: every wiki page has **In one sentence:** and
    ## Key points; digest lines are verbatim copies; every page has at least one

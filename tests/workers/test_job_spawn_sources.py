@@ -59,7 +59,7 @@ class FakeQueue:
 class FakeRunner:
     """Workflow starter: ValueError (skip) for urls containing 'bad'."""
 
-    def start(self, workflow_ref: str, inputs):
+    def start(self, workflow_ref: str, inputs, parent_task_id=None):
         url = inputs.get("url", "")
         if "bad" in url:
             raise ValueError("embedded null byte")
