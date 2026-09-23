@@ -142,6 +142,7 @@ describe('WorkflowsPage', () => {
         id: 'run-1', workflow_id: plain.id, workflow_name: plain.name, n: 1,
         trigger: 'manual', schedule_id: null, status: 'running', reason: '',
         started_at: '2026-09-09T10:00:00Z', finished_at: null, inputs: {}, steps: [],
+        parent_run_id: null, parent_task_id: null,
       },
     });
     render(<WorkflowsPage />, { wrapper });

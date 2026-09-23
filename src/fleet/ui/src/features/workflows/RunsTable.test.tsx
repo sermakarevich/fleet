@@ -26,6 +26,7 @@ function step(overrides: Partial<WorkflowStepRun> = {}): WorkflowStepRun {
     state: 'done',
     task_title: 'Lint it',
     updated_at: '2026-09-09T09:01:00Z',
+    children: { runs: [], beads: [] },
     ...overrides,
   };
 }
@@ -43,6 +44,8 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     reason: '',
     started_at: '2026-09-09T09:00:00Z',
     finished_at: null,
+    parent_run_id: null,
+    parent_task_id: null,
     steps: [
       step(),
       step({

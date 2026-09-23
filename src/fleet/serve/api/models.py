@@ -857,6 +857,33 @@ class WorkflowRequest(BaseModel):
     stages: list[StageRequest] = Field(default_factory=list)
 
 
+class StepChildRun(BaseModel):
+    """One workflow-run child a job step spawned (journal key plus store lookup)."""
+
+    key: str
+    run_id: str
+    workflow_name: str | None
+    status: str
+    steps_done: int
+    steps_total: int
+
+
+class StepChildBead(BaseModel):
+    """One plain child bead a job step spawned (journal key plus queue lookup)."""
+
+    key: str
+    id: str
+    title: str | None
+    status: str | None
+
+
+class StepChildren(BaseModel):
+    """A step's spawned children: child runs plus plain child beads."""
+
+    runs: list[StepChildRun]
+    beads: list[StepChildBead]
+
+
 class StepRunView(BaseModel):
     """One step inside one run, with its display state and task title."""
 
@@ -869,6 +896,7 @@ class StepRunView(BaseModel):
     updated_at: str
     outputs: dict[str, str] = Field(default_factory=dict)
     warning: str | None = None
+    children: StepChildren
 
 
 class WorkflowRunView(BaseModel):
@@ -886,6 +914,8 @@ class WorkflowRunView(BaseModel):
     finished_at: str | None
     inputs: dict[str, str] = Field(default_factory=dict)
     steps: list[StepRunView]
+    parent_run_id: str | None
+    parent_task_id: str | None
 
 
 class WorkflowView(BaseModel):

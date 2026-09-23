@@ -334,7 +334,11 @@ class BeadsQueue(Queue):
         """The epic's child beads (its dependencies) with their statuses."""
         raw = children_of(epic_id, self.repo_root, timeout=self._client.timeout)
         return [
-            BeadSummary(id=str(c.get("id")), status=str(c.get("status") or ""))
+            BeadSummary(
+                id=str(c.get("id")),
+                status=str(c.get("status") or ""),
+                title=str(c["title"]) if c.get("title") else None,
+            )
             for c in raw
             if isinstance(c, dict) and c.get("id")
         ]

@@ -9,6 +9,7 @@ UI workflows tab reads these.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +46,7 @@ from fleet.serve.errors import (
 )
 from fleet.serve.state import StateDep
 from fleet.state import task_actions
+from fleet.state.paths import task_dir as task_dir_of
 from fleet.workflows.model import (
     Defaults,
     RunStatus,
@@ -165,24 +167,126 @@ def _validated(body: Any, *, workflow_id: str, created_at: str, now: datetime) -
     return workflow
 
 
-def _run_view(
-    run: WorkflowRun, *, store: WorkflowStore, titles: dict[str, str | None]
+def _read_json_map(path: Path) -> dict[str, Any]:
+    """A JSON object from *path*; missing/corrupt/non-object means {}."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _step_children(
+    store: WorkflowStore, queue: Queue, fleet_home: Path, task_id: str
 ) -> dict[str, Any]:
-    """One run with its step runs (titles null when the task is gone)."""
-    steps = [
-        {
-            "step_name": item.step_name,
-            "stage_index": item.stage_index,
-            "task_id": item.task_id,
-            "task_status": item.task_status,
-            "state": step_state_of(item.task_status).value,
-            "task_title": titles.get(item.task_id),
-            "updated_at": item.updated_at,
-            "outputs": dict(item.outputs),
-            "warning": item.warning,
-        }
-        for item in store.step_runs(run.id)
+    """One step's spawned children: child runs plus plain child beads.
+
+    Reads the step task dir's ``children_runs.json`` / ``children.json``
+    journals (written by ``workers/job.py``). Missing or unreadable
+    artifacts, a journal entry without a run, an unknown store run, or a
+    queue failure all yield empty lists — never an error. Plain-bead
+    titles/statuses come from a single ``queue.list_children`` call.
+    """
+    empty: dict[str, Any] = {"runs": [], "beads": []}
+    artifacts = task_dir_of(fleet_home, task_id) / "artifacts"
+    runs_journal = _read_json_map(artifacts / "children_runs.json")
+    created = _read_json_map(artifacts / "children.json")
+    if not runs_journal and not created:
+        return empty
+    run_ids = {
+        str(entry["run_id"])
+        for entry in runs_journal.values()
+        if isinstance(entry, dict) and entry.get("run_id")
+    }
+    runs: list[dict[str, Any]] = []
+    for key in sorted(runs_journal):
+        entry = runs_journal[key]
+        if not isinstance(entry, dict) or not entry.get("run_id"):
+            continue
+        run_id = str(entry["run_id"])
+        child = store.get_run(run_id)
+        if child is None:
+            runs.append(
+                {
+                    "key": str(key),
+                    "run_id": run_id,
+                    "workflow_name": None,
+                    "status": "unknown",
+                    "steps_done": 0,
+                    "steps_total": 0,
+                }
+            )
+            continue
+        steps = store.step_runs(child.id)
+        runs.append(
+            {
+                "key": str(key),
+                "run_id": run_id,
+                "workflow_name": child.spec.name,
+                "status": child.status.value,
+                "steps_done": sum(1 for item in steps if item.task_status == "closed"),
+                "steps_total": len(steps),
+            }
+        )
+    beads: list[dict[str, Any]] = []
+    plain = [
+        (str(key), str(child_id))
+        for key, child_id in created.items()
+        if isinstance(child_id, str) and child_id not in run_ids
     ]
+    if plain:
+        try:
+            summaries = {item.id: item for item in queue.list_children(task_id)}
+        except BdError:
+            return {"runs": runs, "beads": []}
+        for key, child_id in sorted(plain):
+            summary = summaries.get(child_id)
+            beads.append(
+                {
+                    "key": key,
+                    "id": child_id,
+                    "title": summary.title if summary is not None else None,
+                    "status": summary.status if summary is not None else None,
+                }
+            )
+    return {"runs": runs, "beads": beads}
+
+
+def _run_view(
+    run: WorkflowRun,
+    *,
+    store: WorkflowStore,
+    titles: dict[str, str | None],
+    fleet_home: Path | None = None,
+    queue: Queue | None = None,
+    include_children: bool = False,
+) -> dict[str, Any]:
+    """One run with its step runs (titles null when the task is gone).
+
+    Only the run-detail route passes ``include_children``: the journals
+    live under each step's task dir, so the list routes keep empty
+    children and stay cheap.
+    """
+    steps = []
+    for item in store.step_runs(run.id):
+        if include_children and fleet_home is not None and queue is not None:
+            children = _step_children(store, queue, fleet_home, item.task_id)
+        else:
+            children = {"runs": [], "beads": []}
+        steps.append(
+            {
+                "step_name": item.step_name,
+                "stage_index": item.stage_index,
+                "task_id": item.task_id,
+                "task_status": item.task_status,
+                "state": step_state_of(item.task_status).value,
+                "task_title": titles.get(item.task_id),
+                "updated_at": item.updated_at,
+                "outputs": dict(item.outputs),
+                "warning": item.warning,
+                "children": children,
+            }
+        )
     return {
         "id": run.id,
         "workflow_id": run.workflow_id,
@@ -196,17 +300,39 @@ def _run_view(
         "finished_at": run.finished_at,
         "inputs": dict(run.inputs),
         "steps": steps,
+        "parent_run_id": run.parent_run_id,
+        "parent_task_id": run.parent_task_id,
     }
 
 
 def _refreshed_view(
-    run: WorkflowRun, *, store: WorkflowStore, queue: Queue, now: datetime
+    run: WorkflowRun,
+    *,
+    store: WorkflowStore,
+    queue: Queue,
+    now: datetime,
+    fleet_home: Path | None = None,
+    include_children: bool = False,
 ) -> dict[str, Any]:
     """One run view; running runs refresh first (one bd call, titles reused)."""
     if run.status != RunStatus.running:
-        return _run_view(run, store=store, titles={})
+        return _run_view(
+            run,
+            store=store,
+            titles={},
+            fleet_home=fleet_home,
+            queue=queue,
+            include_children=include_children,
+        )
     refreshed, tasks = refresh_run_with_tasks(run, store=store, queue=queue, now=now)
-    return _run_view(refreshed, store=store, titles={task.id: task.title for task in tasks})
+    return _run_view(
+        refreshed,
+        store=store,
+        titles={task.id: task.title for task in tasks},
+        fleet_home=fleet_home,
+        queue=queue,
+        include_children=include_children,
+    )
 
 
 def _workflow_view(
@@ -435,19 +561,28 @@ def _list_runs(
 
 
 def _run_detail(
-    store: WorkflowStore, queue: Queue, run_id: str, now: datetime
+    store: WorkflowStore, queue: Queue, fleet_home: Path, run_id: str, now: datetime
 ) -> dict[str, Any] | None:
     """One run view with task titles from a single bd call (runs in a thread)."""
     run = store.get_run(run_id)
     if run is None:
         return None
     if run.status == RunStatus.running:
-        return _refreshed_view(run, store=store, queue=queue, now=now)
+        return _refreshed_view(
+            run, store=store, queue=queue, now=now, fleet_home=fleet_home, include_children=True
+        )
     try:
         tasks = queue.list_by_metadata("fleet_workflow_run", run.id)
     except BdError:
         tasks = []
-    return _run_view(run, store=store, titles={task.id: task.title for task in tasks})
+    return _run_view(
+        run,
+        store=store,
+        titles={task.id: task.title for task in tasks},
+        fleet_home=fleet_home,
+        queue=queue,
+        include_children=True,
+    )
 
 
 def _cancel_run(
@@ -666,7 +801,12 @@ async def get_workflow_run(run_id: str, state: StateDep) -> JSONResponse:
     """One run with its step runs and task titles."""
     try:
         payload = await asyncio.to_thread(
-            _run_detail, state.workflow_store, state.queue, run_id, datetime.now(UTC)
+            _run_detail,
+            state.workflow_store,
+            state.queue,
+            state.fleet_home,
+            run_id,
+            datetime.now(UTC),
         )
     except WorkflowNotFound as exc:
         _reraise_missing(exc)

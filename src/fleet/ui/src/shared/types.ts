@@ -55,6 +55,9 @@ export type TriggerPreview = Schemas['TriggerPreviewResponse'];
 export type Workflow = Schemas['WorkflowView'];
 export type WorkflowRun = Schemas['WorkflowRunView'];
 export type WorkflowStepRun = Schemas['StepRunView'];
+export type StepChildren = Schemas['StepChildren'];
+export type StepChildRun = Schemas['StepChildRun'];
+export type StepChildBead = Schemas['StepChildBead'];
 export type WorkflowValidate = Schemas['WorkflowValidateResponse'];
 
 // --- UI-only types (never cross the API boundary) ---

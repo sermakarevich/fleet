@@ -23,7 +23,7 @@ from fleet.state import paths as state_paths
 from fleet.workers.base import StepContext, StepStatus
 from fleet.workers.job import SpawnChildren
 from fleet.workflows import builders
-from fleet.workflows.model import RunStatus, Workflow, WorkflowInput
+from fleet.workflows.model import RunStatus, Stage, Step, Trigger, Workflow, WorkflowInput
 from fleet.workflows.store import WorkflowStore
 from tests.conftest import FakeQueue
 
@@ -229,3 +229,109 @@ def test_spawn_retry_after_kill_creates_no_second_chain(
     assert store.run_count(workflow.id) == 1, "retry must not start a second chain"
     journaled = json.loads((artifacts / "children_runs.json").read_text())
     assert journaled["src-01"]["run_id"] == orphan.run_id
+
+
+def _plain_workflow() -> Workflow:
+    """A one-step workflow needing no builder (plain start path)."""
+    return Workflow(
+        id="wf-plain0001",
+        name="plain",
+        description="d",
+        stages=(Stage(name="only", steps=(Step(name="do", title="Do it"),)),),
+    )
+
+
+def test_start_without_parent_is_manual(tmp_path: Path) -> None:
+    """A plain start records no parent and keeps the manual trigger."""
+    store = _store_with(_plain_workflow(), tmp_path)
+    runner = WorkflowRunner(store, FakeQueue(), _now)
+
+    handle = runner.start("wf-plain0001", {})
+
+    run = store.get_run(handle.run_id)
+    assert run is not None
+    assert run.trigger is Trigger.manual
+    assert run.parent_run_id is None and run.parent_task_id is None
+
+
+def test_start_with_parent_task_resolves_parent_run(tmp_path: Path) -> None:
+    """A job's own task id resolves the run owning that step as the parent."""
+    store = _store_with(_plain_workflow(), tmp_path)
+    runner = WorkflowRunner(store, FakeQueue(), _now)
+
+    first = runner.start("wf-plain0001", {})
+    epic_task = store.step_runs(first.run_id)[0].task_id
+    store.finish_run(first.run_id, RunStatus.cancelled, "operator", _STAMP)
+
+    second = runner.start("wf-plain0001", {}, parent_task_id=epic_task)
+
+    run = store.get_run(second.run_id)
+    assert run is not None and run.id != first.run_id
+    assert run.trigger is Trigger.parent
+    assert run.parent_run_id == first.run_id
+    assert run.parent_task_id == epic_task
+
+
+def test_start_with_unknown_parent_task_keeps_task_id(tmp_path: Path) -> None:
+    """A parent task owning no step still marks the trigger honestly."""
+    store = _store_with(_plain_workflow(), tmp_path)
+    runner = WorkflowRunner(store, FakeQueue(), _now)
+
+    handle = runner.start("wf-plain0001", {}, parent_task_id="fleet-epic1")
+
+    run = store.get_run(handle.run_id)
+    assert run is not None
+    assert run.trigger is Trigger.parent
+    assert run.parent_run_id is None
+    assert run.parent_task_id == "fleet-epic1"
+
+
+def test_spawn_records_parent_task_on_child_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end: a job-spawned run names the epic task that spawned it."""
+    _register_fake(monkeypatch)
+    workflow = _builder_workflow()
+    store = _store_with(workflow, tmp_path)
+    beads = FakeQueue()
+    runner = WorkflowRunner(store, beads, _now)
+
+    task_dir = state_paths.task_dir(tmp_path, "job-1")
+    artifacts = task_dir / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "tasks.json").write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "key": "src-01",
+                        "title": "spawned source",
+                        "workflow": workflow.id,
+                        "inputs": {"url": "https://example.com/child"},
+                    }
+                ]
+            }
+        )
+    )
+    ctx = StepContext(
+        task=Task(id="job-1", title="job", description="goal", status="in_progress"),
+        task_dir=task_dir,
+        workdir=tmp_path,
+        fleet_home=tmp_path,
+        coder=None,
+        config=RuntimeConfig(),
+        rate_gauge=None,  # type: ignore[arg-type]
+        log=structlog.get_logger(),
+        attempt_dir=task_dir / "attempts" / "1",
+        attempt_n=1,
+        workflow_runner=runner,
+    )
+    result = asyncio.run(SpawnChildren(beads).run(ctx))
+
+    assert result.status == StepStatus.OK
+    journaled = json.loads((artifacts / "children_runs.json").read_text())
+    child = store.get_run(journaled["src-01"]["run_id"])
+    assert child is not None
+    assert child.trigger is Trigger.parent
+    assert child.parent_task_id == "job-1"
+    assert child.parent_run_id is None  # the epic is no workflow step

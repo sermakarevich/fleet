@@ -80,7 +80,14 @@ class RunHandle:
 class WorkflowRunnerLike(Protocol):
     """Starts a workflow run for a job's workflow-run child (ADR 0015 §2)."""
 
-    def start(self, workflow_ref: str, inputs: Mapping[str, str]) -> RunHandle: ...
+    def start(
+        self,
+        workflow_ref: str,
+        inputs: Mapping[str, str],
+        *,
+        parent_run_id: str | None = ...,
+        parent_task_id: str | None = ...,
+    ) -> RunHandle: ...
 
 
 @dataclass

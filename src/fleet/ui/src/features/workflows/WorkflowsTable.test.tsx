@@ -86,6 +86,8 @@ describe('workflowColumns', () => {
           reason: '',
           started_at: '2026-09-09T09:00:00Z',
           finished_at: '2026-09-09T09:05:00Z',
+          parent_run_id: null,
+          parent_task_id: null,
           steps: [],
         },
       }),

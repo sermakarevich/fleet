@@ -32,10 +32,11 @@ _BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 
 class Trigger(StrEnum):
-    """How a run started: by hand or from a schedule tick."""
+    """How a run started: by hand, from a schedule tick, or from a parent job."""
 
     manual = "manual"
     cron = "cron"
+    parent = "parent"
 
 
 class RunStatus(StrEnum):
@@ -220,6 +221,11 @@ class WorkflowRun:
     started_at: str = ""
     finished_at: str | None = None
     inputs: dict[str, str] = field(default_factory=dict)
+    #: Id of the workflow run whose job worker started this run (a `parent`
+    #: trigger child); None for manual/cron runs and runs predating parents.
+    parent_run_id: str | None = None
+    #: Id of the parent job's epic task that spawned this run; None likewise.
+    parent_task_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return this run as plain JSON-safe data."""
@@ -235,6 +241,8 @@ class WorkflowRun:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "inputs": dict(self.inputs),
+            "parent_run_id": self.parent_run_id,
+            "parent_task_id": self.parent_task_id,
         }
 
     @classmethod
@@ -252,6 +260,8 @@ class WorkflowRun:
             started_at=str(data.get("started_at", "")),
             finished_at=data.get("finished_at"),
             inputs={str(key): str(value) for key, value in (data.get("inputs") or {}).items()},
+            parent_run_id=data.get("parent_run_id"),
+            parent_task_id=data.get("parent_task_id"),
         )
 
 

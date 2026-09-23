@@ -65,7 +65,7 @@ class FakeWorkflowRunner:
         self.error = error
         self.calls: list[tuple[str, dict]] = []
 
-    def start(self, workflow_ref: str, inputs):
+    def start(self, workflow_ref: str, inputs, *, parent_run_id=None, parent_task_id=None):
         self.calls.append((workflow_ref, dict(inputs)))
         if self.error is not None:
             raise self.error
@@ -427,7 +427,7 @@ def test_spawn_children_starts_workflow_runs_concurrently(tmp_path: Path) -> Non
             self.calls: list[tuple[str, dict]] = []
             self._lock = threading.Lock()
 
-        def start(self, workflow_ref: str, inputs):
+        def start(self, workflow_ref: str, inputs, *, parent_run_id=None, parent_task_id=None):
             started.wait()
             with self._lock:
                 self.calls.append((workflow_ref, dict(inputs)))
@@ -465,7 +465,7 @@ def test_spawn_journals_starting_intent_before_start(tmp_path: Path) -> None:
     seen: dict = {}
 
     class IntentPeekingRunner:
-        def start(self, workflow_ref: str, inputs):
+        def start(self, workflow_ref: str, inputs, *, parent_run_id=None, parent_task_id=None):
             seen.update(json.loads((artifacts_dir / "children_runs.json").read_text()))
             return RunHandle("run-1", ("t1",), ("t1",))
 
@@ -491,7 +491,7 @@ def test_spawn_retries_stale_starting_intent_without_second_chain(tmp_path: Path
             self.starts = 0
             self.known: dict = {}
 
-        def start(self, workflow_ref: str, inputs):
+        def start(self, workflow_ref: str, inputs, *, parent_run_id=None, parent_task_id=None):
             key = (workflow_ref, tuple(sorted(inputs.items())))
             if key not in self.known:
                 self.starts += 1

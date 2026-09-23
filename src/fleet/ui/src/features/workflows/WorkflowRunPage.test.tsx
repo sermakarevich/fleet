@@ -24,6 +24,7 @@ function step(overrides: Partial<WorkflowStepRun> = {}): WorkflowStepRun {
     state: 'done',
     task_title: 'Lint it',
     updated_at: '2026-09-09T09:01:00Z',
+    children: { runs: [], beads: [] },
     ...overrides,
   };
 }
@@ -40,6 +41,8 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     reason: '',
     started_at: '2026-09-09T09:00:00Z',
     finished_at: null,
+    parent_run_id: null,
+    parent_task_id: null,
     steps: [
       step(),
       step({
@@ -186,5 +189,59 @@ describe('WorkflowRunPage', () => {
     render(<WorkflowRunPage />, { wrapper });
     await waitFor(() => expect(screen.getAllByText('publish').length).toBeGreaterThan(0));
     expect(screen.getByText('waiting (deferred)')).toBeInTheDocument();
+  });
+
+  it('renders a step Children table with run and bead links', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({
+        steps: [
+          step({
+            children: {
+              runs: [
+                {
+                  key: 'src-01', run_id: 'wfr-child1', workflow_name: 'summarise',
+                  status: 'running', steps_done: 1, steps_total: 3,
+                },
+              ],
+              beads: [
+                { key: 't-01', id: 'fleet-abc', title: 'Plain child', status: 'open' },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Children')).toBeInTheDocument());
+    const runLink = screen.getByRole('link', { name: /src-01: summarise/ });
+    expect(runLink).toHaveAttribute('href', '/workflow-runs/wfr-child1');
+    expect(screen.getByText('1/3')).toBeInTheDocument();
+    const beadLink = screen.getByRole('link', { name: /t-01: Plain child/ });
+    expect(beadLink).toHaveAttribute('href', '/tasks/fleet-abc');
+  });
+
+  it('renders no Children section when the step spawned nothing', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(makeRun());
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getAllByText('lint').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Children')).not.toBeInTheDocument();
+  });
+
+  it('links a parent-triggered run back to its parent run', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({ trigger: 'parent', parent_run_id: 'wfr-parent', parent_task_id: 'fleet-epic' }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Started by')).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'wfr-parent' })).toHaveAttribute(
+      'href', '/workflow-runs/wfr-parent',
+    );
+  });
+
+  it('shows no parent link for a manual run', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(makeRun());
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getAllByText('lint').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Started by')).not.toBeInTheDocument();
   });
 });

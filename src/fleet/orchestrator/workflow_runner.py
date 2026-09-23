@@ -37,8 +37,21 @@ class WorkflowRunner:
             raise ValueError(f"workflow {ref!r} not found")
         return found
 
-    def start(self, workflow_ref: str, inputs: Mapping[str, str]) -> RunHandle:
+    def start(
+        self,
+        workflow_ref: str,
+        inputs: Mapping[str, str],
+        *,
+        parent_run_id: str | None = None,
+        parent_task_id: str | None = None,
+    ) -> RunHandle:
         """Start *workflow_ref* with *inputs*; return its ids as a RunHandle.
+
+        A job worker passes its own task id as *parent_task_id* (and the
+        run id when it knows it): the child records both and its trigger
+        reads ``parent`` instead of ``manual``. When only the task id is
+        known, the run owning that step is resolved from the store; when
+        neither is known the run stays a plain manual start.
 
         When a live or succeeded run with identical inputs already exists
         (e.g. orphaned by a spawn attempt killed before it journaled the
@@ -48,6 +61,14 @@ class WorkflowRunner:
         """
         workflow = self._resolve(workflow_ref)
         resolved = workflow_runs.resolve_inputs(workflow, inputs)
+        if parent_run_id is None and parent_task_id is not None:
+            parent = self._store.find_run_by_task(parent_task_id)
+            parent_run_id = parent.id if parent is not None else None
+        trigger = (
+            Trigger.parent
+            if (parent_run_id is not None or parent_task_id is not None)
+            else Trigger.manual
+        )
         with self._lock:
             existing = self._store.find_run_by_inputs(workflow.id, resolved)
             if existing is not None and self._store.step_runs(existing.id):
@@ -57,8 +78,10 @@ class WorkflowRunner:
                 store=self._store,
                 queue=self._queue,
                 now=self._now(),
-                trigger=Trigger.manual,
+                trigger=trigger,
                 inputs=resolved,
+                parent_run_id=parent_run_id,
+                parent_task_id=parent_task_id,
             )
             return self._handle_of(run)
 
