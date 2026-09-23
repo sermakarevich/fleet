@@ -1,3 +1,6 @@
+"""chunking.BOILERPLATE_WIKI_SUBSTRINGS: paper sections are not README boilerplate."""
+
+
 from fleet.workflows.builders.chunking import BOILERPLATE_WIKI_SUBSTRINGS
 
 

@@ -43,8 +43,12 @@ _FETCH_TIMEOUT_S = 60
 _CLI_TIMEOUT_S = 180
 _MAX_BYTES = 50_000_000
 _USER_AGENT = "Mozilla/5.0 (compatible; fleet-summarise/1.0)"
+_HTTP_NOT_ACCEPTABLE = 406
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVER_ERROR = 500
+#: Pauses between GET attempts for a transient failure. arXiv answers a
+#: burst of parallel PDF fetches with a passing 406; seconds later it is 200.
+HTTP_RETRY_DELAYS_S: tuple[float, ...] = (3.0, 10.0)
 
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 _X_HOSTS = ("x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com")
@@ -371,12 +375,23 @@ def _run(argv: list[str], *, what: str, kind: str | None = None) -> str:
 
 def _http_get(url: str) -> tuple[bytes, str]:
     """GET one URL; return (body, content-type)."""
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_S) as response:  # noqa: S310
-            return response.read(_MAX_BYTES), str(response.headers.get("Content-Type", ""))
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        raise SourceError(f"fetch {url}: {exc}", transient=_http_transient(exc)) from None
+    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "*/*"})
+    for delay in (*HTTP_RETRY_DELAYS_S, None):
+        try:
+            with urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_S) as response:  # noqa: S310
+                return response.read(_MAX_BYTES), str(response.headers.get("Content-Type", ""))
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            if delay is None or not _http_retryable(exc):
+                raise SourceError(f"fetch {url}: {exc}", transient=_http_transient(exc)) from None
+            time.sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _http_retryable(exc: BaseException) -> bool:
+    """True when the same GET is worth repeating in a few seconds."""
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == _HTTP_NOT_ACCEPTABLE:
+        return True
+    return _http_transient(exc)
 
 
 def _http_transient(exc: BaseException) -> bool:
