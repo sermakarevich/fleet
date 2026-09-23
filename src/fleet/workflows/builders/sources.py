@@ -379,12 +379,28 @@ def _http_get(url: str) -> tuple[bytes, str]:
     for delay in (*HTTP_RETRY_DELAYS_S, None):
         try:
             with urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_S) as response:  # noqa: S310
-                return response.read(_MAX_BYTES), str(response.headers.get("Content-Type", ""))
+                body = response.read(_MAX_BYTES)
+                _check_complete(body, response.headers.get("Content-Length"))
+                return body, str(response.headers.get("Content-Type", ""))
         except (urllib.error.URLError, OSError, ValueError) as exc:
             if delay is None or not _http_retryable(exc):
                 raise SourceError(f"fetch {url}: {exc}", transient=_http_transient(exc)) from None
             time.sleep(delay)
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+class TruncatedDownload(ConnectionError):
+    """The connection closed before Content-Length bytes arrived."""
+
+
+def _check_complete(body: bytes, content_length: str | None) -> None:
+    """Raise TruncatedDownload when fewer bytes arrived than the server announced."""
+    try:
+        expected = int(content_length or "")
+    except ValueError:
+        return
+    if len(body) < min(expected, _MAX_BYTES):
+        raise TruncatedDownload(f"truncated download: {len(body)} of {expected} bytes")
 
 
 def _http_retryable(exc: BaseException) -> bool:

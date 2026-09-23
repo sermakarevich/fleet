@@ -65,3 +65,25 @@ def test_persistent_503_gives_up_transient(monkeypatch: pytest.MonkeyPatch) -> N
         sources._http_get("https://arxiv.org/pdf/1")
     assert info.value.transient
     assert len(seen) == 3
+
+
+class _Short(_Resp):
+    headers = {"Content-Type": "application/pdf", "Content-Length": "10"}
+
+
+class _Full(_Resp):
+    headers = {"Content-Type": "application/pdf", "Content-Length": "4"}
+
+
+def test_truncated_body_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _urlopen(monkeypatch, [_Short(b"%PD"), _Full(b"%PDF")])
+    body, _ = sources._http_get("https://arxiv.org/pdf/1")
+    assert body == b"%PDF"
+    assert len(seen) == 2
+
+
+def test_always_truncated_fails_transient(monkeypatch: pytest.MonkeyPatch) -> None:
+    _urlopen(monkeypatch, [_Short(b"%PD"), _Short(b"%PD"), _Short(b"%PD")])
+    with pytest.raises(sources.SourceError, match="truncated") as info:
+        sources._http_get("https://arxiv.org/pdf/1")
+    assert info.value.transient
