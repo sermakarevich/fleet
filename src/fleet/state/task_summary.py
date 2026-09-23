@@ -3,7 +3,7 @@
 Combines task.json fields with the events.jsonl scan (fleet.state.events) and
 the attempt-history rounds (fleet.core.retry_policy), so the CLI table and the
 API report the same numbers for the same task. Callers reconcile queue status
-beforehand (see `fleet.beads.reconcile.merge_status`) and pass the resolved
+beforehand (see `fleet.core.status.merge_status`) and pass the resolved
 context window and blocked-notes fallback in — this module imports core and
 state only.
 """
@@ -308,7 +308,7 @@ def build_task_summary(
     """Return the summary dict for one task.
 
     *data* is the task.json content, already reconciled against beads status
-    (see `fleet.beads.reconcile.merge_status`) by the caller. *fleet_home* is the
+    (see `fleet.core.status.merge_status`) by the caller. *fleet_home* is the
     fleet home directory. *context_limit* is the resolved coder/model window
     (defaults to DEFAULT_CONTEXT_LIMIT); *blocked_notes* is the beads-notes
     fallback used when a blocked task has no blocked_reason.

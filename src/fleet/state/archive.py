@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from fleet.beads.reconcile import merge_status
+from fleet.core.status import merge_status
 from fleet.core.task import TaskStatus
 from fleet.state.paths import tasks_root
 from fleet.state.task_index import TaskIndex
@@ -45,7 +45,7 @@ def plan_gc(
 ) -> GcResult:
     """Select closed task dirs older than *days* for archiving (no moves).
 
-    Status is resolved via :func:`fleet.beads.reconcile.merge_status` against
+    Status is resolved via :func:`fleet.core.status.merge_status` against
     *beads_map* (beads is the source of truth; a task id absent from the map
     is treated as closed). When *beads_map* is None (bd unavailable), status
     falls back to the raw ``task.json`` value only, so GC never archives
