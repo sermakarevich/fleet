@@ -24,7 +24,7 @@ from fleet.workflows.store import WorkflowStore  # noqa: E402
 
 BASE = Workflow(
     id="wf-hgtt7ao2",
-    name="summary_get",
+    name="summarise",
     description="d",
     defaults=Defaults(
         cwd="/tmp/ai", coder="opencode", model="m", priority=2, isolation="none"
@@ -32,7 +32,7 @@ BASE = Workflow(
     inputs=(),
     created_at="2026-09-22T00:00:00+00:00",
     updated_at="2026-09-22T00:00:00+00:00",
-    builder="summary_get",
+    builder="summarise",
 )
 
 HEADER = """# Some Owner/Repo
@@ -46,7 +46,7 @@ body here
 
 
 def _workdir(root: Path, run_id: str) -> Path:
-    work = root / "workflows" / "summary_get" / run_id
+    work = root / "workflows" / "summarise" / run_id
     (work / "chunks").mkdir(parents=True)
     (work / "source.md").write_text(HEADER, encoding="utf-8")
     records = [

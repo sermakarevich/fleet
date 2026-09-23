@@ -65,5 +65,5 @@ only known at run start.
 
 The `summary_get` builder was renamed to `summarise` (module, registry key,
 definition name, and saved YAML); body text above keeps the old name as
-written. The one-shot `scripts/recover_workflow_runs.py` still reads the
-pre-rename `workflows/summary_get/<run_id>` work dirs.
+written. The saved workflow row kept its id and runs, and the per-run
+work dirs moved to `workflows/summarise/<run_id>`.

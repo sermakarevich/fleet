@@ -3,7 +3,7 @@ fleet-folie cascade delete (INSERT OR REPLACE on workflows, 2026-09-22).
 
 Reads the surviving on-disk truth — beads (labels + metadata
 fleet_workflow_id/fleet_workflow_run/fleet_workflow_step), per-run work dirs
-(~/.fleet/workflows/summary_get/<run_id>/chunks.json + source.md), and closed
+(~/.fleet/workflows/summarise/<run_id>/chunks.json + source.md), and closed
 steps' ~/.fleet/tasks/<task_id>/outputs.json — regenerates each run's expanded
 spec offline with builders.summarise._stages (never re-fetches the source),
 and inserts the run + step rows.
@@ -60,8 +60,7 @@ from fleet.workflows.store import WorkflowStore  # noqa: E402
 from fleet.workflows.templates import TemplateContext, render_with_missing  # noqa: E402
 
 WORKFLOW_ID = "wf-hgtt7ao2"
-# Pre-rename builder name and work dir: 707 historical run dirs live under workflows/summary_get/.
-BUILDER = "summary_get"
+BUILDER = "summarise"
 KNOWN_STATUSES = {"open", "in_progress", "blocked", "closed"}
 
 
