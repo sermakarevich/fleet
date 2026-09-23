@@ -115,7 +115,9 @@ def validate_tasks(doc: Json, max_children: int = 30) -> list[str]:  # noqa: PLR
 
     Expected shape: ``{"tasks": [{key, title, body, cwd, coder, model,
     priority, depends_on, workflow, inputs}]}`` where ``depends_on`` names
-    sibling *keys*. A plain child needs a non-blank ``body``; a workflow
+    sibling *keys*. Extra top-level keys (e.g. a research ``src-NN``
+    entry's ``folder`` guess, ADR 0015 amendment 2026-09-23) are ignored.
+    A plain child needs a non-blank ``body``; a workflow
     child (``workflow`` set, ADR 0015 §2) takes no ``body``/``coder``/
     ``model``, cannot ``depends_on`` siblings, and its ``inputs`` (default
     ``{}``) must be a mapping of strings to strings. Errors: doc not an

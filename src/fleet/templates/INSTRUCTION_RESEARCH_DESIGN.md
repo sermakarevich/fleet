@@ -33,13 +33,21 @@ so its file stage MOVEs the finished entry to
 follow-up move bead:
 
 ```json
-{"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>", "topic": "<TOPIC>"}}
+{"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>", "topic": "<TOPIC>"}, "folder": "<Name>"}
 ```
 
 `<TOPIC>` is the topic folder name from above (not a path). Derive each
 source's `<Name>` folder the way the summarise plan step would
-(`<PascalName>`, `YYYY-MM-DD-<PascalName>` for investment/finance topics)
-and use it in the depending topic digests' `{{sources}}`.
+(`<PascalName>`, `YYYY-MM-DD-<PascalName>` for investment/finance topics),
+record it in the entry's `folder` (a top-level key, never inside `inputs`),
+and use it in the depending topic digests' `{{sources}}`. The guess can be
+wrong — the plan step picks its own slug. That is expected: at spawn the
+job worker strips a skipped source's `folder` from dependent bodies,
+appends a `Source resolution` table (key, title, guessed folder, url,
+status) to every bead depending on a workflow child, and writes the same
+data to `artifacts/sources_resolved.json`; digest workers resolve the real
+folder themselves (`Source:` provenance scan per their template) and report
+skipped sources as skipped, never pending.
 
 ## Per shortlisted source already in the KB (`status == "shortlist"`, `origin != null`)
 
