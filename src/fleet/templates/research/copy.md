@@ -20,7 +20,7 @@ Routing (exactly one home):
 - Located folder directly under research/ → its home is now
   `{{target}}/sources/{{name}}/`. MOVE it there (below) and leave nothing
   behind at research/<Name>/.
-- Located folder under /investment/ or /structured_papers/ (already homed
+- Located folder under /investment/ or /research_topics/ (already homed
   elsewhere) → do NOT duplicate it. Stop with an error instead of
   copying, so the operator decides (move the home vs reference it). Never
   `cp` a homed entry silently; never leave two folders with the same

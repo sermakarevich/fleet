@@ -24,7 +24,7 @@ how many sub-topics, the dependency shape below) and
 ## Per shortlisted source not already in the KB (`status == "shortlist"`, `origin == null`)
 
 Two tasks (the summarise run carries the research provenance so its file
-step skips filing into structured_papers/ — the copy bead below owns the
+step skips filing into research_topics/ — the copy bead below owns the
 entry's ONE home under research; MOVE, never copy):
 
 ```json
@@ -44,13 +44,13 @@ entry's ONE home under research; MOVE, never copy):
 `<TARGET>` is the absolute target from above
 (`/Users/sergii/.ai/knowledge/research/<target>`). The copy bead MOVEs the entry
 folder `research/<Name>/` into `<TARGET>/sources/<Name>/`, leaving nothing behind;
-nothing is filed into structured_papers/ for these sources.
+nothing is filed into research_topics/ for these sources.
 
 ## Per shortlisted source already in the KB (`status == "shortlist"`, `origin != null`)
 
 The copy task only, moving from `origin` instead of a fresh summarise
 folder, with no `depends_on` (MOVE, never copy — when `origin` is already
-homed under investment/ or structured_papers/, the copy bead stops with an
+homed under investment/ or research_topics/, the copy bead stops with an
 error instead of duplicating it, so the operator decides):
 
 ```json
