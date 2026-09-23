@@ -58,6 +58,8 @@ function makeRun(): WorkflowRun {
     started_at: '2026-09-09T10:00:00Z',
     finished_at: null,
     inputs: { url: 'https://example.com/p' },
+    parent_run_id: null,
+    parent_task_id: null,
     steps: [],
   };
 }

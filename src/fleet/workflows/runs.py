@@ -171,7 +171,7 @@ def _step_run(
     )
 
 
-def start_run(
+def start_run(  # noqa: PLR0913  # run identity: workflow/store/queue/now/trigger/parents
     workflow: Workflow,
     *,
     store: WorkflowStore,
@@ -180,6 +180,8 @@ def start_run(
     trigger: Trigger,
     schedule_id: str | None = None,
     inputs: Mapping[str, str] | None = None,
+    parent_run_id: str | None = None,
+    parent_task_id: str | None = None,
 ) -> WorkflowRun:
     """Open every step's bead stage by stage and record the run as running."""
     ensure_valid(workflow)
@@ -212,6 +214,8 @@ def start_run(
         status=RunStatus.running,
         started_at=stamp,
         inputs=resolved,
+        parent_run_id=parent_run_id,
+        parent_task_id=parent_task_id,
     )
     store.save_run(run)
     run_date = _as_utc(now).date().isoformat()

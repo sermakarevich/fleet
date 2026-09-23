@@ -2292,6 +2292,48 @@ export interface components {
             run: components["schemas"]["WorkflowRunView"];
         };
         /**
+         * StepChildBead
+         * @description One plain child bead a job step spawned (journal key plus queue lookup).
+         */
+        StepChildBead: {
+            /** Key */
+            key: string;
+            /** Id */
+            id: string;
+            /** Title */
+            title: string | null;
+            /** Status */
+            status: string | null;
+        };
+        /**
+         * StepChildRun
+         * @description One workflow-run child a job step spawned (journal key plus store lookup).
+         */
+        StepChildRun: {
+            /** Key */
+            key: string;
+            /** Run Id */
+            run_id: string;
+            /** Workflow Name */
+            workflow_name: string | null;
+            /** Status */
+            status: string;
+            /** Steps Done */
+            steps_done: number;
+            /** Steps Total */
+            steps_total: number;
+        };
+        /**
+         * StepChildren
+         * @description A step's spawned children: child runs plus plain child beads.
+         */
+        StepChildren: {
+            /** Runs */
+            runs: components["schemas"]["StepChildRun"][];
+            /** Beads */
+            beads: components["schemas"]["StepChildBead"][];
+        };
+        /**
          * StepRequest
          * @description One step template in a workflow create/update body.
          */
@@ -2351,6 +2393,7 @@ export interface components {
             };
             /** Warning */
             warning?: string | null;
+            children: components["schemas"]["StepChildren"];
         };
         /**
          * StreamEvent
@@ -2878,6 +2921,10 @@ export interface components {
             };
             /** Steps */
             steps: components["schemas"]["StepRunView"][];
+            /** Parent Run Id */
+            parent_run_id: string | null;
+            /** Parent Task Id */
+            parent_task_id: string | null;
         };
         /**
          * WorkflowValidateResponse

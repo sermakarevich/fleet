@@ -22,6 +22,9 @@ class BeadSummary:
 
     id: str
     status: str
+    # Child title when the source reported one (bd show dependencies do);
+    # None for summaries built from id/status-only rows.
+    title: str | None = None
 
 
 def children_terminal(children: list[BeadSummary]) -> bool:

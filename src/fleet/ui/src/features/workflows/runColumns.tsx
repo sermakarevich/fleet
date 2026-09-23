@@ -19,7 +19,7 @@ const STEP_SEGMENT: Record<string, string> = {
   waiting: T.colors.border,
 };
 
-// Small neutral chip for the run trigger (manual / cron).
+// Small neutral chip for the run trigger (manual / cron / parent).
 export function TriggerChip({ trigger }: { trigger: string }) {
   return (
     <span style={R.merge(T.badge, styles.triggerChip)}>

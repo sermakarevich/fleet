@@ -76,6 +76,8 @@ MIGRATIONS: list[str] = [
     "ALTER TABLE workflow_run_steps ADD COLUMN outputs_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE workflow_run_steps ADD COLUMN released INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE workflow_run_steps ADD COLUMN warning TEXT",
+    "ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT",
+    "ALTER TABLE workflow_runs ADD COLUMN parent_task_id TEXT",
 ]
 
 #: Schema level of a fully migrated database: the number of MIGRATIONS.
@@ -145,6 +147,12 @@ def _row_to_run(row: sqlite3.Row) -> WorkflowRun:
     data: dict[str, Any] = dict(row)
     data["spec"] = json.loads(str(data["spec_json"]))
     data["inputs"] = _decode_string_map(data.get("inputs_json"))
+    # Runs predating the parent columns (or with NULL parents) decode as
+    # parentless; dict(row) simply lacks the keys on an unmigrated table.
+    if "parent_run_id" not in data:
+        data["parent_run_id"] = None
+    if "parent_task_id" not in data:
+        data["parent_task_id"] = None
     return WorkflowRun.from_dict(data)
 
 
@@ -300,8 +308,8 @@ class WorkflowStore:
             conn.execute(
                 "INSERT OR REPLACE INTO workflow_runs (id, workflow_id, n, trigger, "
                 "schedule_id, spec_json, status, reason, started_at, finished_at, "
-                "inputs_json) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "inputs_json, parent_run_id, parent_task_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run.id,
                     run.workflow_id,
@@ -314,6 +322,8 @@ class WorkflowStore:
                     run.started_at,
                     run.finished_at,
                     json.dumps(run.inputs),
+                    run.parent_run_id,
+                    run.parent_task_id,
                 ),
             )
 
@@ -391,6 +401,23 @@ class WorkflowStore:
             if run.inputs == wanted:
                 return run
         return None
+
+    def find_run_by_task(self, task_id: str) -> WorkflowRun | None:
+        """Newest run owning a step row for *task_id*, or None.
+
+        Lets a job worker started from a workflow step record which run
+        spawned it (see `orchestrator/workflow_runner.py`): the epic bead
+        knows its own id but not its run.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT r.* FROM workflow_runs r "
+                "JOIN workflow_run_steps s ON s.run_id = r.id "
+                "WHERE s.task_id=? "
+                "ORDER BY r.started_at DESC, r.n DESC, r.id DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        return _row_to_run(row) if row is not None else None
 
     def finish_run(self, run_id: str, status: RunStatus, reason: str, finished_at: str) -> bool:
         """Close a run with its final status; False when the run is unknown."""

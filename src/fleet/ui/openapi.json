@@ -5405,6 +5405,120 @@
         "title": "StartRunResponse",
         "description": "Envelope for POST /api/workflows/{id}/run."
       },
+      "StepChildBead": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "id",
+          "title",
+          "status"
+        ],
+        "title": "StepChildBead",
+        "description": "One plain child bead a job step spawned (journal key plus queue lookup)."
+      },
+      "StepChildRun": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "steps_done": {
+            "type": "integer",
+            "title": "Steps Done"
+          },
+          "steps_total": {
+            "type": "integer",
+            "title": "Steps Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "run_id",
+          "workflow_name",
+          "status",
+          "steps_done",
+          "steps_total"
+        ],
+        "title": "StepChildRun",
+        "description": "One workflow-run child a job step spawned (journal key plus store lookup)."
+      },
+      "StepChildren": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/StepChildRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "beads": {
+            "items": {
+              "$ref": "#/components/schemas/StepChildBead"
+            },
+            "type": "array",
+            "title": "Beads"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs",
+          "beads"
+        ],
+        "title": "StepChildren",
+        "description": "A step's spawned children: child runs plus plain child beads."
+      },
       "StepRequest": {
         "properties": {
           "name": {
@@ -5554,6 +5668,9 @@
               }
             ],
             "title": "Warning"
+          },
+          "children": {
+            "$ref": "#/components/schemas/StepChildren"
           }
         },
         "type": "object",
@@ -5564,7 +5681,8 @@
           "task_status",
           "state",
           "task_title",
-          "updated_at"
+          "updated_at",
+          "children"
         ],
         "title": "StepRunView",
         "description": "One step inside one run, with its display state and task title."
@@ -7111,6 +7229,28 @@
             },
             "type": "array",
             "title": "Steps"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
+          },
+          "parent_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Task Id"
           }
         },
         "type": "object",
@@ -7125,7 +7265,9 @@
           "reason",
           "started_at",
           "finished_at",
-          "steps"
+          "steps",
+          "parent_run_id",
+          "parent_task_id"
         ],
         "title": "WorkflowRunView",
         "description": "One workflow run with its step runs (titles null when tasks are gone)."

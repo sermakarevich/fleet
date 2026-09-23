@@ -12,7 +12,7 @@ import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { statusLabel } from '../../shared/status';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
-import type { WorkflowStepRun } from '../../shared/types';
+import type { StepChildBead, StepChildRun, WorkflowStepRun } from '../../shared/types';
 import { StatusChip } from '../../shared/ui/StatusChip';
 import { Confirm } from '../../shared/ui/Confirm';
 import { LoadingState } from '../../shared/ui/LoadingState';
@@ -51,9 +51,63 @@ function StepCard({ step }: { step: WorkflowStepRun }) {
           ⚠ {step.warning}
         </div>
       )}
+      <ChildrenTable step={step} />
       <Link to={`/tasks/${step.task_id}`} style={styles.taskLink}>
         Open task {step.task_id}
       </Link>
+    </div>
+  );
+}
+
+// One child run row: journal key plus a link to the child run with its
+// status badge and step progress.
+function ChildRunRow({ child }: { child: StepChildRun }) {
+  return (
+    <div style={styles.childRow}>
+      <Link
+        to={`/workflow-runs/${child.run_id}`}
+        style={styles.taskLink}
+        title={child.run_id}
+      >
+        {child.key}: {child.workflow_name ?? child.run_id}
+      </Link>
+      <RunStatusChip status={child.status} />
+      <span style={styles.childProgress} title="steps done">
+        {child.steps_done}/{child.steps_total}
+      </span>
+    </div>
+  );
+}
+
+// One plain child bead row: journal key plus a link to the task page
+// with its bead status.
+function ChildBeadRow({ child }: { child: StepChildBead }) {
+  return (
+    <div style={styles.childRow}>
+      <Link to={`/tasks/${child.id}`} style={styles.taskLink} title={child.id}>
+        {child.key}: {child.title ?? child.id}
+      </Link>
+      <StatusChip status={child.status ?? 'unknown'} />
+    </div>
+  );
+}
+
+// A step's spawned children (workers/job.py journals): child runs link to
+// their run pages, plain child beads to their task pages. Nothing renders
+// when the step spawned nothing.
+function ChildrenTable({ step }: { step: WorkflowStepRun }) {
+  const runs = step.children?.runs ?? [];
+  const beads = step.children?.beads ?? [];
+  if (runs.length === 0 && beads.length === 0) return null;
+  return (
+    <div style={styles.childrenBox}>
+      <div style={styles.childrenHead}>Children</div>
+      {runs.map((child) => (
+        <ChildRunRow key={child.run_id} child={child} />
+      ))}
+      {beads.map((child) => (
+        <ChildBeadRow key={child.id} child={child} />
+      ))}
     </div>
   );
 }
@@ -144,6 +198,14 @@ export function WorkflowRunPage() {
       <p style={styles.metaLine}>
         Started {fmtTs(run.started_at)} · Finished {run.finished_at ? fmtTs(run.finished_at) : '—'}
       </p>
+      {run.parent_run_id && (
+        <p style={styles.metaLine}>
+          Started by{' '}
+          <Link to={`/workflow-runs/${run.parent_run_id}`} style={styles.taskLink}>
+            {run.parent_run_id}
+          </Link>
+        </p>
+      )}
       {run.reason && <p style={styles.reasonLine}>{run.reason}</p>}
       {Object.keys(run.inputs ?? {}).length > 0 && (
         <div style={styles.inputsBox}>
@@ -250,6 +312,21 @@ const styles = {
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
   taskLink: { fontSize: '0.75rem', color: T.colors.accent } as React.CSSProperties,
+  childrenBox: {
+    display: 'flex', flexDirection: 'column' as const, gap: '0.25rem',
+    background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
+    borderRadius: '0.25rem', padding: '0.375rem 0.5rem',
+  } as React.CSSProperties,
+  childrenHead: {
+    fontSize: '0.75rem', fontWeight: 600, color: T.colors.textPrimary,
+  } as React.CSSProperties,
+  childRow: {
+    display: 'flex', alignItems: 'center', gap: '0.5rem',
+    fontSize: '0.75rem', minWidth: 0,
+  } as React.CSSProperties,
+  childProgress: {
+    marginLeft: 'auto', flexShrink: 0, fontSize: '0.75rem', color: T.colors.textSecondary,
+  } as React.CSSProperties,
   timeline: {
     background: T.colors.bgDeep, border: `1px solid ${T.colors.borderSubtle}`,
     borderRadius: '0.375rem', padding: '0.625rem 0.875rem',

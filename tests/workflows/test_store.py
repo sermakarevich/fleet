@@ -158,6 +158,105 @@ def test_step_run_updates_and_finish(tmp_path: Path) -> None:
     store.close()
 
 
+def test_run_parent_round_trip(tmp_path: Path) -> None:
+    """Parent run/task ids survive save/get; parentless runs decode as None."""
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    run = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    assert store.get_run("wfr-missing") is None
+    store.save_run(run)
+    loaded = store.get_run(run.id)
+    assert loaded is not None
+    assert loaded.parent_run_id is None and loaded.parent_task_id is None
+    assert loaded.trigger is Trigger.manual
+
+    child = WorkflowRun(
+        id="wfr-00000002",
+        workflow_id="wf-test0001",
+        n=2,
+        trigger=Trigger.parent,
+        schedule_id=None,
+        spec=_workflow(),
+        status=RunStatus.running,
+        started_at="2026-09-09T02:00:00Z",
+        parent_run_id=run.id,
+        parent_task_id="fleet-epic1",
+    )
+    store.save_run(child)
+    reloaded = store.get_run(child.id)
+    assert reloaded is not None
+    assert reloaded.parent_run_id == run.id
+    assert reloaded.parent_task_id == "fleet-epic1"
+    assert reloaded.trigger is Trigger.parent
+    store.close()
+
+
+def test_find_run_by_task(tmp_path: Path) -> None:
+    """The newest run owning a step row for a task id wins; unknown is None."""
+    store = WorkflowStore(tmp_path / "w.db")
+    store.save(_workflow())
+    assert store.find_run_by_task("t-ghost") is None
+    first = _run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z")
+    second = _run("wf-test0001", "wfr-00000002", 2, "2026-09-09T02:00:00Z")
+    store.save_run(first)
+    store.save_run(second)
+    store.save_step_runs(
+        [
+            StepRun(
+                run_id=first.id,
+                step_name="collect",
+                stage_index=0,
+                task_id="t-shared",
+                task_status="closed",
+                updated_at="2026-09-09T01:00:00Z",
+            ),
+            StepRun(
+                run_id=second.id,
+                step_name="collect",
+                stage_index=0,
+                task_id="t-shared",
+                task_status="open",
+                updated_at="2026-09-09T02:00:00Z",
+            ),
+        ]
+    )
+    found = store.find_run_by_task("t-shared")
+    assert found is not None and found.id == second.id
+    assert store.find_run_by_task("t-ghost") is None
+    store.close()
+
+
+def test_v0_db_migrates_parent_columns(tmp_path: Path) -> None:
+    """A pre-parent database gains the columns; old runs stay parentless."""
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE workflows (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, "
+        "description TEXT NOT NULL DEFAULT '', spec_json TEXT NOT NULL, "
+        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+        "CREATE TABLE workflow_runs (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, "
+        "n INTEGER NOT NULL, trigger TEXT NOT NULL, schedule_id TEXT, spec_json TEXT NOT NULL, "
+        "status TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, "
+        "finished_at TEXT);"
+        "CREATE TABLE workflow_run_steps (run_id TEXT NOT NULL, step_name TEXT NOT NULL, "
+        "stage_index INTEGER NOT NULL, task_id TEXT NOT NULL, task_status TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL, PRIMARY KEY (run_id, step_name));"
+    )
+    conn.commit()
+    conn.close()
+
+    store = WorkflowStore(db)  # opening migrates
+    assert store.schema_version() == SCHEMA_VERSION
+    columns = {row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(workflow_runs)")}
+    assert {"parent_run_id", "parent_task_id"} <= columns
+    store.save(_workflow())
+    store.save_run(_run("wf-test0001", "wfr-00000001", 1, "2026-09-09T01:00:00Z"))
+    loaded = store.get_run("wfr-00000001")
+    assert loaded is not None
+    assert loaded.parent_run_id is None and loaded.parent_task_id is None
+    store.close()
+
+
 def test_migration_from_empty_file(tmp_path: Path) -> None:
     db = tmp_path / "w.db"
     db.touch()
@@ -414,8 +513,10 @@ def test_resave_workflow_preserves_runs_and_steps(tmp_path: Path) -> None:
     assert len(store.step_runs(run.id)) == 1
     row = store.get("wf-test0001")
     assert row is not None and row.description == "updated"
-    raw = sqlite3.connect(tmp_path / "w.db").execute(
-        "SELECT created_at FROM workflows WHERE id=?", ("wf-test0001",)
-    ).fetchone()
+    raw = (
+        sqlite3.connect(tmp_path / "w.db")
+        .execute("SELECT created_at FROM workflows WHERE id=?", ("wf-test0001",))
+        .fetchone()
+    )
     assert raw[0] == "2026-09-09T00:00:00Z"
     store.close()

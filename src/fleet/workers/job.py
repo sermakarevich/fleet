@@ -672,9 +672,15 @@ class SpawnChildren:
         journals.save_runs()
         journal_lock = threading.Lock()
         width = max(1, min(ctx.config.job_spawn_parallel, len(todo)))
+        parent_task_id = ctx.task.id
         with ThreadPoolExecutor(max_workers=width) as pool:
             futures = {
-                pool.submit(runner.start, task["workflow"], task["inputs"]): task["key"]
+                pool.submit(
+                    runner.start,
+                    task["workflow"],
+                    task["inputs"],
+                    parent_task_id=parent_task_id,
+                ): task["key"]
                 for task in todo
             }
             for future in as_completed(futures):
