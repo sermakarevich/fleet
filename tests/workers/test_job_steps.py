@@ -40,6 +40,7 @@ class FakeQueue:
         self._children = children or []
         self.created: list[tuple[str, dict]] = []
         self.comments: list[tuple[str, str]] = []
+        self.updated: list[tuple[str, str]] = []
         self.dependencies: list[tuple[str, str]] = []
 
     def list_children(self, epic_id: str):
@@ -52,6 +53,9 @@ class FakeQueue:
 
     def comment(self, task_id: str, body: str) -> None:
         self.comments.append((task_id, body))
+
+    def update_task(self, task_id: str, *, description: str | None = None, **kwargs) -> None:
+        self.updated.append((task_id, description or ""))
 
     def add_dependency(self, epic_id: str, child_id: str) -> None:
         self.dependencies.append((epic_id, child_id))

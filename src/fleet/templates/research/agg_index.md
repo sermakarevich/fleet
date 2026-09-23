@@ -32,7 +32,12 @@ row per source; never rewrite rows written for other sources, only append
 missing ones): fresh sources with `status=processed` and the folder
 `research_topics/<topic>/<Name>` where they were filed by their summarise
 file stage; already-in-the-KB sources with `status=in_kb` and their
-`origin` folder.
+`origin` folder. A shortlisted source the `Source resolution` section
+appended to this bead at spawn marks skipped, or that has no
+folder on disk and no digest row, is `status=unreachable` with the reason
+where the folder would go — never `pending`. A missing or skipped source
+is a ledger row, never a reason to return partial: write every row the
+evidence supports and finish.
 
 Append one bullet (folder link + one-line description of `{{topic}}`) to
 `/Users/sergii/.ai/knowledge/research/index.md`, registering this topic.

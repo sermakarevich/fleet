@@ -238,6 +238,45 @@ the `sources.md` ledger rows the copy beads used to write.
 Operator note: the saved `research` workflow row needs the required
 `topic` input added by hand — builtins backfill optional inputs only.
 
+## Amendment 2026-09-23 — skipped sources and real folder names reach dependents
+
+Run `wfr-2l1rhkdh` showed two spawn-time gaps. `src-06` (embedded null
+byte) and `src-10` (HTTP 403) were skipped at spawn and correctly dropped
+from dependents' `depends_on`, but the design-rendered bodies still named
+them, so the topic-02 digest waited for a source that could never arrive
+and looped `partial` 5×; topic-03 silently wrote a `pending` row. And the
+folder names in bodies are design-time guesses while the summarise plan
+step picks its own slug, so even filed sources may live under a different
+`<Name>` than the digest was told.
+
+Chosen design (simpler robust option from the two considered):
+
+- `tasks.json` `src-NN` entries carry a top-level `folder` (the guessed
+  `<Name>`; never inside `inputs`, ignored by validation).
+- Every spawn attempt, `SpawnChildren` writes
+  `artifacts/sources_resolved.json` (key → state, title, guessed folder,
+  url, reason, run id) and rewrites each freshly created non-workflow
+  child that depends on a manifest key via `bd update`: guessed names of
+  skipped sources are stripped from its source lists and a `Source
+  resolution` table (key, title, guessed folder, url, status) is appended.
+  The job comment records the manifest and the rewrite count. Rewriting
+  only fresh children is sufficient: a child is created exactly when all
+  its dependencies are created-or-skipped, so those states are final at
+  creation time.
+- Dependents self-resolve at claim time: `topic_digest.md` and
+  `agg_index.md` instruct their workers to treat the appended table as
+  authoritative — skipped → `skipped`/`unreachable` row, never pending,
+  never partial; a missing guessed folder → `Source:` provenance scan of
+  `research_topics/<topic>/*/source/source.md` (title fallback), still
+  missing → `unreachable` row, never partial. The file stage preserves
+  the plan slug as the destination basename, so the scan always lands.
+
+Rejected alternative: refreshing dependent bodies from the epic's observe
+phase when a child run finishes. The epic is claimable only when every
+child is terminal (`BeadsQueue._ready_epic_rows`), i.e. never while a
+digest is still pending, so no job-side step can beat the claim race —
+resolution has to live in the dependent's own body plus its template.
+
 ## Related
 
 - ADR 0007 recurring workers (schedules), ADR 0008 workflows, ADR 0010 run

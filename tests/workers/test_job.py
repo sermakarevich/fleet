@@ -361,7 +361,13 @@ def test_spawn_creates_children_with_deps_and_footer(tmp_path: Path) -> None:
     assert "Part of job job-1" in queue.created[0][1]["body"]
     journal = json.loads((ctx.task_dir / "artifacts" / "children.json").read_text(encoding="utf-8"))
     assert journal == {"t1": "kid-1", "t2": "kid-2"}
-    assert queue.comments == [("job-1", "[fleet] job spawned 2 children: kid-1, kid-2")]
+    assert queue.comments == [
+        (
+            "job-1",
+            "[fleet] job spawned 2 children: kid-1, kid-2\n"
+            "source manifest: artifacts/sources_resolved.json",
+        )
+    ]
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["status"] == "partial" and declared["next_step"] == "observe"
 

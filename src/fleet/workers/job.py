@@ -50,6 +50,12 @@ from .base import (
 )
 from .llm_session import LlmSession
 from .observe import CollectChildren, SpawnFollowups, WaitChildren
+from .research_bodies import (
+    SOURCES_NOTE_HEADER,
+    SourceRow,
+    build_sources_note,
+    strip_names_from_lists,
+)
 from .task_family import ensure_state
 
 # artifacts/RESEARCH.md cap the research prompt enforces (also truncates reads).
@@ -369,7 +375,20 @@ def _normalize_task(raw: dict) -> dict:
         "depends_on": list(raw.get("depends_on") or []),
         "workflow": raw.get("workflow"),
         "inputs": dict(raw.get("inputs") or {}),
+        # ADR 0015 amendment 2026-09-23: the design-time guessed source
+        # folder (<Name>) for a src-NN summarise child. Never passed to the
+        # workflow run (it is not part of inputs); spawn uses it to strip
+        # the guess from dependent bodies when the source is skipped, and
+        # to fill the sources_resolved.json manifest.
+        "folder": (str(raw.get("folder") or "").strip() or None),
     }
+
+
+#: Per-job source manifest kept next to the other spawn journals. Maps a
+#: tasks.json key to its resolution: where the source really is (or why it
+#: will never arrive). Dependent bodies point at it; the topic-digest and
+#: agg-index templates tell their workers to read it.
+SOURCES_RESOLVED = "sources_resolved.json"
 
 
 #: How often one key may be deferred before it counts as a dead source.
@@ -489,12 +508,18 @@ class SpawnChildren:
         queue = self._queue
         workflow_keys = {task["key"] for task in ordered if task["workflow"]}
         try:
-            self._spawn_missing(ctx, queue, ordered, journals)
+            rewrites = self._spawn_missing(ctx, queue, ordered, journals)
             labels = [f"run:{v}" if k in workflow_keys else v for k, v in created.items()]
             note = f"[fleet] job spawned {len(created)} children: {', '.join(labels)}"
             if skipped:
                 rows = "\n".join(f"- {key}: {reason}" for key, reason in skipped.items())
                 note += f"\n\nskipped {len(skipped)} (artifacts/children_skipped.json):\n{rows}"
+            note += f"\nsource manifest: artifacts/{SOURCES_RESOLVED}"
+            if rewrites:
+                note += (
+                    f"\nrewrote {rewrites} dependent bodies: skipped sources "
+                    f"removed from the source lists, resolution table appended"
+                )
             if journals.deferred:
                 note += (
                     f"\n\ndeferred {len(journals.deferred)} to the next attempt "
@@ -563,7 +588,7 @@ class SpawnChildren:
         queue: Queue,
         ordered: list[dict],
         journals: _SpawnJournals,
-    ) -> None:
+    ) -> int:
         """Create every not-yet-spawned child, journaling each id at once.
 
         A workflow child whose builder fails for good (dead link, no
@@ -573,11 +598,15 @@ class SpawnChildren:
         dependency. A child whose source was merely unreachable is deferred
         instead, and so is anything waiting on it: neither is created, so
         the next attempt picks both up.
+
+        Returns the number of dependent bodies rewritten for skipped
+        sources (see ``_refresh_dependents``).
         """
         design_path = str(journals.artifacts_dir / "DESIGN.md")
         created, runs, skipped = journals.created, journals.runs, journals.skipped
         self._start_workflow_runs(ctx, ordered, journals)
         deferred = journals.deferred
+        fresh: dict[str, tuple[str, str]] = {}
         for task in ordered:
             if task["key"] in skipped or task["key"] in deferred:
                 continue
@@ -626,7 +655,116 @@ class SpawnChildren:
             )
             created[task["key"]] = child.id
             journals.save_created()
+            fresh[task["key"]] = (child.id, body)
         journals.save_deferred()
+        return self._refresh_dependents(ctx, queue, ordered, journals, fresh)
+
+    def _source_infos(
+        self, ordered: list[dict], journals: _SpawnJournals
+    ) -> dict[str, dict]:
+        """Manifest rows for every workflow key and every skipped key.
+
+        A row carries the design-time guessed folder (tasks.json ``folder``)
+        plus the source url, so a dependent worker can resolve the real
+        filed folder itself (``Source:`` provenance scan) and can report a
+        skipped source as skipped instead of waiting for it.
+        """
+        by_key = {task["key"]: task for task in ordered}
+        infos: dict[str, dict] = {}
+        for task in ordered:
+            key = task["key"]
+            if not task["workflow"] and key not in journals.skipped:
+                continue
+            if key in journals.skipped:
+                state, reason = "skipped", journals.skipped[key]
+            elif key in journals.deferred:
+                state, reason = "deferred", str(journals.deferred[key].get("reason", ""))
+            else:
+                state, reason = "ready", ""
+            infos[key] = {
+                "state": state,
+                "title": task["title"],
+                "folder": task.get("folder"),
+                "url": (task.get("inputs") or {}).get("url", ""),
+                "reason": reason,
+                "run_id": journals.created.get(key)
+                if task["workflow"] and state == "ready"
+                else None,
+            }
+        for key in journals.skipped:
+            if key not in infos and key in by_key:
+                infos[key] = {
+                    "state": "skipped",
+                    "title": by_key[key]["title"],
+                    "folder": by_key[key].get("folder"),
+                    "url": "",
+                    "reason": journals.skipped[key],
+                    "run_id": None,
+                }
+        return infos
+
+    def _refresh_dependents(
+        self,
+        ctx: StepContext,
+        queue: Queue,
+        ordered: list[dict],
+        journals: _SpawnJournals,
+        fresh: dict[str, tuple[str, str]],
+    ) -> int:
+        """Point dependents at skipped/renamed sources; return rewrite count.
+
+        Writes ``artifacts/sources_resolved.json`` (key -> resolution) every
+        spawn attempt, then rewrites each freshly created non-workflow child
+        that depends on a manifest key: guessed names of skipped sources
+        are stripped from its source lists and a ``Source resolution``
+        appendix (key, title, guessed folder, url, status) is appended, so
+        the worker reports skipped sources as skipped and resolves renamed
+        folders itself instead of waiting on a name that can never arrive.
+        Only freshly created children are touched: a child is created once
+        all its dependencies are created-or-skipped, so those states are
+        final at creation time and no later attempt can stale them.
+        """
+        infos = self._source_infos(ordered, journals)
+        manifest_path = journals.artifacts_dir / SOURCES_RESOLVED
+        _write_json_atomic(manifest_path, infos)
+        by_key = {task["key"]: task for task in ordered}
+        rewrites = 0
+        for key, (child_id, body) in fresh.items():
+            task = by_key[key]
+            rows = [
+                SourceRow(
+                    key=dep,
+                    title=str(infos[dep]["title"]),
+                    folder=infos[dep]["folder"],
+                    url=str(infos[dep]["url"]),
+                    status=(
+                        f"skipped: {infos[dep]['reason']}"
+                        if infos[dep]["state"] == "skipped"
+                        else (
+                            f"deferred: {infos[dep]['reason']}"
+                            if infos[dep]["state"] == "deferred"
+                            else f"ready (run {infos[dep]['run_id']})"
+                        )
+                    ),
+                    skipped=infos[dep]["state"] == "skipped",
+                )
+                for dep in task["depends_on"]
+                if dep in infos
+            ]
+            if not rows:
+                continue
+            new_body, _ = strip_names_from_lists(
+                body, {row.folder for row in rows if row.skipped and row.folder}
+            )
+            note = build_sources_note(rows, str(manifest_path))
+            if SOURCES_NOTE_HEADER in new_body:
+                new_body = new_body.split(SOURCES_NOTE_HEADER)[0].rstrip() + "\n\n" + note
+            else:
+                new_body = new_body.rstrip() + "\n\n" + note
+            if new_body != body:
+                queue.update_task(child_id, description=new_body)
+                rewrites += 1
+        return rewrites
 
     def _start_workflow_runs(
         self,
