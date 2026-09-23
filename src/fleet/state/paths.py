@@ -28,7 +28,7 @@ PROMPT_MD = "prompt.md"
 OUTPUTS_DIR = "outputs"
 # ADR 0010 WI 2/3: a worker publishes values for later workflow steps by
 # writing this file in its task directory: a flat JSON object of string
-# values ({"researched_dir": "/.../researched/X"}). Read with read_outputs below.
+# values ({"research_dir": "/.../research/X"}). Read with read_outputs below.
 OUTPUTS_JSON = "outputs.json"
 # NOTE: the bare `.worktree` marker is gone. Isolation state lives in
 # task.json as repo_root/base_ref/worktree_path (see beads/queue.py::

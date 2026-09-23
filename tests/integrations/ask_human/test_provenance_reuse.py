@@ -56,7 +56,7 @@ def test_create_persists_key_and_find_pending_returns_oldest(tmp_path: Path):
 def test_find_pending_ignores_resolved(tmp_path: Path):
     s = _store(tmp_path)
     qid = s.create("collision?", task_id="t", context=SOURCE)
-    s.answer(qid, "researched/Talkio", answered_by="op")
+    s.answer(qid, "research/Talkio", answered_by="op")
     assert s.find_pending("t", SOURCE) is None
 
 
@@ -64,7 +64,7 @@ def test_retry_reuses_pending_question_creates_no_new_row(tmp_path: Path):
     s = _store(tmp_path)
     first = s.create(
         "provenance check found the SAME Source URL in TWO folders...",
-        options=["researched/Talkio", "investment/2026-09-22-Talkio"],
+        options=["research/Talkio", "investment/2026-09-22-Talkio"],
         task_id="fleet-sa6ku",
         context=SOURCE,
     )
@@ -72,7 +72,7 @@ def test_retry_reuses_pending_question_creates_no_new_row(tmp_path: Path):
     async def scenario():
         async def operator():
             await asyncio.sleep(0.1)
-            assert s.answer(first, "researched/Talkio", answered_by="op")
+            assert s.answer(first, "research/Talkio", answered_by="op")
 
         op = asyncio.create_task(operator())
         with _use_store(s):
@@ -80,7 +80,7 @@ def test_retry_reuses_pending_question_creates_no_new_row(tmp_path: Path):
             result = await server.ask_human_question(
                 "provenance check for Source https://github.com/abdufelsayed/talkio "
                 "found matches in BOTH existing folders...",
-                options=["researched/Talkio", "investment/2026-09-22-Talkio"],
+                options=["research/Talkio", "investment/2026-09-22-Talkio"],
                 task_id="fleet-sa6ku",
                 context=SOURCE,
                 ctx=None,
@@ -91,7 +91,7 @@ def test_retry_reuses_pending_question_creates_no_new_row(tmp_path: Path):
     result = asyncio.run(scenario())
     assert result["id"] == first
     assert result["status"] == "answered"
-    assert result["answer"] == "researched/Talkio"
+    assert result["answer"] == "research/Talkio"
     assert s.count_pending() == 0
     # No second row was ever created: exactly one question total.
     assert [q["id"] for q in s.fetch_pending_for_task("fleet-sa6ku")] == []
@@ -156,7 +156,7 @@ def test_env_default_task_id_dedupes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     async def scenario():
         async def operator():
             await asyncio.sleep(0.1)
-            assert s.answer(first, "researched/Talkio", answered_by="op")
+            assert s.answer(first, "research/Talkio", answered_by="op")
 
         op = asyncio.create_task(operator())
         with _use_store(s):
@@ -170,7 +170,7 @@ def test_env_default_task_id_dedupes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 def test_answered_question_does_not_suppress_reask(tmp_path: Path):
     s = _store(tmp_path)
     qid = s.create("collision?", task_id="t", context=SOURCE)
-    s.answer(qid, "researched/Talkio", answered_by="op")
+    s.answer(qid, "research/Talkio", answered_by="op")
 
     async def scenario():
         async def operator():

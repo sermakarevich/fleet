@@ -302,7 +302,7 @@ stages:
     steps:
       - name: publish
         title: "Post {{steps.fetch.outputs.slug}}"
-        description: "Folder {{steps.fetch.outputs.researched_dir}}."
+        description: "Folder {{steps.fetch.outputs.research_dir}}."
 """
 
 
@@ -329,9 +329,9 @@ def test_run_show_prints_step_outputs_and_warning(tmp_path: Path, monkeypatch) -
     detail = runner.invoke(app, ["workflow", "run-show", run_id])
     assert detail.exit_code == 0, detail.output
     assert "outputs: slug=x" in detail.output
-    assert "warning: outputs_missing: steps.fetch.outputs.researched_dir" in detail.output
+    assert "warning: outputs_missing: steps.fetch.outputs.research_dir" in detail.output
     as_json = runner.invoke(app, ["workflow", "run-show", run_id, "--json"])
     assert as_json.exit_code == 0, as_json.output
     steps = {item["step_name"]: item for item in json.loads(as_json.output)["steps"]}
     assert steps["fetch"]["outputs"] == {"slug": "x"}
-    assert steps["publish"]["warning"] == "outputs_missing: steps.fetch.outputs.researched_dir"
+    assert steps["publish"]["warning"] == "outputs_missing: steps.fetch.outputs.research_dir"

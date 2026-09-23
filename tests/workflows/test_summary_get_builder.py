@@ -15,7 +15,7 @@ from fleet.workflows.builders.sources import Source, SourceError, SourceKind, de
 from fleet.workflows.model import Workflow, ensure_valid
 
 _AT = datetime(2026, 9, 10, 12, 0, 0, tzinfo=UTC)
-_RESEARCHED_DIR = "{{steps.plan.outputs.researched_dir}}"
+_RESEARCH_DIR = "{{steps.plan.outputs.research_dir}}"
 
 
 def _big_text(headings: int, per_section: int) -> str:
@@ -213,10 +213,10 @@ def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     steps = [step for stage in result.stages for step in stage.steps]
     for step in steps:
         if step.name == "plan":
-            assert _RESEARCHED_DIR not in step.description
+            assert _RESEARCH_DIR not in step.description
             assert "outputs.json" in step.description
         else:
-            assert _RESEARCHED_DIR in step.description
+            assert _RESEARCH_DIR in step.description
     for step in steps:
         assert step.description.endswith("Do not run git. Do not close the bead yourself.")
         assert step.cwd is None and step.coder is None and step.model is None
@@ -234,14 +234,14 @@ def test_build_missing_url_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 def test_plan_matches_existing_entry_by_provenance_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Plan step searches researched/ + investment/ by Source url before deriving a name."""
+    """Plan step searches research/ + investment/ by Source url before deriving a name."""
     monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
     result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
     plan_desc = next(
         step.description for stage in result.stages if stage.name == "plan" for step in stage.steps
     )
     # Provenance-first: same url reuses the folder no matter the derived slug.
-    assert "researched/*/source/source.md" in plan_desc
+    assert "research/*/source/source.md" in plan_desc
     assert "investment/*/source/source.md" in plan_desc
     assert "no matter what slug" in plan_desc
     # Genuine conflict (different url, same slug) still asks the human.

@@ -42,9 +42,9 @@ entry's ONE home under research; MOVE, never copy):
 ```
 
 `<TARGET>` is the absolute target from above
-(`/Users/sergii/.ai/knowledge/research/<target>`). The copy bead MOVEs the
-researched/ staging folder into `sources/<Name>/` and clears staging; nothing is
-filed into structured_papers/ for these sources.
+(`/Users/sergii/.ai/knowledge/research/<target>`). The copy bead MOVEs the entry
+folder `research/<Name>/` into `<TARGET>/sources/<Name>/`, leaving nothing behind;
+nothing is filed into structured_papers/ for these sources.
 
 ## Per shortlisted source already in the KB (`status == "shortlist"`, `origin != null`)
 

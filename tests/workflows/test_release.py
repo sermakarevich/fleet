@@ -51,7 +51,7 @@ def _workflow() -> Workflow:
                     Step(
                         name="publish",
                         title="Post {{steps.fetch.outputs.slug}}",
-                        description="Folder {{steps.fetch.outputs.researched_dir}} "
+                        description="Folder {{steps.fetch.outputs.research_dir}} "
                         "by {{steps.fetch.task_id}}.",
                     ),
                 ),
@@ -103,7 +103,7 @@ def test_refresh_releases_step_with_outputs(tmp_path: Path) -> None:
     store = _store(tmp_path)
     run, fetch_id, publish_id = _start(queue, tmp_path)
     _defer(queue, publish_id)
-    _write_outputs(tmp_path, fetch_id, '{"slug": "x", "researched_dir": "/tmp/x"}')
+    _write_outputs(tmp_path, fetch_id, '{"slug": "x", "research_dir": "/tmp/x"}')
     queue.close(fetch_id, "done")
 
     refreshed, _ = refresh_run_with_tasks(
@@ -111,7 +111,7 @@ def test_refresh_releases_step_with_outputs(tmp_path: Path) -> None:
     )
     assert refreshed.status is RunStatus.running
     steps = {item.step_name: item for item in store.step_runs(run.id)}
-    assert steps["fetch"].outputs == {"slug": "x", "researched_dir": "/tmp/x"}
+    assert steps["fetch"].outputs == {"slug": "x", "research_dir": "/tmp/x"}
     assert steps["publish"].released is True
     assert steps["publish"].warning is None
     published = queue.get(publish_id)
@@ -152,11 +152,11 @@ def test_refresh_missing_output_holds_step_and_warns(tmp_path: Path) -> None:
     assert refreshed.status is RunStatus.failed
     assert refreshed.finished_at == "2026-09-09T02:30:00+00:00"
     assert refreshed.reason.startswith("outputs_missing:")
-    assert "steps.fetch.outputs.researched_dir" in refreshed.reason
+    assert "steps.fetch.outputs.research_dir" in refreshed.reason
     steps = {item.step_name: item for item in store.step_runs(run.id)}
     assert steps["publish"].released is False
     assert steps["publish"].warning == (
-        "outputs_missing: steps.fetch.outputs.researched_dir, steps.fetch.outputs.slug"
+        "outputs_missing: steps.fetch.outputs.research_dir, steps.fetch.outputs.slug"
     )
     # The bead was never given the broken text: still deferred, untouched.
     assert queue.updated == []

@@ -115,7 +115,7 @@ a rejected candidate.
 The design phase emits, per approved source:
 
 - **new to the KB** → a `summary_get` workflow run (writes the source's
-  folder to its normal home, `researched/` or `investment/`, by summary_get's own
+  folder to its normal home, `research/` or `investment/`, by summary_get's own
   routing rule), then a **copy bead** depending on it that copies the folder
   into `research/<target>/sources/<Name>/`;
 - **already in the KB** → the copy bead only.
@@ -140,7 +140,7 @@ cost by the lens count for no synthesis gain.
 
 ### 5. Already-in-the-KB sources are copied, not re-processed
 
-Before ranking, the discover phase checks `knowledge/researched/`,
+Before ranking, the discover phase checks `knowledge/research/`,
 `knowledge/investment/` and every `knowledge/research/*/sources/` for a
 folder whose `index.md` front-matter `sources[].resource` matches the
 candidate URL (normalised: scheme and `www.` dropped, arXiv id extracted,

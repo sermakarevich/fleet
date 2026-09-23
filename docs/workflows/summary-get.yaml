@@ -7,7 +7,7 @@ description: >
   (one per macro component for repos) and creates one wiki-page task per chunk,
   then digest/summary, explainer/questions/critical-thinking, index, and a verify step
   that blocks the run unless the finished entry satisfies the recipe. The finished
-  entry stays in researched/<Slug>/ (investment/ for finance topics); filing it elsewhere
+  entry stays in research/<Slug>/ (investment/ for finance topics); filing it elsewhere
   is a separate deliberate act via the ai:summary:move recipe, and runs spawned by
   a research epic are copied into research/<epic>/sources/ by the research copy bead.
 builder: summary_get

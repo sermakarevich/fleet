@@ -60,8 +60,8 @@ def test_task_file_helpers(tmp_path: Path) -> None:
 def test_read_outputs_round_trip(tmp_path: Path) -> None:
     root = task_dir(tmp_path, "fleet-abc")
     root.mkdir(parents=True)
-    (root / "outputs.json").write_text('{"researched_dir": "/tmp/x", "n": 3}', encoding="utf-8")
-    assert read_outputs(root) == {"researched_dir": "/tmp/x", "n": "3"}
+    (root / "outputs.json").write_text('{"research_dir": "/tmp/x", "n": 3}', encoding="utf-8")
+    assert read_outputs(root) == {"research_dir": "/tmp/x", "n": "3"}
 
 
 def test_read_outputs_missing_file_is_empty(tmp_path: Path) -> None:

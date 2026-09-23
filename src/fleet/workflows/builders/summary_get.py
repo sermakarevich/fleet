@@ -9,14 +9,14 @@ per chunk), `derive` (digest + summary), `enrich` (explainer, questions,
 critical-thinking), `index` (one step), and `verify` (one step that checks
 the finished entry against the recipe and blocks instead of closing).
 
-The finished entry stays in researched/<Slug>/ (or investment/ for finance
+The finished entry stays in research/<Slug>/ (or investment/ for finance
 topics). Nothing here moves or files it: whoever wants it filed runs the
 `ai show summary/move` recipe on purpose.
 
 Step descriptions are worker instructions. Absolute chunk/work paths are
 written into them literally at build time; the knowledge-base folder is only
 known after the `plan` step runs, so it is referenced as the template
-`{{steps.plan.outputs.researched_dir}}`, rendered when later stages are released.
+`{{steps.plan.outputs.research_dir}}`, rendered when later stages are released.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from fleet.workflows.builders.sources import Source, SourceError, SourceKind, fe
 from fleet.workflows.model import Stage, Step, Workflow
 
 #: Template every later stage uses for the knowledge-base folder chosen by `plan`.
-RESEARCHED_DIR = "{{steps.plan.outputs.researched_dir}}"
+RESEARCH_DIR = "{{steps.plan.outputs.research_dir}}"
 
 #: Closing line of every step description.
 TAIL = "Do not run git. Do not close the bead yourself."
@@ -62,24 +62,24 @@ Run work dir (absolute, build-time): __WORK__
 
 2. Decide the route from the title and chunk list:
    - Provenance-first rule (BEFORE deriving any folder name): search
-     /Users/sergii/.ai/knowledge/researched/*/source/source.md and
+     /Users/sergii/.ai/knowledge/research/*/source/source.md and
      /Users/sergii/.ai/knowledge/investment/*/source/source.md for a `Source:`
      line that equals this run's input (__URL__, exact string match). If one
      exists, reuse that folder no matter what slug this run would have derived:
-     refresh <researched_dir>/source/source.md from __SOURCE_MD__, write
+     refresh <research_dir>/source/source.md from __SOURCE_MD__, write
      outputs.json (step 5) with that folder's absolute path and its existing
      folder basename as the slug, and continue. No question. Only when no such
      entry exists, derive a candidate folder below.
    - Investment/finance topic → base /Users/sergii/.ai/knowledge/investment with a new
      folder <YYYY-MM-DD>-<PascalName>, using {{run.date}} for the date.
-   - Anything else → /Users/sergii/.ai/knowledge/researched/<PascalName>.
+   - Anything else → /Users/sergii/.ai/knowledge/research/<PascalName>.
    - If the route is genuinely unclear, ask with
      mcp__ask_human__ask_human_question. Never guess.
    - Folder-exists rule. If the candidate folder already exists, do NOT overwrite
      it and do NOT treat it as free — first check which case applies:
      1. Same source (re-run): read <candidate>/source/source.md and compare its
         `Source:` provenance url with this run's input (__URL__). If they match,
-        reuse the folder: refresh <researched_dir>/source/source.md from __SOURCE_MD__,
+        reuse the folder: refresh <research_dir>/source/source.md from __SOURCE_MD__,
         write outputs.json (step 5), and continue. No question.
      2. Genuine conflict: the provenance url differs, or source.md is missing or
         unreadable → ask with mcp__ask_human__ask_human_question, passing
@@ -87,21 +87,21 @@ Run work dir (absolute, build-time): __WORK__
         context=<this run's source url __URL__> so a retried plan step blocks
         on the already-pending question instead of asking twice. Never guess,
         never overwrite an existing folder.
-   - macOS rule: the filesystem is case-insensitive, so researched/Livekit and
-     researched/LiveKit are the same folder. A candidate slug that differs only in
+   - macOS rule: the filesystem is case-insensitive, so research/Livekit and
+     research/LiveKit are the same folder. A candidate slug that differs only in
      case from an existing folder is case 2 above, not a new folder.
 
 3. Create the layout and copy the source:
-   - mkdir -p <researched_dir>/source <researched_dir>/wiki/images
-   - Copy __SOURCE_MD__ to <researched_dir>/source/source.md.
+   - mkdir -p <research_dir>/source <research_dir>/wiki/images
+   - Copy __SOURCE_MD__ to <research_dir>/source/source.md.
    - If __WORK__/source.pdf exists and is smaller than 2 MB, copy it to
-     <researched_dir>/source/source.pdf too; otherwise pin the PDF location (__URL__) at the
-     top of <researched_dir>/source/source.md.
+     <research_dir>/source/source.pdf too; otherwise pin the PDF location (__URL__) at the
+     top of <research_dir>/source/source.md.
 
-4. Write <researched_dir>/source/plan.md: a table mapping each chunk slug to its planned wiki
+4. Write <research_dir>/source/plan.md: a table mapping each chunk slug to its planned wiki
    page NN-<kebab-topic>.md plus a one-line "covers" note per row.
 
-5. Write $FLEET_TASK_DIR/outputs.json exactly as {"researched_dir": "<absolute researched dir>",
+5. Write $FLEET_TASK_DIR/outputs.json exactly as {"research_dir": "<absolute research dir>",
    "slug": "<PascalName>", "title": "__TITLE__", "type": "__TYPE__"}.
    Type rule from the source kind (__KIND__): youtube → Video, pdf → Paper,
    x/article → Article, repo → Codebase. This run: __TYPE__.
@@ -125,11 +125,11 @@ Run work dir (absolute, build-time): __WORK__
 
 1. Read ONLY these two files:
    - __CHUNK_MD__ (the chunk body; your only source of facts)
-   - __RESEARCHED_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
+   - __RESEARCH_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
      name; default __DEFAULT_PAGE__ when absent)
    Do not read any other chunk file, the original source, or the web.
 
-2. Write __RESEARCHED_DIR__/wiki/<page from plan.md> with exactly this contract:
+2. Write __RESEARCH_DIR__/wiki/<page from plan.md> with exactly this contract:
    > [[../index|Wiki]] | [[../summary|Summary]] | [[../digest|Digest]]
    # <Topic>
    **In one sentence:** <the chunk's whole argument in one sentence>
@@ -152,12 +152,12 @@ Run work dir (absolute, build-time): __WORK__
 
 1. Read ONLY these two files:
    - __CHUNK_MD__ (the component's source files; your only source of facts)
-   - __RESEARCHED_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
+   - __RESEARCH_DIR__/source/plan.md (find your chunk slug __SLUG__ and its planned page
      name; default __DEFAULT_PAGE__ when absent)
    Do not read any other chunk file or the web. The clone lives outside the
    knowledge base; never copy it in.
 
-2. Write __RESEARCHED_DIR__/wiki/<page from plan.md> with exactly this contract:
+2. Write __RESEARCH_DIR__/wiki/<page from plan.md> with exactly this contract:
    > [[../index|Wiki]] | [[../summary|Summary]] | [[../digest|Digest]]
    # <Component>
    **In one sentence:** <the component's whole job in one sentence>
@@ -180,9 +180,9 @@ _DIGEST_DESC = """You are writing the digest for "__TITLE__" (__URL__).
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read ONLY __RESEARCHED_DIR__/wiki/*.md (never the source, the chunk files, or the web).
+1. Read ONLY __RESEARCH_DIR__/wiki/*.md (never the source, the chunk files, or the web).
 
-2. Write __RESEARCHED_DIR__/digest.md:
+2. Write __RESEARCH_DIR__/digest.md:
    - Backlink line: > [[index|Wiki]] | [[summary|Summary]]
    - Heading: # __TITLE__ — Digest
    - Then one section per wiki page in order: ## N. [[wiki/NN-x|Title]] with that page's
@@ -197,9 +197,9 @@ _SUMMARY_DESC = """You are writing the summary for "__TITLE__" (__URL__, type __
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read ONLY __RESEARCHED_DIR__/wiki/*.md (never the source, the chunk files, or the web).
+1. Read ONLY __RESEARCH_DIR__/wiki/*.md (never the source, the chunk files, or the web).
 
-2. Write __RESEARCHED_DIR__/summary.md:
+2. Write __RESEARCH_DIR__/summary.md:
    - Heading: # __TITLE__
    - Metadata line for type __TYPE__ (pick the matching variant):
      **Paper:** [..](__URL__) / **Article:** [..](__URL__) — <source>, <date> /
@@ -217,9 +217,9 @@ _SUMMARY_DESC_REPO = """You are writing the technical analysis summary for codeb
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read ONLY __RESEARCHED_DIR__/wiki/*.md (never the clone, the chunk files, or the web).
+1. Read ONLY __RESEARCH_DIR__/wiki/*.md (never the clone, the chunk files, or the web).
 
-2. Write __RESEARCHED_DIR__/summary.md with exactly this layout, grounded in the
+2. Write __RESEARCH_DIR__/summary.md with exactly this layout, grounded in the
    component pages and their file:line citations:
    - Heading: # Technical Analysis: __TITLE__
    - Metadata lines: **Repository:** __URL__ / **Version analyzed:** <from the
@@ -257,10 +257,10 @@ _EXPLAINER_DESC = """You are writing the plain-language explainer for "__TITLE__
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read __RESEARCHED_DIR__/digest.md plus __RESEARCHED_DIR__/wiki/*.md
+1. Read __RESEARCH_DIR__/digest.md plus __RESEARCH_DIR__/wiki/*.md
    (never the source or the web).
 
-2. Write __RESEARCHED_DIR__/explainer.md, 80–150 lines:
+2. Write __RESEARCH_DIR__/explainer.md, 80–150 lines:
    - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
    - Heading: # __TITLE__ — In Plain Language
    - Sections in order: ## What is this about?, ## Why does it matter?,
@@ -273,13 +273,13 @@ _QUESTIONS_DESC = """You are writing retrieval-practice questions for "__TITLE__
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read __RESEARCHED_DIR__/digest.md plus __RESEARCHED_DIR__/wiki/*.md
+1. Read __RESEARCH_DIR__/digest.md plus __RESEARCH_DIR__/wiki/*.md
    (never the source or the web).
    Count the wiki pages: fewer than 5 pages → 6–8 questions; 5–8 pages → 8–12; more
    than 8 pages → 12–20. Cover every wiki page with at least one question and include
    exactly one evaluation question (judgment/recommendation).
 
-2. Write __RESEARCHED_DIR__/questions.md:
+2. Write __RESEARCH_DIR__/questions.md:
    - Front-matter: type: Retrieval Prompts, last_reviewed: null, review_count: 0
    - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
    - Heading: # Retrieval Practice: __TITLE__
@@ -292,10 +292,10 @@ _CRITICAL_DESC = """You are writing the critical analysis for "__TITLE__" (__URL
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read __RESEARCHED_DIR__/digest.md plus __RESEARCHED_DIR__/wiki/*.md
+1. Read __RESEARCH_DIR__/digest.md plus __RESEARCH_DIR__/wiki/*.md
    (never the source or the web).
 
-2. Write __RESEARCHED_DIR__/critical_thinking.md, 60–120 lines:
+2. Write __RESEARCH_DIR__/critical_thinking.md, 60–120 lines:
    - Backlink line: > [[index|Wiki]] | [[summary|Summary]] | [[digest|Digest]]
    - Heading: # Critical Analysis: __TITLE__
    - Sections in order: ## Claims vs. evidence, ## Genuinely new vs. repackaged,
@@ -310,10 +310,10 @@ _INDEX_DESC = """You are writing the folder index for "__TITLE__" (__URL__).
 
 Run work dir (absolute, build-time): __WORK__
 
-1. Read __RESEARCHED_DIR__/summary.md, __RESEARCHED_DIR__/digest.md, and the list of
-   __RESEARCHED_DIR__/wiki/*.md (never the source or the web).
+1. Read __RESEARCH_DIR__/summary.md, __RESEARCH_DIR__/digest.md, and the list of
+   __RESEARCH_DIR__/wiki/*.md (never the source or the web).
 
-2. Write __RESEARCHED_DIR__/index.md:
+2. Write __RESEARCH_DIR__/index.md:
    - Front-matter with exactly these keys: type, title, description,
      generated: { by: claude/<model you are running as>, at: <current ISO time> },
      sources: [ {id: original, resource: __URL__},
@@ -337,10 +337,10 @@ against the `ai show summary/get` recipe. A step counts as done only when the
 entry is usable — never pass a green run over an empty or chrome-filled folder.
 
 Run work dir (absolute, build-time): __WORK__
-Entry folder: __RESEARCHED_DIR__ (from {{steps.plan.outputs.researched_dir}}).
+Entry folder: __RESEARCH_DIR__ (from {{steps.plan.outputs.research_dir}}).
 
-1. Resolve the entry folder from {{steps.plan.outputs.researched_dir}} (the plan
-   step's outputs.json `researched_dir`). If the folder is missing or unreadable,
+1. Resolve the entry folder from {{steps.plan.outputs.research_dir}} (the plan
+   step's outputs.json `research_dir`). If the folder is missing or unreadable,
    that is itself a failure.
 
 2. Check every recipe rule and collect one failure string per problem:
@@ -358,7 +358,7 @@ Entry folder: __RESEARCHED_DIR__ (from {{steps.plan.outputs.researched_dir}}).
    - every link in index.md ([[wikilink]] or [markdown](link)) resolves to a
      file that exists (external http/mailto URLs and #anchors excluded).
    - Fast path: run
-     `uv run python -m fleet.workflows.builders.summary_verify <researched_dir>`
+     `uv run python -m fleet.workflows.builders.summary_verify <research_dir>`
      from the fleet repo (or `python3 -m fleet.workflows.builders.summary_verify`
      with the fleet venv); it prints one line per problem and exits nonzero
      on failure. Fall back to the manual checks above (wc -c, grep, ls) when
@@ -387,7 +387,7 @@ DEFINITION: dict = {
         "component for repos) and creates one wiki-page task per chunk, then "
         "digest/summary, explainer/questions/critical-thinking, index, "
         "and verify (blocks unless the entry satisfies the recipe). "
-        "The finished entry stays in researched/<Slug>/ (investment/ for "
+        "The finished entry stays in research/<Slug>/ (investment/ for "
         "finance topics); filing it elsewhere is a separate deliberate act "
         "via the ai:summary:move recipe, never part of this workflow."
     ),
@@ -479,7 +479,7 @@ def _write_chunks(work: Path, chunks: list[Chunk]) -> None:
 
 def _fill(template: str, **values: str) -> str:
     """Substitute __TOKEN__ placeholders (template braces stay literal)."""
-    text = template.replace("__TAIL__", TAIL).replace("__RESEARCHED_DIR__", RESEARCHED_DIR)
+    text = template.replace("__TAIL__", TAIL).replace("__RESEARCH_DIR__", RESEARCH_DIR)
     for key, value in values.items():
         text = text.replace(f"__{key}__", value)
     return text

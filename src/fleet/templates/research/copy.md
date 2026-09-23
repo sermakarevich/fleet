@@ -1,23 +1,23 @@
 <!-- placeholders: {{url}} {{name}} {{origin}} {{target}} -->
 Move one processed source folder into the research target (MOVE, never copy —
-every entry has exactly ONE home; researched/ staging must not retain it).
+every entry has exactly ONE home; research/<Name>/ must not retain it).
 
 Locate the summary_get folder for `{{url}}`:
 - When `{{origin}}` is non-empty, the folder is `{{origin}}` (a source already
   in the knowledge base).
-- When `{{origin}}` is empty, search under `/Users/sergii/.ai/knowledge/papers`
+- When `{{origin}}` is empty, search under `/Users/sergii/.ai/knowledge/research`
   and `/Users/sergii/.ai/knowledge/investment` for the folder whose `index.md`
   front-matter `sources[].resource` matches `{{url}}` (normalised: drop scheme
   and `www.`; for arXiv compare the id; for YouTube compare the video id).
-  Fresh research-epic summary_get runs skip their file step, so the folder is
-  still in researched/ staging waiting for this move.
+  summary_get never files its output, so the folder is still at
+  `/Users/sergii/.ai/knowledge/research/<Name>/` waiting for this move.
 
 Routing (exactly one home):
-- Located folder under researched/ staging → its home is now
+- Located folder directly under research/ → its home is now
   `{{target}}/sources/{{name}}/`. MOVE it there (below) and leave nothing
-  behind in researched/.
+  behind at research/<Name>/.
 - Located folder under /investment/ or /structured_papers/ (already homed
-  outside staging) → do NOT duplicate it. Stop with an error instead of
+  elsewhere) → do NOT duplicate it. Stop with an error instead of
   copying, so the operator decides (move the home vs reference it). Never
   `cp` a homed entry silently; never leave two folders with the same
   summary.md content.
@@ -34,7 +34,7 @@ test ! -e "<located folder>"
 
 `test -s` must succeed; if the located folder has no non-empty `index.md`,
 stop with an error instead of writing a ledger row. The final
-`test ! -e "<located folder>"` must also succeed: the staging path is gone
+`test ! -e "<located folder>"` must also succeed: the source path is gone
 (MOVE, never copy). When already-moved, both tests pass trivially against
 the existing target folder.
 

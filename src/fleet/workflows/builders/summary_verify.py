@@ -2,7 +2,7 @@
 
 Called by the `verify` stage of the summary_get builder (see
 `builders/summary_get.py`): the worker resolves the entry folder from
-``{{steps.plan.outputs.researched_dir}}`` and runs these checks. Pure function
+``{{steps.plan.outputs.research_dir}}`` and runs these checks. Pure function
 in, list of failure strings out, so the same logic is unit-testable:
 
 - index/summary/digest/explainer/questions/critical_thinking exist and are
@@ -52,23 +52,23 @@ _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 
 
-def verify_researched_dir(researched_dir: Path) -> list[str]:
+def verify_research_dir(research_dir: Path) -> list[str]:
     """Check one finished entry; return one failure string per problem."""
     failures: list[str] = []
-    failures.extend(_check_required_files(researched_dir))
-    failures.extend(_check_source(researched_dir))
-    wiki_pages = _wiki_pages(researched_dir)
-    failures.extend(_check_wiki(researched_dir, wiki_pages))
-    failures.extend(_check_digest(researched_dir, wiki_pages))
-    failures.extend(_check_index_links(researched_dir))
+    failures.extend(_check_required_files(research_dir))
+    failures.extend(_check_source(research_dir))
+    wiki_pages = _wiki_pages(research_dir)
+    failures.extend(_check_wiki(research_dir, wiki_pages))
+    failures.extend(_check_digest(research_dir, wiki_pages))
+    failures.extend(_check_index_links(research_dir))
     return failures
 
 
-def _check_required_files(researched_dir: Path) -> list[str]:
+def _check_required_files(research_dir: Path) -> list[str]:
     """Every derived file exists and is bigger than MIN_BYTES."""
     failures = []
     for name in REQUIRED_FILES:
-        path = researched_dir / name
+        path = research_dir / name
         if not path.is_file():
             failures.append(f"verify: missing {name}")
         elif path.stat().st_size <= MIN_BYTES:
@@ -78,9 +78,9 @@ def _check_required_files(researched_dir: Path) -> list[str]:
     return failures
 
 
-def _check_source(researched_dir: Path) -> list[str]:
+def _check_source(research_dir: Path) -> list[str]:
     """source/source.md exists and carries the `Source:` provenance line."""
-    path = researched_dir / "source" / "source.md"
+    path = research_dir / "source" / "source.md"
     if not path.is_file():
         return ["verify: missing source/source.md"]
     try:
@@ -92,9 +92,9 @@ def _check_source(researched_dir: Path) -> list[str]:
     return []
 
 
-def _wiki_pages(researched_dir: Path) -> list[Path]:
+def _wiki_pages(research_dir: Path) -> list[Path]:
     """Wiki pages in order; empty when wiki/ is missing or has no pages."""
-    wiki = researched_dir / "wiki"
+    wiki = research_dir / "wiki"
     if not wiki.is_dir():
         return []
     return sorted(
@@ -103,9 +103,9 @@ def _wiki_pages(researched_dir: Path) -> list[Path]:
     )
 
 
-def _check_wiki(researched_dir: Path, pages: list[Path]) -> list[str]:
+def _check_wiki(research_dir: Path, pages: list[Path]) -> list[str]:
     """At least one wiki page; none named after site chrome."""
-    _ = researched_dir
+    _ = research_dir
     if not pages:
         return ["verify: wiki/ holds no pages"]
     failures = []
@@ -118,9 +118,9 @@ def _check_wiki(researched_dir: Path, pages: list[Path]) -> list[str]:
     return failures
 
 
-def _check_digest(researched_dir: Path, pages: list[Path]) -> list[str]:
+def _check_digest(research_dir: Path, pages: list[Path]) -> list[str]:
     """digest.md mentions every wiki page name (rungs actually differ)."""
-    digest = researched_dir / "digest.md"
+    digest = research_dir / "digest.md"
     if not digest.is_file():
         return []
     try:
@@ -143,16 +143,16 @@ def _clean_target(raw: str) -> str:
     return raw.split("#", 1)[0].strip().rstrip("\\").strip()
 
 
-def _resolve_target(researched_dir: Path, raw: str) -> Path | None:
+def _resolve_target(research_dir: Path, raw: str) -> Path | None:
     """Resolve one link target under the entry; None when external/anchor."""
     target = _clean_target(raw)
     if not target or target.startswith(("http://", "https://", "mailto:")):
         return None
     if "://" in target:
         return None
-    candidate = (researched_dir / target.lstrip("/")).resolve()
+    candidate = (research_dir / target.lstrip("/")).resolve()
     try:
-        candidate.relative_to(researched_dir.resolve())
+        candidate.relative_to(research_dir.resolve())
     except ValueError:
         return None
     if candidate.suffix:
@@ -163,9 +163,9 @@ def _resolve_target(researched_dir: Path, raw: str) -> Path | None:
     return candidate
 
 
-def _check_index_links(researched_dir: Path) -> list[str]:
+def _check_index_links(research_dir: Path) -> list[str]:
     """Every link in index.md resolves to a file that exists."""
-    index = researched_dir / "index.md"
+    index = research_dir / "index.md"
     if not index.is_file():
         return []
     try:
@@ -180,7 +180,7 @@ def _check_index_links(researched_dir: Path) -> list[str]:
         if not target or target in seen:
             continue
         seen.add(target)
-        resolved = _resolve_target(researched_dir, raw)
+        resolved = _resolve_target(research_dir, raw)
         if resolved is None:
             continue
         if not resolved.is_file():
@@ -192,9 +192,9 @@ def main(argv: list[str] | None = None) -> int:
     """CLI for the verify worker: print failures, exit 1 when any fail."""
     args = argv if argv is not None else sys.argv[1:]
     if len(args) != 1:
-        print("usage: python -m fleet.workflows.builders.summary_verify <researched_dir>")
+        print("usage: python -m fleet.workflows.builders.summary_verify <research_dir>")
         return 2
-    failures = verify_researched_dir(Path(args[0]))
+    failures = verify_research_dir(Path(args[0]))
     for failure in failures:
         print(failure)
     if failures:
