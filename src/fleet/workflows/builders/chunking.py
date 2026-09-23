@@ -137,7 +137,7 @@ BOILERPLATE_WIKI_SUBSTRINGS = (
     "star-history",
     "stargazer",
     "contributing",
-    "contribution",
+    # not "contribution": papers name real sections "...-and-contributions".
     "citation",
     "citing",
     "code-of-conduct",
