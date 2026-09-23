@@ -113,7 +113,7 @@ def test_reconstruct_repo_run(tmp_path: Path) -> None:
     _workdir(tmp_path, run_id)
     (tmp_path / "tasks" / "t-plan").mkdir(parents=True)
     (tmp_path / "tasks" / "t-plan" / "outputs.json").write_text(
-        json.dumps({"paper_dir": "/tmp/ai/knowledge/papers/X", "slug": "X"}),
+        json.dumps({"researched_dir": "/tmp/ai/knowledge/researched/X", "slug": "X"}),
         encoding="utf-8",
     )
     beads = [
@@ -132,7 +132,7 @@ def test_reconstruct_repo_run(tmp_path: Path) -> None:
     }
     by_step = {i["step_name"]: i for i in infos}
     assert by_step["plan"]["released"] is True
-    assert by_step["plan"]["outputs"]["paper_dir"] == "/tmp/ai/knowledge/papers/X"
+    assert by_step["plan"]["outputs"]["researched_dir"] == "/tmp/ai/knowledge/researched/X"
     assert by_step["chunk-01"]["released"] is False
     assert by_step["chunk-01"]["stage_index"] == 1
     assert extra == {"missing": ["critical-thinking", "digest", "explainer",
@@ -153,7 +153,7 @@ def test_check_release_ready_wiki_renders(tmp_path: Path) -> None:
     _workdir(tmp_path, run_id)
     (tmp_path / "tasks" / "t-plan").mkdir(parents=True)
     (tmp_path / "tasks" / "t-plan" / "outputs.json").write_text(
-        json.dumps({"paper_dir": "/tmp/ai/knowledge/papers/X", "slug": "X"}),
+        json.dumps({"researched_dir": "/tmp/ai/knowledge/researched/X", "slug": "X"}),
         encoding="utf-8",
     )
     beads = [

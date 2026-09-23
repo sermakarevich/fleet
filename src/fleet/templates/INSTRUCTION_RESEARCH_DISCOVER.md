@@ -43,7 +43,7 @@ Drop a candidate if any of these hold:
 - **already in the KB**: normalize the candidate's url (drop scheme and
   `www.`; for arXiv compare the arXiv id; for YouTube compare the video
   id) and compare against every `sources[].resource` entry in the
-  front-matter of `/Users/sergii/.ai/knowledge/papers/*/index.md`,
+  front-matter of `/Users/sergii/.ai/knowledge/researched/*/index.md`,
   `/Users/sergii/.ai/knowledge/investment/*/index.md`, and
   `/Users/sergii/.ai/knowledge/research/*/sources/*/index.md`. A match is
   kept with `status: "in_kb"` and `origin: "<folder that matched>"` — it is

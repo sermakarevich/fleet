@@ -1,6 +1,6 @@
 <!-- placeholders: {{url}} {{name}} {{origin}} {{target}} -->
 Move one processed source folder into the research target (MOVE, never copy —
-every entry has exactly ONE home; papers/ staging must not retain it).
+every entry has exactly ONE home; researched/ staging must not retain it).
 
 Locate the summary_get folder for `{{url}}`:
 - When `{{origin}}` is non-empty, the folder is `{{origin}}` (a source already
@@ -10,12 +10,12 @@ Locate the summary_get folder for `{{url}}`:
   front-matter `sources[].resource` matches `{{url}}` (normalised: drop scheme
   and `www.`; for arXiv compare the id; for YouTube compare the video id).
   Fresh research-epic summary_get runs skip their file step, so the folder is
-  still in papers/ staging waiting for this move.
+  still in researched/ staging waiting for this move.
 
 Routing (exactly one home):
-- Located folder under papers/ staging → its home is now
+- Located folder under researched/ staging → its home is now
   `{{target}}/sources/{{name}}/`. MOVE it there (below) and leave nothing
-  behind in papers/.
+  behind in researched/.
 - Located folder under /investment/ or /structured_papers/ (already homed
   outside staging) → do NOT duplicate it. Stop with an error instead of
   copying, so the operator decides (move the home vs reference it). Never

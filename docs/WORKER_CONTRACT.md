@@ -84,7 +84,7 @@ Also, every attempt:
 A worker that runs as a workflow step may publish values for later steps
 by writing `$FLEET_TASK_DIR/outputs.json`: a flat JSON (JavaScript Object
 Notation) object of string values, for example
-`{"paper_dir": "/Users/me/.ai/knowledge/papers/X", "slug": "X"}`. Fleet
+`{"researched_dir": "/Users/me/.ai/knowledge/researched/X", "slug": "X"}`. Fleet
 reads the file when the step's bead closes; a missing file means the step
 publishes no outputs. Non-string values are stringified, a non-object or
 unparseable file is ignored with a warning, and later steps reference the

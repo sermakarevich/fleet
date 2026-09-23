@@ -158,17 +158,17 @@ describe('WorkflowRunPage', () => {
       makeRun({
         steps: [
           step({
-            outputs: { paper_dir: '/Users/sergii/.ai/knowledge/papers/slug', slug: 'slug' },
+            outputs: { researched_dir: '/Users/sergii/.ai/knowledge/researched/slug', slug: 'slug' },
             warning: 'outputs_missing: steps.get.outputs.title',
           }),
         ],
       }),
     );
     render(<WorkflowRunPage />, { wrapper });
-    await waitFor(() => expect(screen.getByText('paper_dir:')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('researched_dir:')).toBeInTheDocument());
     // Values are ellipsized but carry the full text on hover.
-    const value = screen.getByText('/Users/sergii/.ai/knowledge/papers/slug');
-    expect(value).toHaveAttribute('title', '/Users/sergii/.ai/knowledge/papers/slug');
+    const value = screen.getByText('/Users/sergii/.ai/knowledge/researched/slug');
+    expect(value).toHaveAttribute('title', '/Users/sergii/.ai/knowledge/researched/slug');
     expect(screen.getByText(/outputs_missing/)).toBeInTheDocument();
   });
 
