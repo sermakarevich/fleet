@@ -12,7 +12,10 @@ in, list of failure strings out, so the same logic is unit-testable:
   README boilerplate.
 - digest.md mentions every wiki page name (cheap proxy: each page's
   "In one sentence" line was quoted into the digest verbatim).
-- every link in index.md resolves to a file that exists.
+- every link in index.md resolves to a file that exists. Links that point
+  outside the entry (http/mailto, ``~/...`` and machine-absolute paths
+  such as ``/Users/me/Downloads/x.pdf``) are the operator's business,
+  not the entry's, and are skipped.
 
 An empty list means the entry passes; each string is one blocked reason.
 """
@@ -46,6 +49,14 @@ BANNED_WIKI_SUBSTRINGS = (
     "skip-to-content",
     "sign-in",
     *BOILERPLATE_WIKI_SUBSTRINGS,
+)
+
+#: Leading segments that mark a link to a file on the operator's own disk
+#: (``/Users/me/Downloads/x.pdf``) rather than an entry-relative root link
+#: (``/wiki/01-overview.md``). Those live outside the entry, so verify
+#: skips them instead of blocking the run.
+_LOCAL_ROOTS = frozenset(
+    {"Users", "home", "root", "tmp", "var", "private", "Volumes", "mnt", "media", "opt"}
 )
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
@@ -143,12 +154,19 @@ def _clean_target(raw: str) -> str:
     return raw.split("#", 1)[0].strip().rstrip("\\").strip()
 
 
+def _is_outside_entry(target: str) -> bool:
+    """True when the link points somewhere the entry does not own."""
+    if target.startswith(("http://", "https://", "mailto:", "~")) or "://" in target:
+        return True
+    # /Users/me/Downloads/x.pdf is the operator's own file; /wiki/01-overview.md
+    # is an entry-relative root link and stays checked.
+    return target.startswith("/") and target.lstrip("/").split("/", 1)[0] in _LOCAL_ROOTS
+
+
 def _resolve_target(research_dir: Path, raw: str) -> Path | None:
     """Resolve one link target under the entry; None when external/anchor."""
     target = _clean_target(raw)
-    if not target or target.startswith(("http://", "https://", "mailto:")):
-        return None
-    if "://" in target:
+    if not target or _is_outside_entry(target):
         return None
     candidate = (research_dir / target.lstrip("/")).resolve()
     try:

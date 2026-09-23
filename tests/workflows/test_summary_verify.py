@@ -20,7 +20,7 @@ def _write(path: Path, body: str, pad: bool = True) -> None:
 
 def _good_entry(root: Path) -> Path:
     """A complete entry that must pass verification."""
-    entry = root / "papers" / "SomePaper"
+    entry = root / "research" / "SomePaper"
     _write(entry / "index.md", "# Some Paper\n\n> [[summary|Summary]] | [[digest|Digest]]\n")
     (entry / "index.md").write_text(
         "# Some Paper\n\n"
@@ -221,3 +221,36 @@ def test_escaped_pipe_still_catches_a_missing_page(tmp_path: Path) -> None:
     failures = verify_research_dir(entry)
     assert any("wiki/99-absent" in f for f in failures)
     assert not any("\\" in f for f in failures)
+
+
+def _with_source_link(entry: Path, link: str) -> Path:
+    """Replace the local-copy bullet in index.md with `link`."""
+    index = entry / "index.md"
+    index.write_text(
+        index.read_text(encoding="utf-8").replace(
+            "- [local copy](source/source.md)",
+            f"- [local copy]({link})",
+        ),
+        encoding="utf-8",
+    )
+    return entry
+
+
+def test_machine_absolute_link_is_ignored(tmp_path: Path) -> None:
+    """A link to the operator's own disk is outside the entry, so it never blocks."""
+    entry = _with_source_link(
+        _good_entry(tmp_path), "/Users/sergii/Downloads/the-ai-economy-report.pdf"
+    )
+    assert verify_research_dir(entry) == []
+
+
+def test_home_shorthand_link_is_ignored(tmp_path: Path) -> None:
+    """`~/...` is the same machine-local case written differently."""
+    entry = _with_source_link(_good_entry(tmp_path), "~/Downloads/the-ai-economy-report.pdf")
+    assert verify_research_dir(entry) == []
+
+
+def test_entry_relative_root_link_is_still_checked(tmp_path: Path) -> None:
+    """Skipping machine paths must not blind the check to real broken links."""
+    entry = _with_source_link(_good_entry(tmp_path), "/wiki/99-absent.md")
+    assert any("99-absent" in failure for failure in verify_research_dir(entry))

@@ -364,7 +364,10 @@ Entry folder: __RESEARCH_DIR__ (from {{steps.plan.outputs.research_dir}}).
    - digest.md mentions every wiki page name (each page's **In one sentence:**
      line must be quoted there, so the rungs actually differ).
    - every link in index.md ([[wikilink]] or [markdown](link)) resolves to a
-     file that exists (external http/mailto URLs and #anchors excluded).
+     file that exists. Skip anything that points outside the entry folder:
+     http/mailto URLs, #anchors, `~/...`, and machine-absolute paths such as
+     `/Users/sergii/Downloads/source.pdf`. Those are the operator's own files
+     and are never a reason to block.
    - Fast path: run
      `uv run python -m fleet.workflows.builders.summary_verify <research_dir>`
      from the fleet repo (or `python3 -m fleet.workflows.builders.summary_verify`
