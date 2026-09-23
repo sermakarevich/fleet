@@ -2,7 +2,7 @@
 Move one processed source folder into the research target (MOVE, never copy —
 every entry has exactly ONE home; research/<Name>/ must not retain it).
 
-Locate the summary_get folder for `{{url}}`:
+Locate the summarise folder for `{{url}}`:
 - When `{{origin}}` is non-empty, the folder is `{{origin}}` (a source already
   in the knowledge base).
 - When `{{origin}}` is empty, search under `/Users/sergii/.ai/knowledge/research`
@@ -13,7 +13,7 @@ Locate the summary_get folder for `{{url}}`:
   `type: Research` (or that contains a `sources/` subdirectory) holds counts,
   not resources, so it can never match — only entry folders (with
   `source/source.md`) and `sources/*/` subfolders can.
-  summary_get never files its output, so the folder is still at
+  summarise never files its output, so the folder is still at
   `/Users/sergii/.ai/knowledge/research/<Name>/` waiting for this move.
 
 Routing (exactly one home):
@@ -53,7 +53,7 @@ not exist yet, create it with exactly this header line first:
 ```
 
 The row records `{{url}}`, the folder `sources/{{name}}`, and the origin
-(`{{origin}}` when non-empty, else the located summary_get folder). Use
+(`{{origin}}` when non-empty, else the located summarise folder). Use
 `status=in_kb` when `{{origin}}` is non-empty, else `status=processed`. Never
 rewrite rows written for other sources.
 

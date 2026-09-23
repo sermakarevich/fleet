@@ -21,4 +21,4 @@ def test_workflow_starter_unknown_name_raises_not_imported() -> None:
     """Unknown workflow names raise ValueError mentioning `not imported`."""
     start = _workflow_starter(_state_no_workflow())
     with pytest.raises(ValueError, match="not imported"):
-        asyncio.run(start("summary_get", {"url": "https://e.com/a"}))
+        asyncio.run(start("summarise", {"url": "https://e.com/a"}))

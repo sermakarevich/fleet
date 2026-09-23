@@ -140,13 +140,13 @@ def _run(tmp_path: Path, text: str, starter: Any) -> FakeApi:
     return api
 
 
-def test_summary_starts_summary_get(tmp_path: Path) -> None:
-    """/summary <url> starts summary_get with the url and replies its result."""
-    starter = AsyncMock(return_value="Started summary_get run r1: 2 steps, first task t1")
+def test_summary_starts_summarise(tmp_path: Path) -> None:
+    """/summary <url> starts summarise with the url and replies its result."""
+    starter = AsyncMock(return_value="Started summarise run r1: 2 steps, first task t1")
     api = _run(tmp_path, "/summary https://e.com/a", starter)
-    starter.assert_awaited_once_with("summary_get", {"url": "https://e.com/a"})
+    starter.assert_awaited_once_with("summarise", {"url": "https://e.com/a"})
     assert len(api.sent) == 1
-    assert api.sent[0][1] == "Started summary_get run r1: 2 steps, first task t1"
+    assert api.sent[0][1] == "Started summarise run r1: 2 steps, first task t1"
 
 
 def test_summary_without_url_is_usage(tmp_path: Path) -> None:
@@ -169,13 +169,13 @@ def test_summary_bad_url_is_usage(tmp_path: Path) -> None:
 
 def test_workflow_parses_inputs(tmp_path: Path) -> None:
     """/workflow passes the name plus key=value inputs to the starter."""
-    starter = AsyncMock(return_value="Started summary_get run r1: 1 steps, first task t1")
-    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a chunk_chars=8000", starter)
+    starter = AsyncMock(return_value="Started summarise run r1: 1 steps, first task t1")
+    api = _run(tmp_path, "/workflow summarise url=https://e.com/a chunk_chars=8000", starter)
     starter.assert_awaited_once_with(
-        "summary_get", {"url": "https://e.com/a", "chunk_chars": "8000"}
+        "summarise", {"url": "https://e.com/a", "chunk_chars": "8000"}
     )
     assert len(api.sent) == 1
-    assert "Started summary_get" in api.sent[0][1]
+    assert "Started summarise" in api.sent[0][1]
 
 
 def test_workflow_bad_token_is_usage(tmp_path: Path) -> None:
@@ -189,7 +189,7 @@ def test_workflow_bad_token_is_usage(tmp_path: Path) -> None:
 
 def test_workflow_unavailable_without_starter(tmp_path: Path) -> None:
     """No injected starter means a not-available reply."""
-    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a", None)
+    api = _run(tmp_path, "/workflow summarise url=https://e.com/a", None)
     assert len(api.sent) == 1
     assert api.sent[0][1] == "Workflows are not available on this server."
 
@@ -204,7 +204,7 @@ def test_summary_unavailable_without_starter(tmp_path: Path) -> None:
 def test_workflow_starter_error_replies_could_not_start(tmp_path: Path) -> None:
     """A raising starter surfaces as `Could not start <name>: <exc>`."""
     starter = AsyncMock(side_effect=ValueError("nope"))
-    api = _run(tmp_path, "/workflow summary_get url=https://e.com/a", starter)
+    api = _run(tmp_path, "/workflow summarise url=https://e.com/a", starter)
     assert len(api.sent) == 1
     assert "Could not start" in api.sent[0][1]
     assert "nope" in api.sent[0][1]

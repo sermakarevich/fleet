@@ -147,7 +147,7 @@ content), drops duplicates, dead links, and sources already in the knowledge
 base, then scores every survivor with `jev` — the TypeSafe judge-model CLI
 that scores text with probabilities — on relevance to the focus, source
 depth, and authority, and shortlists N plus a ~30% reserve. `design` turns
-the shortlist into children: one `summary_get` workflow run per new source
+the shortlist into children: one `summarise` workflow run per new source
 plus a copy bead, then per-subtopic digests, topic-level `digest.md` /
 `overview.md` / `disagreements.md` / `open_questions.md`, one bead per lens,
 and `index.md` + `sources.md` last, each level depending on the one below.

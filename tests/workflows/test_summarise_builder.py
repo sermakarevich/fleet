@@ -1,4 +1,4 @@
-"""Tests for the summary_get builder: fetch, chunk, plan/wiki/derive/enrich/index/verify stages."""
+"""Tests for the summarise builder: fetch, chunk, plan/wiki/derive/enrich/index/verify stages."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.workflows.builders import BuildContext, summary_get
+from fleet.workflows.builders import BuildContext, summarise
 from fleet.workflows.builders.chunking import CHUNK_CHARS_DEFAULT, chunk_text, parse_chunk_chars
 from fleet.workflows.builders.sources import Source, SourceError, SourceKind, detect, fetch
 from fleet.workflows.model import Workflow, ensure_valid
@@ -75,9 +75,9 @@ def test_build_fails_when_only_boilerplate_remains(
         text="# Empty\n\n## Sponsor\n\nThanks to Compshare [link](https://e.com).\n",
         tool="test",
     )
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: sponsor_only)
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: sponsor_only)
     with pytest.raises(SourceError, match="boilerplate"):
-        summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/sponsor-only"}))
+        summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/sponsor-only"}))
 
 
 def test_parse_chunk_chars_bounds() -> None:
@@ -133,7 +133,7 @@ def _ctx(tmp_path: Path, inputs: dict[str, str]) -> BuildContext:
 
 def _workflow() -> Workflow:
     """Bare builder workflow as saved before expansion."""
-    return Workflow(id="w", name="summary_get", builder="summary_get", stages=())
+    return Workflow(id="w", name="summarise", builder="summarise", stages=())
 
 
 def _fake_source() -> Source:
@@ -149,8 +149,8 @@ def _fake_source() -> Source:
 
 def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Build writes source/chunks files and returns the fixed stage graph."""
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
-    result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    result = summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
 
     assert [stage.name for stage in result.stages] == [
         "plan",
@@ -199,7 +199,7 @@ def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert "blocked" in verify_steps[0].description
     assert "Source:" in verify_steps[0].description
 
-    work = tmp_path / "workflows" / "summary_get" / "r1"
+    work = tmp_path / "workflows" / "summarise" / "r1"
     assert (work / "source.md").exists()
     assert list((work / "chunks").glob("01-*.md"))
     assert len(list((work / "chunks").glob("*.md"))) == 3
@@ -224,19 +224,19 @@ def test_build_expands_six_stages(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
 def test_build_missing_url_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Empty or absent url input fails fast without touching fetch."""
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
     with pytest.raises(ValueError, match="input url is required"):
-        summary_get.build(_workflow(), _ctx(tmp_path, {}))
+        summarise.build(_workflow(), _ctx(tmp_path, {}))
     with pytest.raises(ValueError, match="input url is required"):
-        summary_get.build(_workflow(), _ctx(tmp_path, {"url": "   "}))
+        summarise.build(_workflow(), _ctx(tmp_path, {"url": "   "}))
 
 
 def test_plan_matches_existing_entry_by_provenance_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Plan step searches research/ + investment/ by Source url before deriving a name."""
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
-    result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    result = summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
     plan_desc = next(
         step.description for stage in result.stages if stage.name == "plan" for step in stage.steps
     )
@@ -252,9 +252,9 @@ def test_plan_matches_existing_entry_by_provenance_url(
 def test_build_ends_at_verify_with_no_file_stage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """summary_get must not move the entry: the last stage is verify, no file stage."""
-    monkeypatch.setattr(summary_get, "fetch", lambda url, work_dir: _fake_source())
-    result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
+    """summarise must not move the entry: the last stage is verify, no file stage."""
+    monkeypatch.setattr(summarise, "fetch", lambda url, work_dir: _fake_source())
+    result = summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://e.com/a"}))
     assert result.stages[-1].name == "verify"
     assert [stage.name for stage in result.stages].count("verify") == 1
     assert "file" not in [stage.name for stage in result.stages]
@@ -263,7 +263,7 @@ def test_build_ends_at_verify_with_no_file_stage(
 
 def test_definition_declares_optional_research_target() -> None:
     """Provenance input exists, is optional, and defaults to standalone."""
-    inputs = {item["name"]: item for item in summary_get.DEFINITION["inputs"]}
+    inputs = {item["name"]: item for item in summarise.DEFINITION["inputs"]}
     assert "research_target" in inputs
     assert not inputs["research_target"].get("required", False)
     assert inputs["research_target"].get("default") == ""

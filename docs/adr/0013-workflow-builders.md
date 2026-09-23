@@ -60,3 +60,10 @@ only known at run start.
   spec), not on the definition: `fleet workflow show` prints the saved
   definition (builder name, no stages); the concrete stage grid appears on
   the run detail once the run starts.
+
+## Amendment 2026-09-23
+
+The `summary_get` builder was renamed to `summarise` (module, registry key,
+definition name, and saved YAML); body text above keeps the old name as
+written. The one-shot `scripts/recover_workflow_runs.py` still reads the
+pre-rename `workflows/summary_get/<run_id>` work dirs.

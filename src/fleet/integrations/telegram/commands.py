@@ -31,7 +31,7 @@ HELP_TEXT = (
     "/tasks - list open tasks\n"
     "/task <id> - show task details\n"
     "/workflow <name> key=value… — start a saved workflow\n"
-    "/summary <url> — summarize a URL into the knowledge base (summary_get workflow)\n"
+    "/summary <url> — summarize a URL into the knowledge base (summarise workflow)\n"
     "/help - show this help\n"
     "\nReply to a question message to answer it; "
     "with exactly one pending question a plain message answers it directly."
@@ -294,7 +294,7 @@ async def handle_workflow(ctx: CommandContext) -> None:
 
 
 async def handle_summary(ctx: CommandContext) -> None:
-    """`/summary <url> [chunk_chars=N]` is sugar for `/workflow summary_get url=<url>`."""
+    """`/summary <url> [chunk_chars=N]` is sugar for `/workflow summarise url=<url>`."""
     if not ctx.chat_id:
         return
     parts = ctx.text.strip().split()
@@ -316,9 +316,9 @@ async def handle_summary(ctx: CommandContext) -> None:
         await ctx.api.send(ctx.chat_id, "Workflows are not available on this server.")
         return
     try:
-        reply = await ctx.start_workflow("summary_get", inputs)
+        reply = await ctx.start_workflow("summarise", inputs)
     except Exception as exc:
-        await ctx.api.send(ctx.chat_id, f"Could not start summary_get: {exc}")
+        await ctx.api.send(ctx.chat_id, f"Could not start summarise: {exc}")
         return
     await ctx.api.send(ctx.chat_id, reply)
 

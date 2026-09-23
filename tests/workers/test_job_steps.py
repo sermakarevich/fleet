@@ -199,8 +199,8 @@ def _workflow_tasks_doc() -> dict:
         "tasks": [
             {
                 "key": "src-03",
-                "title": "summary_get: a title",
-                "workflow": "summary_get",
+                "title": "summarise: a title",
+                "workflow": "summarise",
                 "inputs": {"url": "https://example.com"},
             },
             {
@@ -232,12 +232,12 @@ def test_spawn_children_workflow_child(tmp_path: Path) -> None:
     }
     sib_spec = next(spec for _, spec in queue.created if spec["title"] == "sibling")
     assert sib_spec["depends_on"] == ["t3"]
-    assert runner.calls == [("summary_get", {"url": "https://example.com"})]
+    assert runner.calls == [("summarise", {"url": "https://example.com"})]
 
 
 def test_spawn_children_skips_failed_builder_and_its_dependents(tmp_path: Path) -> None:
     """A dead source skips its run and the copy that needed it; the rest proceed."""
-    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summary_get: yt failed"]))
+    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summarise: yt failed"]))
     ctx = _ctx(tmp_path, workflow_runner=runner)
     doc = _workflow_tasks_doc()
     doc["tasks"].append({"key": "solo", "title": "solo", "body": "solo body", "depends_on": []})
@@ -262,7 +262,7 @@ def test_spawn_children_skips_failed_builder_and_its_dependents(tmp_path: Path) 
 def test_spawn_children_defers_a_transient_source_instead_of_skipping(tmp_path: Path) -> None:
     """A rate limit must not write the source off; the key is left for a retry."""
     runner = FakeWorkflowRunner(
-        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+        error=WorkflowSourceUnavailable(["builder summarise: rate limited; retry later"])
     )
     ctx = _ctx(tmp_path, workflow_runner=runner)
     doc = _workflow_tasks_doc()
@@ -289,7 +289,7 @@ def test_spawn_children_defers_a_transient_source_instead_of_skipping(tmp_path: 
 def test_spawn_children_retries_a_deferred_key_on_the_next_attempt(tmp_path: Path) -> None:
     """Once the source answers again, the deferred key spawns normally."""
     blocked = FakeWorkflowRunner(
-        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+        error=WorkflowSourceUnavailable(["builder summarise: rate limited; retry later"])
     )
     ctx = _ctx(tmp_path, workflow_runner=blocked)
     _write_tasks(ctx, _workflow_tasks_doc())
@@ -308,7 +308,7 @@ def test_spawn_children_retries_a_deferred_key_on_the_next_attempt(tmp_path: Pat
 def test_spawn_children_skips_a_key_that_stays_unreachable(tmp_path: Path) -> None:
     """The retry budget runs out, so a source nobody can read stops blocking the job."""
     runner = FakeWorkflowRunner(
-        error=WorkflowSourceUnavailable(["builder summary_get: no transcript offered"])
+        error=WorkflowSourceUnavailable(["builder summarise: no transcript offered"])
     )
     artifacts = None
     for attempt in range(_DEFER_MAX_ATTEMPTS):
@@ -330,7 +330,7 @@ def test_spawn_children_skips_a_key_that_stays_unreachable(tmp_path: Path) -> No
 def test_spawn_children_blocks_when_an_attempt_makes_no_progress(tmp_path: Path) -> None:
     """All that is left is unreachable: block rather than spin on the same host."""
     blocked = FakeWorkflowRunner(
-        error=WorkflowSourceUnavailable(["builder summary_get: rate limited; retry later"])
+        error=WorkflowSourceUnavailable(["builder summarise: rate limited; retry later"])
     )
     ctx = _ctx(tmp_path, workflow_runner=blocked)
     _write_tasks(ctx, _workflow_tasks_doc())
@@ -346,7 +346,7 @@ def test_spawn_children_blocks_when_an_attempt_makes_no_progress(tmp_path: Path)
 
 
 def test_spawn_children_all_skipped_fails(tmp_path: Path) -> None:
-    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summary_get: yt failed"]))
+    runner = FakeWorkflowRunner(error=WorkflowInvalid(["builder summarise: yt failed"]))
     ctx = _ctx(tmp_path, workflow_runner=runner)
     _write_tasks(ctx, _workflow_tasks_doc())
     result = asyncio.run(SpawnChildren(FakeQueue()).run(ctx))
@@ -392,12 +392,12 @@ def test_normalize_task_keeps_workflow_and_inputs() -> None:
     normalized = _normalize_task(
         {
             "key": "src-03",
-            "title": "summary_get: a title",
-            "workflow": "summary_get",
+            "title": "summarise: a title",
+            "workflow": "summarise",
             "inputs": {"url": "https://example.com"},
         }
     )
-    assert normalized["workflow"] == "summary_get"
+    assert normalized["workflow"] == "summarise"
     assert normalized["inputs"] == {"url": "https://example.com"}
 
 
@@ -442,8 +442,8 @@ def test_spawn_children_starts_workflow_runs_concurrently(tmp_path: Path) -> Non
             "tasks": [
                 {
                     "key": f"src-{i}",
-                    "title": f"summary_get {i}",
-                    "workflow": "summary_get",
+                    "title": f"summarise {i}",
+                    "workflow": "summarise",
                     "inputs": {"url": f"https://example.com/{i}"},
                 }
                 for i in range(3)
@@ -503,7 +503,7 @@ def test_spawn_retries_stale_starting_intent_without_second_chain(tmp_path: Path
     runner = DedupeRunner()
     # Attempt 1: the run was created, but the attempt died after journaling
     # only the intent — the run is an orphan no journal claims.
-    orphan = runner.start("summary_get", orphan_inputs)
+    orphan = runner.start("summarise", orphan_inputs)
     ctx = _ctx(tmp_path, workflow_runner=runner)
     _write_tasks(ctx, _workflow_tasks_doc())
     artifacts = ctx.task_dir / "artifacts"
@@ -513,7 +513,7 @@ def test_spawn_retries_stale_starting_intent_without_second_chain(tmp_path: Path
             {
                 "src-03": {
                     "status": "starting",
-                    "workflow": "summary_get",
+                    "workflow": "summarise",
                     "inputs": dict(orphan_inputs),
                 }
             }

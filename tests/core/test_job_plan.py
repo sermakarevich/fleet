@@ -150,7 +150,7 @@ def _workflow_task(key: str, **kw) -> dict:
     base = {
         "key": key,
         "title": f"title {key}",
-        "workflow": "summary_get",
+        "workflow": "summarise",
         "inputs": {"url": "https://example.com"},
         "depends_on": [],
     }

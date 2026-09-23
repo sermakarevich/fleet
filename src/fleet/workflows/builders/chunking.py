@@ -1,6 +1,6 @@
 """Split fetched source text into chapter-sized chunks along its own structure.
 
-Called by `builders/summary_get.py`. Pure text in, list of chunks out: the
+Called by `builders/summarise.py`. Pure text in, list of chunks out: the
 text is cut at markdown headings when it has them, else at blank lines,
 and neighbouring pieces are packed greedily up to a target size so every
 chunk is a whole section (or a run of whole paragraphs), never a cut mid

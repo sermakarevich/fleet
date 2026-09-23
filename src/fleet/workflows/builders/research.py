@@ -5,7 +5,7 @@ other workflow: pick `research`, fill the inputs, press Run. The builder turns
 the inputs into the key/value description the research worker reads (spec:
 `ai show research/get`) and returns one stage with one step whose bead
 carries `worker: research`. That bead then discovers and ranks sources, asks
-the operator to approve the shortlist, and spawns one `summary_get` run per
+the operator to approve the shortlist, and spawns one `summarise` run per
 source plus the digest/lens/index children.
 """
 
@@ -28,7 +28,7 @@ DEFINITION: dict = {
     "description": (
         "Multi-source research into the knowledge base (ai:research:get recipe). "
         "Discovers and ranks candidate sources with jev, asks you to approve the "
-        "shortlist, runs summary_get on every approved source, then builds "
+        "shortlist, runs summarise on every approved source, then builds "
         "hierarchical digests, lenses (business/product/tech/ai), disagreements "
         "and open questions under ~/.ai/knowledge/research/<target>/."
     ),

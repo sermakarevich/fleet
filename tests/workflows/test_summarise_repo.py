@@ -1,4 +1,4 @@
-"""Tests for the summary_get codebase track: repo detect, clone, chunk, build."""
+"""Tests for the summarise codebase track: repo detect, clone, chunk, build."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fleet.workflows.builders import BuildContext, sources, summary_get
+from fleet.workflows.builders import BuildContext, sources, summarise
 from fleet.workflows.builders.chunking import chunk_repo
 from fleet.workflows.builders.sources import Source, SourceKind, detect, fetch
 from fleet.workflows.model import Workflow, ensure_valid
@@ -157,8 +157,8 @@ def _fake_repo_source(url: str, work_dir: Path) -> Source:
 
 def test_build_repo_uses_codebase_prompts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Repo builds plan component pages, an 11-section summary, and type Codebase."""
-    monkeypatch.setattr(summary_get, "fetch", _fake_repo_source)
-    result = summary_get.build(
+    monkeypatch.setattr(summarise, "fetch", _fake_repo_source)
+    result = summarise.build(
         _workflow(), _ctx(tmp_path, {"url": "https://github.com/acme/widgets"})
     )
     by_name = {stage.name: stage for stage in result.stages}
@@ -176,7 +176,7 @@ def test_build_repo_uses_codebase_prompts(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert "The system in five moves" in digest_desc
     wiki_desc = by_name["wiki"].steps[1].description
     assert "file:line" in wiki_desc
-    work = tmp_path / "workflows" / "summary_get" / "r1"
+    work = tmp_path / "workflows" / "summarise" / "r1"
     manifest = json.loads((work / "chunks.json").read_text(encoding="utf-8"))
     assert [row["slug"] for row in manifest] == ["01-overview", "02-cli", "03-storage"]
     assert ensure_valid(result) is not None
@@ -184,7 +184,7 @@ def test_build_repo_uses_codebase_prompts(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 def _workflow() -> Workflow:
     """Bare builder workflow as saved before expansion."""
-    return Workflow(id="w", name="summary_get", builder="summary_get", stages=())
+    return Workflow(id="w", name="summarise", builder="summarise", stages=())
 
 
 def test_build_repo_without_clone_dir_falls_back_to_text(
@@ -198,8 +198,8 @@ def test_build_repo_without_clone_dir_falls_back_to_text(
             url=url, kind=SourceKind.repo, title="t", text="## A\n\nbody words " * 50, tool="git"
         )
 
-    monkeypatch.setattr(summary_get, "fetch", _no_clone)
-    result = summary_get.build(_workflow(), _ctx(tmp_path, {"url": "https://github.com/a/b"}))
+    monkeypatch.setattr(summarise, "fetch", _no_clone)
+    result = summarise.build(_workflow(), _ctx(tmp_path, {"url": "https://github.com/a/b"}))
     assert [stage.name for stage in result.stages] == [
         "plan",
         "wiki",

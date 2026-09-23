@@ -1,5 +1,5 @@
 fleet_workflow: 1
-name: summary_get
+name: summarise
 description: >
   Summarize a URL into an LLM-wiki folder in the knowledge base (ai:summary:get recipe).
   The builder fetches the source (yt for YouTube, x for X/Twitter, pdftotext for arXiv/PDF,
@@ -10,7 +10,7 @@ description: >
   entry stays in research/<Slug>/ (investment/ for finance topics); filing it elsewhere
   is a separate deliberate act via the ai:summary:move recipe, and runs spawned by
   a research epic are copied into research/<epic>/sources/ by the research copy bead.
-builder: summary_get
+builder: summarise
 defaults:
   cwd: /Users/sergii/.ai
   coder: claude

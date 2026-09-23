@@ -1,4 +1,4 @@
-"""Tests for summary_verify: the recipe check behind the summary_get verify stage."""
+"""Tests for summary_verify: the recipe check behind the summarise verify stage."""
 
 from __future__ import annotations
 

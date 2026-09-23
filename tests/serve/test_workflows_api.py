@@ -135,7 +135,7 @@ def test_create_returns_201_and_get_returns_it(
     listed = _request(app, "GET", "/api/workflows")
     assert listed.status_code == 200
     ids = [item["id"] for item in listed.json()["workflows"]]
-    assert body["id"] in ids  # built-in builders (research, summary_get) are listed too
+    assert body["id"] in ids  # built-in builders (research, summarise) are listed too
 
 
 def test_create_invalid_needs_answers_422_with_problem_text(
@@ -437,19 +437,19 @@ def test_create_with_builder_and_no_stages(tmp_path: Path, monkeypatch: pytest.M
     app = _app(tmp_path, monkeypatch)
     payload = {
         "name": "b",
-        "builder": "summary_get",
+        "builder": "summarise",
         "inputs": [{"name": "url", "required": True}],
         "defaults": {},
     }
     resp = _request(app, "POST", "/api/workflows", json=payload)
     assert resp.status_code == 201
     body = resp.json()
-    assert body["builder"] == "summary_get"
+    assert body["builder"] == "summarise"
     assert body["stages"] == []
 
     fetched = _request(app, "GET", f"/api/workflows/{body['id']}")
     assert fetched.status_code == 200
-    assert fetched.json()["builder"] == "summary_get"
+    assert fetched.json()["builder"] == "summarise"
     assert fetched.json()["stages"] == []
 
 

@@ -23,12 +23,12 @@ how many sub-topics, the dependency shape below) and
 
 ## Per shortlisted source not already in the KB (`status == "shortlist"`, `origin == null`)
 
-Two tasks (the summary_get run carries the research provenance so its file
+Two tasks (the summarise run carries the research provenance so its file
 step skips filing into structured_papers/ — the copy bead below owns the
 entry's ONE home under research; MOVE, never copy):
 
 ```json
-{"key": "src-NN", "title": "summary_get: <title>", "workflow": "summary_get", "inputs": {"url": "<url>", "research_target": "<TARGET>"}}
+{"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>"}}
 ```
 
 ```json
@@ -48,7 +48,7 @@ nothing is filed into structured_papers/ for these sources.
 
 ## Per shortlisted source already in the KB (`status == "shortlist"`, `origin != null`)
 
-The copy task only, moving from `origin` instead of a fresh summary_get
+The copy task only, moving from `origin` instead of a fresh summarise
 folder, with no `depends_on` (MOVE, never copy — when `origin` is already
 homed under investment/ or structured_papers/, the copy bead stops with an
 error instead of duplicating it, so the operator decides):

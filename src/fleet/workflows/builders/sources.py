@@ -1,6 +1,6 @@
-"""Fetch the text behind a URL for the summary_get builder.
+"""Fetch the text behind a URL for the summarise builder.
 
-Called by `builders/summary_get.py`. One function per source kind, chosen
+Called by `builders/summarise.py`. One function per source kind, chosen
 from the URL alone (`detect`): YouTube through the `yt` CLI, X/Twitter
 through the `x` CLI, PDFs (including arXiv) through `pdftotext`, anything
 else as a web page stripped to text with the standard library. A
@@ -42,7 +42,7 @@ from fleet.workflows.builders.chunking import (
 _FETCH_TIMEOUT_S = 60
 _CLI_TIMEOUT_S = 180
 _MAX_BYTES = 50_000_000
-_USER_AGENT = "Mozilla/5.0 (compatible; fleet-summary_get/1.0)"
+_USER_AGENT = "Mozilla/5.0 (compatible; fleet-summarise/1.0)"
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVER_ERROR = 500
 

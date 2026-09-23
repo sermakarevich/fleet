@@ -1,4 +1,4 @@
-"""Build the summary_get workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify.
+"""Build the summarise workflow: fetch a URL, chunk it, plan wiki/derive/enrich/index/verify.
 
 Called by `workflows.runs` through `builders.expand` at run start. The saved
 workflow carries no stages; `build` fetches the source behind the run's `url`
@@ -389,7 +389,7 @@ __TAIL__"""
 #: Saved definition created on fleet start when no workflow of this name exists
 #: (see `fleet.workflows.builtins`). Operators may edit the saved copy freely.
 DEFINITION: dict = {
-    "name": "summary_get",
+    "name": "summarise",
     "description": (
         "Summarize a URL into an LLM-wiki folder in the knowledge base "
         "(ai:summary:get recipe). The builder fetches the source (yt for YouTube, "
@@ -437,7 +437,7 @@ def build(workflow: Workflow, ctx: BuildContext) -> Workflow:
     if not url:
         raise ValueError("input url is required")
     target = parse_chunk_chars(ctx.inputs.get("chunk_chars"))
-    work = ctx.work_dir("summary_get")
+    work = ctx.work_dir("summarise")
     work.mkdir(parents=True, exist_ok=True)
     source = fetch(url, work)
     _write_source(work, source, url, ctx)
@@ -534,7 +534,7 @@ def _stages(
         steps=(
             Step(
                 name="plan",
-                title=f"summary_get: plan {source.title}",
+                title=f"summarise: plan {source.title}",
                 description=_fill(plan_desc, **common),
             ),
         ),
@@ -544,7 +544,7 @@ def _stages(
         steps=tuple(
             Step(
                 name=name,
-                title=f"summary_get: wiki {chunk.index:02d}/{total} {chunk.title}",
+                title=f"summarise: wiki {chunk.index:02d}/{total} {chunk.title}",
                 description=_fill(
                     chunk_desc,
                     **common,
@@ -565,13 +565,13 @@ def _stages(
         steps=(
             Step(
                 name="digest",
-                title=f"summary_get: digest {source.title}",
+                title=f"summarise: digest {source.title}",
                 description=_fill(_DIGEST_DESC, **common),
                 needs=chunk_names,
             ),
             Step(
                 name="summary",
-                title=f"summary_get: summary {source.title}",
+                title=f"summarise: summary {source.title}",
                 description=_fill(summary_desc, **common),
                 needs=chunk_names,
             ),
@@ -582,19 +582,19 @@ def _stages(
         steps=(
             Step(
                 name="explainer",
-                title=f"summary_get: explainer {source.title}",
+                title=f"summarise: explainer {source.title}",
                 description=_fill(_EXPLAINER_DESC, **common),
                 needs=("digest", "summary"),
             ),
             Step(
                 name="questions",
-                title=f"summary_get: questions {source.title}",
+                title=f"summarise: questions {source.title}",
                 description=_fill(_QUESTIONS_DESC, **common),
                 needs=("digest", "summary"),
             ),
             Step(
                 name="critical-thinking",
-                title=f"summary_get: critical-thinking {source.title}",
+                title=f"summarise: critical-thinking {source.title}",
                 description=_fill(_CRITICAL_DESC, **common),
                 needs=("digest", "summary"),
             ),
@@ -605,7 +605,7 @@ def _stages(
         steps=(
             Step(
                 name="index",
-                title=f"summary_get: index {source.title}",
+                title=f"summarise: index {source.title}",
                 description=_fill(_INDEX_DESC, **common),
                 needs=("explainer", "questions", "critical-thinking"),
             ),
@@ -616,7 +616,7 @@ def _stages(
         steps=(
             Step(
                 name="verify",
-                title=f"summary_get: verify {source.title}",
+                title=f"summarise: verify {source.title}",
                 description=_fill(_VERIFY_DESC, **common),
                 needs=("index",),
             ),

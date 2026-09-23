@@ -159,9 +159,9 @@ If the task ID is not found, Fleet suggests using `/new_task` to create one.
 
 Starts a saved workflow (see `fleet workflow`) with the given inputs. Each
 extra token must be `key=value` (for example
-`/workflow summary_get url=https://example.com/a chunk_chars=8000`). Fleet
+`/workflow summarise url=https://example.com/a chunk_chars=8000`). Fleet
 replies with the run id and step count, for example
-`Started summary_get run <id>: N steps, first task <id>`. Unknown workflow
+`Started summarise run <id>: N steps, first task <id>`. Unknown workflow
 names and validation problems are reported back as `Could not start <name>: …`.
 The workflow must already be imported on the server.
 
@@ -171,17 +171,17 @@ The workflow must already be imported on the server.
 /summary <url> [chunk_chars=N]
 ```
 
-Shorthand for `/workflow summary_get url=<url>`: summarizes a YouTube video,
+Shorthand for `/workflow summarise url=<url>`: summarizes a YouTube video,
 X/Twitter thread, arXiv/PDF, or article page into an LLM-wiki folder in the
-knowledge base via the `summary_get` workflow builder. Prerequisite on the
+knowledge base via the `summarise` workflow builder. Prerequisite on the
 server:
 
 ```bash
-fleet workflow import docs/workflows/summary-get.yaml
+fleet workflow import docs/workflows/summarise.yaml
 ```
 
 On success Fleet replies with the same run format:
-`Started summary_get run <id>: N steps, first task <id>`. The URL must start
+`Started summarise run <id>: N steps, first task <id>`. The URL must start
 with `http://` or `https://`, otherwise Fleet replies `Usage: /summary <url>`.
 
 #### `/help` — show command usage
@@ -197,7 +197,7 @@ Fleet replies with a summary of all available commands and the answer flow. Tele
 /tasks - list open tasks
 /task <id> - show task details
 /workflow <name> key=value… — start a saved workflow
-/summary <url> — summarize a URL into the knowledge base (summary_get workflow)
+/summary <url> — summarize a URL into the knowledge base (summarise workflow)
 /help - show this help
 ```
 

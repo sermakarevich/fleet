@@ -1,7 +1,7 @@
-"""Verify a finished summary_get knowledge-base entry against the recipe.
+"""Verify a finished summarise knowledge-base entry against the recipe.
 
-Called by the `verify` stage of the summary_get builder (see
-`builders/summary_get.py`): the worker resolves the entry folder from
+Called by the `verify` stage of the summarise builder (see
+`builders/summarise.py`): the worker resolves the entry folder from
 ``{{steps.plan.outputs.research_dir}}`` and runs these checks. Pure function
 in, list of failure strings out, so the same logic is unit-testable:
 

@@ -17,9 +17,9 @@ from fleet.workflows.store import WorkflowStore
 _NOW = datetime(2026, 9, 22, 9, 0, tzinfo=UTC)
 
 
-def test_builtin_definitions_cover_research_and_summary_get() -> None:
+def test_builtin_definitions_cover_research_and_summarise() -> None:
     names = {definition["name"] for _, definition in builtin_definitions()}
-    assert {"research", "summary_get"} <= names
+    assert {"research", "summarise"} <= names
 
 
 def test_workflow_from_definition_is_valid_builder_workflow() -> None:
@@ -52,7 +52,7 @@ def test_ensure_builtin_backfills_missing_optional_inputs(tmp_path: Path) -> Non
     """Older saved workflows gain new optional inputs without losing edits."""
     store = WorkflowStore(tmp_path / "w.db")
     ensure_builtin_workflows(store, _NOW)
-    saved = store.get_by_name("summary_get")
+    saved = store.get_by_name("summarise")
     assert saved is not None
     assert "research_target" in {item.name for item in saved.inputs}
 
@@ -65,11 +65,11 @@ def test_ensure_builtin_backfills_missing_optional_inputs(tmp_path: Path) -> Non
     )
     store.save(stripped)
     assert "research_target" not in {
-        item.name for item in store.get_by_name("summary_get").inputs  # type: ignore[union-attr]
+        item.name for item in store.get_by_name("summarise").inputs  # type: ignore[union-attr]
     }
 
     assert ensure_builtin_workflows(store, _NOW) == []
-    refilled = store.get_by_name("summary_get")
+    refilled = store.get_by_name("summarise")
     assert refilled is not None
     names = [item.name for item in refilled.inputs]
     assert "research_target" in names
