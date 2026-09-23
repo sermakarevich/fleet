@@ -324,12 +324,18 @@ def _split_long(piece: str, target: int) -> list[str]:
 
 
 def _title_of(text: str, index: int) -> str:
-    """Heading of the piece when it has one, else its first words."""
+    """Heading of the piece when it has one, else its first words.
+
+    NUL bytes are stripped: a title derived from fetched text (e.g.
+    `pdftotext` output with interleaved \\x00) ends up in step
+    titles passed to the bead CLI through subprocess argv, where a NUL
+    raises ``ValueError: embedded null byte``.
+    """
     match = _TITLE_RE.search(text)
     if match is not None:
-        return match.group(1).strip("# ").strip()
+        return match.group(1).strip("# ").strip().replace("\x00", "")
     words = text.strip().split()
-    return " ".join(words[:6]) if words else f"Part {index}"
+    return " ".join(words[:6]).replace("\x00", "") if words else f"Part {index}"
 
 
 def _merge_to_cap(pieces: list[str], cap: int) -> list[str]:

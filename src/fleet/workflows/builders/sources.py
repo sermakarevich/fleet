@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from html.parser import HTMLParser
 from pathlib import Path
@@ -236,21 +236,40 @@ def detect(url: str) -> SourceKind:
     return SourceKind.article
 
 
+def _sanitize(source: Source) -> Source:
+    """Drop NUL characters from a fetched source's title and text.
+
+    `pdftotext -layout` interleaves \\x00 bytes into its output for some
+    PDFs (symbol/table font regions), and NUL bytes can arrive in any
+    decoded body. A NUL that survives into a chunk-derived step title
+    raises ``ValueError: embedded null byte`` when the runner passes it
+    to the bead CLI through subprocess argv, which the spawn step journals
+    as a skipped child — so strip them here, once, for every fetch route.
+    """
+    if "\x00" not in source.title and "\x00" not in source.text:
+        return source
+    return replace(
+        source,
+        title=source.title.replace("\x00", ""),
+        text=source.text.replace("\x00", ""),
+    )
+
+
 def fetch(url: str, work_dir: Path) -> Source:
     """Fetch one URL by its detected route; `work_dir` receives downloads."""
     local = _local_path(url)
     if local is not None:
-        return _fetch_local_file(url, local, detect(url), work_dir)
+        return _sanitize(_fetch_local_file(url, local, detect(url), work_dir))
     kind = detect(url)
     if kind is SourceKind.youtube:
-        return _fetch_youtube(url)
+        return _sanitize(_fetch_youtube(url))
     if kind is SourceKind.x:
-        return _fetch_x(url)
+        return _sanitize(_fetch_x(url))
     if kind is SourceKind.pdf:
-        return _fetch_pdf(url, work_dir)
+        return _sanitize(_fetch_pdf(url, work_dir))
     if kind is SourceKind.repo:
-        return _fetch_repo(url, work_dir)
-    return _fetch_article(url)
+        return _sanitize(_fetch_repo(url, work_dir))
+    return _sanitize(_fetch_article(url))
 
 
 def _fetch_local_file(url: str, path: Path, kind: SourceKind, work_dir: Path) -> Source:

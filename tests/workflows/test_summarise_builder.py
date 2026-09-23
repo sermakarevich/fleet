@@ -369,3 +369,43 @@ def test_build_without_provenance_writes_no_provenance_lines(
     header = (tmp_path / "workflows" / "summarise" / "r1" / "source.md").read_text(encoding="utf-8")
     assert "Research-Target:" not in header
     assert "Topic:" not in header
+
+
+def test_fetch_strips_nul_bytes_from_local_file(tmp_path: Path) -> None:
+    """NUL bytes in fetched text (e.g. pdftotext layout output) never reach chunks."""
+    md = tmp_path / "notes.md"
+    md.write_text("# Title here\n\n" + "body \x00words " * 100)
+    src = fetch(str(md), tmp_path / "work")
+    assert "\x00" not in src.title
+    assert "\x00" not in src.text
+    assert "Title here" in src.text
+
+
+def test_chunk_text_strips_nul_bytes_from_derived_titles() -> None:
+    """Chunk titles derived from NUL-carrying text are subprocess-argv safe."""
+    text = ("\x00$\x00F word " * 300) + "\n\n" + ("more words " * 300)
+    chunks = chunk_text(text, 2000)
+    assert len(chunks) == 2  # noqa: PLR2004  # guard: title comes from first words, not a heading
+    for chunk in chunks:
+        assert "\x00" not in chunk.title
+
+
+def test_build_with_nul_bytes_yields_subprocess_safe_steps(tmp_path: Path) -> None:
+    """Regression: src-06 was skipped with 'embedded null byte' at spawn.
+
+    A NUL in a chunk-derived step title raises ValueError when the runner
+    passes it to the bead CLI through subprocess argv, which the spawn step
+    journals as a skipped child. End to end through the real fetch, no step
+    title or description may carry a NUL.
+    """
+    md = tmp_path / "paper.md"
+    md.write_text(
+        ("body \x00words " * 100) + "\n\n" + ("more words " * 100) + "\n\n" + ("end words " * 100)
+    )
+    result = summarise.build(_workflow(), _ctx(tmp_path, {"url": str(md)}))
+    steps = [step for stage in result.stages for step in stage.steps]
+    assert steps
+    for step in steps:
+        assert "\x00" not in step.title
+        assert "\x00" not in step.description
+    assert ensure_valid(result) is not None
