@@ -899,6 +899,24 @@ class StepRunView(BaseModel):
     children: StepChildren
 
 
+class ChildStageItem(BaseModel):
+    """One card in a job epic's extra stage column (a `src-NN` run or an aggregate bead)."""
+
+    key: str
+    title: str
+    kind: str
+    ref: str | None
+    status: str
+    reason: str | None = None
+
+
+class ChildStage(BaseModel):
+    """One extra stage a job epic's children render as (e.g. `summarise`, `aggregate`)."""
+
+    title: str
+    items: list[ChildStageItem]
+
+
 class WorkflowRunView(BaseModel):
     """One workflow run with its step runs (titles null when tasks are gone)."""
 
@@ -916,6 +934,7 @@ class WorkflowRunView(BaseModel):
     steps: list[StepRunView]
     parent_run_id: str | None
     parent_task_id: str | None
+    child_stages: list[ChildStage] = Field(default_factory=list)
 
 
 class WorkflowView(BaseModel):

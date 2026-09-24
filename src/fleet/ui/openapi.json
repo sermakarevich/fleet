@@ -3789,6 +3789,80 @@
         "title": "BeadListResponse",
         "description": "Envelope for GET /api/beads."
       },
+      "ChildStage": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChildStageItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "items"
+        ],
+        "title": "ChildStage",
+        "description": "One extra stage a job epic's children render as (e.g. `summarise`, `aggregate`)."
+      },
+      "ChildStageItem": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "kind",
+          "ref",
+          "status"
+        ],
+        "title": "ChildStageItem",
+        "description": "One card in a job epic's extra stage column (a `src-NN` run or an aggregate bead)."
+      },
       "CoderInfo": {
         "properties": {
           "name": {
@@ -7251,6 +7325,13 @@
               }
             ],
             "title": "Parent Task Id"
+          },
+          "child_stages": {
+            "items": {
+              "$ref": "#/components/schemas/ChildStage"
+            },
+            "type": "array",
+            "title": "Child Stages"
           }
         },
         "type": "object",

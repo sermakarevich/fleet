@@ -244,4 +244,53 @@ describe('WorkflowRunPage', () => {
     await waitFor(() => expect(screen.getAllByText('lint').length).toBeGreaterThan(0));
     expect(screen.queryByText('Started by')).not.toBeInTheDocument();
   });
+
+  it('renders a job epic\'s child_stages as extra stage columns with links', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({
+        child_stages: [
+          {
+            title: 'summarise',
+            items: [
+              {
+                key: 'src-01', title: 'summarise: Paper One', kind: 'run',
+                ref: 'wfr-child1', status: 'running',
+              },
+              {
+                key: 'src-02', title: 'summarise: Paper Two', kind: 'run',
+                ref: null, status: 'skipped', reason: 'HTTP Error 406: Not Acceptable',
+              },
+            ],
+          },
+          {
+            title: 'aggregate',
+            items: [
+              {
+                key: 'agg-index', title: 'index.md', kind: 'task',
+                ref: 'fleet-index', status: 'open',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText('Stage 3 — summarise')).toBeInTheDocument());
+    expect(screen.getByText('Stage 4 — aggregate')).toBeInTheDocument();
+
+    const runLink = screen.getByRole('link', { name: 'Open run wfr-child1' });
+    expect(runLink).toHaveAttribute('href', '/workflow-runs/wfr-child1');
+
+    expect(screen.getByText(/HTTP Error 406: Not Acceptable/)).toBeInTheDocument();
+
+    const taskLink = screen.getByRole('link', { name: 'Open task fleet-index' });
+    expect(taskLink).toHaveAttribute('href', '/tasks/fleet-index');
+  });
+
+  it('renders no extra stage columns when child_stages is empty', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(makeRun({ child_stages: [] }));
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getAllByText('lint').length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Stage \d+ —/)).not.toBeInTheDocument();
+  });
 });
