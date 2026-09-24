@@ -25,6 +25,7 @@ KINDS = (
     "topic_digest",
     "agg_digest",
     "agg_overview",
+    "agg_agreements",
     "agg_disagreements",
     "agg_open_questions",
     "lens",

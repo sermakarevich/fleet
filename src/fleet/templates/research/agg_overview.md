@@ -9,7 +9,7 @@ no raw sources, never the web.
 
 Write `{{target}}/overview.md` with: `# {{topic}}` - `**Research:** <n>
 sources, <date range>, focus: {{focus}}` - `## Human Readable TL;DR` (3-5
-plain sentences with analogies) - `## TL;DR` - `## What is established` -
+plain sentences with analogies) - `## TL;DR` - `## What is established` (link to `agreements.md`) -
 `## What is contested` (one line each, link to `disagreements.md`) -
 `## What is open` (link to `open_questions.md`) - `## How to read this
 folder`. Flowing paragraphs, never one sentence per line.

@@ -26,6 +26,11 @@ FULL_FIELDS: dict[str, dict[str, str]] = {
         "topic": "Agentic Memory",
         "focus": "How do agents remember?",
     },
+    "agg_agreements": {
+        "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
+        "topic": "Agentic Memory",
+        "focus": "How do agents remember?",
+    },
     "agg_disagreements": {
         "target": "/Users/sergii/.ai/knowledge/research_topics/agent_memory/research/demo",
         "topic": "Agentic Memory",

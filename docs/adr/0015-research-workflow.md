@@ -290,6 +290,17 @@ section (above `## Tutorials` when present) instead of
 `knowledge/research/<target>/` keep working: the discover dedup scan covers
 both locations. Existing KB content is moved by the operator, not by fleet.
 
+## agreements.md (2026-09-24)
+
+The operator's spec pairs every `disagreements.md` with an `agreements.md`:
+claims two or more independent sources support, who backs each, how strong
+the joint evidence is and under which conditions it holds. It was missing
+from the first runs (`wfr-oexdmbmg`). Design now emits an `agg-agreements`
+bead (`templates/research/agg_agreements.md`) next to `agg-disagreements`,
+depending on every topic digest; `agg-index` waits for it and the overview's
+`## What is established` links to it. The recipe (`ai show research/get`)
+lists it in the output tree and the definition of done.
+
 ## Related
 
 - ADR 0007 recurring workers (schedules), ADR 0008 workflows, ADR 0010 run

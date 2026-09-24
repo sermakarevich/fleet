@@ -10,7 +10,7 @@ Let `TOPIC` = `<topic>` from `candidates.json`'s `inputs.topic` (a folder
 under `/Users/sergii/.ai/knowledge/research_topics/`).
 Let `TARGET` = `/Users/sergii/.ai/knowledge/research_topics/<TOPIC>/research/<target>`
 (`<target>` from `candidates.json`'s `inputs.target`). Every aggregate
-(`index.md`, `overview.md`, `digest.md`, `disagreements.md`,
+(`index.md`, `overview.md`, `digest.md`, `agreements.md`, `disagreements.md`,
 `open_questions.md`, `lenses/`, `topics/`, `sources.md`) lives under
 `TARGET`; paper summaries stay under `research_topics/<TOPIC>/<Name>/`,
 filed by their summarise runs.
@@ -91,6 +91,10 @@ only (a workflow run child is depended on, never depending: it takes no
 ```
 
 ```json
+{"key": "agg-agreements", "title": "agreements.md", "body": "<templates/research/agg_agreements.md with {{target}}, {{topic}}, {{focus}} filled>", "cwd": "/Users/sergii/.ai", "depends_on": ["topic-01", "..."]}
+```
+
+```json
 {"key": "agg-disagreements", "title": "disagreements.md", "body": "<templates/research/agg_disagreements.md with {{target}}, {{topic}}, {{focus}} filled>", "cwd": "/Users/sergii/.ai", "depends_on": ["topic-01", "..."]}
 ```
 
@@ -118,7 +122,7 @@ only (a workflow run child is depended on, never depending: it takes no
   "title": "index.md + sources.md + research index",
   "body": "<templates/research/agg_index.md with {{target}}, {{topic}}, {{focus}}, {{lenses}}, {{topics}} filled>",
   "cwd": "/Users/sergii/.ai",
-  "depends_on": ["src-01", "...", "topic-01", "...", "agg-digest", "agg-overview", "agg-disagreements", "agg-open", "lens-tech", "..."]
+  "depends_on": ["src-01", "...", "topic-01", "...", "agg-digest", "agg-overview", "agg-agreements", "agg-disagreements", "agg-open", "lens-tech", "..."]
 }
 ```
 

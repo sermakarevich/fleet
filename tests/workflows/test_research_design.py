@@ -53,6 +53,15 @@ def test_topic_pages_point_at_research_topics() -> None:
     assert "research_topics/" in _read("research/lens.md")
 
 
+def test_design_emits_agreements_next_to_disagreements() -> None:
+    """agg-agreements is a topic-level bead and agg-index waits for it."""
+    text = _read("INSTRUCTION_RESEARCH_DESIGN.md")
+    assert '"key": "agg-agreements"' in text
+    assert '"agg-agreements", "agg-disagreements"' in text
+    assert "agreements.md" in _read("research/agg_agreements.md")
+    assert "agreements.md" in _read("research/agg_overview.md")
+
+
 def test_agg_index_owns_the_sources_ledger() -> None:
     """With no copy beads, agg-index writes the sources.md rows from candidates.json."""
     text = _read("research/agg_index.md")
