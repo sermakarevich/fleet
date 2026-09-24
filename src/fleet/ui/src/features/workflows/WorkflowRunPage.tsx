@@ -26,8 +26,9 @@ import { TriggerChip, RunStatusChip } from './runColumns';
 
 // One read-only step card: name, task title, task chip, state, task link,
 // plus the step's outputs and warning (ADR 0010). A step whose bead is
-// still deferred reads "waiting (deferred)".
-function StepCard({ step }: { step: WorkflowStepRun }) {
+// still deferred reads "waiting (deferred)". `hideChildren` drops the inline
+// Children list when the same children render as their own stage columns.
+function StepCard({ step, hideChildren = false }: { step: WorkflowStepRun; hideChildren?: boolean }) {
   const attention = step.state === 'attention';
   const deferred = step.state === 'waiting' && step.task_status === 'deferred';
   const outputs = Object.entries(step.outputs ?? {});
@@ -57,7 +58,7 @@ function StepCard({ step }: { step: WorkflowStepRun }) {
           ⚠ {step.warning}
         </div>
       )}
-      <ChildrenTable step={step} />
+      {!hideChildren && <ChildrenTable step={step} />}
       <Link to={`/tasks/${step.task_id}`} style={styles.taskLink}>
         Open task {step.task_id}
       </Link>
@@ -119,12 +120,20 @@ function ChildrenTable({ step }: { step: WorkflowStepRun }) {
 }
 
 // One stage column: header plus its step cards in run order.
-function StageColumnView({ title, steps }: { title: string; steps: WorkflowStepRun[] }) {
+function StageColumnView({
+  title,
+  steps,
+  hideChildren = false,
+}: {
+  title: string;
+  steps: WorkflowStepRun[];
+  hideChildren?: boolean;
+}) {
   return (
     <div style={styles.stageCol}>
       <div style={styles.stageHead}>{title}</div>
       {steps.map((step) => (
-        <StepCard key={step.step_name} step={step} />
+        <StepCard key={step.step_name} step={step} hideChildren={hideChildren} />
       ))}
     </div>
   );
@@ -145,7 +154,7 @@ function ChildStageCard({ item }: { item: ChildStageItem }) {
       <div style={styles.stepName} title={item.key}>{item.key}</div>
       <div style={styles.taskTitle} title={item.title}>{item.title}</div>
       <div style={styles.stepMeta}>
-        <StatusChip status={item.status} />
+        {item.kind === 'run' ? <RunStatusChip status={item.status} /> : <StatusChip status={item.status} />}
       </div>
       {item.reason && (
         <div style={styles.warningBox} title={item.reason}>⚠ {item.reason}</div>
@@ -202,6 +211,7 @@ export function WorkflowRunPage() {
   const cancellable = run.status === 'running' || run.status === 'attention';
   const runIdValue = run.id;
   const stageTitles = (workflow?.stages ?? []).map((s) => s.name);
+  const hasChildStages = (run.child_stages ?? []).length > 0;
   const stageIndexes = [...new Set(run.steps.map((s) => s.stage_index))].sort((a, b) => a - b);
 
   function onCancel() {
@@ -267,8 +277,11 @@ export function WorkflowRunPage() {
         {stageIndexes.map((index) => (
           <StageColumnView
             key={index}
-            title={stageTitles[index] ?? `Stage ${index + 1}`}
+            title={stageTitles[index] ?? (hasChildStages
+              ? `Stage ${index + 1} — ${run.workflow_name}`
+              : `Stage ${index + 1}`)}
             steps={run.steps.filter((s) => s.stage_index === index)}
+            hideChildren={hasChildStages}
           />
         ))}
         {(run.child_stages ?? []).map((stage, i) => (

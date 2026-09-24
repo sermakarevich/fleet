@@ -287,6 +287,40 @@ describe('WorkflowRunPage', () => {
     expect(taskLink).toHaveAttribute('href', '/tasks/fleet-index');
   });
 
+  it('drops the inline Children list when child_stages render as columns', async () => {
+    vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(
+      makeRun({
+        steps: [
+          step({
+            children: {
+              runs: [
+                {
+                  key: 'src-01', run_id: 'wfr-child1', workflow_name: 'summarise',
+                  status: 'succeeded', steps_done: 3, steps_total: 3,
+                },
+              ],
+              beads: [],
+            },
+          }),
+        ],
+        child_stages: [
+          {
+            title: 'summarise',
+            items: [
+              {
+                key: 'src-01', title: 'summarise: Paper One', kind: 'run',
+                ref: 'wfr-child1', status: 'succeeded',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    render(<WorkflowRunPage />, { wrapper });
+    await waitFor(() => expect(screen.getByText(/— summarise/)).toBeInTheDocument());
+    expect(screen.queryByText('Children')).not.toBeInTheDocument();
+  });
+
   it('renders no extra stage columns when child_stages is empty', async () => {
     vi.spyOn(api, 'getWorkflowRun').mockResolvedValue(makeRun({ child_stages: [] }));
     render(<WorkflowRunPage />, { wrapper });
