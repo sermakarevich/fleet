@@ -1659,6 +1659,34 @@ export interface components {
             beads: components["schemas"]["Bead"][];
         };
         /**
+         * ChildStage
+         * @description One extra stage a job epic's children render as (e.g. `summarise`, `aggregate`).
+         */
+        ChildStage: {
+            /** Title */
+            title: string;
+            /** Items */
+            items: components["schemas"]["ChildStageItem"][];
+        };
+        /**
+         * ChildStageItem
+         * @description One card in a job epic's extra stage column (a `src-NN` run or an aggregate bead).
+         */
+        ChildStageItem: {
+            /** Key */
+            key: string;
+            /** Title */
+            title: string;
+            /** Kind */
+            kind: string;
+            /** Ref */
+            ref: string | null;
+            /** Status */
+            status: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * CoderInfo
          * @description One coder entry for the create-task form.
          */
@@ -2925,6 +2953,8 @@ export interface components {
             parent_run_id: string | null;
             /** Parent Task Id */
             parent_task_id: string | null;
+            /** Child Stages */
+            child_stages?: components["schemas"]["ChildStage"][];
         };
         /**
          * WorkflowValidateResponse

@@ -58,6 +58,8 @@ export type WorkflowStepRun = Schemas['StepRunView'];
 export type StepChildren = Schemas['StepChildren'];
 export type StepChildRun = Schemas['StepChildRun'];
 export type StepChildBead = Schemas['StepChildBead'];
+export type ChildStage = Schemas['ChildStage'];
+export type ChildStageItem = Schemas['ChildStageItem'];
 export type WorkflowValidate = Schemas['WorkflowValidateResponse'];
 
 // --- UI-only types (never cross the API boundary) ---

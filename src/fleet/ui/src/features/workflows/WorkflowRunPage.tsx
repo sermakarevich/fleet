@@ -12,7 +12,13 @@ import { useIsMobile } from '../../shared/hooks/useIsMobile';
 import { statusLabel } from '../../shared/status';
 import * as T from '../../shared/styles/tokens';
 import * as R from '../../shared/styles/recipes';
-import type { StepChildBead, StepChildRun, WorkflowStepRun } from '../../shared/types';
+import type {
+  ChildStage,
+  ChildStageItem,
+  StepChildBead,
+  StepChildRun,
+  WorkflowStepRun,
+} from '../../shared/types';
 import { StatusChip } from '../../shared/ui/StatusChip';
 import { Confirm } from '../../shared/ui/Confirm';
 import { LoadingState } from '../../shared/ui/LoadingState';
@@ -124,6 +130,45 @@ function StageColumnView({ title, steps }: { title: string; steps: WorkflowStepR
   );
 }
 
+// One card in a job epic's extra stage column: a `src-NN` sub-run or an
+// aggregate bead, linking to its run or task page (no link while pending
+// or skipped, since nothing was spawned to open).
+function ChildStageCard({ item }: { item: ChildStageItem }) {
+  const link = item.ref == null ? null : item.kind === 'run'
+    ? `/workflow-runs/${item.ref}`
+    : `/tasks/${item.ref}`;
+  const linkLabel = item.ref == null ? null : item.kind === 'run'
+    ? `Open run ${item.ref}`
+    : `Open task ${item.ref}`;
+  return (
+    <div style={styles.stepCard}>
+      <div style={styles.stepName} title={item.key}>{item.key}</div>
+      <div style={styles.taskTitle} title={item.title}>{item.title}</div>
+      <div style={styles.stepMeta}>
+        <StatusChip status={item.status} />
+      </div>
+      {item.reason && (
+        <div style={styles.warningBox} title={item.reason}>⚠ {item.reason}</div>
+      )}
+      {link && linkLabel && (
+        <Link to={link} style={styles.taskLink}>{linkLabel}</Link>
+      )}
+    </div>
+  );
+}
+
+// One stage a job epic's children render as (e.g. "Stage 2 — summarise").
+function ChildStageColumnView({ stage, number }: { stage: ChildStage; number: number }) {
+  return (
+    <div style={styles.stageCol}>
+      <div style={styles.stageHead}>Stage {number} — {stage.title}</div>
+      {stage.items.map((item) => (
+        <ChildStageCard key={item.key} item={item} />
+      ))}
+    </div>
+  );
+}
+
 // Plain newest-first list of step status changes.
 function Timeline({ steps }: { steps: WorkflowStepRun[] }) {
   const ordered = [...steps].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
@@ -225,6 +270,9 @@ export function WorkflowRunPage() {
             title={stageTitles[index] ?? `Stage ${index + 1}`}
             steps={run.steps.filter((s) => s.stage_index === index)}
           />
+        ))}
+        {(run.child_stages ?? []).map((stage, i) => (
+          <ChildStageColumnView key={stage.title} stage={stage} number={stageIndexes.length + i + 1} />
         ))}
       </div>
       <Timeline steps={run.steps} />

@@ -24,6 +24,7 @@ from fleet.beads.queue import Queue
 from fleet.coders import get_coder
 from fleet.core.errors import WorkflowInvalid, WorkflowNameTaken, WorkflowNotFound
 from fleet.observability.process import service_status
+from fleet.serve.api import job_children
 from fleet.serve.api.models import (
     OkResponse,
     StartRunRequest,
@@ -252,6 +253,49 @@ def _step_children(
     return {"runs": runs, "beads": beads}
 
 
+def _job_child_stages(
+    store: WorkflowStore, queue: Queue, fleet_home: Path, task_id: str
+) -> list[dict[str, Any]]:
+    """One step task's `child_stages` (summarise/aggregate columns), or [].
+
+    Reads the same ``tasks.json`` design plus ``children*.json`` journals as
+    ``_step_children``, grouped by :func:`job_children.build_child_stages`.
+    A step task with no ``tasks.json`` (not a job epic, or spawn hasn't run
+    yet) yields no stages.
+    """
+    artifacts = task_dir_of(fleet_home, task_id) / "artifacts"
+    tasks_json = None
+    try:
+        raw = (artifacts / "tasks.json").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    try:
+        tasks_json = json.loads(raw)
+    except ValueError:
+        return []
+    children = _read_json_map(artifacts / "children.json")
+    skipped = _read_json_map(artifacts / "children_skipped.json")
+
+    def run_status(run_id: str) -> str | None:
+        run = store.get_run(run_id)
+        return run.status.value if run is not None else None
+
+    try:
+        summaries = {item.id: item for item in queue.list_children(task_id)}
+    except BdError:
+        summaries = {}
+
+    def bead_status(bead_id: str) -> tuple[str | None, str | None]:
+        summary = summaries.get(bead_id)
+        if summary is None:
+            return None, None
+        return summary.title, summary.status
+
+    return job_children.build_child_stages(
+        tasks_json, children, skipped, run_status=run_status, bead_status=bead_status
+    )
+
+
 def _run_view(
     run: WorkflowRun,
     *,
@@ -268,9 +312,11 @@ def _run_view(
     children and stay cheap.
     """
     steps = []
+    child_stages: list[dict[str, Any]] = []
     for item in store.step_runs(run.id):
         if include_children and fleet_home is not None and queue is not None:
             children = _step_children(store, queue, fleet_home, item.task_id)
+            child_stages.extend(_job_child_stages(store, queue, fleet_home, item.task_id))
         else:
             children = {"runs": [], "beads": []}
         steps.append(
@@ -302,6 +348,7 @@ def _run_view(
         "steps": steps,
         "parent_run_id": run.parent_run_id,
         "parent_task_id": run.parent_task_id,
+        "child_stages": child_stages,
     }
 
 
