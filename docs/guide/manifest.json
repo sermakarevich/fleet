@@ -173,6 +173,12 @@
       "title": "ADR 0015: Research workflow — many sources into one laddered knowledge-base topic",
       "section": "Internals",
       "file": "docs/adr/0015-research-workflow.md"
+    },
+    {
+      "slug": "adr-0016",
+      "title": "ADR 0016: Blocked-task helper",
+      "section": "Internals",
+      "file": "docs/adr/0016-blocked-task-helper.md"
     }
   ]
 }
