@@ -33,6 +33,7 @@ class ServiceOrder(IntEnum):
     WorkflowRefresh = 35
     Stall = 40
     Triage = 50
+    Helper = 50
     Gc = 60
     Logging = 100
 
