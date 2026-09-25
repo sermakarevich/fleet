@@ -160,6 +160,88 @@ def test_zero_disables_check(tmp_path: Path) -> None:
     assert svc._killed == set()
 
 
+class _FakeQuestionStore:
+    """Stand-in for QuestionStore returning canned pending questions."""
+
+    def __init__(self, pending: dict[str, list[object]] | None = None) -> None:
+        self.pending = pending or {}
+
+    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list[object]:
+        _ = context
+        return self.pending.get(task_id, [])
+
+
+def test_pending_question_skips_stall(tmp_path: Path) -> None:
+    """A quiet worker with a pending ask_human question is not warned or killed."""
+    sup = make_supervisor(
+        tmp_path,
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
+        services=[],
+        checks=[],
+    )
+    sup.state.question_store = _FakeQuestionStore({"t-waiting": ["some question"]})
+    svc = StallWatch()
+    _stale_events_file(tmp_path, "t-waiting")
+    fake = _FakeRunner()
+    sup.state.running["t-waiting"] = make_running_worker("t-waiting", tmp_path, run=fake)
+
+    asyncio.run(svc.tick(sup.state))
+
+    assert "t-waiting" not in svc._warned
+    assert "t-waiting" not in svc._killed
+    assert fake.kill_calls == 0
+
+
+def test_no_pending_question_still_kills(tmp_path: Path) -> None:
+    """A quiet worker with a question store but no pending question stalls as before."""
+    sup = make_supervisor(
+        tmp_path,
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
+        services=[],
+        checks=[],
+    )
+    sup.state.question_store = _FakeQuestionStore({})
+    svc = StallWatch()
+    _stale_events_file(tmp_path, "t-no-question")
+    fake = _FakeRunner()
+    sup.state.running["t-no-question"] = make_running_worker("t-no-question", tmp_path, run=fake)
+
+    async def _run() -> None:
+        await svc.tick(sup.state)
+        assert await await_until(lambda: fake.kill_calls >= 1), "scheduled stall kill never ran"
+
+    asyncio.run(_run())
+
+    assert "t-no-question" in svc._warned
+    assert "t-no-question" in svc._killed
+    assert fake.kill_calls == 1
+
+
+def test_question_store_none_still_kills(tmp_path: Path) -> None:
+    """No question_store configured (None) behaves exactly as before."""
+    sup = make_supervisor(
+        tmp_path,
+        config=RuntimeConfig(stall_warning_minutes=1, stall_action="kill"),
+        services=[],
+        checks=[],
+    )
+    assert sup.state.question_store is None
+    svc = StallWatch()
+    _stale_events_file(tmp_path, "t-no-store")
+    fake = _FakeRunner()
+    sup.state.running["t-no-store"] = make_running_worker("t-no-store", tmp_path, run=fake)
+
+    async def _run() -> None:
+        await svc.tick(sup.state)
+        assert await await_until(lambda: fake.kill_calls >= 1), "scheduled stall kill never ran"
+
+    asyncio.run(_run())
+
+    assert "t-no-store" in svc._warned
+    assert "t-no-store" in svc._killed
+    assert fake.kill_calls == 1
+
+
 def test_missing_events_file_no_entry(tmp_path: Path) -> None:
     """A task dir without events.jsonl warns about nothing and raises nothing."""
     sup = make_supervisor(

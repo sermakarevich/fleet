@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     from .state import RunningWorker, SupervisorState
 
 
+def _waiting_on_human(st: SupervisorState, task_id: str) -> bool:
+    """True when the worker has an unanswered ask_human question (quiet on purpose)."""
+    store = st.question_store
+    if store is None:
+        return False
+    try:
+        return bool(store.fetch_pending_for_task(task_id))
+    except Exception:  # noqa: BLE001 - a store error must not break stall detection
+        st.log.warning("stall_question_lookup_failed", task_id=task_id)
+        return False
+
+
 def _discard_background(st: SupervisorState, kill: asyncio.Task) -> Callable[[asyncio.Task], None]:
     """Done-callback that drops a finished kill task and logs its failure."""
 
@@ -67,6 +79,9 @@ class StallWatch:
             return
         now = st.clock.now().timestamp()
         for task_id in list(st.running):
+            if _waiting_on_human(st, task_id):
+                self._warned.discard(task_id)
+                continue
             attempt_dir = latest_attempt_dir(st.task_dir_for(task_id))
             if attempt_dir is None:
                 continue
