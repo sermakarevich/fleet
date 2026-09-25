@@ -26,10 +26,10 @@ from typing import TYPE_CHECKING
 from fleet.beads.queue import Queue
 from fleet.core.errors import FleetError
 from fleet.core.helper_report import HelperReport, parse_report
+from fleet.core.ignore_policy import ignore_active
 from fleet.core.limits import STATUS_LOG_INTERVAL_SEC
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import TaskStatus
-from fleet.core.triage_policy import ignore_active
 from fleet.orchestrator.service import ServiceOrder, run_periodic
 from fleet.state import paths as state_paths
 from fleet.state.attempt_summary import render_markdown, summarize

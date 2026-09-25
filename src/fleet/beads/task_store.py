@@ -11,9 +11,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from fleet.core.ignore_policy import ignore_active
 from fleet.core.iso import now_iso, parse_iso
 from fleet.core.task import Task
-from fleet.core.triage_policy import ignore_active
 from fleet.state.paths import task_dir
 from fleet.state.task_meta import TaskMeta
 

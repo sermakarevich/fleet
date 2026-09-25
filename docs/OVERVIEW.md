@@ -120,18 +120,13 @@ tasks at most, how long to wait between firings). Each time the signal is
 true, one firing opens one ordinary bead — from then on it is a normal task.
 The command-line interface (CLI) manages triggers with `fleet trigger ...`.
 
-The bundled **blocked-task investigator** watches beads (task rows) in
-`blocked` status and opens an analysis-only investigation task for each one:
-the worker reads the failed attempts, writes a root-cause report with a
-recommended action, and attaches a short summary to the blocked bead, so a
-human decides with evidence instead of digging. It never changes code
-(isolation off, read-only analysis).
+Blocked beads no longer need a trigger: the supervisor opens a helper task
+for each one itself (see "A blocked bead is left alone" below).
 
 ```bash
-fleet trigger sources                                             # list event sources
-fleet trigger import docs/triggers/blocked-task-investigator.json # install the investigator
-fleet trigger test blocked-task-investigator                      # dry run: prints blocked beads + decision, opens nothing
-fleet trigger firings blocked-task-investigator                   # firing history for the investigator
+fleet trigger sources          # list event sources
+fleet trigger test <name>      # dry run: prints matching events + decision, opens nothing
+fleet trigger firings <name>   # firing history for one trigger
 ```
 
 ## What "stale" means and what fleet does about it
@@ -152,7 +147,7 @@ the attempt history through `state/attempt_journal.py`.
 | The supervisor itself restarts or dies mid-attempt | Each attempt refreshes `heartbeat_at`/`lease_until` in `attempts/<n>/run.json` (owned by `state/run_file.py` as `RunRecord`); on startup, and periodically, the `LeaseReconcile` service (`orchestrator/leases.py`) finds beads whose lease expired with no live process | The bead is released back to `open` for a fresh claim; this never counts as a failed round, so a restart cannot push a task into being blocked | lease cadence: `core/limits.py` `HEARTBEAT_SEC` (30), `LEASE_RECONCILE_INTERVAL_SEC` (60); outcome reason `supervisor_shutdown` |
 | Worker exits with no `RESULT.json`, or exits with status `blocked` | Reap reads `RESULT.json` at the task root after the process exits; a missing file with exit code 0 is treated as `SUCCESS` with no close reason ("noclose"); a file with `status: blocked` becomes outcome `BLOCKED_BY_CODER` | No `RESULT.json`: released for retry, blocked after repeated occurrences. `status: blocked`: the bead is blocked immediately with the worker's `blocked_reason` | no-close block threshold is the code constant `NOCLOSE_MAX_ROUNDS` (3) |
 | Retries are exhausted | The `RETRY_TABLE` in `core/retry_policy.py` counts consecutive same-outcome attempts (failure, partial, context-pressure, stall, noclose) from `attempts.jsonl` | Once a streak reaches its limit the bead is set to `blocked` with a reason explaining which limit was hit | failure limit is the code constant `FAILURE_MAX_ROUNDS` (3); partial limit `PARTIAL_MAX_ROUNDS` (5); context limit `CONTEXT_MAX_ROUNDS` (3) |
-| A blocked bead is left alone | The `Triage` service (`orchestrator/triage.py`) — its own periodic service, not part of any other loop — runs on a schedule and asks one non-blocking question per blocked bead with a proposed fix | An operator answers via the UI or the `ask_human` integration; fleet applies the answer (retry, retry with a bigger model, close, or ignore for a while) on the next tick | `triage_interval_minutes` (15; 0 disables) |
+| A blocked bead is left alone | The `HelperSpawn` service (`orchestrator/helper.py`) opens one priority-0 helper task per automatic block event | The helper (an LLM worker) investigates, asks the operator via `ask_human`, and implements the approved fix; if a helper itself blocks, a follow-up helper sees every earlier report and the chain stops when the root cause repeats | `helper_enabled` (true), `helper_coder` / `helper_model` (claude / opus) |
 
 ## Merge conflicts
 

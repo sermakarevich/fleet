@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fleet.coders import get_coder
 from fleet.core import limits as core_limits
 from fleet.core import retry_policy as retry_mod
-from fleet.core import triage_policy as triage_mod
 from fleet.core.config import RESTART_REQUIRED_FIELDS, RuntimeConfig
 from fleet.core.errors import ConfigError
 from fleet.serve.api.models import ConfigConstantsResponse, ConfigView
@@ -80,7 +79,7 @@ def _unit_for(name: str) -> str:
     return ""
 
 
-# Retry/triage constants outside core/limits.py: (name, doc, module label).
+# Retry constants outside core/limits.py: (name, doc, module label).
 _EXTRA_CONSTANTS: tuple[tuple[str, str, str], ...] = (
     (
         "FAILURE_WAIT_SEC",
@@ -97,21 +96,15 @@ _EXTRA_CONSTANTS: tuple[tuple[str, str, str], ...] = (
         "Delay before a waiting task becomes claimable again.",
         "core/retry_policy.py",
     ),
-    (
-        "MAX_PER_TASK_QUESTIONS",
-        "Max per-task triage questions posted in a single tick.",
-        "core/triage_policy.py",
-    ),
 )
 
 _EXTRA_MODULES: dict[str, Any] = {
     "core/retry_policy.py": retry_mod,
-    "core/triage_policy.py": triage_mod,
 }
 
 
 def _constant_rows() -> list[dict[str, str]]:
-    """TUNABLE_DOCS plus the retry/triage constants as JSON rows."""
+    """TUNABLE_DOCS plus the retry constants as JSON rows."""
     rows = [
         {
             "name": name,

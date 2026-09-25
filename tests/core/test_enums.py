@@ -8,7 +8,6 @@ from pathlib import Path
 from fleet.core.result import ResultStatus, parse_result
 from fleet.core.retry_policy import Action
 from fleet.core.task import AttemptKind, EventKind, TaskStatus
-from fleet.orchestrator.triage import TriageApplyOutcome
 from fleet.workers.base import StepStatus
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "fleet"
@@ -72,19 +71,6 @@ def test_step_status_values() -> None:
     assert {m.value for m in StepStatus} == {"ok", "fail", "outcome"}
 
 
-def test_triage_apply_outcome_values() -> None:
-    """Triage apply outcomes cover every return path."""
-    assert {m.value for m in TriageApplyOutcome} == {
-        "skipped",
-        "closed",
-        "ignored",
-        "released-opus",
-        "released",
-        "ignored-all",
-        "repair-spawned",
-    }
-
-
 def test_enums_compare_equal_to_plain_strings() -> None:
     """StrEnum members equal their JSON-edge strings (file formats unchanged)."""
     assert EventKind.ERROR == "error"
@@ -92,5 +78,4 @@ def test_enums_compare_equal_to_plain_strings() -> None:
     assert ResultStatus.DONE == "done"
     assert StepStatus.OK == "ok"
     assert AttemptKind.COMPACT == "compact"
-    assert TriageApplyOutcome.SKIPPED == "skipped"
     assert Action.CLOSE.value == "close"

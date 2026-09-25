@@ -88,15 +88,6 @@
 # post_merge_command: Shell command after a clean worktree merge; empty skips.
 #   Default ""; e.g. fleet config set post_merge_command=make ui-build
 #
-# triage_interval_minutes: Minutes between blocked-task triage scans; 0 disables.
-#   Default 15; e.g. fleet config set triage_interval_minutes=30
-#
-# triage_wait_for_investigation: Hold a blocked-task question until its investigation report lands.
-#   Default true; e.g. fleet config set triage_wait_for_investigation=false
-#
-# triage_investigation_wait_minutes: Max minutes triage waits for an investigation report before asking anyway.
-#   Default 30; e.g. fleet config set triage_investigation_wait_minutes=15
-#
 # helper_enabled: Create a priority-0 LLM helper task for each automatic block.
 #   Default true; e.g. fleet config set helper_enabled=false
 #

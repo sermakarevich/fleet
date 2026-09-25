@@ -371,9 +371,6 @@ class ConfigView(BaseModel):
     isolation: str
     isolation_exclude: str
     post_merge_command: str
-    triage_interval_minutes: int
-    triage_wait_for_investigation: bool
-    triage_investigation_wait_minutes: int
     helper_enabled: bool
     helper_coder: str
     helper_model: str

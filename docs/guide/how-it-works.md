@@ -61,26 +61,19 @@ Attempt history and block reasons only start accumulating from the first
 worker spawn after you upgrade to a fleet version with this feature —
 older tasks won't have retroactive history.
 
-### Triage of blocked tasks
+### Helpers for blocked tasks
 
-Every `triage_interval_minutes` (15 by default, 0 disables) the supervisor
-scans fleet-blocked beads and posts one non-blocking question per bead to
-the ask_human store (visible in the Inbox tab / Telegram) with a rule-based
-fix proposal: rate limits suggest switching coder/model, repeated stalls
-suggest a stronger model, exhausted context retries suggest splitting the
-task, and worker-reported blocks quote the report verbatim.
+When a bead blocks on its own (retries exhausted, worker reported
+`blocked`), the supervisor opens one priority-0 "helper" task for that
+block event (`helper_enabled`, on by default; coder and model from
+`helper_coder` / `helper_model`). The helper is a normal worker: it reads
+the failed attempts, writes `artifacts/HELPER_REPORT.md`, asks you what to
+do via `ask_human` (Inbox tab / Telegram), and then implements the fix you
+approve. If a helper blocks too, the next helper sees every earlier report
+in the chain; when a helper reports the same root cause as the previous
+one, the chain stops and you get one summary question instead.
 
-The supervisor first waits for the blocked-task investigator's report:
-while an investigation bead is open but its report has not landed, the
-question is held back (up to `triage_investigation_wait_minutes`, 30 by
-default; `triage_wait_for_investigation` switches the wait off). When the
-report lands, the question leads with the investigator's root cause,
-evidence, category and confidence, and puts the recommended option first.
-The full report lives in the investigation bead's
-`artifacts/INVESTIGATION.md`, whose path is included in the question.
-
-Answering applies the fix (retry, retry with `claude/opus`, append your note to the
-task and retry, close as won't-do, or ignore 24h / forever). Ignored tasks
+Ignored tasks (`ignore_until` set) get no helper. They
 show an "ignored" badge in the Workers table with an Unignore button
 (`POST /api/tasks/{id}/unignore`, `fleet tasks --ignored` lists them);
 unblocking or re-blocking a bead clears the ignore.

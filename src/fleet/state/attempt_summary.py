@@ -4,7 +4,7 @@
 (including its `launch` record), `events.jsonl`, the matching
 `attempts.jsonl` row, and the `RESULT.json` snapshot — no model call, no
 network. `render_markdown` renders it, hard-capped at ~4 KB. Nothing is
-stored: readers (`orchestrator/triage.py`, `workers/compact.py`,
+stored: readers (`workers/compact.py`,
 `serve/api/tasks.py`, `state/task_summary.py`, `cli/tasks.py`) compute it
 when they need it.
 """

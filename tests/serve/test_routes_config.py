@@ -104,10 +104,10 @@ def test_config_get_includes_restart_required(
     }
 
 
-def test_config_constants_lists_tunables_plus_retry_triage(
+def test_config_constants_lists_tunables_plus_retry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """GET /api/config/constants returns TUNABLE_DOCS + retry/triage rows."""
+    """GET /api/config/constants returns TUNABLE_DOCS + retry rows."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     app = create_app()
 
@@ -126,7 +126,6 @@ def test_config_constants_lists_tunables_plus_retry_triage(
         "FAILURE_WAIT_SEC",
         "FAILURE_JITTER_SEC",
         "WAITING_WAIT_SEC",
-        "MAX_PER_TASK_QUESTIONS",
     ):
         assert name in by_name
     for row in rows:
@@ -134,7 +133,6 @@ def test_config_constants_lists_tunables_plus_retry_triage(
         assert row["doc"]
     assert by_name["CONFIG_POLL_INTERVAL_SEC"]["module"] == "core/limits.py"
     assert by_name["FAILURE_WAIT_SEC"]["module"] == "core/retry_policy.py"
-    assert by_name["MAX_PER_TASK_QUESTIONS"]["module"] == "core/triage_policy.py"
     assert by_name["CONFIG_POLL_INTERVAL_SEC"]["unit"] == "seconds"
 
 

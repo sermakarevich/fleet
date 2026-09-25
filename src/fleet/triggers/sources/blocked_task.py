@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar
 
-from fleet.core import triage_policy
+from fleet.core import ignore_policy
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import Task
 from fleet.state import paths as state_paths
@@ -68,7 +68,7 @@ def _event_for(ctx: SourceContext, bead: Task, fleet_only: bool) -> TriggerEvent
     blocked_reason = str(data.get("blocked_reason") or "")
     if fleet_only and not blocked_reason:
         return None
-    if triage_policy.ignore_active(_opt_str(data.get("ignore_until")), ctx.now):
+    if ignore_policy.ignore_active(_opt_str(data.get("ignore_until")), ctx.now):
         return None
     if _opened_by_trigger(bead, data):
         return None

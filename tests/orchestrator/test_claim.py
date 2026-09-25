@@ -184,7 +184,7 @@ def test_tick_happy_path_registers_and_emits(tmp_path: Path, monkeypatch) -> Non
         started.append(w.task.id)
 
     recorder = types.SimpleNamespace(
-        order=ServiceOrder.Triage, name="rec", on_worker_started=_on_started
+        order=ServiceOrder.Helper, name="rec", on_worker_started=_on_started
     )
     sup.state.services = [recorder]
     asyncio.run(Claim(interval_sec=0.01).tick(sup.state))

@@ -49,9 +49,6 @@ metadata and regenerate.
 | `isolation` | `str` | `"worktree"` | Git worktree isolation: worktree isolates repo tasks, none runs in place. | `fleet config set isolation=none` |
 | `isolation_exclude` | `str` | `""` | Repo roots that never get a worktree; empty excludes none. | `fleet config set isolation_exclude=/Users/me/.ai` |
 | `post_merge_command` | `str` | `""` | Shell command after a clean worktree merge; empty skips. | `fleet config set post_merge_command=make ui-build` |
-| `triage_interval_minutes` | `int` | `15` | Minutes between blocked-task triage scans; 0 disables. | `fleet config set triage_interval_minutes=30` |
-| `triage_wait_for_investigation` | `bool` | `true` | Hold a blocked-task question until its investigation report lands. | `fleet config set triage_wait_for_investigation=false` |
-| `triage_investigation_wait_minutes` | `int` | `30` | Max minutes triage waits for an investigation report before asking anyway. | `fleet config set triage_investigation_wait_minutes=15` |
 | `helper_enabled` | `bool` | `true` | Create a priority-0 LLM helper task for each automatic block. | `fleet config set helper_enabled=false` |
 | `helper_coder` | `str` | `"claude"` | Coder for blocked-task helper tasks. | `fleet config set helper_coder=opencode` |
 | `helper_model` | `str` | `"opus"` | Model for blocked-task helper tasks. | `fleet config set helper_model=sonnet` |

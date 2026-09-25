@@ -43,7 +43,7 @@ clock helper, one `terminate_group` (in `workers/session/process.py`), one
 - No function over ~40 lines except a literal table.
 - A dispatch over kinds is a dict (dictionary mapping keys to handlers)
   or a list of rules, not an if-chain: `RetryTable` for
-  `retry_policy.decide`, rule list for `triage_policy`, `EVENT_MAP` per
+  `retry_policy.decide`, `EVENT_MAP` per
   coder, `MODE_TEMPLATES` for prompt assembly, one event-description table
   (`observability/event_render.py`) shared by the terminal renderer and
   the API.
@@ -71,7 +71,6 @@ a kind, add a row — do not add a call site.
 | `COMMANDS` | `integrations/telegram/commands.py` | every inbound Telegram command |
 | `EVENT_MAP` (one per coder) | `coders/claude.py`, `coders/codex.py`, `coders/agy.py`, `coders/opencode.py`, `coders/pi.py` | raw stdout line kinds → normalized events |
 | `RETRY_TABLE` | `core/retry_policy.py` | every retry rule: streak kind → decision |
-| `TRIAGE_RULES` | `core/triage_policy.py` | every blocked-task fix proposal |
 | `VISITORS` | `state/events.py` | every per-event accumulator for stats |
 | `WORKERS` | `workers/__init__.py` | every worker family (task, job, observer) |
 | `SOURCES` | `triggers/sources/__init__.py` | every event source kind |
@@ -193,6 +192,7 @@ src/fleet/
     effective.py           # effective coder/model resolution: the one rule
     errors.py              # typed domain errors: one exception per failure meaning
     git_status.py          # pure git-output classifiers: text in, facts out
+    ignore_policy.py       # ignore_until checks for blocked tasks (pure)
     iso.py                 # one clock + one timestamp parser for the codebase
     isolation.py           # one reader for git-isolation info
     job_phase.py           # job worker phase policy (pure)
@@ -209,7 +209,6 @@ src/fleet/
     retry_policy.py        # RETRY_TABLE: retry policy as data (pure)
     status.py              # the one rule merging bd status into on-disk metadata
     task.py                # Task, Event, EventKind, TaskOutcome core types
-    triage_policy.py       # TRIAGE_RULES: fix proposals for blocked tasks (pure)
 
   integrations/            # channels in and out of fleet
     ask_human/             # human-in-the-loop question broker (MCP server + SQLite store)
@@ -260,7 +259,6 @@ src/fleet/
   prompts/                 # prompt assembly for coder launches
     __init__.py            # MODE_TEMPLATES: template sets per launch mode
   templates/
-    MERGE_REPAIR.md        # merge-conflict repair worker instructions (rendered by orchestrator/triage.py)
 
   schedules/               # recurring workers (ADR 0007)
     cron.py                # five-field cron parsing + next-firing math (pure)

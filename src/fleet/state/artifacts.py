@@ -105,7 +105,7 @@ class ResultFile:
     def read_declared(cls, task_dir: Path) -> WorkerResult | None:
         """The ONE RESULT.json reader: parsed live file, or None.
 
-        Used by ``orchestrator/reap.py`` and ``orchestrator/triage.py``
+        Used by ``orchestrator/reap.py``
         (via ``state/task_summary.read_declared_result``, which adds
         snapshot and legacy fallbacks for display). Never raises.
         """

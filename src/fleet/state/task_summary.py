@@ -18,11 +18,11 @@ from pathlib import Path
 from typing import TypedDict
 
 from fleet.core.context_window import parse_context_windows
+from fleet.core.ignore_policy import ignore_active
 from fleet.core.process import pid_alive
 from fleet.core.result import parse_result
 from fleet.core.retry_policy import rounds_for_history
 from fleet.core.task import AttemptKind, TaskOutcome, TaskStatus
-from fleet.core.triage_policy import ignore_active
 from fleet.state import attempts
 from fleet.state.artifacts import ResultFile, StateFile
 from fleet.state.attempts import latest_attempt_dir

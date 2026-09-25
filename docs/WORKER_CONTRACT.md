@@ -138,18 +138,16 @@ Independent of RESULT.json:
 
 A blocked bead waits for the operator, not for another worker spawn:
 
-- Every `triage_interval_minutes` the supervisor posts one non-blocking
-  ask_human question per fleet-blocked bead (rule-based proposal from
-  `core/triage_policy.py`) and applies the answer on the next tick:
-  `retry same setup` releases, `retry with claude/opus` pins the override
-  then releases, `edit task text and retry` appends your note to the bead
-  description then releases, `close as won't do` closes, `ignore 24h` /
-  `ignore forever` sets `task.json` `ignore_until` (triage skips the bead
-  while active). A free-text note always wins over the picked option.
+- The supervisor opens one priority-0 helper task per fleet-blocked bead
+  and block event (`orchestrator/helper.py`, off with
+  `helper_enabled=false`). The helper investigates, asks the operator via
+  `ask_human`, and implements the approved fix. `task.json`
+  `ignore_until` (`ignore 24h` / `forever`) suppresses helpers while
+  active.
 - Beads blocked by a human (`fleet bd block`, no `blocked_reason` in
-  `task.json`) never get triage questions.
+  `task.json`) never get a helper.
 - Unblocking (UI button or API) releases the bead and resets the retry
-  counters; it also clears any triage ignore.
+  counters; it also clears any ignore.
 
 ## Isolation
 
