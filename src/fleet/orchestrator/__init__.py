@@ -11,6 +11,7 @@ from fleet.integrations.ask_human.store import QuestionStore
 
 from .claim import Claim
 from .config_reload import make_config_reload
+from .helper import HelperSpawn
 from .kill_sentinel import make_kill_sentinel
 from .leases import LeaseReconcile
 from .merge_validation import MergeValidation
@@ -22,12 +23,12 @@ from .stall import StallWatch
 from .state import SupervisorState
 from .status_log import make_status_log
 from .supervisor import Supervisor
-from .triage import Triage
 from .triggers import make_trigger_service
 from .workflow_refresh import make_workflow_refresh
 
 __all__ = [
     "Claim",
+    "HelperSpawn",
     "LeaseReconcile",
     "MergeValidation",
     "Reap",
@@ -35,7 +36,6 @@ __all__ = [
     "StallWatch",
     "Supervisor",
     "SupervisorState",
-    "Triage",
     "default_services",
     "make_trigger_service",
 ]
@@ -44,7 +44,7 @@ __all__ = [
 def default_services(question_store: QuestionStore | None = None) -> list[Service]:
     """Build the production service list in hook order.
 
-    The triage question store is injected by the caller (the CLI passes the
+    The helper question store is injected by the caller (the CLI passes the
     real ask_human store).
     """
     return [
@@ -58,7 +58,7 @@ def default_services(question_store: QuestionStore | None = None) -> list[Servic
         make_workflow_refresh(),
         StallWatch(),
         make_kill_sentinel(),
-        Triage(store=question_store),
+        HelperSpawn(store=question_store),
         make_retention_gc(),
         make_status_log(),
     ]

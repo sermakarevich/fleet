@@ -79,7 +79,7 @@ def test_default_services_cover_all_concerns(tmp_path) -> None:  # type: ignore[
             "reap",
             "stall_watch",
             "kill_sentinel",
-            "triage",
+            "helper",
             "retention_gc",
             "status_log",
         ]
