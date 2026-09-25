@@ -374,6 +374,9 @@ class ConfigView(BaseModel):
     triage_interval_minutes: int
     triage_wait_for_investigation: bool
     triage_investigation_wait_minutes: int
+    helper_enabled: bool
+    helper_coder: str
+    helper_model: str
     gc_retention_days: int
     gc_archive_days: int
     gc_beads: bool

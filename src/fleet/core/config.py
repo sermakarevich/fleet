@@ -223,6 +223,21 @@ class RuntimeConfig:
             "15",
         ),
     )
+    helper_enabled: bool = field(
+        default=True,
+        metadata=_meta(
+            "Create a priority-0 LLM helper task for each automatic block.",
+            "false",
+        ),
+    )
+    helper_coder: str = field(
+        default="claude",
+        metadata=_meta("Coder for blocked-task helper tasks.", "opencode"),
+    )
+    helper_model: str = field(
+        default="opus",
+        metadata=_meta("Model for blocked-task helper tasks.", "sonnet"),
+    )
     gc_retention_days: int = field(
         default=30,
         metadata=_meta(

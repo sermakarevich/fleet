@@ -52,6 +52,9 @@ metadata and regenerate.
 | `triage_interval_minutes` | `int` | `15` | Minutes between blocked-task triage scans; 0 disables. | `fleet config set triage_interval_minutes=30` |
 | `triage_wait_for_investigation` | `bool` | `true` | Hold a blocked-task question until its investigation report lands. | `fleet config set triage_wait_for_investigation=false` |
 | `triage_investigation_wait_minutes` | `int` | `30` | Max minutes triage waits for an investigation report before asking anyway. | `fleet config set triage_investigation_wait_minutes=15` |
+| `helper_enabled` | `bool` | `true` | Create a priority-0 LLM helper task for each automatic block. | `fleet config set helper_enabled=false` |
+| `helper_coder` | `str` | `"claude"` | Coder for blocked-task helper tasks. | `fleet config set helper_coder=opencode` |
+| `helper_model` | `str` | `"opus"` | Model for blocked-task helper tasks. | `fleet config set helper_model=sonnet` |
 | `gc_retention_days` | `int` | `30` | Days before closed tasks archive; 0 disables archiving. | `fleet config set gc_retention_days=7` |
 | `gc_archive_days` | `int` | `90` | Days before archives delete permanently; 0 disables purging. | `fleet config set gc_archive_days=30` |
 | `gc_beads` | `bool` | `true` | Also run `bd gc`/`bd compact` over gc_retention_days during the daily pass. | `fleet config set gc_beads=false` |

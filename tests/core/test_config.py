@@ -94,3 +94,10 @@ def test_bedrock_config_defaults() -> None:
     assert config.opencode_bedrock_region == ""
     assert config.opencode_bedrock_profile == ""
     assert config.context_windows == ""
+
+
+def test_helper_config_defaults() -> None:
+    config = RuntimeConfig()
+    assert config.helper_enabled is True
+    assert config.helper_coder == "claude"
+    assert config.helper_model == "opus"
