@@ -4,7 +4,8 @@ Read `$FLEET_TASK_DIR/artifacts/RESEARCH.md` and
 `$FLEET_TASK_DIR/artifacts/candidates.json` (both in your launch pack). If
 `$FLEET_TASK_DIR/artifacts/DESIGN_NOTES.md` exists, address the operator's
 revision note first. If `$FLEET_TASK_DIR/artifacts/DESIGN_ERRORS.md`
-exists, fix the listed validation errors.
+exists, fix the listed validation errors: the rejected plan is in
+`$FLEET_TASK_DIR/artifacts/tasks.rejected.json`; write the corrected plan to `tasks.json`.
 
 Let `TOPIC` = `<topic>` from `candidates.json`'s `inputs.topic` (a folder
 under `/Users/sergii/.ai/knowledge/research_topics/`).
@@ -39,6 +40,10 @@ follow-up move bead:
 ```json
 {"key": "src-NN", "title": "summarise: <title>", "workflow": "summarise", "inputs": {"url": "<url>", "research_target": "<TARGET>", "topic": "<TOPIC>"}, "folder": "<Name>"}
 ```
+
+Every `title` in tasks.json must be at most 120 characters or the gate
+rejects the whole plan. For `summarise:` titles use a short name (e.g.
+`owner/repo` or the page's short title), never the full description.
 
 `<TOPIC>` is the topic folder name from above (not a path). Derive each
 source's `<Name>` folder the way the summarise plan step would

@@ -189,6 +189,29 @@ def _waiting(reason: str) -> StepResult:
     )
 
 
+def _reject_plan(ctx: StepContext, errors: list[str]) -> StepResult:
+    """Write DESIGN_ERRORS.md and send the job back to design.
+
+    tasks.json is moved to tasks.rejected.json: while it exists the phase
+    table picks gate/spawn again, which re-rejects the same file until the
+    partial budget runs out and the job blocks without design ever running.
+    """
+    artifacts_dir = ctx.task_dir / "artifacts"
+    with contextlib.suppress(FileNotFoundError):
+        (artifacts_dir / "tasks.json").replace(artifacts_dir / "tasks.rejected.json")
+    (artifacts_dir / "DESIGN_ERRORS.md").write_text(
+        "# tasks.json validation errors\n\n" + "\n".join(f"- {e}" for e in errors) + "\n",
+        encoding="utf-8",
+    )
+    _write_result(
+        ctx.task_dir,
+        status=ResultStatus.PARTIAL,
+        summary="tasks.json invalid; see DESIGN_ERRORS.md",
+        next_step="design",
+    )
+    return StepResult(status=StepStatus.OK)
+
+
 class AskApproval:
     """Human gate between design and spawn (non-blocking ask_human question)."""
 
@@ -206,18 +229,7 @@ class AskApproval:
 
     def _invalid_plan(self, ctx: StepContext, errors: list[str]) -> StepResult:
         """Send an invalid plan back to design without asking the operator."""
-        artifacts_dir = ctx.task_dir / "artifacts"
-        (artifacts_dir / "DESIGN_ERRORS.md").write_text(
-            "# tasks.json validation errors\n\n" + "\n".join(f"- {e}" for e in errors) + "\n",
-            encoding="utf-8",
-        )
-        _write_result(
-            ctx.task_dir,
-            status=ResultStatus.PARTIAL,
-            summary="tasks.json invalid; see DESIGN_ERRORS.md",
-            next_step="design",
-        )
-        return StepResult(status=StepStatus.OK)
+        return _reject_plan(ctx, errors)
 
     async def run(self, ctx: StepContext) -> StepResult:
         doc, early = self._load_validated(ctx)
@@ -884,18 +896,7 @@ class SpawnChildren:
                     raise
 
     def _invalid(self, ctx: StepContext, errors: list[str]) -> StepResult:
-        artifacts_dir = ctx.task_dir / "artifacts"
-        (artifacts_dir / "DESIGN_ERRORS.md").write_text(
-            "# tasks.json validation errors\n\n" + "\n".join(f"- {e}" for e in errors) + "\n",
-            encoding="utf-8",
-        )
-        _write_result(
-            ctx.task_dir,
-            status=ResultStatus.PARTIAL,
-            summary="tasks.json invalid; see DESIGN_ERRORS.md",
-            next_step="design",
-        )
-        return StepResult(status=StepStatus.OK)
+        return _reject_plan(ctx, errors)
 
 
 class BlockJob:

@@ -330,6 +330,9 @@ def test_gate_invalid_tasks_skips_question(tmp_path: Path) -> None:
     assert result.status == StepStatus.OK
     assert store.asked == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
+    # the rejected plan is moved aside so the next attempt runs design, not gate/spawn again
+    assert not (ctx.task_dir / "artifacts" / "tasks.json").exists()
+    assert (ctx.task_dir / "artifacts" / "tasks.rejected.json").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"
 
@@ -393,5 +396,8 @@ def test_spawn_invalid_tasks_writes_errors(tmp_path: Path) -> None:
     assert result.status == StepStatus.OK
     assert queue.created == []
     assert (ctx.task_dir / "artifacts" / "DESIGN_ERRORS.md").exists()
+    # the rejected plan is moved aside so the next attempt runs design, not gate/spawn again
+    assert not (ctx.task_dir / "artifacts" / "tasks.json").exists()
+    assert (ctx.task_dir / "artifacts" / "tasks.rejected.json").exists()
     declared = json.loads((ctx.task_dir / "RESULT.json").read_text(encoding="utf-8"))
     assert declared["next_step"] == "design"
