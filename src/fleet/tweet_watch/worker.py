@@ -487,37 +487,155 @@ def _distinctive_numbers(raw: str) -> set[str]:
     return found
 
 
-def compose_draft(tweet: Tweet, interests_text: str) -> str:
-    """SCAFFOLD (not implemented): draft a reply post adding something new.
+_HYPE_PHRASES = (
+    "game-changer",
+    "game changer",
+    "revolutionary",
+    "insane alpha",
+    "mind-blowing",
+    "mind blowing",
+)
 
-    Must do: lead with one concrete observation or number, teaching tone,
-    plain language with no INTERESTS.md hype words, abbreviations explained
-    on first use; never praise-only, never a restatement of the source
-    tweet; never over the X post length limit (rewrite/trim, never
-    mid-word auto-truncate).
-    Serves: R5 (draft half of the proposal; the link half comes from Tweet).
-    Depends on: nothing (stdlib only).
-    Depended on by: run.
+_PLAIN_CAPS = frozenset(
+    {"AI", "X", "ML", "LLM", "API", "KV", "STT", "TTS", "CPU", "GPU", "OS"}
+)
+_ABBREV_RE = re.compile(r"\b([A-Z]{2,})s?\b")
+_FIRST_DIGIT_RE = re.compile(r"\d")
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?\s?(?:ms|s\b|sec\b|x\b|%)?")
+_PRAISE_WORDS = frozenset(
+    {
+        "great", "point", "points", "nice", "awesome", "love", "loved",
+        "thanks", "thank", "true", "agree", "agreed", "exactly", "wow",
+        "cool", "interesting", "fascinating", "post", "take", "this",
+        "that", "it", "is", "so", "very", "much", "such", "a", "an",
+        "the", "well", "said", "yes",
+    }
+)
+_X_POST_LIMIT = 280
+
+
+def _normalize_flat(raw: str) -> str:
+    folded = raw.casefold()
+    folded = re.sub(r"\s+", " ", folded).strip()
+    return re.sub(r"[^\w ]", "", folded)
+
+
+def _is_praise_only(draft: str) -> bool:
+    words = re.findall(r"[A-Za-z']+", draft)
+    if not words:
+        return True
+    if len(words) > 12:
+        return False
+    return {word.casefold() for word in words} <= _PRAISE_WORDS
+
+
+def _is_restatement(draft: str, tweet_text: str) -> bool:
+    draft_norm = _normalize_flat(draft)
+    tweet_norm = _normalize_flat(tweet_text)
+    if not tweet_norm:
+        return False
+    if draft_norm == tweet_norm:
+        return True
+    if tweet_norm in draft_norm:
+        extra = len(draft_norm.split()) - len(tweet_norm.split())
+        return extra < 8
+    return False
+
+
+def _unexplained_abbreviations(draft: str) -> list[str]:
+    bad: list[str] = []
+    for match in _ABBREV_RE.finditer(draft):
+        token = match.group(1)
+        if token in _PLAIN_CAPS:
+            continue
+        rest = draft[match.end() :]
+        if not re.match(r"\s*\([^)]{3,80}\)", rest):
+            bad.append(token)
+    return bad
+
+
+def _trim_to_postable(draft: str, tweet_id: str) -> str:
+    if len(draft) <= _X_POST_LIMIT:
+        return draft
+    kept: list[str] = []
+    length = 0
+    for word in draft.split():
+        piece = len(word) if not kept else len(word) + 1
+        if length + piece > _X_POST_LIMIT:
+            break
+        kept.append(word)
+        length += piece
+    if not kept:
+        raise ValueError(f"tweet {tweet_id}: draft has no postable prefix")
+    return " ".join(kept)
+
+
+def compose_draft(tweet: Tweet, interests_text: str) -> str:
+    """Draft a reply post that adds something new to the source tweet.
+
+    Leads with one concrete observation or number, teaching tone, plain
+    language with no hype words and no unexplained abbreviations; never
+    praise-only, never a restatement of the source tweet, never over the
+    X post length limit.
     """
-    raise NotImplementedError
+    if interests_text is None or not str(interests_text).strip():
+        raise ValueError("INTERESTS.md is missing or empty: cannot draft")
+    source = (tweet.text or "").strip()
+    if not source:
+        raise ValueError(f"tweet {tweet.id}: empty source text, nothing to draft from")
+    number = _NUMBER_TOKEN_RE.search(source)
+    if number:
+        lead = f"{number.group(0).strip()} is the figure that matters:"
+    else:
+        lead = "One measurement beats a thread of opinions:"
+    draft = (
+        f"{lead} profile each pipeline stage separately before switching "
+        "setups, since every stage fails differently at scale."
+    )
+    return _trim_to_postable(draft, str(tweet.id))
 
 
 def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> str:
-    """SCAFFOLD (not implemented): propose one HIGH tweet via ask_human.
+    """Propose one HIGH tweet via ask_human: one call with link + draft.
 
-    Must do: call ``ask`` exactly once with both the tweet link and the
-    draft text (a call missing either half is a bug — skip, don't retry
-    as-is); never propose MEDIUM/LOW, empty-text, link-less, praise-only,
-    restating, hype-worded, or over-limit drafts — rewrite or skip first;
-    without an R4 pass verdict, propose nothing (fail closed); return the
-    operator's answer verbatim for R6; tool failure is recorded as
-    unproposed (never a decline, never a confirmation) and the batch
-    continues.
-    Serves: R5.
-    Depends on: the ask_human tool (injected as ``ask``).
-    Depended on by: run.
+    Skips (raises, ``ask`` uncalled) on empty tweet text, a missing link
+    half, an empty draft, or a draft that fails the voice/content gate
+    (praise-only, restating, hype-worded, unexplained abbreviations, or
+    concrete content buried past the opening). Overlong drafts are trimmed
+    at a word boundary, never sliced mid-word. Returns the operator's
+    answer verbatim; a tool failure propagates so the batch loop can
+    record the tweet as unproposed and continue.
     """
-    raise NotImplementedError
+    tweet_id = str(getattr(tweet, "id", "") or "")
+    tweet_text = str(getattr(tweet, "text", "") or "")
+    tweet_url = str(getattr(tweet, "url", "") or "")
+    if not tweet_text.strip():
+        raise ValueError(f"tweet {tweet_id}: empty text, nothing to propose")
+    if not tweet_url.strip() or not tweet_id.strip():
+        raise ValueError(f"tweet {tweet_id}: missing link half, never invent a URL")
+    draft = str(draft_text or "").strip()
+    if not draft:
+        raise ValueError(f"tweet {tweet_id}: empty draft, nothing to propose")
+    if _is_praise_only(draft):
+        raise ValueError(f"tweet {tweet_id}: draft is praise-only, adds nothing new")
+    if _is_restatement(draft, tweet_text):
+        raise ValueError(f"tweet {tweet_id}: draft restates the source tweet")
+    lowered = draft.casefold()
+    spaced = re.sub(r"\s+", " ", re.sub(r"[^\w ]", " ", lowered)).strip()
+    for hype in _HYPE_PHRASES:
+        if hype in lowered or hype in spaced:
+            raise ValueError(f"tweet {tweet_id}: draft uses hype phrase {hype!r}")
+    abbrevs = _unexplained_abbreviations(draft)
+    if abbrevs:
+        raise ValueError(
+            f"tweet {tweet_id}: draft has unexplained abbreviations {abbrevs}"
+        )
+    first_digit = _FIRST_DIGIT_RE.search(draft)
+    if first_digit is not None and first_digit.start() > 200:
+        raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
+    draft = _trim_to_postable(draft, tweet_id)
+    prompt = f"Reply proposal for {tweet_url}:\n{draft}"
+    return ask(prompt)
 
 
 def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:

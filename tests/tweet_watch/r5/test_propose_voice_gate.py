@@ -94,7 +94,7 @@ def test_overlong_draft_never_proposed_over_limit() -> None:
 def test_overlong_draft_never_truncated_mid_word() -> None:
     """F12: a trim that slices a word in half is still a bug."""
     tweet = make_tweet()
-    padding = "Benchmark paragraph with concrete numbers 120ms. " * 6
+    padding = "Benchmark paragraph with concrete numbers 120ms. " * 5
     long_draft = padding + "Plus supercalifragilisticexpialidocious latency wins."
     assert len(long_draft) > X_POST_LIMIT
     assert len(padding) < X_POST_LIMIT < len(long_draft)
