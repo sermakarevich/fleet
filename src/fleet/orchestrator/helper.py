@@ -65,11 +65,14 @@ def _is_helper_live(queue: Queue, helper_id: str) -> bool:
 
 
 def _has_live_helper(queue: Queue, meta: dict) -> bool:
-    """True when a live helper already exists for this exact block event."""
+    """True when the task's last helper is still live, whatever block event it was for.
+
+    A task that is retried and re-blocks quickly gets a new ``blocked_at``
+    each time; matching on it would spawn one helper per re-block while the
+    first is still working. A fresh helper is spawned only once it closes.
+    """
     helper_id = meta.get("helper_task_id")
     if not isinstance(helper_id, str) or not helper_id:
-        return False
-    if meta.get("helper_blocked_at") != meta.get("blocked_at"):
         return False
     return _is_helper_live(queue, helper_id)
 
@@ -84,7 +87,7 @@ def collect_targets(
 
     Skipped: human-blocked beads (no task.json ``blocked_reason``), beads
     with an active ``ignore_until``, and beads that already have a live
-    helper for their current ``blocked_at``. A bead whose meta cannot be
+    helper (for any block event). A bead whose meta cannot be
     read is skipped too, never raised.
     """
     try:

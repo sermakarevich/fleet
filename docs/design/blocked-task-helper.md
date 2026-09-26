@@ -43,9 +43,11 @@ dedup, then `queue.create_task(...)` with:
 ## Dedup (FR-01/02)
 
 Skip a candidate when its `helper_task_id` in task.json is set, still not
-closed (`_repair_live`-style check via `queue.get(...).status`), and its
-`helper_blocked_at` equals the bead's current `blocked_at`. A new
-`blocked_at` (re-block) creates a fresh helper.
+closed (`_repair_live`-style check via `queue.get(...).status`). The
+check ignores `blocked_at`: a task that is retried and re-blocks while its
+helper still runs (the helper may be retrying it) must not get a second
+helper. Once that helper is closed, the next tick spawns a fresh one for
+the current block.
 
 ## Chain linkage (FR-19/21/22)
 

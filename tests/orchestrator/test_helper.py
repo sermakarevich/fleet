@@ -154,11 +154,24 @@ def test_second_tick_dedups_live_helper_same_block(tmp_path: Path):
     assert len(q.created) == 1
 
 
-def test_reblock_new_blocked_at_spawns_fresh_helper(tmp_path: Path):
+def test_reblock_while_helper_live_does_not_spawn_second(tmp_path: Path):
     q = FakeQueue()
     _blocked_target(tmp_path, q)
     st = _st(tmp_path, q)
     helper_tick(st, FakeStore())
+    TaskMeta.update(tmp_path / "tasks" / "t1", blocked_at="2026-09-01T05:00:00+00:00")
+    summary = helper_tick(st, FakeStore())
+    assert summary["spawned"] == 0
+    assert len(q.created) == 1
+
+
+def test_reblock_after_helper_closed_spawns_fresh_helper(tmp_path: Path):
+    q = FakeQueue()
+    _blocked_target(tmp_path, q)
+    st = _st(tmp_path, q)
+    helper_tick(st, FakeStore())
+    first = q.created[0]["id"]
+    q.tasks[first] = dataclasses.replace(q.tasks[first], status="closed")
     TaskMeta.update(tmp_path / "tasks" / "t1", blocked_at="2026-09-01T05:00:00+00:00")
     helper_tick(st, FakeStore())
     assert len(q.created) == 2
