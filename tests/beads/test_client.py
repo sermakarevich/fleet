@@ -154,3 +154,18 @@ def test_try_run_bd_uses_resolved_binary(tmp_path: Path, monkeypatch) -> None:  
     with patch("fleet.beads.client.subprocess.run", side_effect=fake_run):
         beads_client.try_run_bd(["--version"], cwd=tmp_path)
     assert seen_cmd[0] == str(fake_bd)
+
+
+def test_children_of_ignores_upstream_blocks_dependency(tmp_path: Path) -> None:
+    # A workflow step's `needs` links the job bead to the upstream step with
+    # a plain `blocks` dependency; that bead is not one of the job's children.
+    body = {
+        "id": "fleet-job",
+        "dependencies": [
+            {"id": "fleet-up", "status": "closed", "dependency_type": "blocks"},
+            {"id": "fleet-kid", "status": "open", "dependency_type": "parent-child"},
+        ],
+    }
+    with patch("fleet.beads.client.show", return_value=body):
+        children = beads_client.children_of("fleet-job", tmp_path)
+    assert [c["id"] for c in children] == ["fleet-kid"]
