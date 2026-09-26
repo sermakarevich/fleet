@@ -7,8 +7,11 @@
 #   runtime and closes once every child is done (operator decision,
 #   2026-09-26). `job_gate: "off"` skips the child-list approval; the unit
 #   list is confirmed once, in step 1.
-# - Unit children are chained (each depends on the previous one) because
-#   they all commit to the same branch checkout of the target repo.
+# - failures and unittests children run in parallel: each writes only its
+#   own path and never commits (one checkout, so concurrent git commands
+#   would fight over .git/index.lock); the job's validate phase commits all
+#   units at once. implement children stay chained (each depends on the
+#   previous one): they edit shared code and later units build on M*.
 # - Per-unit steps write to fixed paths (docs/<feature>/failures/<UNIT>.md,
 #   tests/<feature>/<unit>/) instead of outputs.json, since a job step has
 #   no single worker to write outputs.
@@ -131,28 +134,29 @@ stages:
       - key: the unit id in lowercase (e.g. "r1"); title:
         "autocode {{inputs.feature}}: 02 failure modes <UNIT>" (at most 120 characters);
       - cwd, coder and model: null; priority: 2;
-      - depends_on: the previous task's key ([] for the first), so the children
-        run one at a time: they all commit to the same branch checkout;
+      - depends_on: [] for every task, so all units run at the same time;
+        each child writes only its own path and never commits;
       - body: the child instructions below, verbatim, with every <UNIT> replaced
         by the unit id (e.g. R1) and every <unit> by its lowercase form (e.g. r1).
       DESIGN.md: one line per task.
 
-      Validate phase: check that `docs/{{inputs.feature}}/failures/<UNIT>.md` exists and is committed on
-      `autocode/{{inputs.feature}}` for every unit. Report a missing unit as partial with a follow-up
-      for that unit only.
+      Validate phase: check that `docs/{{inputs.feature}}/failures/<UNIT>.md` exists for every unit.
+      Then commit every unit's files in one commit, adding each path by name
+      (`git add docs/{{inputs.feature}}/failures/<UNIT>.md` for every unit; never `git add -A`):
+      "autocode({{inputs.feature}}): failure modes (all units)".
+      Report a missing unit as partial with a follow-up for that unit only.
 
       ----- child instructions (the body of every child task) -----
       Unit <UNIT> of autocode for {{inputs.feature}}: failure modes per unit.
 
       Do:
-      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      1. `cd {{inputs.repo}}` (the job already checked out `autocode/{{inputs.feature}}`).
       2. Read the <UNIT> section of {{steps.requirements.outputs.requirements_path}}.
       3. Write `docs/{{inputs.feature}}/failures/<UNIT>.md`: concrete failure cases for
          <UNIT>: bad or missing input, boundary values, external errors, wrong
          state, concurrency where relevant. Each case states the expected
          behaviour (error, fallback, message). Real cases only, no generic filler.
-      4. Commit: `git add docs/{{inputs.feature}}/failures/<UNIT>.md` and commit
-         "autocode({{inputs.feature}}): failure modes <UNIT>".
+      4. Do not commit; the job commits all units together.
 
       Rules for this unit worker:
       - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
@@ -174,7 +178,11 @@ stages:
         own folder only, never the full suite:
         `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
         Other new folders and the e2e stay red until their step lands.
-      - Work on unit <UNIT> only; other units have their own workers, one at a time.
+      - Work on unit <UNIT> only. The other units' workers run AT THE SAME TIME in
+        the same checkout, so: never commit, never run `git add`, `git checkout`,
+        `git stash` or `git reset`, and write only your own path. This overrides
+        the check-out and commit rules above: the job commits every unit's files
+        once all units are done.
       - Do not ask the operator to confirm at the end (the unit list was confirmed in
         step 1). Ask through mcp__ask_human__ask_human_question only when a test looks
         wrong or the requirement is contradictory, and wait for the answer.
@@ -314,15 +322,18 @@ stages:
       - key: the unit id in lowercase (e.g. "r1"); title:
         "autocode {{inputs.feature}}: 05 unit tests <UNIT>" (at most 120 characters);
       - cwd, coder and model: null; priority: 2;
-      - depends_on: the previous task's key ([] for the first), so the children
-        run one at a time: they all commit to the same branch checkout;
+      - depends_on: [] for every task, so all units run at the same time;
+        each child writes only its own path and never commits;
       - body: the child instructions below, verbatim, with every <UNIT> replaced
         by the unit id (e.g. R1) and every <unit> by its lowercase form (e.g. r1).
       DESIGN.md: one line per task.
 
       Validate phase: check that `tests/{{inputs.feature}}/<unit>/` exists, collects
-      (`uv run pytest tests/{{inputs.feature}} --collect-only -q`) and is committed for every unit. Report a missing unit as partial with a follow-up
-      for that unit only.
+      (`uv run pytest tests/{{inputs.feature}} --collect-only -q`) for every unit.
+      Then commit every unit's files in one commit, adding each path by name
+      (`git add tests/{{inputs.feature}}/<unit>` for every unit; never `git add -A`):
+      "autocode({{inputs.feature}}): unit tests (all units)".
+      Report a missing unit as partial with a follow-up for that unit only.
 
       ----- child instructions (the body of every child task) -----
       Unit <UNIT> of autocode for {{inputs.feature}}: unit tests per unit, up front.
@@ -330,7 +341,7 @@ stages:
       Write every unit test for <UNIT> now, before any logic exists.
 
       Do:
-      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      1. `cd {{inputs.repo}}` (the job already checked out `autocode/{{inputs.feature}}`).
       2. Read the <UNIT> section of {{steps.requirements.outputs.requirements_path}} and
          `docs/{{inputs.feature}}/failures/<UNIT>.md`.
       3. Create `tests/{{inputs.feature}}/<unit>/`, mirroring the code layout; one
@@ -340,8 +351,7 @@ stages:
          unit's acceptance criterion later: "its folder is green".
       4. Do not make the tests pass; they are expected to fail on the scaffold.
          Only check they collect: `uv run pytest tests/{{inputs.feature}}/<unit> --collect-only -q`.
-      5. Commit: `git add tests/{{inputs.feature}}/<unit>` and commit
-         "autocode({{inputs.feature}}): unit tests <UNIT>".
+      5. Do not commit; the job commits all units together.
 
       Rules for this unit worker:
       - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
@@ -363,7 +373,11 @@ stages:
         own folder only, never the full suite:
         `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
         Other new folders and the e2e stay red until their step lands.
-      - Work on unit <UNIT> only; other units have their own workers, one at a time.
+      - Work on unit <UNIT> only. The other units' workers run AT THE SAME TIME in
+        the same checkout, so: never commit, never run `git add`, `git checkout`,
+        `git stash` or `git reset`, and write only your own path. This overrides
+        the check-out and commit rules above: the job commits every unit's files
+        once all units are done.
       - Do not ask the operator to confirm at the end (the unit list was confirmed in
         step 1). Ask through mcp__ask_human__ask_human_question only when a test looks
         wrong or the requirement is contradictory, and wait for the answer.
@@ -503,8 +517,8 @@ stages:
       DESIGN.md: one line per task.
 
       Validate phase: run `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}} --ignore=tests/{{inputs.feature}}/main -q`;
-      every unit folder must be green and the old tests must match the baseline. Report a missing unit as partial with a follow-up
-      for that unit only.
+      every unit folder must be green and the old tests must match the baseline.
+      Report a missing unit as partial with a follow-up for that unit only.
 
       ----- child instructions (the body of every child task) -----
       Unit <UNIT> of autocode for {{inputs.feature}}: implement each unit.
