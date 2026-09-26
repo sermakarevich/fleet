@@ -265,21 +265,21 @@ def comment(task_id: str, text: str, cwd: Path, *, timeout: int = BD_TIMEOUT_SEC
     run_bd(["comment", task_id, text], cwd=cwd, timeout=timeout)
 
 
-# Dependency relations that make a bead an epic's *child*: the epic is
-# blocked until these close. `bd show <epic>` lists them under
-# "dependencies" (same query as `show()` above). When bd reports a relation
-# type, only these two count; when it doesn't, every dependency counts.
-_CHILD_RELATIONS = frozenset({"blocks", "depends_on", "parent-child"})
+# Dependency relation that makes a bead an epic's *child*. `bd show <epic>`
+# lists every dependency under "dependencies" (same query as `show()` above),
+# including plain `blocks` links such as a workflow step's `needs`; those are
+# upstream work, not children. When bd reports no relation type, every
+# dependency counts.
+_CHILD_RELATIONS = frozenset({"parent-child"})
 
 
 def children_of(epic_id: str, cwd: Path, *, timeout: int = BD_TIMEOUT_SEC) -> list[dict]:
     """Return the epic's child beads as [{id, status, title, ...}].
 
-    A child is one of the epic's dependencies (``bd dep add <epic> <child>
-    --type parent-child``; links made by older fleet versions carry the
-    default ``blocks`` type), so the epic waits for the child. Each entry carries whatever `bd
-    show` reported (status, title, close_reason when present); entries
-    without an id are skipped.
+    A child is one of the epic's dependencies linked with ``bd dep add
+    <epic> <child> --type parent-child``, so the epic waits for the child.
+    Each entry carries whatever `bd show` reported (status, title,
+    close_reason when present); entries without an id are skipped.
     """
     body = show(epic_id, cwd, timeout=timeout)
     if not isinstance(body, dict):
