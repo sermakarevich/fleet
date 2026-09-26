@@ -638,19 +638,95 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
     return ask(prompt)
 
 
-def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
-    """SCAFFOLD (not implemented): extract (reply_id, post_date) or None.
+_URL_ID_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/\S*?/status(?:es)?/(\d+)",
+    re.IGNORECASE,
+)
+_ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_SLASH_DATE_RE = re.compile(r"\b\d{1,4}[/.]\d{1,2}[/.]\d{1,4}\b")
+_NON_ISO_DAY_RE = re.compile(r"\b(yesterday|tomorrow)\b", re.IGNORECASE)
+_ON_WORD_RE = re.compile(r"\bon\b", re.IGNORECASE)
+_MONTHS = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+    r"|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+)
+_MONTH_DAY_RE = re.compile(
+    rf"(?:\b(?:{_MONTHS})\s+\d{{1,2}}\b|\b\d{{1,2}}\s+(?:{_MONTHS})\b)",
+    re.IGNORECASE,
+)
+_BARE_ID_RE = re.compile(r"\b\d+\b")
 
-    Must do: a confirmation states the reply was posted AND supplies the
-    posted reply id (bare numeric id or an x.com URL containing it);
-    anything less — decline, ambiguity, "posted" with no id, malformed id —
-    returns None (never invent an id); an explicit posting date in
-    non-``YYYY-MM-DD`` shape returns None; no date at all uses ``today``.
-    Serves: R6 (confirm-to-file gate).
-    Depends on: nothing (stdlib only).
-    Depended on by: persist_reply, run.
+_DECLINE_MARKERS = (
+    "skip",
+    "declin",
+    "not this",
+    "don't",
+    "do not",
+    "dont",
+    "didn't",
+    "did not",
+    "myself",
+    "elsewhere",
+    "later",
+    "instead",
+    "not post",
+    "nope",
+)
+
+_POST_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_REPLY_ID_RE = re.compile(r"^\d+$")
+
+
+def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
+    """Gate an ask_human answer into a (reply_id, post_date) confirmation.
+
+    A confirmation states the reply was posted AND supplies the posted
+    reply id — a bare numeric id or an x.com URL containing
+    ``/status/<id>`` (trailing numeric id extracted, query strings
+    ignored). Anything less (declines, ambiguity, "posted" with no id,
+    malformed id) returns None; the id is never invented. An explicit
+    posting date must be ``YYYY-MM-DD`` (a real calendar date); any other
+    explicit date shape returns None. No date at all uses ``today`` —
+    the confirmation day, not the run-start day.
     """
-    raise NotImplementedError
+    if not isinstance(answer_text, str) or not answer_text.strip():
+        return None
+    text = answer_text.strip()
+    if any(marker in text.casefold() for marker in _DECLINE_MARKERS):
+        return None
+    url_match = _URL_ID_RE.search(text)
+    reply_id = url_match.group(1) if url_match else None
+    scrubbed = _URL_ID_RE.sub(" ", text)
+    iso_match = _ISO_DATE_RE.search(scrubbed)
+    if iso_match is not None:
+        post_date = iso_match.group(1)
+        try:
+            parsed = date.fromisoformat(post_date)
+        except ValueError:
+            return None
+        if parsed.isoformat() != post_date:
+            return None
+        scrubbed = scrubbed.replace(post_date, " ", 1)
+    else:
+        if (
+            _SLASH_DATE_RE.search(scrubbed)
+            or _NON_ISO_DAY_RE.search(scrubbed)
+            or _ON_WORD_RE.search(scrubbed)
+            or _MONTH_DAY_RE.search(scrubbed)
+        ):
+            return None
+        if isinstance(today, str):
+            post_date = today
+        elif hasattr(today, "isoformat"):
+            post_date = today.isoformat()[:10]
+        else:
+            return None
+    if reply_id is None:
+        token = _BARE_ID_RE.search(scrubbed)
+        if token is None:
+            return None
+        reply_id = token.group(0)
+    return (reply_id, post_date)
 
 
 def persist_reply(
@@ -661,18 +737,49 @@ def persist_reply(
     post_date: str,
     replies_dir: Path = REPLIES_DIR,
 ) -> Path:
-    """SCAFFOLD (not implemented): store one confirmed reply file.
+    """Store one operator-confirmed reply file via M3.
 
-    Must do: store the operator-confirmed posted text (not a stale draft)
-    via M3 at ``<date>-<id>.md`` in the existing per-tweet format; empty
-    posted text or a bad date/id writes nothing (error naming the value);
-    unconfirmed drafts leave no trace in the replies dir; return the path
-    written.
-    Serves: R6.
-    Depends on: reply_files.write_reply.
-    Depended on by: run.
+    Writes ``<date>-<id>.md`` in the existing per-tweet format holding
+    the operator-confirmed posted text (not a stale draft) plus the
+    source link. Empty posted text, a missing source link/body, a
+    non-numeric reply id, or a non-``YYYY-MM-DD`` post date writes
+    nothing and raises naming the bad value. Overwriting an existing
+    same-path file is idempotent (last confirmed text wins, no ``-2``
+    duplicates). Returns the path written.
     """
-    raise NotImplementedError
+    from fleet.tweet_watch.reply_files import write_reply
+
+    if not isinstance(source_url, str) or not source_url.strip():
+        raise ValueError(f"reply {reply_id!r}: missing source link, nothing to persist")
+    if not isinstance(source_body, str) or not source_body.strip():
+        raise ValueError(f"reply {reply_id!r}: missing source text, nothing to persist")
+    if not isinstance(posted_text, str) or not posted_text.strip():
+        raise ValueError(f"{source_url}: empty posted text, nothing to persist")
+    if not isinstance(reply_id, str) or _REPLY_ID_RE.match(reply_id.strip()) is None:
+        raise ValueError(f"invalid reply id {reply_id!r}: expected bare numeric id")
+    if not isinstance(post_date, str) or _POST_DATE_RE.match(post_date) is None:
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
+    try:
+        parsed = date.fromisoformat(post_date)
+    except ValueError:
+        raise ValueError(
+            f"invalid post date {post_date!r}: expected YYYY-MM-DD"
+        ) from None
+    if parsed.isoformat() != post_date:
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
+    clean_id = reply_id.strip()
+    content = f"{source_url.strip()}\n\n{posted_text.strip()}\n"
+    target = Path(replies_dir) / f"{post_date}-{clean_id}.md"
+    if target.exists():
+        try:
+            existing = target.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        if posted_text.strip() not in existing:
+            logger.warning("overwriting %s with newly confirmed text", target)
+    saved = write_reply(Path(replies_dir), post_date, clean_id, content)
+    logger.info("persisted reply %s", saved)
+    return saved
 
 
 def run(
