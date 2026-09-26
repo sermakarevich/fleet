@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
+from fleet.tweet_watch.kb_files import SEED_HANDLES, read_watchlist
 from fleet.tweet_watch.x_fetch import Tweet
 
 WATCHLIST_PATH = Path("/Users/sergii/.ai/knowledge/media/x/watchlist.md")
@@ -15,18 +18,49 @@ REPLIES_DIR = Path("/Users/sergii/.ai/knowledge/media/x/replies")
 
 
 def ensure_watchlist(watchlist_path: Path = WATCHLIST_PATH) -> list[str]:
-    """SCAFFOLD (not implemented): ensure the watchlist exists, then read it.
+    """Ensure the watchlist exists, then read it.
 
-    Must do: if the file is missing, ``mkdir -p`` the parent and atomically
-    create it with exactly the 5 M1 seed handles in spec order (one per
-    line, LF, single trailing newline), then return them; an existing file
-    is never overwritten — return M1's parse as-is (possibly ``[]``);
-    unreadable path or a directory aborts with an error naming the path.
-    Serves: R1.
-    Depends on: kb_files.read_watchlist.
-    Depended on by: run.
+    If the file is missing, ``mkdir -p`` the parent and atomically create it
+    with exactly the 5 M1 seed handles in spec order (one per line, LF,
+    single trailing newline), then return them. An existing file is never
+    overwritten — its M1 parse is returned as-is (possibly ``[]``). A
+    directory path, an unreadable file, a failed create, or a file lost
+    between ensure and read aborts with an error naming the path.
     """
-    raise NotImplementedError
+    path = Path(watchlist_path)
+    if path.is_dir():
+        raise OSError(f"{path}: watchlist path is a directory")
+    if not path.exists():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise OSError(f"{path}: cannot create parent dir: {exc}") from exc
+        payload = "\n".join(SEED_HANDLES) + "\n"
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as tmp_file:
+                    tmp_file.write(payload)
+                os.replace(tmp_name, path)
+            except BaseException:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
+        except OSError as exc:
+            if str(path) in str(exc):
+                raise
+            raise OSError(f"{path}: cannot create watchlist file: {exc}") from exc
+        return list(SEED_HANDLES)
+    try:
+        return read_watchlist(path)
+    except OSError as exc:
+        if str(path) in str(exc):
+            raise
+        raise OSError(f"{path}: cannot read watchlist file: {exc}") from exc
 
 
 def find_new_tweets(
