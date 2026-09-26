@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
-from fleet.tweet_watch.kb_files import SEED_HANDLES, read_watchlist
-from fleet.tweet_watch.x_fetch import Tweet
+from fleet.tweet_watch.kb_files import SEED_HANDLES, load_state, read_watchlist, save_state
+from fleet.tweet_watch.x_fetch import FetchError, Tweet, fetch_tweets
+
+logger = logging.getLogger(__name__)
 
 WATCHLIST_PATH = Path("/Users/sergii/.ai/knowledge/media/x/watchlist.md")
 STATE_PATH = Path("/Users/sergii/.ai/knowledge/media/x/watch_state.json")
@@ -68,21 +72,82 @@ def find_new_tweets(
     state_path: Path = STATE_PATH,
     run_command: Callable[[tuple[str, ...]], str] | None = None,
 ) -> list[Tweet]:
-    """SCAFFOLD (not implemented): fetch candidates and emit only new ones.
+    """Fetch candidates via M2 and emit only tweets newer than stored state.
 
-    Must do: load state via M1 (abort-before-fetch on corrupt state, never
-    reset to ``{}``); fetch via M2; emit records with ids numerically newer
-    than the stored entry (missing entry means all candidates are new;
-    non-numeric ids fall back to string comparison); empty handle list
-    emits ``[]`` and leaves state byte-identical; a failed handle emits
-    nothing and its entry is not advanced; persist the newest seen id per
-    successful handle via M1 without ever regressing an entry; merge onto a
-    just-reloaded file before saving so overlapping runs never roll back.
-    Serves: R2.
-    Depends on: kb_files.load_state/save_state, x_fetch.fetch_tweets.
-    Depended on by: run.
+    Missing state entry means every candidate for that handle is new.
+    Comparison uses the tweet ``id`` only: numeric when both ids are
+    all-digit, otherwise a string fallback. Duplicate ``(handle, id)``
+    records emit once. A failed handle warns and is skipped while
+    siblings continue; a run-wide check failure aborts with state
+    untouched. State advances to the newest seen id per successful
+    handle, never regresses, and is left byte-identical when nothing
+    is new. Before saving, the file is re-read and merged per-handle
+    maxima so overlapping runs never roll back each other.
     """
-    raise NotImplementedError
+    wanted: list[str] = []
+    for handle in handles:
+        if handle not in wanted:
+            wanted.append(handle)
+    if not wanted:
+        return []
+    path = Path(state_path)
+    baseline = load_state(path)
+
+    pending = list(wanted)
+    candidates: list[Tweet] = []
+    while pending:
+        try:
+            candidates = fetch_tweets(pending, run_command=run_command)
+        except FetchError as exc:
+            if exc.handle in pending:
+                warnings.warn(str(exc), UserWarning, stacklevel=2)
+                pending = [h for h in pending if h != exc.handle]
+                continue
+            raise
+        break
+
+    fresh: list[Tweet] = []
+    maxima: dict[str, str] = {}
+    seen: set[tuple[str, str]] = set()
+    for tweet in candidates:
+        key = (tweet.handle, tweet.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        stored = baseline.get(tweet.handle)
+        if stored is None or _is_newer_id(tweet.id, stored):
+            fresh.append(tweet)
+            current = maxima.get(tweet.handle)
+            if current is None or _is_newer_id(tweet.id, current):
+                maxima[tweet.handle] = tweet.id
+    if not maxima:
+        return []
+
+    merged = dict(baseline)
+    for handle, new_max in maxima.items():
+        current = merged.get(handle)
+        if current is None or _is_newer_id(new_max, current):
+            merged[handle] = new_max
+    if path.exists():
+        reloaded = load_state(path)
+        for handle, value in reloaded.items():
+            current = merged.get(handle)
+            if current is None or _is_newer_id(value, current):
+                merged[handle] = value
+    save_state(path, merged)
+    return fresh
+
+
+def _is_newer_id(candidate: str, stored: str) -> bool:
+    if (
+        candidate.isascii()
+        and candidate.isdigit()
+        and stored.isascii()
+        and stored.isdigit()
+    ):
+        return int(candidate) > int(stored)
+    logger.debug("non-numeric tweet id comparison: %r vs %r", candidate, stored)
+    return candidate > stored
 
 
 def score_tweet(tweet_text: str, interests_text: str) -> str:
