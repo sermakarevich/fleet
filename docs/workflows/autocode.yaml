@@ -1,9 +1,17 @@
 # Design rationale (static YAML, not a builder):
-# - The 12 steps are fixed and known before the run starts; nothing in the
-#   shape depends on the inputs, so a static definition is enough. A builder
-#   (like `summarise`) is only needed when the number of steps depends on
-#   the fetched source. Static YAML is also readable and editable in the UI
-#   without a code change.
+# - The 11 steps are fixed and known before the run starts, so a static
+#   definition is enough and stays editable in the UI. Only the number of
+#   *units* (shared modules M* and requirements R* from step 1) is unknown
+#   up front, so the per-unit steps (failures, unittests, implement) are
+#   `worker: job` steps: the job worker designs one child task per unit at
+#   runtime and closes once every child is done (operator decision,
+#   2026-09-26). `job_gate: "off"` skips the child-list approval; the unit
+#   list is confirmed once, in step 1.
+# - Unit children are chained (each depends on the previous one) because
+#   they all commit to the same branch checkout of the target repo.
+# - Per-unit steps write to fixed paths (docs/<feature>/failures/<UNIT>.md,
+#   tests/<feature>/<unit>/) instead of outputs.json, since a job step has
+#   no single worker to write outputs.
 # - Sequential by operator decision (2026-09-26): every stage holds one step
 #   and each step `needs` the previous one, so later stages render only
 #   after the earlier step closes and can read its `outputs.json` values via
@@ -13,665 +21,695 @@
 #   a step cwd today. Each step instead cd's into the repo and works on the
 #   branch `autocode/<feature>` (operator decision A, 2026-09-26). The fleet
 #   worktree the worker starts in stays untouched and closes with no commits.
+# - Generated file: the shared rule blocks are repeated in every step on
+#   purpose (a step description must be self-contained).
 
 fleet_workflow: 1
 name: autocode
-description: Sequential autonomous coding of one feature in a repo (spec to requirements, failure modes, baseline, scaffold, tests first, implement, review, gate).
+description: Sequential autonomous coding of one feature in a repo (spec to requirements, then one worker
+  per unit for failure modes, unit tests and implementation; baseline, scaffold, e2e, review, gate).
 defaults:
   coder: opencode
   model: opencode-go/muse-spark-1.3-contributor
   priority: 2
   isolation: worktree
 inputs:
-  - name: repo
-    description: Absolute path of the target git repository; every step cd's there and works on branch autocode/<feature>.
-    required: true
-  - name: feature
-    description: Short feature slug (e.g. auth); names docs/<feature>/, tests/<feature>/ and the branch.
-    required: true
-  - name: spec
-    description: Feature spec, as an absolute file path or the spec text itself.
-    required: true
-  - name: auto
-    description: '"on" = the worker decides alone and closes each step; anything else = it confirms its understanding through ask_human at the end of every step.'
-    default: "off"
+- name: repo
+  description: Absolute path of the target git repository; every step cd's there and works on branch autocode/<feature>.
+  required: true
+- name: feature
+  description: Short feature slug (e.g. auth); names docs/<feature>/, tests/<feature>/ and the branch.
+  required: true
+- name: spec
+  description: Feature spec, as an absolute file path or the spec text itself.
+  required: true
+- name: auto
+  description: '"on" = the worker decides alone and closes each step; anything else = it confirms its
+    understanding through ask_human at the end of every step.'
+  default: 'off'
 stages:
-  - name: spec-requirements
-    steps:
-      - name: requirements
-        title: 'autocode {{inputs.feature}}: 01 spec to requirements'
-        description: |
-          Step 1/12 of autocode for {{inputs.feature}}.
-          Turn the spec into a numbered list of testable requirements.
+- name: spec-requirements
+  steps:
+  - name: requirements
+    title: 'autocode {{inputs.feature}}: 01 spec to requirements'
+    description: |
+      Step 1/11 of autocode for {{inputs.feature}}.
+      Turn the spec into a numbered list of testable requirements. This list
+      drives the rest of the run: later steps start one worker per unit.
 
-          Do:
-          1. `cd {{inputs.repo}}`; create branch `autocode/{{inputs.feature}}` from the
-             default branch if it does not exist, else check it out. Add `.local/`,
-             `.vscode/` and `justfile` to `.git/info/exclude` if missing.
-          2. Read the spec ({{inputs.spec}}; if it is a path, read the file). Read
-             README.md, AGENTS.md / CLAUDE.md and the existing code layout enough to
-             place the feature.
-          3. Write `docs/{{inputs.feature}}/REQUIREMENTS.md`: one numbered requirement
-             per line group (R1, R2, ...), each stating the observable behaviour, its
-             inputs and outputs, and which shared module(s) it needs. Add a short
-             "Shared modules" section (M1, M2, ...) for code several requirements need.
-             Keep it concrete; no design prose.
-          4. Commit: `git add docs/{{inputs.feature}}/REQUIREMENTS.md` and commit
-             "autocode({{inputs.feature}}): requirements".
+      Do:
+      1. `cd {{inputs.repo}}`; create branch `autocode/{{inputs.feature}}` from the
+         default branch if it does not exist, else check it out. Add `.local/`,
+         `.vscode/` and `justfile` to `.git/info/exclude` if missing.
+      2. Read the spec ({{inputs.spec}}; if it is a path, read the file). Read
+         README.md, AGENTS.md / CLAUDE.md and the existing code layout enough to
+         place the feature.
+      3. Write `docs/{{inputs.feature}}/REQUIREMENTS.md`:
+         - "Shared modules": code several requirements need, one heading per
+           module (`## M1 <name>`, `## M2 ...`), may be empty.
+         - "Requirements": one heading per requirement (`## R1 <name>`, ...),
+           each stating the observable behaviour, its inputs and outputs, and
+           which shared module(s) it needs.
+         Each unit (M* or R*) must be small enough for one worker in one
+         sitting. Keep it concrete; no design prose.
+      4. Commit: `git add docs/{{inputs.feature}}/REQUIREMENTS.md` and commit
+         "autocode({{inputs.feature}}): requirements".
 
-          Outputs: {"requirements_path": "<absolute path of REQUIREMENTS.md>"}
+      Outputs: {"requirements_path": "<absolute path of REQUIREMENTS.md>",
+                "units": "<every unit id, space separated, shared modules first, e.g. M1 M2 R1 R2 R3>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
-  - name: spec-failures
-    steps:
-      - name: failures
-        title: 'autocode {{inputs.feature}}: 02 requirements to failure modes'
-        needs: [requirements]
-        description: |
-          Step 2/12 of autocode for {{inputs.feature}}.
-          List how each requirement can fail, with real cases.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+- name: spec-failures
+  steps:
+  - name: failures
+    title: 'autocode {{inputs.feature}}: 02 failure modes per unit (one worker per unit)'
+    needs:
+    - requirements
+    worker: job
+    job_gate: 'off'
+    description: |
+      Step 2/11 of autocode for {{inputs.feature}}: failure modes per unit.
+      This is a JOB step. Fleet runs it as research -> design -> spawn children
+      -> validate, and gives every unit its own child worker. You never do the
+      unit work yourself.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Read {{steps.requirements.outputs.requirements_path}}.
-          3. Write `docs/{{inputs.feature}}/FAILURE_MODES.md`: for every requirement
-             (R1, R2, ...) and shared module (M1, ...) list concrete failure cases:
-             bad or missing input, boundary values, external errors, wrong state,
-             concurrency where relevant. Each case names the requirement it belongs
-             to and the expected behaviour (error, fallback, message). Real cases
-             only, no generic filler.
-          4. Commit: `git add docs/{{inputs.feature}}/FAILURE_MODES.md` and commit
-             "autocode({{inputs.feature}}): failure modes".
+      Units (every unit, M* and R*): take them from `{{steps.requirements.outputs.units}}`, which lists every unit of
+      {{steps.requirements.outputs.requirements_path}} in order (shared modules M* first, then requirements R*).
 
-          Outputs: {"failure_modes_path": "<absolute path of FAILURE_MODES.md>"}
+      Research phase: `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`, read {{steps.requirements.outputs.requirements_path}}. Write
+      RESEARCH.md with the units in scope, in order, one line each: id and its
+      one-line summary. Do not explore the rest of the repo.
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Design phase: write tasks.json with exactly one task per unit in scope, in
+      that order:
+      - key: the unit id in lowercase (e.g. "r1"); title:
+        "autocode {{inputs.feature}}: 02 failure modes <UNIT>" (at most 120 characters);
+      - cwd, coder and model: null; priority: 2;
+      - depends_on: the previous task's key ([] for the first), so the children
+        run one at a time: they all commit to the same branch checkout;
+      - body: the child instructions below, verbatim, with every <UNIT> replaced
+        by the unit id (e.g. R1) and every <unit> by its lowercase form (e.g. r1).
+      DESIGN.md: one line per task.
+
+      Validate phase: check that `docs/{{inputs.feature}}/failures/<UNIT>.md` exists and is committed on
+      `autocode/{{inputs.feature}}` for every unit. Report a missing unit as partial with a follow-up
+      for that unit only.
+
+      ----- child instructions (the body of every child task) -----
+      Unit <UNIT> of autocode for {{inputs.feature}}: failure modes per unit.
+
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read the <UNIT> section of {{steps.requirements.outputs.requirements_path}}.
+      3. Write `docs/{{inputs.feature}}/failures/<UNIT>.md`: concrete failure cases for
+         <UNIT>: bad or missing input, boundary values, external errors, wrong
+         state, concurrency where relevant. Each case states the expected
+         behaviour (error, fallback, message). Real cases only, no generic filler.
+      4. Commit: `git add docs/{{inputs.feature}}/failures/<UNIT>.md` and commit
+         "autocode({{inputs.feature}}): failure modes <UNIT>".
+
+      Rules for this unit worker:
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Work on unit <UNIT> only; other units have their own workers, one at a time.
+      - Do not ask the operator to confirm at the end (the unit list was confirmed in
+        step 1). Ask through mcp__ask_human__ask_human_question only when a test looks
+        wrong or the requirement is contradictory, and wait for the answer.
+- name: baseline
+  steps:
   - name: baseline
-    steps:
-      - name: baseline
-        title: 'autocode {{inputs.feature}}: 03 green baseline of existing tests'
-        needs: [failures]
-        description: |
-          Step 3/12 of autocode for {{inputs.feature}}.
-          Run the existing tests before any new test exists and record the baseline.
+    title: 'autocode {{inputs.feature}}: 03 green baseline of existing tests'
+    description: |
+      Step 3/11 of autocode for {{inputs.feature}}.
+      Run the existing tests before any new test exists and record the baseline.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Find the repo's test command (justfile, pyproject, Makefile, CI config)
-             and its existing test directories. Sync the environment if needed
-             (`uv sync`).
-          3. Run the existing suite. Do not fix or edit any existing test.
-          4. Write `docs/{{inputs.feature}}/BASELINE.md`: the exact command, the
-             existing test dirs (space separated), the pass/fail counts and the
-             list of any pre-existing failures. If tests fail before your work, do
-             not fix them: record them as the accepted baseline. When auto mode is
-             not "on", mention them in your ask_human summary.
-          5. Commit: `git add docs/{{inputs.feature}}/BASELINE.md` and commit
-             "autocode({{inputs.feature}}): baseline".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Find the repo's test command (justfile, pyproject, Makefile, CI config)
+         and its existing test directories. Sync the environment if needed
+         (`uv sync`).
+      3. Run the existing suite. Do not fix or edit any existing test.
+      4. Write `docs/{{inputs.feature}}/BASELINE.md`: the exact command, the
+         existing test dirs (space separated), the pass/fail counts and the
+         list of any pre-existing failures. If tests fail before your work, do
+         not fix them: record them as the accepted baseline. When auto mode is
+         not "on", mention them in your ask_human summary.
+      5. Commit: `git add docs/{{inputs.feature}}/BASELINE.md` and commit
+         "autocode({{inputs.feature}}): baseline".
 
-          Outputs: {"baseline_log": "<absolute path of BASELINE.md>",
-                    "existing_test_dirs": "<space separated existing test dirs, e.g. tests>",
-                    "test_command": "<exact command used, e.g. uv run pytest tests -q>"}
+      Outputs: {"baseline_log": "<absolute path of BASELINE.md>",
+                "existing_test_dirs": "<space separated existing test dirs, e.g. tests>",
+                "test_command": "<exact command used, e.g. uv run pytest tests -q>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - failures
+- name: scaffold
+  steps:
   - name: scaffold
-    steps:
-      - name: scaffold
-        title: 'autocode {{inputs.feature}}: 04 scaffold flow and empty objects'
-        needs: [baseline]
-        description: |
-          Step 4/12 of autocode for {{inputs.feature}}.
-          Create the scaffold: the flow plus empty objects the tests will import.
-          No logic yet.
+    title: 'autocode {{inputs.feature}}: 04 scaffold flow and empty objects'
+    description: |
+      Step 4/11 of autocode for {{inputs.feature}}.
+      Create the scaffold: the flow plus empty objects the tests will import.
+      No logic yet.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Read {{steps.requirements.outputs.requirements_path}} and
-             {{steps.failures.outputs.failure_modes_path}}.
-          3. Create the modules, classes and functions that the requirements (R*)
-             and shared modules (M*) need, following the repo's existing layout and
-             naming. Every object body is empty (`raise NotImplementedError`) and
-             carries a temporary docstring saying: what it must do, which
-             requirement it serves, its dependencies and its dependants. These
-             docstrings are removed once the object is implemented (align step).
-             Wire the main flow (entry point calling the objects in order) the same
-             way.
-          4. Make sure everything imports: `uv run python -c "import <package>"` and
-             the limited test command with the existing dirs only
-             ({{steps.baseline.outputs.test_command}}) still passes.
-          5. Commit the scaffold files by named path:
-             "autocode({{inputs.feature}}): scaffold".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read {{steps.requirements.outputs.requirements_path}} and every file in `docs/{{inputs.feature}}/failures/`.
+      3. Create the modules, classes and functions that the requirements (R*)
+         and shared modules (M*) need, following the repo's existing layout and
+         naming. Every object body is empty (`raise NotImplementedError`) and
+         carries a temporary docstring saying: what it must do, which unit it
+         serves, its dependencies and its dependants. These docstrings are
+         removed once the object is implemented (align step). Wire the main flow
+         (entry point calling the objects in order) the same way.
+      4. Make sure everything imports: `uv run python -c "import <package>"` and
+         the existing tests still pass ({{steps.baseline.outputs.test_command}}).
+      5. Commit the scaffold files by named path:
+         "autocode({{inputs.feature}}): scaffold".
 
-          Outputs: {"scaffold_commit": "<full sha of the scaffold commit>"}
+      Outputs: {"scaffold_commit": "<full sha of the scaffold commit>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - baseline
+- name: unittests
+  steps:
   - name: unittests
-    steps:
-      - name: unittests
-        title: 'autocode {{inputs.feature}}: 05 write all unit tests up front'
-        needs: [scaffold]
-        description: |
-          Step 5/12 of autocode for {{inputs.feature}}.
-          Write every unit test now, before any logic exists.
+    title: 'autocode {{inputs.feature}}: 05 unit tests per unit, up front (one worker per unit)'
+    needs:
+    - scaffold
+    worker: job
+    job_gate: 'off'
+    description: |
+      Step 5/11 of autocode for {{inputs.feature}}: unit tests per unit, up front.
+      This is a JOB step. Fleet runs it as research -> design -> spawn children
+      -> validate, and gives every unit its own child worker. You never do the
+      unit work yourself.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (scaffold
-             commit {{steps.scaffold.outputs.scaffold_commit}}).
-          2. Read {{steps.requirements.outputs.requirements_path}} and
-             {{steps.failures.outputs.failure_modes_path}}.
-          3. Create one folder per unit (each requirement R* and each shared module
-             M*) under `tests/{{inputs.feature}}/<unit>/`, mirroring the code layout.
-             Inside, one file per test or per small group of related tests. Cover
-             the requirement's behaviour and every failure case listed for it.
-             Import the real objects from the scaffold; do not stub the unit under
-             test. Each test folder later becomes one atomic implementation unit
-             whose acceptance criterion is "its folder is green".
-          4. Do not run the new tests to make them pass; they are expected to fail
-             on the scaffold. Only check they collect:
-             `uv run pytest tests/{{inputs.feature}} --collect-only -q`.
-          5. Commit: `git add tests/{{inputs.feature}}` and commit
-             "autocode({{inputs.feature}}): unit tests".
+      Units (every unit, M* and R*): take them from `{{steps.requirements.outputs.units}}`, which lists every unit of
+      {{steps.requirements.outputs.requirements_path}} in order (shared modules M* first, then requirements R*).
 
-          Outputs: {"unit_test_dirs": "<space separated list of the unit test folders, e.g. tests/{{inputs.feature}}/r1 tests/{{inputs.feature}}/m1>"}
+      Research phase: `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`, read {{steps.requirements.outputs.requirements_path}}. Write
+      RESEARCH.md with the units in scope, in order, one line each: id and its
+      one-line summary. Do not explore the rest of the repo.
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Design phase: write tasks.json with exactly one task per unit in scope, in
+      that order:
+      - key: the unit id in lowercase (e.g. "r1"); title:
+        "autocode {{inputs.feature}}: 05 unit tests <UNIT>" (at most 120 characters);
+      - cwd, coder and model: null; priority: 2;
+      - depends_on: the previous task's key ([] for the first), so the children
+        run one at a time: they all commit to the same branch checkout;
+      - body: the child instructions below, verbatim, with every <UNIT> replaced
+        by the unit id (e.g. R1) and every <unit> by its lowercase form (e.g. r1).
+      DESIGN.md: one line per task.
+
+      Validate phase: check that `tests/{{inputs.feature}}/<unit>/` exists, collects
+      (`uv run pytest tests/{{inputs.feature}} --collect-only -q`) and is committed for every unit. Report a missing unit as partial with a follow-up
+      for that unit only.
+
+      ----- child instructions (the body of every child task) -----
+      Unit <UNIT> of autocode for {{inputs.feature}}: unit tests per unit, up front.
+
+      Write every unit test for <UNIT> now, before any logic exists.
+
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read the <UNIT> section of {{steps.requirements.outputs.requirements_path}} and
+         `docs/{{inputs.feature}}/failures/<UNIT>.md`.
+      3. Create `tests/{{inputs.feature}}/<unit>/`, mirroring the code layout; one
+         file per test or per small group of related tests. Cover the unit's
+         behaviour and every failure case listed for it. Import the real objects
+         from the scaffold; do not stub the unit under test. This folder is the
+         unit's acceptance criterion later: "its folder is green".
+      4. Do not make the tests pass; they are expected to fail on the scaffold.
+         Only check they collect: `uv run pytest tests/{{inputs.feature}}/<unit> --collect-only -q`.
+      5. Commit: `git add tests/{{inputs.feature}}/<unit>` and commit
+         "autocode({{inputs.feature}}): unit tests <UNIT>".
+
+      Rules for this unit worker:
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Work on unit <UNIT> only; other units have their own workers, one at a time.
+      - Do not ask the operator to confirm at the end (the unit list was confirmed in
+        step 1). Ask through mcp__ask_human__ask_human_question only when a test looks
+        wrong or the requirement is contradictory, and wait for the answer.
+- name: e2e
+  steps:
   - name: e2e
-    steps:
-      - name: e2e
-        title: 'autocode {{inputs.feature}}: 06 write the main-path end-to-end test'
-        needs: [unittests]
-        description: |
-          Step 6/12 of autocode for {{inputs.feature}}.
-          Write one end-to-end test for the main path, up front.
+    title: 'autocode {{inputs.feature}}: 06 write the main-path end-to-end test'
+    description: |
+      Step 6/11 of autocode for {{inputs.feature}}.
+      Write one end-to-end test for the main path, up front.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Read {{steps.requirements.outputs.requirements_path}}; identify the
-             main happy path through the whole feature (entry point to final
-             output).
-          3. Create `tests/{{inputs.feature}}/main/` with one end-to-end test that
-             drives the real flow (real modules, real files or fixtures; fake only
-             external services). Assert the final observable result, not internals.
-          4. Check it collects (`uv run pytest tests/{{inputs.feature}}/main
-             --collect-only -q`); it is expected to fail on the scaffold.
-          5. Commit: `git add tests/{{inputs.feature}}/main` and commit
-             "autocode({{inputs.feature}}): e2e test".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read {{steps.requirements.outputs.requirements_path}}; identify the main happy path through the whole feature
+         (entry point to final output).
+      3. Create `tests/{{inputs.feature}}/main/` with one end-to-end test that
+         drives the real flow (real modules, real files or fixtures; fake only
+         external services). Assert the final observable result, not internals.
+      4. Check it collects (`uv run pytest tests/{{inputs.feature}}/main
+         --collect-only -q`); it is expected to fail on the scaffold.
+      5. Commit: `git add tests/{{inputs.feature}}/main` and commit
+         "autocode({{inputs.feature}}): e2e test".
 
-          Outputs: {"e2e_dir": "tests/{{inputs.feature}}/main"}
+      Outputs: {"e2e_dir": "tests/{{inputs.feature}}/main"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - unittests
+- name: red
+  steps:
   - name: red
-    steps:
-      - name: red
-        title: 'autocode {{inputs.feature}}: 07 run new tests: red for new, green for old'
-        needs: [e2e]
-        description: |
-          Step 7/12 of autocode for {{inputs.feature}}.
-          Confirm the starting point: new tests red, old tests green.
+    title: 'autocode {{inputs.feature}}: 07 run new tests: red for new, green for old'
+    description: |
+      Step 7/11 of autocode for {{inputs.feature}}.
+      Confirm the starting point: new tests red, old tests green.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Run the old suite: {{steps.baseline.outputs.test_command}}. It must
-             match {{steps.baseline.outputs.baseline_log}} (same passes, no new
-             failures). If the scaffold broke an old test, fix the scaffold, never
-             the test.
-          3. Run the new tests:
-             `uv run pytest {{steps.unittests.outputs.unit_test_dirs}} {{steps.e2e.outputs.e2e_dir}} -q`.
-             Expect them to fail. A new test that already passes on the empty
-             scaffold is suspicious (vacuous test): list it in the log. Do not edit
-             tests; if one must change, ask through ask_human first.
-          4. Write `docs/{{inputs.feature}}/RED.md` with both commands, the counts
-             and the suspicious list. Commit: `git add docs/{{inputs.feature}}/RED.md`,
-             "autocode({{inputs.feature}}): red run".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Run the old suite: {{steps.baseline.outputs.test_command}}. It must match {{steps.baseline.outputs.baseline_log}} (same passes,
+         no new failures). If the scaffold broke an old test, fix the scaffold,
+         never the test.
+      3. Run the new tests: `uv run pytest tests/{{inputs.feature}} -q`.
+         Expect them to fail. A new test that already passes on the empty
+         scaffold is suspicious (vacuous test): list it in the log. Do not edit
+         tests; if one must change, ask through ask_human first.
+      4. Write `docs/{{inputs.feature}}/RED.md` with both commands, the counts
+         and the suspicious list. Commit: `git add docs/{{inputs.feature}}/RED.md`,
+         "autocode({{inputs.feature}}): red run".
 
-          Outputs: {"red_log": "<absolute path of RED.md>"}
+      Outputs: {"red_log": "<absolute path of RED.md>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
-  - name: implement-common
-    steps:
-      - name: common
-        title: 'autocode {{inputs.feature}}: 08 implement shared modules'
-        needs: [red]
-        description: |
-          Step 8/12 of autocode for {{inputs.feature}}.
-          Implement the shared modules (M*) first; the requirements come later.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - e2e
+- name: implement
+  steps:
+  - name: implement
+    title: 'autocode {{inputs.feature}}: 08 implement each unit (one worker per unit)'
+    needs:
+    - red
+    worker: job
+    job_gate: 'off'
+    description: |
+      Step 8/11 of autocode for {{inputs.feature}}: implement each unit.
+      This is a JOB step. Fleet runs it as research -> design -> spawn children
+      -> validate, and gives every unit its own child worker. You never do the
+      unit work yourself.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
-          2. Read {{steps.requirements.outputs.requirements_path}} (section
-             "Shared modules") and {{steps.red.outputs.red_log}}.
-          3. For each shared module, one at a time: implement it, then run
-             `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}}/<that module's folder> -q`
-             until that folder is green while the old tests stay green. Never run
-             the full suite and never touch a test. Commit each module by named
-             path: "autocode({{inputs.feature}}): implement <module>".
-          4. Requirement folders and the e2e may still be red; that is expected.
+      Units (every unit, shared modules M* first, then requirements R*): take them from `{{steps.requirements.outputs.units}}`, which lists every unit of
+      {{steps.requirements.outputs.requirements_path}} in order (shared modules M* first, then requirements R*).
 
-          Outputs: {"common_commit": "<full sha of the last shared-module commit>"}
+      Research phase: `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`, read {{steps.requirements.outputs.requirements_path}}. Write
+      RESEARCH.md with the units in scope, in order, one line each: id and its
+      one-line summary. Do not explore the rest of the repo.
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
-  - name: implement-feature
-    steps:
-      - name: feature
-        title: 'autocode {{inputs.feature}}: 09 implement the requirements'
-        needs: [common]
-        description: |
-          Step 9/12 of autocode for {{inputs.feature}}.
-          Implement every requirement (R*) on top of the shared modules.
+      Design phase: write tasks.json with exactly one task per unit in scope, in
+      that order:
+      - key: the unit id in lowercase (e.g. "r1"); title:
+        "autocode {{inputs.feature}}: 08 implement <UNIT>" (at most 120 characters);
+      - cwd, coder and model: null; priority: 2;
+      - depends_on: the previous task's key ([] for the first), so the children
+        run one at a time: they all commit to the same branch checkout;
+      - body: the child instructions below, verbatim, with every <UNIT> replaced
+        by the unit id (e.g. R1) and every <unit> by its lowercase form (e.g. r1).
+      DESIGN.md: one line per task.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (shared
-             modules landed in {{steps.common.outputs.common_commit}}).
-          2. Read {{steps.requirements.outputs.requirements_path}} and
-             {{steps.red.outputs.red_log}}.
-          3. For each requirement, one at a time, in order: implement it, then run
-             `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}}/<that requirement's folder> -q`
-             until that folder is green while the old tests stay green. Acceptance
-             criterion per requirement: its folder is green. Never run the full
-             suite and never touch a test. Commit each requirement by named path:
-             "autocode({{inputs.feature}}): implement R<n>".
-          4. Do not start the e2e or cross-requirement polishing here.
+      Validate phase: run `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}} --ignore=tests/{{inputs.feature}}/main -q`;
+      every unit folder must be green and the old tests must match the baseline. Report a missing unit as partial with a follow-up
+      for that unit only.
 
-          Outputs: {"feature_commit": "<full sha of the last requirement commit>"}
+      ----- child instructions (the body of every child task) -----
+      Unit <UNIT> of autocode for {{inputs.feature}}: implement each unit.
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Implement <UNIT> so its test folder turns green. Units before it (shared
+      modules first) are already implemented; units after it are not.
+
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read the <UNIT> section of {{steps.requirements.outputs.requirements_path}}, `docs/{{inputs.feature}}/failures/<UNIT>.md`
+         and {{steps.red.outputs.red_log}}.
+      3. Implement <UNIT>, then run
+         `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}}/<unit> -q`
+         until that folder is green while the old tests stay green. Never run
+         the full suite and never touch a test. Later units' folders and the
+         e2e may stay red.
+      4. Commit by named path: "autocode({{inputs.feature}}): implement <UNIT>".
+
+      Rules for this unit worker:
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Work on unit <UNIT> only; other units have their own workers, one at a time.
+      - Do not ask the operator to confirm at the end (the unit list was confirmed in
+        step 1). Ask through mcp__ask_human__ask_human_question only when a test looks
+        wrong or the requirement is contradictory, and wait for the answer.
+- name: align
+  steps:
   - name: align
-    steps:
-      - name: align
-        title: 'autocode {{inputs.feature}}: 10 align patterns, remove placeholders'
-        needs: [feature]
-        description: |
-          Step 10/12 of autocode for {{inputs.feature}}.
-          Review the implemented code and align it into one style.
+    title: 'autocode {{inputs.feature}}: 09 align patterns, remove placeholders'
+    description: |
+      Step 9/11 of autocode for {{inputs.feature}}.
+      Review the implemented code and align it into one style.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (work up
-             to {{steps.feature.outputs.feature_commit}}).
-          2. Read all new and changed code for the feature. Unify naming, error
-             handling, module boundaries and patterns into one consistent style that
-             matches the rest of the repo. Remove the temporary scaffold docstrings,
-             every placeholder, `NotImplementedError` stub, TODO, dead branch and
-             fake or hardcoded return. No empty or fake code may remain.
-          3. Simplify where the code got clever; do not add abstractions.
-          4. Verify with
-             `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} {{steps.unittests.outputs.unit_test_dirs}} -q`
-             (still not the full suite, not the e2e). Never touch a test.
-          5. Commit by named path: "autocode({{inputs.feature}}): align".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}`.
+      2. Read all new and changed code for the feature. Unify naming, error
+         handling, module boundaries and patterns into one consistent style that
+         matches the rest of the repo. Remove the temporary scaffold docstrings,
+         every placeholder, `NotImplementedError` stub, TODO, dead branch and
+         fake or hardcoded return. No empty or fake code may remain.
+      3. Simplify where the code got clever; do not add abstractions.
+      4. Verify with
+         `uv run pytest {{steps.baseline.outputs.existing_test_dirs}} tests/{{inputs.feature}} --ignore=tests/{{inputs.feature}}/main -q`
+         (still not the full suite, not the e2e). Never touch a test.
+      5. Commit by named path: "autocode({{inputs.feature}}): align".
 
-          Outputs: {"align_commit": "<full sha of the align commit>"}
+      Outputs: {"align_commit": "<full sha of the align commit>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
-  - name: fresh-review
-    steps:
-      - name: fresh_review
-        title: 'autocode {{inputs.feature}}: 11 fresh-eyes review of spec vs code'
-        needs: [align]
-        description: |
-          Step 11/12 of autocode for {{inputs.feature}}.
-          You are a fresh reviewer in a new session: check the spec against the code.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - implement
+- name: fresh-review
+  steps:
+  - name: fresh_review
+    title: 'autocode {{inputs.feature}}: 10 fresh-eyes review of spec vs code'
+    description: |
+      Step 10/11 of autocode for {{inputs.feature}}.
+      You are a fresh reviewer in a new session: check the spec against the code.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (reviewed
-             state {{steps.align.outputs.align_commit}}).
-          2. Read the original spec ({{inputs.spec}}),
-             {{steps.requirements.outputs.requirements_path}} and
-             {{steps.failures.outputs.failure_modes_path}}. Then read the code and tests
-             with fresh eyes, without assuming earlier steps were right.
-          3. Write `docs/{{inputs.feature}}/REVIEW.md`: one finding per line group
-             with severity, the requirement or failure case it concerns, file:line,
-             and the fix. Include: requirements not met or met differently than
-             specified, failure cases not handled, tests that do not test what they
-             claim, leftover placeholders, needless complexity.
-          4. Fix every code finding; commit each fix by named path:
-             "autocode({{inputs.feature}}): review fix <n>". A finding that needs a
-             test change goes to ask_human first (tests are read-only). Mark each
-             finding in REVIEW.md as fixed, deferred or asked.
-          5. Commit REVIEW.md: `git add docs/{{inputs.feature}}/REVIEW.md`.
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (reviewed
+         state {{steps.align.outputs.align_commit}}).
+      2. Read the original spec ({{inputs.spec}}), {{steps.requirements.outputs.requirements_path}} and every file in
+         `docs/{{inputs.feature}}/failures/`. Then read the code and tests with fresh eyes,
+         without assuming earlier steps were right.
+      3. Write `docs/{{inputs.feature}}/REVIEW.md`: one finding per line group
+         with severity, the unit or failure case it concerns, file:line,
+         and the fix. Include: requirements not met or met differently than
+         specified, failure cases not handled, tests that do not test what they
+         claim, leftover placeholders, needless complexity.
+      4. Fix every code finding; commit each fix by named path:
+         "autocode({{inputs.feature}}): review fix <n>". A finding that needs a
+         test change goes to ask_human first (tests are read-only). Mark each
+         finding in REVIEW.md as fixed, deferred or asked.
+      5. Commit REVIEW.md: `git add docs/{{inputs.feature}}/REVIEW.md`.
 
-          Outputs: {"findings": "<absolute path of REVIEW.md>",
-                    "findings_count": "<number of findings>",
-                    "review_commit": "<full sha of the last commit>"}
+      Outputs: {"findings": "<absolute path of REVIEW.md>",
+                "findings_count": "<number of findings>",
+                "review_commit": "<full sha of the last commit>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - align
+- name: gate
+  steps:
   - name: gate
-    steps:
-      - name: gate
-        title: 'autocode {{inputs.feature}}: 12 final gate: lint, typecheck, full suite, e2e'
-        needs: [fresh_review]
-        description: |
-          Step 12/12 of autocode for {{inputs.feature}}.
-          Final gate. This step finishes only when everything is green.
+    title: 'autocode {{inputs.feature}}: 11 final gate: lint, typecheck, full suite, e2e'
+    description: |
+      Step 11/11 of autocode for {{inputs.feature}}.
+      Final gate. This step finishes only when everything is green.
 
-          Do:
-          1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (state
-             after review: {{steps.fresh_review.outputs.review_commit}}).
-          2. Run the repo's lint and typecheck with its own tools (justfile,
-             pyproject, CI config; e.g. `uv run ruff check .`, `uv run mypy` or
-             `uv run pyright`). Fix code findings; commit by named path.
-          3. Then run the FULL suite (this is the one step that runs it):
-             {{steps.baseline.outputs.test_command}} plus
-             `uv run pytest tests/{{inputs.feature}} -q`, and the end-to-end test
-             {{steps.e2e.outputs.e2e_dir}}. Fix code, never tests, and rerun until
-             all green. Pre-existing failures recorded in
-             {{steps.baseline.outputs.baseline_log}} are the only allowed reds.
-          4. If you cannot reach green, do not finish as done: stop with a clear
-             blocked reason naming the failing tests, or ask through ask_human.
-          5. Write `docs/{{inputs.feature}}/GATE.md` (commands, results, final sha)
-             and commit it: "autocode({{inputs.feature}}): gate green".
+      Do:
+      1. `cd {{inputs.repo}}`, check out `autocode/{{inputs.feature}}` (state
+         after review: {{steps.fresh_review.outputs.review_commit}}).
+      2. Run the repo's lint and typecheck with its own tools (justfile,
+         pyproject, CI config; e.g. `uv run ruff check .`, `uv run mypy` or
+         `uv run pyright`). Fix code findings; commit by named path.
+      3. Then run the FULL suite (this is the one step that runs it):
+         {{steps.baseline.outputs.test_command}} plus `uv run pytest tests/{{inputs.feature}} -q`, which includes the
+         end-to-end test {{steps.e2e.outputs.e2e_dir}}. Fix code, never tests,
+         and rerun until all green. Pre-existing failures recorded in
+         {{steps.baseline.outputs.baseline_log}} are the only allowed reds.
+      4. If you cannot reach green, do not finish as done: stop with a clear
+         blocked reason naming the failing tests, or ask through ask_human.
+      5. Write `docs/{{inputs.feature}}/GATE.md` (commands, results, final sha)
+         and commit it: "autocode({{inputs.feature}}): gate green".
 
-          Outputs: {"gate_result": "green",
-                    "final_commit": "<full sha of the last commit on autocode/{{inputs.feature}}>"}
+      Outputs: {"gate_result": "green",
+                "final_commit": "<full sha of the last commit on autocode/{{inputs.feature}}>"}
 
-          Global rules (same for every autocode step):
-          - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
-            (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
-          - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
-            (step 1 creates it from the default branch; later steps just check it out).
-            Never commit to the default branch. Do all work under {{inputs.repo}}; the
-            fleet worktree you were started in is not the target and stays untouched.
-          - Favor simplicity, evolvability and maintainability over cleverness. Prefer
-            readable code to comments and docstrings. Avoid complexity and needless
-            abstractions.
-          - Commit after every major step, adding files by named path
-            (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
-            `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
-          - Tests are read-only after creation: never edit a test to fit the code. If a
-            test looks wrong, ask through mcp__ask_human__ask_human_question and wait
-            for the answer before touching it.
-          - Limited test command while implementing: pre-existing test dirs plus your
-            own folder only, never the full suite:
-            `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
-            Other new folders and the e2e stay red until their step lands.
-          - Finishing: if the auto mode value above is exactly "on", decide alone, write
-            outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
-            with a short summary of your understanding and what you did, WAIT for the
-            answer, apply any corrections, and only then write outputs.json and finish.
-          - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
-            with exactly the keys listed under "Outputs" below, so later steps can use
-            them.
+      Global rules (same for every autocode step):
+      - Repo: {{inputs.repo}}. Feature slug: {{inputs.feature}}. Spec: {{inputs.spec}}
+        (a file path or the spec text itself). Auto mode: {{inputs.auto}}.
+      - First `cd {{inputs.repo}}` and check out branch `autocode/{{inputs.feature}}`
+        (step 1 creates it from the default branch; later steps just check it out).
+        Never commit to the default branch. Do all work under {{inputs.repo}}; the
+        fleet worktree you were started in is not the target and stays untouched.
+      - Favor simplicity, evolvability and maintainability over cleverness. Prefer
+        readable code to comments and docstrings. Avoid complexity and needless
+        abstractions.
+      - Commit after every major step, adding files by named path
+        (`git add <path>`; never `git add -A`). Scratch goes to `.local/` (listed in
+        `.git/info/exclude`, never committed); `docs/{{inputs.feature}}/` is committed.
+      - Tests are read-only after creation: never edit a test to fit the code. If a
+        test looks wrong, ask through mcp__ask_human__ask_human_question and wait
+        for the answer before touching it.
+      - Limited test command while implementing: pre-existing test dirs plus your
+        own folder only, never the full suite:
+        `uv run pytest <existing test dirs> tests/{{inputs.feature}}/<own folder> -q`.
+        Other new folders and the e2e stay red until their step lands.
+      - Finishing: if the auto mode value above is exactly "on", decide alone, write
+        outputs.json and finish. Otherwise call mcp__ask_human__ask_human_question
+        with a short summary of your understanding and what you did, WAIT for the
+        answer, apply any corrections, and only then write outputs.json and finish.
+      - Always write $FLEET_TASK_DIR/outputs.json: a flat JSON object of strings
+        with exactly the keys listed under "Outputs" below, so later steps can use
+        them.
+    needs:
+    - fresh_review
