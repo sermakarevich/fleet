@@ -818,6 +818,7 @@ class StepRequest(BaseModel):
     needs: list[str] = Field(default_factory=list)
     isolation: str | None = None
     worker: str | None = None
+    job_gate: str | None = None
 
 
 class StageRequest(BaseModel):

@@ -4065,6 +4065,18 @@
             "type": "string",
             "title": "Post Merge Command"
           },
+          "helper_enabled": {
+            "type": "boolean",
+            "title": "Helper Enabled"
+          },
+          "helper_coder": {
+            "type": "string",
+            "title": "Helper Coder"
+          },
+          "helper_model": {
+            "type": "string",
+            "title": "Helper Model"
+          },
           "gc_retention_days": {
             "type": "integer",
             "title": "Gc Retention Days"
@@ -4161,6 +4173,9 @@
           "isolation",
           "isolation_exclude",
           "post_merge_command",
+          "helper_enabled",
+          "helper_coder",
+          "helper_model",
           "gc_retention_days",
           "gc_archive_days",
           "gc_beads",
@@ -5667,6 +5682,17 @@
               }
             ],
             "title": "Worker"
+          },
+          "job_gate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Gate"
           }
         },
         "type": "object",

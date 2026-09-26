@@ -191,3 +191,28 @@ def test_builder_yaml_round_trip_without_stages(monkeypatch: pytest.MonkeyPatch)
     assert "builder" in text
     assert "stages" not in text
     assert from_yaml(text) == workflow
+
+
+JOB_STEP = """\
+fleet_workflow: 1
+name: fan-out
+stages:
+  - name: units
+    steps:
+      - name: units
+        title: One child per unit
+        worker: job
+        job_gate: "off"
+"""
+
+
+def test_job_step_keeps_worker_and_job_gate() -> None:
+    step = from_yaml(JOB_STEP).stages[0].steps[0]
+    assert (step.worker, step.job_gate) == ("job", "off")
+    again = from_yaml(to_yaml(from_yaml(JOB_STEP))).stages[0].steps[0]
+    assert (again.worker, again.job_gate) == ("job", "off")
+
+
+def test_bad_job_gate_rejected() -> None:
+    with pytest.raises(WorkflowInvalid, match="job_gate"):
+        from_yaml(JOB_STEP.replace('"off"', "maybe"))

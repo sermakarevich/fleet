@@ -33,6 +33,9 @@ META_ISOLATION = "fleet_isolation"
 #: `fleet.workers.select_worker` before the type-based routing.
 META_WORKER = "fleet_worker"
 
+#: Job gate opt-out read by the job worker (`Task.job_gate`).
+META_JOB_GATE = "fleet_job_gate"
+
 
 @dataclass(frozen=True, slots=True)
 class PlannedStep:
@@ -84,6 +87,8 @@ def metadata_for(workflow_id: str, run_id: str, step: Step) -> dict[str, str]:
         meta[META_ISOLATION] = step.isolation
     if step.worker is not None:
         meta[META_WORKER] = step.worker
+    if step.job_gate is not None:
+        meta[META_JOB_GATE] = step.job_gate
     return meta
 
 

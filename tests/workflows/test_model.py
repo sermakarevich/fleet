@@ -315,7 +315,7 @@ def test_run_dict_round_trip_with_inputs() -> None:
 
 
 def test_dict_round_trip_keeps_step_worker() -> None:
-    step = Step(name="epic", title="Research", worker="research")
+    step = Step(name="epic", title="Research", worker="research", job_gate="off")
     wf = Workflow(
         id="wf-test0002",
         name="research-run",
@@ -325,3 +325,4 @@ def test_dict_round_trip_keeps_step_worker() -> None:
     )
     restored = Workflow.from_dict(wf.to_dict())
     assert restored.stages[0].steps[0].worker == "research"
+    assert restored.stages[0].steps[0].job_gate == "off"

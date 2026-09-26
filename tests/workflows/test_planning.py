@@ -111,3 +111,9 @@ def test_metadata_for_carries_worker_when_set() -> None:
     meta = metadata_for("wf-1", "wfr-2", step)
     assert meta["fleet_worker"] == "research"
     assert "fleet_worker" not in metadata_for("wf-1", "wfr-2", Step(name="a", title="A"))
+
+
+def test_metadata_for_carries_job_gate_when_set() -> None:
+    step = Step(name="units", title="Units", worker="job", job_gate="off")
+    assert metadata_for("wf-1", "wfr-2", step)["fleet_job_gate"] == "off"
+    assert "fleet_job_gate" not in metadata_for("wf-1", "wfr-2", Step(name="a", title="A"))

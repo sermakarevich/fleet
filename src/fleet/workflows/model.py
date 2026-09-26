@@ -21,6 +21,9 @@ _STEP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 _INPUT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _BUILDER_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
+#: Allowed step job_gate values (None keeps the config default).
+JOB_GATE_MODES = (None, "on", "off")
+
 #: Allowed step isolation modes: a git worktree per task, or none (run in
 #: place, for steps that write into auto-synced trees such as ~/.ai).
 ISOLATION_MODES = ("worktree", "none")
@@ -108,6 +111,9 @@ class Step:
     #: Worker family override (`fleet bd create --worker`), e.g. "research" or
     #: "job"; None routes by bead type like any plain task.
     worker: str | None = None
+    #: Job gate override for a `worker: job` step (bd metadata
+    #: fleet_job_gate): "off" spawns the job's children without asking.
+    job_gate: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +351,7 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
         "needs": list(step.needs),
         "isolation": step.isolation,
         "worker": step.worker,
+        "job_gate": step.job_gate,
     }
 
 
@@ -362,6 +369,7 @@ def _step_from_dict(data: dict[str, Any]) -> Step:
         needs=tuple(str(item) for item in needs),
         isolation=data.get("isolation"),
         worker=data.get("worker"),
+        job_gate=data.get("job_gate"),
     )
 
 
@@ -441,6 +449,8 @@ def _validate_step(step: Step, defaults: Defaults) -> list[str]:
     if not _priority_ok(priority):
         found.append(_priority_problem(f"step {step.name!r}", priority))
     found.extend(_validate_isolation(f"step {step.name!r}", step.isolation))
+    if step.job_gate not in JOB_GATE_MODES:
+        found.append(f"step {step.name!r}: job_gate {step.job_gate!r} must be on or off")
     return found
 
 

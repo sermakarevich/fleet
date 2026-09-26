@@ -1789,6 +1789,12 @@ export interface components {
             isolation_exclude: string;
             /** Post Merge Command */
             post_merge_command: string;
+            /** Helper Enabled */
+            helper_enabled: boolean;
+            /** Helper Coder */
+            helper_coder: string;
+            /** Helper Model */
+            helper_model: string;
             /** Gc Retention Days */
             gc_retention_days: number;
             /** Gc Archive Days */
@@ -2389,6 +2395,8 @@ export interface components {
             isolation?: string | null;
             /** Worker */
             worker?: string | null;
+            /** Job Gate */
+            job_gate?: string | null;
         };
         /**
          * StepRunView

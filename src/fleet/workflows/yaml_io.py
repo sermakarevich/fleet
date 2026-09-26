@@ -88,6 +88,8 @@ def _step_to_yaml(step: Step) -> dict[str, Any]:
         doc["isolation"] = step.isolation
     if step.worker is not None:
         doc["worker"] = step.worker
+    if step.job_gate is not None:
+        doc["job_gate"] = step.job_gate
     if step.needs:
         doc["needs"] = list(step.needs)
     return doc
@@ -264,6 +266,8 @@ def _step_from_data(data: Any) -> Step:
         priority=priority,
         needs=needs,
         isolation=_isolation_from_data(data.get("isolation"), f"step {data.get('name')!r}"),
+        worker=_field_or_none(data, "worker", str),
+        job_gate=_field_or_none(data, "job_gate", str),
     )
 
 

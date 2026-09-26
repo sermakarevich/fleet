@@ -87,6 +87,7 @@ def _step_from_request(raw: Any) -> Step:
         needs=tuple(str(item) for item in needs),
         isolation=raw.isolation,
         worker=getattr(raw, "worker", None),
+        job_gate=getattr(raw, "job_gate", None),
     )
 
 

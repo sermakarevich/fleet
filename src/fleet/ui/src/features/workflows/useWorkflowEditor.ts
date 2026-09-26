@@ -26,6 +26,9 @@ export interface StepDraft {
   priority: string;
   isolation: string;
   needs: string[];
+  // Not editable here; carried through so a save keeps them.
+  worker?: string | null;
+  job_gate?: string | null;
 }
 
 // One run-input row in the draft (ADR 0010); empty default means "no default".
@@ -93,6 +96,8 @@ function stagesFromWorkflow(workflow: Workflow): StageDraft[] {
       priority: step.priority == null ? '' : String(step.priority),
       isolation: step.isolation ?? '',
       needs: step.needs ?? [],
+      worker: step.worker,
+      job_gate: step.job_gate,
     })),
   }));
 }
@@ -178,6 +183,8 @@ export function useWorkflowEditor({ initial, onSaved, onClose }: Options) {
           priority: parsePriority(step.priority),
           isolation: step.isolation || undefined,
           needs: step.needs.length > 0 ? step.needs : undefined,
+          worker: step.worker || undefined,
+          job_gate: step.job_gate || undefined,
         })),
       })),
     };
