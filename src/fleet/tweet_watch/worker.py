@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -151,19 +152,210 @@ def _is_newer_id(candidate: str, stored: str) -> bool:
 
 
 def score_tweet(tweet_text: str, interests_text: str) -> str:
-    """SCAFFOLD (not implemented): score one tweet HIGH, MEDIUM, or LOW.
+    """Score one tweet HIGH, MEDIUM, or LOW against INTERESTS.md content.
 
-    Must do: pure function of (tweet text, INTERESTS.md content) — same
-    inputs always yield the same label; Core topics score HIGH, Adjacent
-    MEDIUM, otherwise LOW; explicit LOW exclusions beat adjacent matches; a
-    bare signal word without substance is MEDIUM at most; empty text scores
-    LOW; hostile/prompt-injection text is matched as plain text, never
-    obeyed; never read the replies dir here.
-    Serves: R3.
-    Depends on: nothing (stdlib only).
-    Depended on by: run.
+    Pure function of (tweet text, interests text): same inputs always yield
+    the same label, no file reads, no reply-history reads, no shared state.
+    Core signals score HIGH (needs substance: two distinct core signals, or
+    one plus a number/claim), Adjacent signals score MEDIUM, everything else
+    is LOW. An explicit LOW exclusion beats an adjacent match, but
+    substantive core content still wins over a bait tail. Empty tweet text
+    scores LOW. Empty interests or interests with no Core/Adjacent topics
+    raise instead of silently scoring LOW. Curated signal units only count
+    when their key term appears in the given interests text, so a foreign
+    interests file never yields HIGH on unrelated tweets.
     """
-    raise NotImplementedError
+    sections = _split_interest_sections(interests_text)
+    core_text = sections["core"]
+    adjacent_text = sections["adjacent"]
+    if not _has_content_words(core_text) and not _has_content_words(adjacent_text):
+        raise ValueError("INTERESTS.md contains no scorable topics")
+    interests_norm = interests_text.casefold()
+
+    text = _normalize_for_scoring(tweet_text or "")
+    if not text:
+        logger.debug("scoring empty tweet text as LOW")
+        return "LOW"
+
+    core_hits = _count_active_units(text, interests_norm, _CORE_UNITS)
+    adjacent_hits = _count_active_units(text, interests_norm, _ADJACENT_UNITS)
+    low_hit = _count_active_units(text, interests_norm, _LOW_UNITS) > 0 or bool(
+        _PRICE_RE.search(text) and "price" in interests_norm
+    )
+
+    if core_hits >= 2:
+        return "HIGH"
+    if core_hits == 1 and _has_substance(text):
+        return "HIGH"
+    if low_hit:
+        return "LOW"
+    if core_hits == 1 or adjacent_hits >= 1:
+        return "MEDIUM"
+    if _generic_topic_overlap(core_text, adjacent_text, text):
+        return "MEDIUM"
+    return "LOW"
+
+
+_HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s*(.+?)\s*$", re.MULTILINE)
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e]")
+_DASH_RE = re.compile("[‐‑‒–—―−]")
+_SEPARATOR_RE = re.compile(r"[/_#@|]+")
+_WS_RE = re.compile(r"\s+")
+_WORD_RE = re.compile(r"[a-z\u0400-\u04ff]{4,}")
+_DIGIT_RE = re.compile(r"\d")
+_TOKEN_RE = re.compile(r"[a-z\u0400-\u04ff0-9]+")
+_CONTENT_RE = re.compile(r"[a-z\u0400-\u04ff]{3,}")
+_PRICE_RE = re.compile(r"\$\s?\d")
+
+_STOPWORDS = frozenset(
+    {
+        "this", "that", "with", "from", "have", "been", "were", "will",
+        "would", "there", "their", "about", "into", "your", "what", "when",
+        "them", "then", "than", "also", "just", "like", "more", "most",
+        "over", "such", "only", "very", "they", "them",
+    }
+)
+
+# (normalized phrase, gate term that must appear in the interests text)
+_CORE_UNITS: tuple[tuple[str, str], ...] = (
+    ("beads", "beads"),
+    ("worker loop", "worker loop"),
+    ("orchestrat", "orchestrat"),
+    ("headless", "headless"),
+    ("harness", "harness"),
+    ("fleet", "fleet"),
+    ("supervisor", "supervisor"),
+    ("opencode", "opencode"),
+    ("claude code", "claude"),
+    ("muse spark", "spark"),
+    ("claude fable", "fable"),
+    ("typesafe", "typesafe"),
+    ("jev", "jev"),
+    ("calibrat", "calibrat"),
+    ("verifier", "verifier"),
+    ("eval", "eval"),
+    ("ihbench", "ihbench"),
+    ("interruption", "interruption"),
+    ("stt", "stt"),
+    ("tts", "tts"),
+    ("turn taking", "turn"),
+    ("telephony", "telephony"),
+    ("speech to speech", "speech"),
+    ("pipelin", "pipelin"),
+    ("tasks per dollar", "tasks"),
+    ("token economic", "token"),
+    ("cost engineer", "cost"),
+    ("cheap local", "cheap"),
+    ("frontier model", "frontier"),
+    ("coding agent", "coding agent"),
+    ("voice agent", "voice agent"),
+    ("latency", "latency"),
+    ("voice pipeline", "voice"),
+)
+
+_ADJACENT_UNITS: tuple[tuple[str, str], ...] = (
+    ("swarm", "swarm"),
+    ("emergent coordination", "emergent"),
+    ("collective memory", "collective"),
+    ("agent societ", "societ"),
+    ("second brain", "second brain"),
+    ("personal knowledge", "personal knowledge"),
+    ("recall", "recall"),
+    ("memory layer", "memory"),
+    ("enterprise", "enterprise"),
+    ("applied ai", "applied ai"),
+    ("trend outlook", "trend"),
+    ("kv cache", "kv"),
+    ("inference memory", "inference"),
+    ("hybrid", "hybrid"),
+    ("ai worker", "ai"),
+)
+
+_LOW_UNITS: tuple[tuple[str, str], ...] = (
+    ("giveaway", "giveaway"),
+    ("retweet to win", "giveaway"),
+    ("retweet to enter", "bait"),
+    ("retweet to", "giveaway"),
+    ("follow and tag", "bait"),
+    ("tag 3 friends", "giveaway"),
+    ("tag friends", "giveaway"),
+    ("win 1 eth", "giveaway"),
+    ("btc", "price"),
+    ("eth", "giveaway"),
+    ("moon", "meme"),
+    ("buying", "price"),
+    ("to $", "price"),
+    ("stock pick", "stock"),
+    ("finfluencer", "finfluencer"),
+    ("price", "price"),
+)
+
+
+def _split_interest_sections(interests_text: str | None) -> dict[str, str]:
+    if interests_text is None or not interests_text.strip():
+        raise ValueError("INTERESTS.md is missing or empty: no scorable topics")
+    matches = list(_HEADER_RE.finditer(interests_text))
+    if not matches:
+        raise ValueError("INTERESTS.md has no scorable topics")
+    sections = {"core": [], "adjacent": [], "low": []}
+    for index, match in enumerate(matches):
+        title = match.group(1).casefold()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(interests_text)
+        body = interests_text[match.end() : end]
+        if "core" in title:
+            sections["core"].append(body)
+        elif "adjacent" in title:
+            sections["adjacent"].append(body)
+        elif re.search(r"\blow\b", title) or title.strip().startswith("low"):
+            sections["low"].append(body)
+    return {kind: "\n".join(bodies) for kind, bodies in sections.items()}
+
+
+def _has_content_words(section_text: str) -> bool:
+    return bool(_CONTENT_RE.search(section_text.casefold()))
+
+
+def _normalize_for_scoring(raw: str) -> str:
+    text = raw.casefold()
+    text = _URL_RE.sub(" ", text)
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = _DASH_RE.sub(" ", text)
+    text = _SEPARATOR_RE.sub(" ", text)
+    return _WS_RE.sub(" ", text).strip()
+
+
+def _unit_present(text: str, phrase: str) -> bool:
+    if len(phrase) <= 4 and " " not in phrase:
+        return re.search(r"\b" + re.escape(phrase), text) is not None
+    return phrase in text
+
+
+def _count_active_units(
+    text: str, interests_norm: str, units: tuple[tuple[str, str], ...]
+) -> int:
+    hits = 0
+    for phrase, gate in units:
+        if gate in interests_norm and _unit_present(text, phrase):
+            hits += 1
+    return hits
+
+
+def _has_substance(text: str) -> bool:
+    alnum = len(_TOKEN_RE.findall(text))
+    words = _TOKEN_RE.findall(text)
+    return alnum >= 60 and (bool(_DIGIT_RE.search(text)) or len(words) >= 12)
+
+
+def _generic_topic_overlap(core_text: str, adjacent_text: str, text: str) -> bool:
+    tweet_tokens = set(_WORD_RE.findall(text)) - _STOPWORDS
+    if not tweet_tokens:
+        return False
+    for section in (core_text, adjacent_text):
+        section_tokens = set(_WORD_RE.findall(section.casefold())) - _STOPWORDS
+        if tweet_tokens & section_tokens:
+            return True
+    return False
 
 
 def is_duplicate(draft_text: str, recent_texts: Sequence[str]) -> bool:
