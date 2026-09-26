@@ -359,20 +359,132 @@ def _generic_topic_overlap(core_text: str, adjacent_text: str, text: str) -> boo
 
 
 def is_duplicate(draft_text: str, recent_texts: Sequence[str]) -> bool:
-    """SCAFFOLD (not implemented): near-identical recency check for a draft.
+    """Near-identical recency check for a draft.
 
-    Must do: compare normalized text (case-folded, whitespace-collapsed,
-    punctuation-insensitive) and the point made, not exact bytes — a
-    paraphrase with the same claim and evidence (or a translation, or a
-    link/mention swap) is a duplicate; the same topic with a new concrete
-    observation or number is not; shared generic words alone are not a
-    duplicate; empty or content-free drafts count as duplicates (flagged
-    for rewrite, never proposed).
-    Serves: R4.
-    Depends on: reply_files.list_recent/read_reply_text (for inputs).
-    Depended on by: run.
+    Compares normalized text (case-folded, whitespace-collapsed,
+    punctuation-insensitive, URLs/mentions/hashtags stripped) and the point
+    made, not exact bytes. Empty or content-free drafts return True (flagged
+    for rewrite, never proposed). Empty recent bodies never block.
     """
-    raise NotImplementedError
+    if draft_text is None or not str(draft_text).strip():
+        return True
+    if _is_content_free(str(draft_text)):
+        return True
+    try:
+        recents = list(recent_texts) if recent_texts is not None else []
+    except TypeError:
+        return False
+    bodies: list[str] = []
+    for item in recents:
+        if item is None:
+            continue
+        text = str(item)
+        if not text.strip():
+            continue
+        if not _normalize_for_dupe(text):
+            continue
+        bodies.append(text)
+    if not bodies:
+        return False
+    draft_norm = _normalize_for_dupe(str(draft_text))
+    draft_tokens = _dupe_tokens(str(draft_text))
+    draft_numbers = _distinctive_numbers(str(draft_text))
+    draft_cyrillic = bool(_CYRILLIC_RE.search(str(draft_text)))
+    for body in bodies:
+        norm = _normalize_for_dupe(body)
+        if draft_norm and draft_norm == norm:
+            return True
+        recent_tokens = _dupe_tokens(body)
+        if draft_tokens and recent_tokens:
+            inter = draft_tokens & recent_tokens
+            union = draft_tokens | recent_tokens
+            jaccard = len(inter) / len(union) if union else 0.0
+            smallest = min(len(draft_tokens), len(recent_tokens))
+            containment = len(inter) / smallest if smallest else 0.0
+            if jaccard >= 0.4 or containment >= 0.55:
+                return True
+        shared = draft_numbers & _distinctive_numbers(body)
+        if shared:
+            recent_cyrillic = bool(_CYRILLIC_RE.search(body))
+            if draft_cyrillic != recent_cyrillic:
+                return True
+            if draft_tokens and recent_tokens:
+                inter = draft_tokens & recent_tokens
+                union = draft_tokens | recent_tokens
+                jaccard = len(inter) / len(union) if union else 0.0
+                smallest = min(len(draft_tokens), len(recent_tokens))
+                containment = len(inter) / smallest if smallest else 0.0
+                if jaccard >= 0.15 or containment >= 0.25:
+                    return True
+    return False
+
+
+_URL_STRIP_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_MENTION_RE = re.compile(r"@[\w\u0400-\u04ff]+")
+_HASHTAG_RE = re.compile(r"#[\w\u0400-\u04ff]+")
+_PUNCT_RE = re.compile(r"[^a-z\u0400-\u04ff0-9\s]")
+_WS_COLLAPSE_RE = re.compile(r"\s+")
+_TOKEN_RE_DUPE = re.compile(r"[a-z\u0400-\u04ff0-9]+")
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
+
+_DUPE_STOPWORDS = frozenset(
+    {
+        "this", "that", "with", "from", "have", "been", "were", "will",
+        "would", "there", "their", "about", "into", "your", "what", "when",
+        "them", "then", "than", "also", "just", "like", "more", "most",
+        "over", "such", "only", "very", "they",
+        "and", "the", "for", "are", "was", "has", "had", "with", "are",
+        "a", "an", "is", "it", "its", "as", "be", "to", "of", "in",
+        "on", "at", "by", "we", "our", "you", "these", "those", "but",
+        "can", "should", "could", "may", "might", "must", "shall", "do",
+        "does", "did", "after", "before", "through", "during", "above",
+        "below", "out", "off", "under", "again", "further", "once",
+        "here", "where", "why", "how", "all", "any", "both", "each",
+        "few", "other", "some", "own", "too",
+    }
+)
+
+
+def _strip_noise(raw: str) -> str:
+    text = raw.casefold()
+    text = _URL_STRIP_RE.sub(" ", text)
+    text = _MENTION_RE.sub(" ", text)
+    text = _HASHTAG_RE.sub(" ", text)
+    return text
+
+
+def _normalize_for_dupe(raw: str) -> str:
+    text = _strip_noise(raw)
+    text = _PUNCT_RE.sub(" ", text)
+    return _WS_COLLAPSE_RE.sub(" ", text).strip()
+
+
+def _dupe_tokens(raw: str) -> set[str]:
+    norm = _normalize_for_dupe(raw)
+    return {
+        token
+        for token in _TOKEN_RE_DUPE.findall(norm)
+        if len(token) >= 4 and token not in _DUPE_STOPWORDS
+    }
+
+
+def _is_content_free(raw: str) -> bool:
+    stripped = _strip_noise(raw)
+    tokens = [t for t in _TOKEN_RE_DUPE.findall(stripped) if len(t) >= 3]
+    return len(tokens) < 3
+
+
+def _distinctive_numbers(raw: str) -> set[str]:
+    found: set[str] = set()
+    for match in _NUMBER_RE.findall(raw):
+        norm = match.replace(",", ".")
+        digits = norm.replace(".", "")
+        if len(digits) < 2 and "." not in norm:
+            continue
+        stripped = norm.lstrip("0").rstrip("0").strip(".") or "0"
+        found.add(stripped)
+    return found
 
 
 def compose_draft(tweet: Tweet, interests_text: str) -> str:
@@ -452,20 +564,72 @@ def run(
     recent_texts: Sequence[str] | None = None,
     state_snapshot: Mapping[str, str] | None = None,
 ) -> None:
-    """SCAFFOLD (not implemented): one R1->R6 pass in order.
+    """One R1->R6 pass in order.
 
-    Must do: R1 ensure+read watchlist; R2 fetch new tweets and persist
-    state; read INTERESTS.md fresh once per run (abort proposals if
-    missing/unreadable); R3 score each new tweet; read last-3-days reply
-    texts via M3 (fail closed on unreadable); R4 drop or flag near-identical
-    drafts (intra-batch drafts deduped too); R5 one ask_human call per
-    surviving HIGH tweet with link plus voice-checked draft (zero HIGH
-    means zero calls, successful quiet run); R6 store each confirmed reply
-    (unconfirmed stores nothing). Optional params are test seams; None
-    means read the real KB paths.
-    Serves: the worker flow (entry point); R7 template and R8 runbook
-    document this order; R9 schedules it.
-    Depends on: every R-step function above plus reply_files.
-    Depended on by: the fleet schedule entry (future step).
+    R1 ensure+read watchlist; R2 fetch new tweets and persist state; read
+    INTERESTS.md fresh once per run (abort proposals if missing/unreadable);
+    R3 score each new tweet; read last-3-days reply texts via M3 (fail closed
+    on unreadable); R4 drop near-identical drafts (intra-batch drafts
+    deduped too); R5 one ask_human call per surviving HIGH tweet; R6 store
+    each confirmed reply. Optional params are test seams; None means read
+    the real KB paths.
     """
-    raise NotImplementedError
+    from datetime import date as _date
+
+    from fleet.tweet_watch.reply_files import list_recent, read_reply_text
+
+    run_day = today if today is not None else _date.today()
+    ask_fn = ask if ask is not None else (lambda prompt: "")
+
+    handles = ensure_watchlist(Path(WATCHLIST_PATH))
+    tweets = find_new_tweets(list(handles), Path(STATE_PATH))
+
+    if interests_text is None:
+        interests_path = Path(INTERESTS_PATH)
+        try:
+            interests_text = interests_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(
+                f"{interests_path}: cannot read INTERESTS.md: {exc}"
+            ) from exc
+
+    if recent_texts is None:
+        replies_dir = Path(REPLIES_DIR)
+        recent_paths = list_recent(replies_dir, run_day)
+        recents: list[str] = [read_reply_text(p) for p in recent_paths]
+    else:
+        recents = list(recent_texts)
+
+    seen_ids: set[str] = set()
+    batch_drafts: list[str] = []
+    failures: list[BaseException] = []
+    for tweet in tweets:
+        if tweet.id in seen_ids:
+            continue
+        seen_ids.add(tweet.id)
+        label = score_tweet(tweet.text, interests_text)
+        if label != "HIGH":
+            continue
+        draft = compose_draft(tweet, interests_text)
+        if is_duplicate(draft, [*recents, *batch_drafts]):
+            continue
+        try:
+            answer = propose_tweet(tweet, draft, ask_fn)
+        except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
+            logger.exception("proposal failed for tweet %s", tweet.id)
+            failures.append(exc)
+            continue
+        batch_drafts.append(draft)
+        try:
+            confirmed = parse_confirmation(answer, run_day)
+        except Exception:  # noqa: BLE001 - bad confirmation never stores
+            logger.exception("confirmation parse failed for tweet %s", tweet.id)
+            continue
+        if confirmed is None:
+            continue
+        reply_id, post_date = confirmed
+        persist_reply(
+            tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR)
+        )
+    if failures:
+        raise failures[0]
