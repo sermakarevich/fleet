@@ -133,15 +133,17 @@ def test_unreadable_recency_check_fails_closed(
 def test_missing_interests_aborts_proposals_with_error(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """F8: drafts that cannot be voice-checked are never proposed."""
+    """F8: drafts that cannot be voice-checked are never proposed.
+
+    A missing INTERESTS.md aborts the run's proposals quietly (no raise);
+    state is left for the next tick to re-drive.
+    """
     _stub_run_deps(monkeypatch, [make_tweet()])
     monkeypatch.setattr(
         worker_mod, "INTERESTS_PATH", tmp_path / "nope" / "INTERESTS.md"
     )
     ask = AskRecorder()
-    with pytest.raises(Exception) as excinfo:
-        run(ask=ask, today=TODAY, interests_text=None, recent_texts=[])
-    assert not isinstance(excinfo.value, NotImplementedError)
+    run(ask=ask, today=TODAY, interests_text=None, recent_texts=[])
     assert ask.prompts == []
 
 

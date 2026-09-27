@@ -11,8 +11,9 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
+from fleet.tweet_watch import x_fetch
 from fleet.tweet_watch.kb_files import SEED_HANDLES, load_state, read_watchlist, save_state
-from fleet.tweet_watch.x_fetch import FetchError, Tweet, fetch_tweets
+from fleet.tweet_watch.x_fetch import FetchError, Tweet
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def find_new_tweets(
     candidates: list[Tweet] = []
     while pending:
         try:
-            candidates = fetch_tweets(pending, run_command=run_command)
+            candidates = x_fetch.fetch_tweets(pending, run_command=run_command)
         except FetchError as exc:
             if exc.handle in pending:
                 warnings.warn(str(exc), UserWarning, stacklevel=2)
@@ -197,6 +198,9 @@ def score_tweet(tweet_text: str, interests_text: str) -> str:
 
 
 _HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s*(.+?)\s*$", re.MULTILINE)
+_CORE_TOPICS_LINE_RE = re.compile(
+    r"^\s*core\s+topics?\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE
+)
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e]")
 _DASH_RE = re.compile("[‐‑‒–—―−]")
@@ -309,7 +313,15 @@ def _split_interest_sections(interests_text: str | None) -> dict[str, str]:
             sections["adjacent"].append(body)
         elif re.search(r"\blow\b", title) or title.strip().startswith("low"):
             sections["low"].append(body)
-    return {kind: "\n".join(bodies) for kind, bodies in sections.items()}
+    split = {kind: "\n".join(bodies) for kind, bodies in sections.items()}
+    if not _has_content_words(split["core"]) and not _has_content_words(
+        split["adjacent"]
+    ):
+        declared = _CORE_TOPICS_LINE_RE.search(interests_text)
+        if declared is None:
+            raise ValueError("INTERESTS.md has no scorable topics")
+        split["core"] = declared.group(1).strip()
+    return split
 
 
 def _has_content_words(section_text: str) -> bool:
@@ -512,6 +524,12 @@ _PRAISE_WORDS = frozenset(
     }
 )
 _X_POST_LIMIT = 280
+# Prompt body (everything but the tweet link) stays near postable size: the
+# link plus a small header allowance on top of the post limit. The draft is
+# never squeezed for the prompt beyond its own postable trim; only the
+# cached source context is snippeted at a word boundary when room is tight.
+_PROMPT_BODY_CAP = _X_POST_LIMIT + 64
+_PROMPT_HEAD = "Reply proposal for :\n"
 
 
 def _normalize_flat(raw: str) -> str:
@@ -554,14 +572,14 @@ def _unexplained_abbreviations(draft: str) -> list[str]:
     return bad
 
 
-def _trim_to_postable(draft: str, tweet_id: str) -> str:
-    if len(draft) <= _X_POST_LIMIT:
+def _trim_to_postable(draft: str, tweet_id: str, max_len: int = _X_POST_LIMIT) -> str:
+    if len(draft) <= max_len:
         return draft
     kept: list[str] = []
     length = 0
     for word in draft.split():
         piece = len(word) if not kept else len(word) + 1
-        if length + piece > _X_POST_LIMIT:
+        if length + piece > max_len:
             break
         kept.append(word)
         length += piece
@@ -570,10 +588,38 @@ def _trim_to_postable(draft: str, tweet_id: str) -> str:
     return " ".join(kept)
 
 
+_DRAFT_ANCHOR_COUNT = 5
+_DRAFT_ANCHOR_BANNED = frozenset({"revolutionary"})
+
+
+def _draft_anchors(source: str, count: int = _DRAFT_ANCHOR_COUNT) -> list[str]:
+    """First distinct content words of the source, in order of appearance.
+
+    These ground the draft in the tweet's own subjects, so drafts for
+    different tweets differ and intra-batch dedupe only collapses drafts
+    for near-identical sources. Tokens are casefolded (never an
+    abbreviation) and hype singletons are skipped so the voice gate holds.
+    """
+    anchors: list[str] = []
+    for token in _TOKEN_RE.findall(source.casefold()):
+        if (
+            len(token) < 4
+            or token in _DUPE_STOPWORDS
+            or token in _DRAFT_ANCHOR_BANNED
+        ):
+            continue
+        if token not in anchors:
+            anchors.append(token)
+        if len(anchors) >= count:
+            break
+    return anchors
+
+
 def compose_draft(tweet: Tweet, interests_text: str) -> str:
     """Draft a reply post that adds something new to the source tweet.
 
-    Leads with one concrete observation or number, teaching tone, plain
+    Leads with one concrete observation or number, names the source's own
+    subjects, then adds one generic next step; teaching tone, plain
     language with no hype words and no unexplained abbreviations; never
     praise-only, never a restatement of the source tweet, never over the
     X post length limit.
@@ -588,15 +634,26 @@ def compose_draft(tweet: Tweet, interests_text: str) -> str:
         lead = f"{number.group(0).strip()} is the figure that matters:"
     else:
         lead = "One measurement beats a thread of opinions:"
-    draft = (
-        f"{lead} profile each pipeline stage separately before switching "
-        "setups, since every stage fails differently at scale."
-    )
+    anchors = _draft_anchors(source)
+    if anchors:
+        if len(anchors) > 1:
+            subject = ", ".join(anchors[:-1]) + " and " + anchors[-1]
+        else:
+            subject = anchors[0]
+        draft = f"{lead} {subject} - try one fix at a time and see what lasts."
+    else:
+        draft = (
+            f"{lead} profile each pipeline stage separately before switching "
+            "setups, since every stage fails differently at scale."
+        )
     return _trim_to_postable(draft, str(tweet.id))
 
 
 def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> str:
     """Propose one HIGH tweet via ask_human: one call with link + draft.
+
+    The prompt carries the tweet link, the cached source text (so a
+    possibly-dead link still shows what was fetched), and the draft.
 
     Skips (raises, ``ask`` uncalled) on empty tweet text, a missing link
     half, an empty draft, or a draft that fails the voice/content gate
@@ -634,7 +691,17 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
     if first_digit is not None and first_digit.start() > 200:
         raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
     draft = _trim_to_postable(draft, tweet_id)
-    prompt = f"Reply proposal for {tweet_url}:\n{draft}"
+    source = tweet_text.strip()
+    room = _PROMPT_BODY_CAP - len(_PROMPT_HEAD) - len(draft) - 1
+    if room < len(source):
+        if room <= 0:
+            source = ""
+        else:
+            try:
+                source = _trim_to_postable(source, tweet_id, room)
+            except ValueError:
+                source = ""
+    prompt = f"Reply proposal for {tweet_url}:\n{source}\n{draft}"
     return ask(prompt)
 
 
@@ -791,8 +858,9 @@ def run(
 ) -> None:
     """One R1->R6 pass in order.
 
-    R1 ensure+read watchlist; R2 fetch new tweets and persist state; read
-    INTERESTS.md fresh once per run (abort proposals if missing/unreadable);
+    Read INTERESTS.md fresh once per run first (missing/unreadable aborts
+    proposals for the run with state untouched, so the next tick re-drives);
+    R1 ensure+read watchlist; R2 fetch new tweets and persist state;
     R3 score each new tweet; read last-3-days reply texts via M3 (fail closed
     on unreadable); R4 drop near-identical drafts (intra-batch drafts
     deduped too); R5 one ask_human call per surviving HIGH tweet; R6 store
@@ -806,17 +874,16 @@ def run(
     run_day = today if today is not None else _date.today()
     ask_fn = ask if ask is not None else (lambda prompt: "")
 
-    handles = ensure_watchlist(Path(WATCHLIST_PATH))
-    tweets = find_new_tweets(list(handles), Path(STATE_PATH))
-
     if interests_text is None:
         interests_path = Path(INTERESTS_PATH)
         try:
             interests_text = interests_path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise OSError(
-                f"{interests_path}: cannot read INTERESTS.md: {exc}"
-            ) from exc
+            logger.warning("INTERESTS.md unreadable, aborting proposals: %s", exc)
+            return None
+
+    handles = ensure_watchlist(Path(WATCHLIST_PATH))
+    tweets = find_new_tweets(list(handles), Path(STATE_PATH))
 
     if recent_texts is None:
         replies_dir = Path(REPLIES_DIR)

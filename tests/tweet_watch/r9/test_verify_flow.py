@@ -60,7 +60,31 @@ def test_backlog_emits_everything_since_last_id(kb, monkeypatch) -> None:
     write_watchlist(kb, ["typesafeai"])
     write_interests(kb)
     kb.state.write_text(json.dumps({"typesafeai": "100"}), encoding="utf-8")
-    canned_fetch(monkeypatch, [make_tweet(str(i)) for i in (101, 102, 103)])
+    backlog = [
+        make_tweet(
+            "101",
+            text=(
+                "Checkout queue experiments cut flaky reruns 40%: "
+                "a verifier model now screens each coding agent patch."
+            ),
+        ),
+        make_tweet(
+            "102",
+            text=(
+                "Dialog pacing trials lowered awkward pauses 200ms: "
+                "a voice agent loop now batches replies smarter, "
+                "checked by a verifier pass."
+            ),
+        ),
+        make_tweet(
+            "103",
+            text=(
+                "Invoice audits exposed idle spend 60%: "
+                "cost engineering reviews now trim each coding agent call."
+            ),
+        ),
+    ]
+    canned_fetch(monkeypatch, backlog)
     ask = AskLog()
     run_or_fail_scaffold(ask=ask, today=TODAY, recent_texts=[])
     assert len(ask.messages) == 3
