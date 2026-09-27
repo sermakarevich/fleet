@@ -491,7 +491,6 @@ _X_POST_LIMIT = 280
 # never squeezed for the prompt beyond its own postable trim; only the
 # cached source context is snippeted at a word boundary when room is tight.
 _PROMPT_BODY_CAP = _X_POST_LIMIT + 64
-_PROMPT_HEAD = "Reply proposal for :\n"
 
 
 def _normalize_flat(raw: str) -> str:
@@ -628,8 +627,9 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
     if first_digit is not None and first_digit.start() > 200:
         raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
     draft = _trim_to_postable(draft, tweet_id)
+    head = f"Reply proposal for {tweet_url}:\n"
     source = tweet_text.strip()
-    room = _PROMPT_BODY_CAP - len(_PROMPT_HEAD) - len(draft) - 1
+    room = _PROMPT_BODY_CAP - len(head) - len(draft) - 1
     if room < len(source):
         if room <= 0:
             source = ""
@@ -638,7 +638,7 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
                 source = _trim_to_postable(source, tweet_id, room)
             except ValueError:
                 source = ""
-    prompt = f"Reply proposal for {tweet_url}:\n{source}\n{draft}"
+    prompt = f"{head}{source}\n{draft}"
     return ask(prompt)
 
 
@@ -649,7 +649,6 @@ _URL_ID_RE = re.compile(
 _ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _SLASH_DATE_RE = re.compile(r"\b\d{1,4}[/.]\d{1,2}[/.]\d{1,4}\b")
 _NON_ISO_DAY_RE = re.compile(r"\b(yesterday|tomorrow)\b", re.IGNORECASE)
-_ON_WORD_RE = re.compile(r"\bon\b", re.IGNORECASE)
 _MONTHS = (
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
     r"|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
@@ -705,16 +704,15 @@ def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
         if (
             _SLASH_DATE_RE.search(scrubbed)
             or _NON_ISO_DAY_RE.search(scrubbed)
-            or _ON_WORD_RE.search(scrubbed)
             or _MONTH_DAY_RE.search(scrubbed)
         ):
             return None
         post_date = today.isoformat()[:10]
     if reply_id is None:
-        token = _BARE_ID_RE.search(scrubbed)
-        if token is None:
+        candidates = _BARE_ID_RE.findall(scrubbed)
+        if not candidates:
             return None
-        reply_id = token.group(0)
+        reply_id = max(candidates, key=len)
     return (reply_id, post_date)
 
 
@@ -747,7 +745,14 @@ def persist_reply(
         raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
     clean_id = reply_id.strip()
     content = f"{source_url.strip()}\n\n{posted_text.strip()}\n"
-    saved = write_reply(Path(replies_dir), post_date, clean_id, content)
+    source_match = _URL_ID_RE.search(source_url.strip())
+    saved = write_reply(
+        Path(replies_dir),
+        post_date,
+        clean_id,
+        content,
+        source_id=source_match.group(1) if source_match else None,
+    )
     logger.info("persisted reply %s", saved)
     return saved
 
@@ -794,6 +799,10 @@ def run(
             continue
         draft = compose_draft(tweet, interests_text)
         if is_duplicate(draft, [*recents, *batch_drafts]):
+            logger.info(
+                "tweet %s: draft near-duplicate of a recent reply, skipping",
+                tweet.id,
+            )
             continue
         try:
             answer = propose_tweet(tweet, draft, ask)
@@ -810,8 +819,13 @@ def run(
         if confirmed is None:
             continue
         reply_id, post_date = confirmed
-        persist_reply(
-            tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR)
-        )
+        try:
+            persist_reply(
+                tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR)
+            )
+        except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
+            logger.exception("persist failed for tweet %s", tweet.id)
+            failures.append(exc)
+            continue
     if failures:
         raise failures[0]
