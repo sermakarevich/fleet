@@ -70,8 +70,15 @@ def load_state(state_path: Path) -> dict[str, str]:
                 f"{path}: invalid value for handle {handle!r}: "
                 "expected id string"
             )
-        elif isinstance(value, (int, float)):
+        elif isinstance(value, int):
             state[handle] = str(value)
+        elif isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError(
+                    f"{path}: invalid value for handle {handle!r}: "
+                    "expected id string"
+                )
+            state[handle] = str(int(value))
         else:
             raise ValueError(
                 f"{path}: invalid value for handle {handle!r}: "
