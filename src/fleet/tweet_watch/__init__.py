@@ -1,9 +1,9 @@
-"""Recurring X/Twitter watch worker (scaffold, not implemented).
+"""Recurring X/Twitter watch worker: watchlist, fetch, score, propose, persist.
 
-Every 30 minutes a scheduled run reads the watchlist, fetches new
-tweets via the ``x`` CLI, scores them against INTERESTS.md, proposes
-HIGH-only drafts through ``ask_human``, and persists confirmed replies.
-See ``docs/tweet_watch/REQUIREMENTS.md``.
+Called by the ``tweet-watch`` schedule every 30 minutes. Every run reads
+the watchlist, fetches new tweets via the ``x`` CLI, scores them against
+INTERESTS.md, proposes HIGH-only drafts through ``ask_human``, and persists
+confirmed replies. See ``docs/tweet_watch/REQUIREMENTS.md``.
 """
 
 from __future__ import annotations

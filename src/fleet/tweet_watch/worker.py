@@ -1,18 +1,25 @@
-"""tweet_watch worker: R1-R6 steps plus the ordered run flow (scaffold)."""
+"""One ordered tweet_watch pass: watchlist, fetch, score, propose, persist.
+
+Called by the ``tweet-watch`` schedule every 30 minutes, with the
+``ask_human`` tool as ``ask``. Reads INTERESTS.md fresh once per run;
+a run with no new HIGH tweets proposes nothing and stores nothing.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
 import tempfile
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
 
 from fleet.tweet_watch import x_fetch
 from fleet.tweet_watch.kb_files import SEED_HANDLES, load_state, read_watchlist, save_state
+from fleet.tweet_watch.reply_files import list_recent, read_reply_text, write_reply
 from fleet.tweet_watch.x_fetch import FetchError, Tweet
 
 logger = logging.getLogger(__name__)
@@ -24,15 +31,7 @@ REPLIES_DIR = Path("/Users/sergii/.ai/knowledge/media/x/replies")
 
 
 def ensure_watchlist(watchlist_path: Path = WATCHLIST_PATH) -> list[str]:
-    """Ensure the watchlist exists, then read it.
-
-    If the file is missing, ``mkdir -p`` the parent and atomically create it
-    with exactly the 5 M1 seed handles in spec order (one per line, LF,
-    single trailing newline), then return them. An existing file is never
-    overwritten — its M1 parse is returned as-is (possibly ``[]``). A
-    directory path, an unreadable file, a failed create, or a file lost
-    between ensure and read aborts with an error naming the path.
-    """
+    """Ensure the watchlist file exists (seeding it when missing) and return its handles."""
     path = Path(watchlist_path)
     if path.is_dir():
         raise OSError(f"{path}: watchlist path is a directory")
@@ -51,10 +50,8 @@ def ensure_watchlist(watchlist_path: Path = WATCHLIST_PATH) -> list[str]:
                     tmp_file.write(payload)
                 os.replace(tmp_name, path)
             except BaseException:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(tmp_name)
-                except OSError:
-                    pass
                 raise
         except OSError as exc:
             if str(path) in str(exc):
@@ -74,18 +71,7 @@ def find_new_tweets(
     state_path: Path = STATE_PATH,
     run_command: Callable[[tuple[str, ...]], str] | None = None,
 ) -> list[Tweet]:
-    """Fetch candidates via M2 and emit only tweets newer than stored state.
-
-    Missing state entry means every candidate for that handle is new.
-    Comparison uses the tweet ``id`` only: numeric when both ids are
-    all-digit, otherwise a string fallback. Duplicate ``(handle, id)``
-    records emit once. A failed handle warns and is skipped while
-    siblings continue; a run-wide check failure aborts with state
-    untouched. State advances to the newest seen id per successful
-    handle, never regresses, and is left byte-identical when nothing
-    is new. Before saving, the file is re-read and merged per-handle
-    maxima so overlapping runs never roll back each other.
-    """
+    """Fetch candidates and return tweets newer than the stored state, advancing it."""
     wanted: list[str] = []
     for handle in handles:
         if handle not in wanted:
@@ -153,19 +139,7 @@ def _is_newer_id(candidate: str, stored: str) -> bool:
 
 
 def score_tweet(tweet_text: str, interests_text: str) -> str:
-    """Score one tweet HIGH, MEDIUM, or LOW against INTERESTS.md content.
-
-    Pure function of (tweet text, interests text): same inputs always yield
-    the same label, no file reads, no reply-history reads, no shared state.
-    Core signals score HIGH (needs substance: two distinct core signals, or
-    one plus a number/claim), Adjacent signals score MEDIUM, everything else
-    is LOW. An explicit LOW exclusion beats an adjacent match, but
-    substantive core content still wins over a bait tail. Empty tweet text
-    scores LOW. Empty interests or interests with no Core/Adjacent topics
-    raise instead of silently scoring LOW. Curated signal units only count
-    when their key term appears in the given interests text, so a foreign
-    interests file never yields HIGH on unrelated tweets.
-    """
+    """Score one tweet HIGH, MEDIUM, or LOW against the interests text."""
     sections = _split_interest_sections(interests_text)
     core_text = sections["core"]
     adjacent_text = sections["adjacent"]
@@ -217,7 +191,7 @@ _STOPWORDS = frozenset(
         "this", "that", "with", "from", "have", "been", "were", "will",
         "would", "there", "their", "about", "into", "your", "what", "when",
         "them", "then", "than", "also", "just", "like", "more", "most",
-        "over", "such", "only", "very", "they", "them",
+        "over", "such", "only", "very", "they",
     }
 )
 
@@ -371,21 +345,12 @@ def _generic_topic_overlap(core_text: str, adjacent_text: str, text: str) -> boo
 
 
 def is_duplicate(draft_text: str, recent_texts: Sequence[str]) -> bool:
-    """Near-identical recency check for a draft.
-
-    Compares normalized text (case-folded, whitespace-collapsed,
-    punctuation-insensitive, URLs/mentions/hashtags stripped) and the point
-    made, not exact bytes. Empty or content-free drafts return True (flagged
-    for rewrite, never proposed). Empty recent bodies never block.
-    """
+    """True when the draft is empty, content-free, or near-identical to a recent reply."""
     if draft_text is None or not str(draft_text).strip():
         return True
     if _is_content_free(str(draft_text)):
         return True
-    try:
-        recents = list(recent_texts) if recent_texts is not None else []
-    except TypeError:
-        return False
+    recents = list(recent_texts or [])
     bodies: list[str] = []
     for item in recents:
         if item is None:
@@ -435,8 +400,6 @@ _URL_STRIP_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _MENTION_RE = re.compile(r"@[\w\u0400-\u04ff]+")
 _HASHTAG_RE = re.compile(r"#[\w\u0400-\u04ff]+")
 _PUNCT_RE = re.compile(r"[^a-z\u0400-\u04ff0-9\s]")
-_WS_COLLAPSE_RE = re.compile(r"\s+")
-_TOKEN_RE_DUPE = re.compile(r"[a-z\u0400-\u04ff0-9]+")
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 _CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
 
@@ -446,7 +409,7 @@ _DUPE_STOPWORDS = frozenset(
         "would", "there", "their", "about", "into", "your", "what", "when",
         "them", "then", "than", "also", "just", "like", "more", "most",
         "over", "such", "only", "very", "they",
-        "and", "the", "for", "are", "was", "has", "had", "with", "are",
+        "and", "the", "for", "are", "was", "has", "had",
         "a", "an", "is", "it", "its", "as", "be", "to", "of", "in",
         "on", "at", "by", "we", "our", "you", "these", "those", "but",
         "can", "should", "could", "may", "might", "must", "shall", "do",
@@ -462,28 +425,27 @@ def _strip_noise(raw: str) -> str:
     text = raw.casefold()
     text = _URL_STRIP_RE.sub(" ", text)
     text = _MENTION_RE.sub(" ", text)
-    text = _HASHTAG_RE.sub(" ", text)
-    return text
+    return _HASHTAG_RE.sub(" ", text)
 
 
 def _normalize_for_dupe(raw: str) -> str:
     text = _strip_noise(raw)
     text = _PUNCT_RE.sub(" ", text)
-    return _WS_COLLAPSE_RE.sub(" ", text).strip()
+    return _WS_RE.sub(" ", text).strip()
 
 
 def _dupe_tokens(raw: str) -> set[str]:
     norm = _normalize_for_dupe(raw)
     return {
         token
-        for token in _TOKEN_RE_DUPE.findall(norm)
+        for token in _TOKEN_RE.findall(norm)
         if len(token) >= 4 and token not in _DUPE_STOPWORDS
     }
 
 
 def _is_content_free(raw: str) -> bool:
     stripped = _strip_noise(raw)
-    tokens = [t for t in _TOKEN_RE_DUPE.findall(stripped) if len(t) >= 3]
+    tokens = [t for t in _TOKEN_RE.findall(stripped) if len(t) >= 3]
     return len(tokens) < 3
 
 
@@ -593,13 +555,7 @@ _DRAFT_ANCHOR_BANNED = frozenset({"revolutionary"})
 
 
 def _draft_anchors(source: str, count: int = _DRAFT_ANCHOR_COUNT) -> list[str]:
-    """First distinct content words of the source, in order of appearance.
-
-    These ground the draft in the tweet's own subjects, so drafts for
-    different tweets differ and intra-batch dedupe only collapses drafts
-    for near-identical sources. Tokens are casefolded (never an
-    abbreviation) and hype singletons are skipped so the voice gate holds.
-    """
+    """First distinct content words of the source, in order of appearance."""
     anchors: list[str] = []
     for token in _TOKEN_RE.findall(source.casefold()):
         if (
@@ -616,14 +572,7 @@ def _draft_anchors(source: str, count: int = _DRAFT_ANCHOR_COUNT) -> list[str]:
 
 
 def compose_draft(tweet: Tweet, interests_text: str) -> str:
-    """Draft a reply post that adds something new to the source tweet.
-
-    Leads with one concrete observation or number, names the source's own
-    subjects, then adds one generic next step; teaching tone, plain
-    language with no hype words and no unexplained abbreviations; never
-    praise-only, never a restatement of the source tweet, never over the
-    X post length limit.
-    """
+    """Draft a reply post that adds one new observation to the source tweet."""
     if interests_text is None or not str(interests_text).strip():
         raise ValueError("INTERESTS.md is missing or empty: cannot draft")
     source = (tweet.text or "").strip()
@@ -650,19 +599,7 @@ def compose_draft(tweet: Tweet, interests_text: str) -> str:
 
 
 def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> str:
-    """Propose one HIGH tweet via ask_human: one call with link + draft.
-
-    The prompt carries the tweet link, the cached source text (so a
-    possibly-dead link still shows what was fetched), and the draft.
-
-    Skips (raises, ``ask`` uncalled) on empty tweet text, a missing link
-    half, an empty draft, or a draft that fails the voice/content gate
-    (praise-only, restating, hype-worded, unexplained abbreviations, or
-    concrete content buried past the opening). Overlong drafts are trimmed
-    at a word boundary, never sliced mid-word. Returns the operator's
-    answer verbatim; a tool failure propagates so the batch loop can
-    record the tweet as unproposed and continue.
-    """
+    """Propose one HIGH tweet via ask_human with link plus draft; return the answer."""
     tweet_id = str(getattr(tweet, "id", "") or "")
     tweet_text = str(getattr(tweet, "text", "") or "")
     tweet_url = str(getattr(tweet, "url", "") or "")
@@ -745,17 +682,7 @@ _REPLY_ID_RE = re.compile(r"^\d+$")
 
 
 def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
-    """Gate an ask_human answer into a (reply_id, post_date) confirmation.
-
-    A confirmation states the reply was posted AND supplies the posted
-    reply id — a bare numeric id or an x.com URL containing
-    ``/status/<id>`` (trailing numeric id extracted, query strings
-    ignored). Anything less (declines, ambiguity, "posted" with no id,
-    malformed id) returns None; the id is never invented. An explicit
-    posting date must be ``YYYY-MM-DD`` (a real calendar date); any other
-    explicit date shape returns None. No date at all uses ``today`` —
-    the confirmation day, not the run-start day.
-    """
+    """Parse an ask_human answer into a (reply_id, post_date) confirmation, or None."""
     if not isinstance(answer_text, str) or not answer_text.strip():
         return None
     text = answer_text.strip()
@@ -782,12 +709,7 @@ def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
             or _MONTH_DAY_RE.search(scrubbed)
         ):
             return None
-        if isinstance(today, str):
-            post_date = today
-        elif hasattr(today, "isoformat"):
-            post_date = today.isoformat()[:10]
-        else:
-            return None
+        post_date = today.isoformat()[:10]
     if reply_id is None:
         token = _BARE_ID_RE.search(scrubbed)
         if token is None:
@@ -804,18 +726,7 @@ def persist_reply(
     post_date: str,
     replies_dir: Path = REPLIES_DIR,
 ) -> Path:
-    """Store one operator-confirmed reply file via M3.
-
-    Writes ``<date>-<id>.md`` in the existing per-tweet format holding
-    the operator-confirmed posted text (not a stale draft) plus the
-    source link. Empty posted text, a missing source link/body, a
-    non-numeric reply id, or a non-``YYYY-MM-DD`` post date writes
-    nothing and raises naming the bad value. Overwriting an existing
-    same-path file is idempotent (last confirmed text wins, no ``-2``
-    duplicates). Returns the path written.
-    """
-    from fleet.tweet_watch.reply_files import write_reply
-
+    """Store one operator-confirmed reply as ``<date>-<id>.md``; return its path."""
     if not isinstance(source_url, str) or not source_url.strip():
         raise ValueError(f"reply {reply_id!r}: missing source link, nothing to persist")
     if not isinstance(source_body, str) or not source_body.strip():
@@ -836,14 +747,6 @@ def persist_reply(
         raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
     clean_id = reply_id.strip()
     content = f"{source_url.strip()}\n\n{posted_text.strip()}\n"
-    target = Path(replies_dir) / f"{post_date}-{clean_id}.md"
-    if target.exists():
-        try:
-            existing = target.read_text(encoding="utf-8")
-        except OSError:
-            existing = ""
-        if posted_text.strip() not in existing:
-            logger.warning("overwriting %s with newly confirmed text", target)
     saved = write_reply(Path(replies_dir), post_date, clean_id, content)
     logger.info("persisted reply %s", saved)
     return saved
@@ -854,25 +757,12 @@ def run(
     today: date | None = None,
     interests_text: str | None = None,
     recent_texts: Sequence[str] | None = None,
-    state_snapshot: Mapping[str, str] | None = None,
 ) -> None:
-    """One R1->R6 pass in order.
+    """Run one watchlist-to-replies pass in order; fail closed when inputs are missing."""
+    if ask is None:
+        raise ValueError("ask_human callback is required: HIGH tweets must be proposed")
 
-    Read INTERESTS.md fresh once per run first (missing/unreadable aborts
-    proposals for the run with state untouched, so the next tick re-drives);
-    R1 ensure+read watchlist; R2 fetch new tweets and persist state;
-    R3 score each new tweet; read last-3-days reply texts via M3 (fail closed
-    on unreadable); R4 drop near-identical drafts (intra-batch drafts
-    deduped too); R5 one ask_human call per surviving HIGH tweet; R6 store
-    each confirmed reply. Optional params are test seams; None means read
-    the real KB paths.
-    """
-    from datetime import date as _date
-
-    from fleet.tweet_watch.reply_files import list_recent, read_reply_text
-
-    run_day = today if today is not None else _date.today()
-    ask_fn = ask if ask is not None else (lambda prompt: "")
+    run_day = today if today is not None else date.today()
 
     if interests_text is None:
         interests_path = Path(INTERESTS_PATH)
@@ -880,7 +770,7 @@ def run(
             interests_text = interests_path.read_text(encoding="utf-8")
         except OSError as exc:
             logger.warning("INTERESTS.md unreadable, aborting proposals: %s", exc)
-            return None
+            return
 
     handles = ensure_watchlist(Path(WATCHLIST_PATH))
     tweets = find_new_tweets(list(handles), Path(STATE_PATH))
@@ -906,7 +796,7 @@ def run(
         if is_duplicate(draft, [*recents, *batch_drafts]):
             continue
         try:
-            answer = propose_tweet(tweet, draft, ask_fn)
+            answer = propose_tweet(tweet, draft, ask)
         except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
             logger.exception("proposal failed for tweet %s", tweet.id)
             failures.append(exc)

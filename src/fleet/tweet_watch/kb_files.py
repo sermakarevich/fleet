@@ -1,7 +1,13 @@
-"""M1 kb-files: watchlist parsing and state load/save."""
+"""Watchlist parsing and watch-state load/save for tweet_watch.
+
+Called by ``worker.ensure_watchlist`` (read path) and
+``worker.find_new_tweets`` (state path). The watch-state file maps each
+watched handle to its newest seen tweet id.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -18,14 +24,7 @@ SEED_HANDLES: tuple[str, ...] = (
 
 
 def read_watchlist(watchlist_path: Path) -> list[str]:
-    """Parse the watchlist file into handles.
-
-    One X handle per line; blank lines and full-line ``#`` comments (even
-    with leading whitespace) are ignored; surrounding whitespace is
-    stripped and one leading ``@`` removed; duplicates collapse keeping
-    first-occurrence order; CRLF and a UTF-8 BOM are handled. Every other
-    line passes through verbatim for M2 to reject.
-    """
+    """Parse the watchlist file into handles, first-occurrence order."""
     path = Path(watchlist_path)
     text = path.read_text(encoding="utf-8-sig")
     handles: list[str] = []
@@ -45,12 +44,7 @@ def read_watchlist(watchlist_path: Path) -> list[str]:
 
 
 def load_state(state_path: Path) -> dict[str, str]:
-    """Load watch_state.json into a handle->id map.
-
-    Missing file reads as ``{}``; JSON numbers are coerced via ``str()``;
-    corrupt JSON, wrong top-level shape, or null/bool/list/dict values
-    abort with an error naming the state path (and handle key).
-    """
+    """Load watch_state.json into a handle->id map; a missing file reads as {}."""
     path = Path(state_path)
     try:
         text = path.read_text(encoding="utf-8")
@@ -105,10 +99,8 @@ def save_state(state_path: Path, state: Mapping[str, str]) -> None:
                 tmp_file.write(payload)
             os.replace(tmp_name, path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
             raise
     except OSError as exc:
         if str(path) in str(exc):

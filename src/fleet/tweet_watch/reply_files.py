@@ -1,7 +1,13 @@
-"""M3 reply-files: read/write per-tweet reply files."""
+"""Per-tweet reply files for tweet_watch.
+
+Called by ``worker.run`` (recent-history reads) and
+``worker.persist_reply`` (confirmed-reply writes). Files live as
+``<date>-<id>.md`` under the replies dir.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import tempfile
@@ -37,16 +43,7 @@ def _readable(path: Path) -> bool:
 
 
 def list_recent(replies_dir: Path, today: date, window_days: int = 3) -> list[Path]:
-    """List in-window reply files.
-
-    Returns ``<date>-<id>.md`` files whose filename date prefix is within
-    ``today - window_days <= file_date <= today`` (inclusive, calendar
-    dates; filename prefix wins over mtime; future-dated files excluded).
-    A missing dir or an empty window returns ``[]``; non-``.md`` or
-    undateable filenames are ignored; only in-window bodies are opened.
-    An unreadable dir or in-window file aborts with an error naming the
-    path (fail closed, never fall back to ``[]``).
-    """
+    """List in-window ``<date>-<id>.md`` reply files, oldest filename first."""
     directory = Path(replies_dir)
     if not directory.exists():
         return []
@@ -86,18 +83,11 @@ def _is_boilerplate(line: str) -> bool:
     lowered = stripped.lower()
     if lowered.startswith("> source:") or lowered.startswith("> reply to:"):
         return True
-    if _STATS_RE.search(stripped) is not None:
-        return True
-    return False
+    return _STATS_RE.search(stripped) is not None
 
 
 def read_reply_text(reply_path: Path) -> str:
-    """Read one reply file's comparable text.
-
-    Decodes as UTF-8 best-effort (``errors="replace"``); empty or
-    boilerplate-only files yield ``""``; never rejects a file for format
-    drift — comparison uses whatever body text is present.
-    """
+    """Read one reply file's comparable body text ("" when empty or boilerplate)."""
     raw = Path(reply_path).read_bytes()
     text = raw.decode("utf-8", errors="replace")
     if not text.strip():
@@ -132,14 +122,7 @@ def _check_reply_id(reply_id: str) -> None:
 def write_reply(
     replies_dir: Path, post_date: str, reply_id: str, content: str
 ) -> Path:
-    """Write ``<date>-<id>.md`` in the existing per-tweet format.
-
-    Validates ``post_date`` (``YYYY-MM-DD``) and ``reply_id`` (non-empty)
-    before touching the filesystem; ``mkdir -p`` the dir; writes the
-    per-tweet format (header, ``> source:``, ``> reply to:``, body, stats
-    line) atomically via temp file plus rename; overwrites an existing
-    same-path file idempotently (no ``-2`` duplicates).
-    """
+    """Write ``<date>-<id>.md`` in the per-tweet format, overwriting idempotently."""
     _check_post_date(post_date)
     _check_reply_id(reply_id)
     directory = Path(replies_dir)
@@ -169,10 +152,8 @@ def write_reply(
                 tmp_file.write(text)
             os.replace(tmp_name, target)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_name)
-            except OSError:
-                pass
             raise
     except OSError as exc:
         if str(target.name) in str(exc):

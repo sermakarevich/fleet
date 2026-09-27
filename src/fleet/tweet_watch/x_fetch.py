@@ -1,4 +1,9 @@
-"""M2 x-fetch: fetch candidate tweets via the ``x`` CLI."""
+"""Candidate-tweet fetching for tweet_watch via the ``x`` CLI.
+
+Called by ``worker.find_new_tweets``. Each handle is registered with
+``x watch add user:<handle>`` first, then one ``x watch check`` returns
+the candidate records, filtered down to handles on the watchlist.
+"""
 
 from __future__ import annotations
 
@@ -33,10 +38,7 @@ class FetchError(Exception):
 def _stderr_tail(exc: subprocess.CalledProcessError) -> str:
     stderr = exc.stderr
     if isinstance(stderr, bytes):
-        try:
-            stderr = stderr.decode("utf-8", "replace")
-        except Exception:
-            stderr = repr(stderr)
+        stderr = stderr.decode("utf-8", "replace")
     if stderr is None:
         return ""
     tail = str(stderr).strip()
@@ -92,6 +94,7 @@ def fetch_tweets(
     run_command: Callable[[tuple[str, ...]], str] | None = None,
     command_timeout: float = 60.0,
 ) -> list[Tweet]:
+    """Fetch candidate tweets for the handles via the x CLI, watchlist order kept."""
     wanted = list(handles)
     if not wanted:
         return []
