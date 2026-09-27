@@ -120,11 +120,19 @@ def _check_reply_id(reply_id: str) -> None:
 
 
 def write_reply(
-    replies_dir: Path, post_date: str, reply_id: str, content: str
+    replies_dir: Path,
+    post_date: str,
+    reply_id: str,
+    content: str,
+    *,
+    source_id: str | None = None,
 ) -> Path:
     """Write ``<date>-<id>.md`` in the per-tweet format, overwriting idempotently."""
     _check_post_date(post_date)
     _check_reply_id(reply_id)
+    in_reply_to = reply_id
+    if source_id is not None and str(source_id).strip():
+        in_reply_to = str(source_id).strip()
     directory = Path(replies_dir)
     target = directory / f"{post_date}-{reply_id}.md"
     try:
@@ -137,7 +145,7 @@ def write_reply(
         f"\n"
         f"> source: https://x.com/i/status/{reply_id}\n"
         f"\n"
-        f"> reply to: {reply_id}\n"
+        f"> reply to: {in_reply_to}\n"
         f"\n"
         f"{body}"
         f"\n"
