@@ -14,6 +14,7 @@ import re
 import tempfile
 import warnings
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -80,7 +81,20 @@ def find_new_tweets(
         return []
     path = Path(state_path)
     baseline = load_state(path)
+    candidates = _fetch_candidates(wanted, run_command)
+    fresh, maxima = _select_fresh(candidates, baseline)
+    if not maxima:
+        return []
+    merged = _merge_maxima(baseline, maxima, path)
+    save_state(path, merged)
+    return fresh
 
+
+def _fetch_candidates(
+    wanted: list[str],
+    run_command: Callable[[tuple[str, ...]], str] | None,
+) -> list[Tweet]:
+    """Run the check stage, skipping handles the x side reports as failed."""
     pending = list(wanted)
     candidates: list[Tweet] = []
     while pending:
@@ -93,7 +107,13 @@ def find_new_tweets(
                 continue
             raise
         break
+    return candidates
 
+
+def _select_fresh(
+    candidates: Sequence[Tweet], baseline: dict[str, str]
+) -> tuple[list[Tweet], dict[str, str]]:
+    """Split candidates into fresh tweets plus per-handle maxima, deduped by id."""
     fresh: list[Tweet] = []
     maxima: dict[str, str] = {}
     seen: set[tuple[str, str]] = set()
@@ -108,9 +128,13 @@ def find_new_tweets(
             current = maxima.get(tweet.handle)
             if current is None or _is_newer_id(tweet.id, current):
                 maxima[tweet.handle] = tweet.id
-    if not maxima:
-        return []
+    return fresh, maxima
 
+
+def _merge_maxima(
+    baseline: dict[str, str], maxima: dict[str, str], path: Path
+) -> dict[str, str]:
+    """Fold new maxima over the baseline, keeping fresher mid-run state edits."""
     merged = dict(baseline)
     for handle, new_max in maxima.items():
         current = merged.get(handle)
@@ -122,8 +146,7 @@ def find_new_tweets(
             current = merged.get(handle)
             if current is None or _is_newer_id(value, current):
                 merged[handle] = value
-    save_state(path, merged)
-    return fresh
+    return merged
 
 
 def _is_newer_id(candidate: str, stored: str) -> bool:
@@ -158,15 +181,15 @@ def score_tweet(tweet_text: str, interests_text: str) -> str:
         _PRICE_RE.search(text) and "price" in interests_norm
     )
 
-    if core_hits >= 2:
+    if core_hits >= _HIGH_CORE_HIT_COUNT:
         return "HIGH"
     if core_hits == 1 and _has_substance(text):
         return "HIGH"
     if low_hit:
         return "LOW"
-    if core_hits == 1 or adjacent_hits >= 1:
-        return "MEDIUM"
-    if _generic_topic_overlap(core_text, adjacent_text, text):
+    if core_hits == 1 or adjacent_hits >= 1 or _generic_topic_overlap(
+        core_text, adjacent_text, text
+    ):
         return "MEDIUM"
     return "LOW"
 
@@ -185,6 +208,12 @@ _DIGIT_RE = re.compile(r"\d")
 _TOKEN_RE = re.compile(r"[a-z\u0400-\u04ff0-9]+")
 _CONTENT_RE = re.compile(r"[a-z\u0400-\u04ff]{3,}")
 _PRICE_RE = re.compile(r"\$\s?\d")
+
+# Scoring thresholds for score_tweet / _has_substance.
+_HIGH_CORE_HIT_COUNT = 2
+_SHORT_PHRASE_LEN = 4
+_SUBSTANCE_MIN_CHARS = 60
+_SUBSTANCE_MIN_WORDS = 12
 
 _STOPWORDS = frozenset(
     {
@@ -276,7 +305,7 @@ def _split_interest_sections(interests_text: str | None) -> dict[str, str]:
     matches = list(_HEADER_RE.finditer(interests_text))
     if not matches:
         raise ValueError("INTERESTS.md has no scorable topics")
-    sections = {"core": [], "adjacent": [], "low": []}
+    sections: dict[str, list[str]] = {"core": [], "adjacent": [], "low": []}
     for index, match in enumerate(matches):
         title = match.group(1).casefold()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(interests_text)
@@ -312,7 +341,7 @@ def _normalize_for_scoring(raw: str) -> str:
 
 
 def _unit_present(text: str, phrase: str) -> bool:
-    if len(phrase) <= 4 and " " not in phrase:
+    if len(phrase) <= _SHORT_PHRASE_LEN and " " not in phrase:
         return re.search(r"\b" + re.escape(phrase), text) is not None
     return phrase in text
 
@@ -330,7 +359,9 @@ def _count_active_units(
 def _has_substance(text: str) -> bool:
     alnum = len(_TOKEN_RE.findall(text))
     words = _TOKEN_RE.findall(text)
-    return alnum >= 60 and (bool(_DIGIT_RE.search(text)) or len(words) >= 12)
+    return alnum >= _SUBSTANCE_MIN_CHARS and (
+        bool(_DIGIT_RE.search(text)) or len(words) >= _SUBSTANCE_MIN_WORDS
+    )
 
 
 def _generic_topic_overlap(core_text: str, adjacent_text: str, text: str) -> bool:
@@ -363,37 +394,77 @@ def is_duplicate(draft_text: str, recent_texts: Sequence[str]) -> bool:
         bodies.append(text)
     if not bodies:
         return False
-    draft_norm = _normalize_for_dupe(str(draft_text))
-    draft_tokens = _dupe_tokens(str(draft_text))
-    draft_numbers = _distinctive_numbers(str(draft_text))
-    draft_cyrillic = bool(_CYRILLIC_RE.search(str(draft_text)))
-    for body in bodies:
-        norm = _normalize_for_dupe(body)
-        if draft_norm and draft_norm == norm:
+    draft = _DraftFeatures.from_text(str(draft_text))
+    return any(_matches_recent_body(draft, body) for body in bodies)
+
+
+@dataclass(frozen=True, slots=True)
+class _DraftFeatures:
+    """Precomputed comparison features for one draft reply."""
+
+    norm: str
+    tokens: frozenset[str]
+    numbers: frozenset[str]
+    cyrillic: bool
+
+    @classmethod
+    def from_text(cls, draft_text: str) -> _DraftFeatures:
+        return cls(
+            norm=_normalize_for_dupe(draft_text),
+            tokens=frozenset(_dupe_tokens(draft_text)),
+            numbers=frozenset(_distinctive_numbers(draft_text)),
+            cyrillic=bool(_CYRILLIC_RE.search(draft_text)),
+        )
+
+
+def _token_overlap_hits(
+    draft_tokens: frozenset[str],
+    recent_tokens: set[str],
+    jaccard_min: float,
+    containment_min: float,
+) -> bool:
+    if not draft_tokens or not recent_tokens:
+        return False
+    inter = draft_tokens & recent_tokens
+    union = draft_tokens | recent_tokens
+    jaccard = len(inter) / len(union) if union else 0.0
+    smallest = min(len(draft_tokens), len(recent_tokens))
+    containment = len(inter) / smallest if smallest else 0.0
+    return jaccard >= jaccard_min or containment >= containment_min
+
+
+def _matches_recent_body(draft: _DraftFeatures, body: str) -> bool:
+    norm = _normalize_for_dupe(body)
+    if draft.norm and draft.norm == norm:
+        return True
+    recent_tokens = _dupe_tokens(body)
+    if _token_overlap_hits(
+        draft.tokens, recent_tokens, _DUPE_JACCARD_MIN, _DUPE_CONTAINMENT_MIN
+    ):
+        return True
+    if draft.numbers & _distinctive_numbers(body):
+        recent_cyrillic = bool(_CYRILLIC_RE.search(body))
+        if draft.cyrillic != recent_cyrillic:
             return True
-        recent_tokens = _dupe_tokens(body)
-        if draft_tokens and recent_tokens:
-            inter = draft_tokens & recent_tokens
-            union = draft_tokens | recent_tokens
-            jaccard = len(inter) / len(union) if union else 0.0
-            smallest = min(len(draft_tokens), len(recent_tokens))
-            containment = len(inter) / smallest if smallest else 0.0
-            if jaccard >= 0.4 or containment >= 0.55:
-                return True
-        shared = draft_numbers & _distinctive_numbers(body)
-        if shared:
-            recent_cyrillic = bool(_CYRILLIC_RE.search(body))
-            if draft_cyrillic != recent_cyrillic:
-                return True
-            if draft_tokens and recent_tokens:
-                inter = draft_tokens & recent_tokens
-                union = draft_tokens | recent_tokens
-                jaccard = len(inter) / len(union) if union else 0.0
-                smallest = min(len(draft_tokens), len(recent_tokens))
-                containment = len(inter) / smallest if smallest else 0.0
-                if jaccard >= 0.15 or containment >= 0.25:
-                    return True
+        if _token_overlap_hits(
+            draft.tokens,
+            recent_tokens,
+            _SHARED_NUMBER_JACCARD_MIN,
+            _SHARED_NUMBER_CONTAINMENT_MIN,
+        ):
+            return True
     return False
+
+
+# Near-duplicate thresholds for is_duplicate.
+_DUPE_JACCARD_MIN = 0.4
+_DUPE_CONTAINMENT_MIN = 0.55
+_SHARED_NUMBER_JACCARD_MIN = 0.15
+_SHARED_NUMBER_CONTAINMENT_MIN = 0.25
+_DUPE_MIN_TOKEN_LEN = 4
+_CONTENT_FREE_TOKEN_LEN = 3
+_CONTENT_FREE_MIN_TOKENS = 3
+_DISTINCTIVE_MIN_DIGITS = 2
 
 
 _URL_STRIP_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
@@ -439,14 +510,14 @@ def _dupe_tokens(raw: str) -> set[str]:
     return {
         token
         for token in _TOKEN_RE.findall(norm)
-        if len(token) >= 4 and token not in _DUPE_STOPWORDS
+        if len(token) >= _DUPE_MIN_TOKEN_LEN and token not in _DUPE_STOPWORDS
     }
 
 
 def _is_content_free(raw: str) -> bool:
     stripped = _strip_noise(raw)
-    tokens = [t for t in _TOKEN_RE.findall(stripped) if len(t) >= 3]
-    return len(tokens) < 3
+    tokens = [t for t in _TOKEN_RE.findall(stripped) if len(t) >= _CONTENT_FREE_TOKEN_LEN]
+    return len(tokens) < _CONTENT_FREE_MIN_TOKENS
 
 
 def _distinctive_numbers(raw: str) -> set[str]:
@@ -454,7 +525,7 @@ def _distinctive_numbers(raw: str) -> set[str]:
     for match in _NUMBER_RE.findall(raw):
         norm = match.replace(",", ".")
         digits = norm.replace(".", "")
-        if len(digits) < 2 and "." not in norm:
+        if len(digits) < _DISTINCTIVE_MIN_DIGITS and "." not in norm:
             continue
         stripped = norm.lstrip("0").rstrip("0").strip(".") or "0"
         found.add(stripped)
@@ -486,6 +557,11 @@ _PRAISE_WORDS = frozenset(
     }
 )
 _X_POST_LIMIT = 280
+# Draft quality gates for propose_tweet / compose_draft.
+_PRAISE_MAX_WORDS = 12
+_RESTATEMENT_MAX_EXTRA_WORDS = 8
+_CONCRETE_CONTENT_OFFSET = 200
+_DRAFT_ANCHOR_MIN_TOKEN_LEN = 4
 # Prompt body (everything but the tweet link) stays near postable size: the
 # link plus a small header allowance on top of the post limit. The draft is
 # never squeezed for the prompt beyond its own postable trim; only the
@@ -503,7 +579,7 @@ def _is_praise_only(draft: str) -> bool:
     words = re.findall(r"[A-Za-z']+", draft)
     if not words:
         return True
-    if len(words) > 12:
+    if len(words) > _PRAISE_MAX_WORDS:
         return False
     return {word.casefold() for word in words} <= _PRAISE_WORDS
 
@@ -517,7 +593,7 @@ def _is_restatement(draft: str, tweet_text: str) -> bool:
         return True
     if tweet_norm in draft_norm:
         extra = len(draft_norm.split()) - len(tweet_norm.split())
-        return extra < 8
+        return extra < _RESTATEMENT_MAX_EXTRA_WORDS
     return False
 
 
@@ -558,7 +634,7 @@ def _draft_anchors(source: str, count: int = _DRAFT_ANCHOR_COUNT) -> list[str]:
     anchors: list[str] = []
     for token in _TOKEN_RE.findall(source.casefold()):
         if (
-            len(token) < 4
+            len(token) < _DRAFT_ANCHOR_MIN_TOKEN_LEN
             or token in _DUPE_STOPWORDS
             or token in _DRAFT_ANCHOR_BANNED
         ):
@@ -624,7 +700,7 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
             f"tweet {tweet_id}: draft has unexplained abbreviations {abbrevs}"
         )
     first_digit = _FIRST_DIGIT_RE.search(draft)
-    if first_digit is not None and first_digit.start() > 200:
+    if first_digit is not None and first_digit.start() > _CONCRETE_CONTENT_OFFSET:
         raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
     draft = _trim_to_postable(draft, tweet_id)
     head = f"Reply proposal for {tweet_url}:\n"
@@ -690,30 +766,37 @@ def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
     url_match = _URL_ID_RE.search(text)
     reply_id = url_match.group(1) if url_match else None
     scrubbed = _URL_ID_RE.sub(" ", text)
-    iso_match = _ISO_DATE_RE.search(scrubbed)
-    if iso_match is not None:
-        post_date = iso_match.group(1)
-        try:
-            parsed = date.fromisoformat(post_date)
-        except ValueError:
-            return None
-        if parsed.isoformat() != post_date:
-            return None
-        scrubbed = scrubbed.replace(post_date, " ", 1)
-    else:
-        if (
-            _SLASH_DATE_RE.search(scrubbed)
-            or _NON_ISO_DAY_RE.search(scrubbed)
-            or _MONTH_DAY_RE.search(scrubbed)
-        ):
-            return None
-        post_date = today.isoformat()[:10]
+    dated = _confirmation_date(scrubbed, today)
+    if dated is None:
+        return None
+    post_date, scrubbed = dated
     if reply_id is None:
         candidates = _BARE_ID_RE.findall(scrubbed)
         if not candidates:
             return None
         reply_id = max(candidates, key=len)
     return (reply_id, post_date)
+
+
+def _confirmation_date(scrubbed: str, today: date) -> tuple[str, str] | None:
+    """Return (post_date, scrubbed) or None when the answer names an unusable date."""
+    iso_match = _ISO_DATE_RE.search(scrubbed)
+    if iso_match is None:
+        if (
+            _SLASH_DATE_RE.search(scrubbed)
+            or _NON_ISO_DAY_RE.search(scrubbed)
+            or _MONTH_DAY_RE.search(scrubbed)
+        ):
+            return None
+        return (today.isoformat()[:10], scrubbed)
+    post_date = iso_match.group(1)
+    try:
+        parsed = date.fromisoformat(post_date)
+    except ValueError:
+        return None
+    if parsed.isoformat() != post_date:
+        return None
+    return (post_date, scrubbed.replace(post_date, " ", 1))
 
 
 def persist_reply(

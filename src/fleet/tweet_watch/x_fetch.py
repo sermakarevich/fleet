@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 CHECK_ARGV: tuple[str, ...] = ("x", "watch", "check", "--format", "json")
 
+# Bytes of stderr kept on the failure detail line.
+_STDERR_TAIL_LIMIT = 2000
+
 
 @dataclass(frozen=True, slots=True)
 class Tweet:
@@ -45,8 +48,8 @@ def _stderr_tail(exc: subprocess.CalledProcessError) -> str:
     if stderr is None:
         return ""
     tail = str(stderr).strip()
-    if len(tail) > 2000:
-        tail = tail[-2000:]
+    if len(tail) > _STDERR_TAIL_LIMIT:
+        tail = tail[-_STDERR_TAIL_LIMIT:]
     return tail
 
 
@@ -65,6 +68,7 @@ def _default_runner(argv: tuple[str, ...], timeout: float) -> str:
         proc = subprocess.run(
             list(argv),
             capture_output=True,
+            check=False,
             text=True,
             timeout=timeout,
             env=_child_env(),
@@ -107,6 +111,18 @@ def fetch_tweets(
             return run_command(tuple(argv))
         return _default_runner(tuple(argv), command_timeout)
 
+    _register_handles(wanted, invoke, command_timeout)
+    stdout = _run_check(invoke, command_timeout)
+    data = _parse_check_output(stdout)
+    return _select_wanted(data, wanted)
+
+
+def _register_handles(
+    wanted: Sequence[str],
+    invoke: Callable[[tuple[str, ...]], str],
+    command_timeout: float,
+) -> None:
+    """Register each handle with ``x watch add``; a per-handle failure names it."""
     for handle in wanted:
         argv = ("x", "watch", "add", f"user:{handle}")
         try:
@@ -126,8 +142,13 @@ def fetch_tweets(
         except OSError as exc:
             raise FetchError("x", f"x: cannot run x watch add for {handle}: {exc}") from exc
 
+
+def _run_check(
+    invoke: Callable[[tuple[str, ...]], str], command_timeout: float
+) -> str:
+    """Run the single ``x watch check`` stage and return its stdout."""
     try:
-        stdout = invoke(CHECK_ARGV)
+        return invoke(CHECK_ARGV)
     except FetchError:
         raise
     except FileNotFoundError as exc:
@@ -143,6 +164,9 @@ def fetch_tweets(
     except OSError as exc:
         raise FetchError("check", f"check: cannot run x watch check: {exc}") from exc
 
+
+def _parse_check_output(stdout: str) -> list[dict[str, object]]:
+    """Parse check stdout as a JSON list of objects, or raise FetchError."""
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -152,7 +176,7 @@ def fetch_tweets(
     if not isinstance(data, list):
         raise FetchError(
             "check",
-            f"check: expected JSON list from x watch check, "
+            "check: expected JSON list from x watch check, "
             f"got {type(data).__name__}",
         )
     for item in data:
@@ -162,35 +186,43 @@ def fetch_tweets(
                 "check: expected JSON list of objects from x watch check, "
                 f"got {type(item).__name__} item",
             )
+    return data
 
+
+def _select_wanted(data: Sequence[dict[str, object]], wanted: Sequence[str]) -> list[Tweet]:
+    """Keep records owned by the watchlist, in check order, skipping id-less rows."""
     canonical = {h.lower(): h for h in wanted}
     tweets: list[Tweet] = []
     for item in data:
-        raw_id = item.get("id")
-        if raw_id is None or isinstance(raw_id, bool):
-            logger.warning("x watch check: record missing id, skipping: %r", item)
-            continue
-        if isinstance(raw_id, str):
-            if not raw_id:
-                continue
-            tweet_id = raw_id
-        elif isinstance(raw_id, (int, float)):
-            tweet_id = str(raw_id)
-        else:
-            continue
-        raw_handle = item.get("handle")
-        if not isinstance(raw_handle, str) or not raw_handle:
-            continue
-        owner = canonical.get(raw_handle.lower())
-        if owner is None:
-            continue
-        tweets.append(
-            Tweet(
-                id=tweet_id,
-                handle=owner,
-                text=_optional_text(item.get("text", "")),
-                url=_optional_text(item.get("url", "")),
-                created_at=_optional_text(item.get("created_at", "")),
-            )
-        )
+        tweet = _parse_record(item, canonical)
+        if tweet is not None:
+            tweets.append(tweet)
     return tweets
+
+
+def _parse_record(item: dict[str, object], canonical: dict[str, str]) -> Tweet | None:
+    raw_id = item.get("id")
+    if raw_id is None or isinstance(raw_id, bool):
+        logger.warning("x watch check: record missing id, skipping: %r", item)
+        return None
+    if isinstance(raw_id, str):
+        if not raw_id:
+            return None
+        tweet_id = raw_id
+    elif isinstance(raw_id, (int, float)):
+        tweet_id = str(raw_id)
+    else:
+        return None
+    raw_handle = item.get("handle")
+    if not isinstance(raw_handle, str) or not raw_handle:
+        return None
+    owner = canonical.get(raw_handle.lower())
+    if owner is None:
+        return None
+    return Tweet(
+        id=tweet_id,
+        handle=owner,
+        text=_optional_text(item.get("text", "")),
+        url=_optional_text(item.get("url", "")),
+        created_at=_optional_text(item.get("created_at", "")),
+    )
