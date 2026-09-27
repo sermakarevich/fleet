@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_failed_handle_emits_nothing_and_keeps_state(fake, make_tweet, write_state):

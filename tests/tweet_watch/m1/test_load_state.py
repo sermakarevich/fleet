@@ -76,12 +76,12 @@ def test_wrong_top_level_shape_aborts(tmp_path: Path, bad: str) -> None:
     assert str(path) in message
 
 
-@pytest.mark.parametrize("bad_value", ["null", "true", "[\"1\"]", '{"id": "1"}'])
+@pytest.mark.parametrize("bad_value", ["null", "true", '["1"]', '{"id": "1"}'])
 def test_wrong_value_type_aborts_naming_handle(tmp_path: Path, bad_value: str) -> None:
     """F16: null/bool/list/dict values abort with an error naming the handle key."""
     path = _write(
         tmp_path / "watch_state.json",
-        '{"goodhartproof": "99", "omarsar0": %s}' % bad_value,
+        f'{{"goodhartproof": "99", "omarsar0": {bad_value}}}',
     )
     with pytest.raises(ValueError) as excinfo:
         load_state(path)

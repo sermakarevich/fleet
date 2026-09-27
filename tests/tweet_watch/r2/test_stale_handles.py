@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_stale_handle_entries_preserved_on_save(fake, make_tweet, write_state):
@@ -27,9 +26,7 @@ def test_readded_handle_does_not_reemit_old_tweets(fake, make_tweet, write_state
     find_new_tweets(["alice"], state_path=path, run_command=fake)
 
     fake.records = [make_tweet("bob", "40"), make_tweet("bob", "43")]
-    result = find_new_tweets(
-        ["alice", "bob"], state_path=path, run_command=fake
-    )
+    result = find_new_tweets(["alice", "bob"], state_path=path, run_command=fake)
 
     assert [(t.handle, t.id) for t in result] == [("bob", "43")]
     assert read_state_json(path) == {"alice": "11", "bob": "43"}

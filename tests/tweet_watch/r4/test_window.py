@@ -1,4 +1,8 @@
-"""R4 recency dedupe, window wiring (F8/F9/F12/F15). Units under test: fleet.tweet_watch.worker.is_duplicate with fleet.tweet_watch.reply_files."""
+"""R4 recency dedupe, window wiring (F8/F9/F12/F15).
+
+Units under test: fleet.tweet_watch.worker.is_duplicate
+with fleet.tweet_watch.reply_files.
+"""
 
 from __future__ import annotations
 

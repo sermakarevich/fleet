@@ -131,9 +131,7 @@ def _select_fresh(
     return fresh, maxima
 
 
-def _merge_maxima(
-    baseline: dict[str, str], maxima: dict[str, str], path: Path
-) -> dict[str, str]:
+def _merge_maxima(baseline: dict[str, str], maxima: dict[str, str], path: Path) -> dict[str, str]:
     """Fold new maxima over the baseline, keeping fresher mid-run state edits."""
     merged = dict(baseline)
     for handle, new_max in maxima.items():
@@ -150,12 +148,7 @@ def _merge_maxima(
 
 
 def _is_newer_id(candidate: str, stored: str) -> bool:
-    if (
-        candidate.isascii()
-        and candidate.isdigit()
-        and stored.isascii()
-        and stored.isdigit()
-    ):
+    if candidate.isascii() and candidate.isdigit() and stored.isascii() and stored.isdigit():
         return int(candidate) > int(stored)
     logger.debug("non-numeric tweet id comparison: %r vs %r", candidate, stored)
     return candidate > stored
@@ -187,8 +180,10 @@ def score_tweet(tweet_text: str, interests_text: str) -> str:
         return "HIGH"
     if low_hit:
         return "LOW"
-    if core_hits == 1 or adjacent_hits >= 1 or _generic_topic_overlap(
-        core_text, adjacent_text, text
+    if (
+        core_hits == 1
+        or adjacent_hits >= 1
+        or _generic_topic_overlap(core_text, adjacent_text, text)
     ):
         return "MEDIUM"
     return "LOW"
@@ -217,10 +212,35 @@ _SUBSTANCE_MIN_WORDS = 12
 
 _STOPWORDS = frozenset(
     {
-        "this", "that", "with", "from", "have", "been", "were", "will",
-        "would", "there", "their", "about", "into", "your", "what", "when",
-        "them", "then", "than", "also", "just", "like", "more", "most",
-        "over", "such", "only", "very", "they",
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "been",
+        "were",
+        "will",
+        "would",
+        "there",
+        "their",
+        "about",
+        "into",
+        "your",
+        "what",
+        "when",
+        "them",
+        "then",
+        "than",
+        "also",
+        "just",
+        "like",
+        "more",
+        "most",
+        "over",
+        "such",
+        "only",
+        "very",
+        "they",
     }
 )
 
@@ -317,9 +337,7 @@ def _split_interest_sections(interests_text: str | None) -> dict[str, str]:
         elif re.search(r"\blow\b", title) or title.strip().startswith("low"):
             sections["low"].append(body)
     split = {kind: "\n".join(bodies) for kind, bodies in sections.items()}
-    if not _has_content_words(split["core"]) and not _has_content_words(
-        split["adjacent"]
-    ):
+    if not _has_content_words(split["core"]) and not _has_content_words(split["adjacent"]):
         declared = _CORE_TOPICS_LINE_RE.search(interests_text)
         if declared is None:
             raise ValueError("INTERESTS.md has no scorable topics")
@@ -346,9 +364,7 @@ def _unit_present(text: str, phrase: str) -> bool:
     return phrase in text
 
 
-def _count_active_units(
-    text: str, interests_norm: str, units: tuple[tuple[str, str], ...]
-) -> int:
+def _count_active_units(text: str, interests_norm: str, units: tuple[tuple[str, str], ...]) -> int:
     hits = 0
     for phrase, gate in units:
         if gate in interests_norm and _unit_present(text, phrase):
@@ -438,9 +454,7 @@ def _matches_recent_body(draft: _DraftFeatures, body: str) -> bool:
     if draft.norm and draft.norm == norm:
         return True
     recent_tokens = _dupe_tokens(body)
-    if _token_overlap_hits(
-        draft.tokens, recent_tokens, _DUPE_JACCARD_MIN, _DUPE_CONTAINMENT_MIN
-    ):
+    if _token_overlap_hits(draft.tokens, recent_tokens, _DUPE_JACCARD_MIN, _DUPE_CONTAINMENT_MIN):
         return True
     if draft.numbers & _distinctive_numbers(body):
         recent_cyrillic = bool(_CYRILLIC_RE.search(body))
@@ -476,18 +490,96 @@ _CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
 
 _DUPE_STOPWORDS = frozenset(
     {
-        "this", "that", "with", "from", "have", "been", "were", "will",
-        "would", "there", "their", "about", "into", "your", "what", "when",
-        "them", "then", "than", "also", "just", "like", "more", "most",
-        "over", "such", "only", "very", "they",
-        "and", "the", "for", "are", "was", "has", "had",
-        "a", "an", "is", "it", "its", "as", "be", "to", "of", "in",
-        "on", "at", "by", "we", "our", "you", "these", "those", "but",
-        "can", "should", "could", "may", "might", "must", "shall", "do",
-        "does", "did", "after", "before", "through", "during", "above",
-        "below", "out", "off", "under", "again", "further", "once",
-        "here", "where", "why", "how", "all", "any", "both", "each",
-        "few", "other", "some", "own", "too",
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "been",
+        "were",
+        "will",
+        "would",
+        "there",
+        "their",
+        "about",
+        "into",
+        "your",
+        "what",
+        "when",
+        "them",
+        "then",
+        "than",
+        "also",
+        "just",
+        "like",
+        "more",
+        "most",
+        "over",
+        "such",
+        "only",
+        "very",
+        "they",
+        "and",
+        "the",
+        "for",
+        "are",
+        "was",
+        "has",
+        "had",
+        "a",
+        "an",
+        "is",
+        "it",
+        "its",
+        "as",
+        "be",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "we",
+        "our",
+        "you",
+        "these",
+        "those",
+        "but",
+        "can",
+        "should",
+        "could",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "do",
+        "does",
+        "did",
+        "after",
+        "before",
+        "through",
+        "during",
+        "above",
+        "below",
+        "out",
+        "off",
+        "under",
+        "again",
+        "further",
+        "once",
+        "here",
+        "where",
+        "why",
+        "how",
+        "all",
+        "any",
+        "both",
+        "each",
+        "few",
+        "other",
+        "some",
+        "own",
+        "too",
     }
 )
 
@@ -541,19 +633,45 @@ _HYPE_PHRASES = (
     "mind blowing",
 )
 
-_PLAIN_CAPS = frozenset(
-    {"AI", "X", "ML", "LLM", "API", "KV", "STT", "TTS", "CPU", "GPU", "OS"}
-)
+_PLAIN_CAPS = frozenset({"AI", "X", "ML", "LLM", "API", "KV", "STT", "TTS", "CPU", "GPU", "OS"})
 _ABBREV_RE = re.compile(r"\b([A-Z]{2,})s?\b")
 _FIRST_DIGIT_RE = re.compile(r"\d")
 _NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?\s?(?:ms|s\b|sec\b|x\b|%)?")
 _PRAISE_WORDS = frozenset(
     {
-        "great", "point", "points", "nice", "awesome", "love", "loved",
-        "thanks", "thank", "true", "agree", "agreed", "exactly", "wow",
-        "cool", "interesting", "fascinating", "post", "take", "this",
-        "that", "it", "is", "so", "very", "much", "such", "a", "an",
-        "the", "well", "said", "yes",
+        "great",
+        "point",
+        "points",
+        "nice",
+        "awesome",
+        "love",
+        "loved",
+        "thanks",
+        "thank",
+        "true",
+        "agree",
+        "agreed",
+        "exactly",
+        "wow",
+        "cool",
+        "interesting",
+        "fascinating",
+        "post",
+        "take",
+        "this",
+        "that",
+        "it",
+        "is",
+        "so",
+        "very",
+        "much",
+        "such",
+        "a",
+        "an",
+        "the",
+        "well",
+        "said",
+        "yes",
     }
 )
 _X_POST_LIMIT = 280
@@ -696,9 +814,7 @@ def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> s
             raise ValueError(f"tweet {tweet_id}: draft uses hype phrase {hype!r}")
     abbrevs = _unexplained_abbreviations(draft)
     if abbrevs:
-        raise ValueError(
-            f"tweet {tweet_id}: draft has unexplained abbreviations {abbrevs}"
-        )
+        raise ValueError(f"tweet {tweet_id}: draft has unexplained abbreviations {abbrevs}")
     first_digit = _FIRST_DIGIT_RE.search(draft)
     if first_digit is not None and first_digit.start() > _CONCRETE_CONTENT_OFFSET:
         raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
@@ -821,9 +937,7 @@ def persist_reply(
     try:
         parsed = date.fromisoformat(post_date)
     except ValueError:
-        raise ValueError(
-            f"invalid post date {post_date!r}: expected YYYY-MM-DD"
-        ) from None
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD") from None
     if parsed.isoformat() != post_date:
         raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
     clean_id = reply_id.strip()
@@ -903,9 +1017,7 @@ def run(
             continue
         reply_id, post_date = confirmed
         try:
-            persist_reply(
-                tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR)
-            )
+            persist_reply(tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR))
         except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
             logger.exception("persist failed for tweet %s", tweet.id)
             failures.append(exc)

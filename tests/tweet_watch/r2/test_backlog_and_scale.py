@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_first_run_backlog_emits_all_without_truncation(fake, make_tweet, tmp_path):

@@ -7,9 +7,8 @@ comparison uses the tweet `id` only.
 
 from __future__ import annotations
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_numeric_not_lexicographic_comparison(fake, make_tweet, write_state):
@@ -35,9 +34,7 @@ def test_equal_length_ids_compare_numerically(fake, make_tweet, write_state):
     assert read_state_json(path) == {"alice": "101"}
 
 
-def test_non_numeric_ids_fall_back_to_string_compare(
-    fake, make_tweet, write_state
-):
+def test_non_numeric_ids_fall_back_to_string_compare(fake, make_tweet, write_state):
     """F8: non-numeric ids compare as strings ("abd" > "abc", "abb" is not)."""
     path = write_state({"alice": "abc"})
     fake.records = [make_tweet("alice", "abb"), make_tweet("alice", "abd")]
@@ -48,9 +45,7 @@ def test_non_numeric_ids_fall_back_to_string_compare(
     assert read_state_json(path) == {"alice": "abd"}
 
 
-def test_stored_newer_than_all_returned_never_regresses(
-    fake, make_tweet, write_state
-):
+def test_stored_newer_than_all_returned_never_regresses(fake, make_tweet, write_state):
     """F14: deleted/purged tweets -> emit nothing and keep the newer entry."""
     path = write_state({"alice": "500"})
     fake.records = [make_tweet("alice", "400"), make_tweet("alice", "499")]

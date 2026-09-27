@@ -32,4 +32,6 @@ def test_reverify_lists_schedule(runbook_text: str) -> None:
 def test_forbids_variant_name_backup_entry(runbook_lower: str) -> None:
     assert "tweet-watch" in runbook_lower
     assert "duplicat" in runbook_lower or "second" in runbook_lower
-    assert "variant" in runbook_lower or "different name" in runbook_lower or "backup" in runbook_lower
+    assert (
+        "variant" in runbook_lower or "different name" in runbook_lower or "backup" in runbook_lower
+    )

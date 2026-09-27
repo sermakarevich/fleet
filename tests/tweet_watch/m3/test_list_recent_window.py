@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from datetime import date
 from pathlib import Path
 
@@ -14,9 +16,6 @@ def _touch(replies: Path, name: str, mtime_old_days: int | None = None) -> Path:
     p = replies / name
     p.write_text("body\n", encoding="utf-8")
     if mtime_old_days is not None:
-        import os
-        import time
-
         old = time.time() - mtime_old_days * 86400
         os.utime(p, (old, old))
     return p
@@ -82,6 +81,4 @@ def test_custom_window_days(tmp_path: Path) -> None:
     replies.mkdir()
     _touch(replies, "2026-09-20-1.md")
     assert list_recent(replies, RUN_DATE, window_days=3) == []
-    assert {p.name for p in list_recent(replies, RUN_DATE, window_days=7)} == {
-        "2026-09-20-1.md"
-    }
+    assert {p.name for p in list_recent(replies, RUN_DATE, window_days=7)} == {"2026-09-20-1.md"}

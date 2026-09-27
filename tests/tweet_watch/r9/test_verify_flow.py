@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 from .conftest import (
+    LOW_TEXT,
     TODAY,
     AskLog,
     canned_fetch,
@@ -17,7 +18,6 @@ from .conftest import (
     run_or_fail_scaffold,
     write_interests,
     write_watchlist,
-    LOW_TEXT,
 )
 
 
@@ -88,7 +88,7 @@ def test_backlog_emits_everything_since_last_id(kb, monkeypatch) -> None:
     ask = AskLog()
     run_or_fail_scaffold(ask=ask, today=TODAY, recent_texts=[])
     assert len(ask.messages) == 3
-    for tweet_id, message in zip((101, 102, 103), ask.messages):
+    for tweet_id, message in zip((101, 102, 103), ask.messages, strict=False):
         assert f"https://x.com/typesafeai/status/{tweet_id}" in message
 
 

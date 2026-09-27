@@ -13,9 +13,8 @@ import os
 
 import pytest
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def _block_save_dir(tmp_path):

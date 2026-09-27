@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import json
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_slower_run_merges_instead_of_rolling_back(fake, make_tweet, write_state):
@@ -43,9 +42,7 @@ def test_concurrent_new_handle_entry_survives_merge(fake, make_tweet, write_stat
     fake.records = [make_tweet("alice", "101")]
 
     def concurrent_add():
-        path.write_text(
-            json.dumps({"alice": "100", "bob": "7"}), encoding="utf-8"
-        )
+        path.write_text(json.dumps({"alice": "100", "bob": "7"}), encoding="utf-8")
 
     fake.on_check = concurrent_add
 
@@ -62,8 +59,6 @@ def test_save_leaves_no_temp_files_behind(fake, make_tweet, write_state):
 
     find_new_tweets(["alice"], state_path=path, run_command=fake)
 
-    leftovers = [
-        p for p in path.parent.iterdir() if p.name != path.name
-    ]
+    leftovers = [p for p in path.parent.iterdir() if p.name != path.name]
     assert leftovers == []
     assert read_state_json(path) == {"alice": "101"}

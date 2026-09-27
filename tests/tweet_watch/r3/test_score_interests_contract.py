@@ -28,12 +28,12 @@ def test_f3_no_hardcoded_fallback(interests_text: str) -> None:
 
 def test_f4_empty_interests_aborts(interests_text: str) -> None:
     assert interests_text.strip() != ""
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - any error aborts the run
         score_tweet(CORE_TWEET, "")
 
 
 def test_f4_whitespace_interests_aborts(interests_text: str) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - any error aborts the run
         score_tweet(CORE_TWEET, "  \n\t\n ")
 
 
@@ -42,7 +42,7 @@ def test_f4_voice_notes_only_aborts(interests_text: str) -> None:
         "# Interests\n\n## Voice notes\n\n- Plain language, no hype words.\n"
         "- Lead with one concrete observation or number.\n"
     )
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - any error aborts the run
         score_tweet(CORE_TWEET, voice_only)
 
 

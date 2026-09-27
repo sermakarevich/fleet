@@ -1,4 +1,7 @@
-"""R4 recency dedupe, fail closed on unreadable history (F13/F14). Unit under test: fleet.tweet_watch.worker.run."""
+"""R4 recency dedupe, fail closed on unreadable history (F13/F14).
+
+Unit under test: fleet.tweet_watch.worker.run.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +11,7 @@ from pathlib import Path
 
 import pytest
 
-import fleet.tweet_watch.worker as worker
-from fleet.tweet_watch import Tweet
+from fleet.tweet_watch import Tweet, worker
 
 RUN_DATE = date(2026, 9, 26)
 

@@ -33,7 +33,9 @@ def test_watch_check_failure_names_stage_with_stderr_tail(cli: FakeCLI) -> None:
 
 
 @pytest.mark.parametrize(
-    "stdout", ["", "<html>proxy error</html>", "INFO booted\n[]\n"], ids=["empty", "html", "log-prefix"]
+    "stdout",
+    ["", "<html>proxy error</html>", "INFO booted\n[]\n"],
+    ids=["empty", "html", "log-prefix"],
 )
 def test_check_non_json_stdout_is_a_stage_error(cli: FakeCLI, stdout: str) -> None:
     """F13: exit-0 garbage is a JSON parse error naming the stage, never scraped."""

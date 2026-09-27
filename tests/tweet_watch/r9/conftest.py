@@ -27,7 +27,6 @@ from fleet.schedules.model import OverlapPolicy, Schedule
 from fleet.schedules.store import ScheduleStore
 from fleet.tweet_watch import worker
 from fleet.tweet_watch import x_fetch as x_fetch_module
-from fleet.tweet_watch.kb_files import SEED_HANDLES
 from fleet.tweet_watch.x_fetch import Tweet
 
 SCHEDULE_NAME = "tweet-watch"
@@ -36,8 +35,7 @@ SCHEDULE_OVERLAP = OverlapPolicy.skip
 SCHEDULE_CODER = "opencode"
 REPO_ROOT = "/Users/sergii/git/fleet"
 EXPECTED_CREATE = (
-    "fleet schedule create --name tweet-watch "
-    "--cron '*/30 * * * *' --overlap skip --coder opencode"
+    "fleet schedule create --name tweet-watch --cron '*/30 * * * *' --overlap skip --coder opencode"
 )
 
 TODAY = date(2026, 9, 26)
@@ -139,8 +137,11 @@ def kb(tmp_path, monkeypatch) -> SimpleNamespace:
     monkeypatch.setattr(worker, "INTERESTS_PATH", interests)
     monkeypatch.setattr(worker, "REPLIES_DIR", replies)
     return SimpleNamespace(
-        root=x_dir, watchlist=watchlist, state=state,
-        replies=replies, interests=interests,
+        root=x_dir,
+        watchlist=watchlist,
+        state=state,
+        replies=replies,
+        interests=interests,
     )
 
 

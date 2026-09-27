@@ -1,4 +1,8 @@
-"""R4 recency dedupe, wrong state / batch / concurrency (F16-F20). Unit under test: fleet.tweet_watch.worker.is_duplicate (F17 also via fleet.tweet_watch.worker.run)."""
+"""R4 recency dedupe, wrong state / batch / concurrency (F16-F20).
+
+Unit under test: fleet.tweet_watch.worker.is_duplicate
+(F17 also via fleet.tweet_watch.worker.run).
+"""
 
 from __future__ import annotations
 
@@ -7,8 +11,7 @@ from pathlib import Path
 
 import pytest
 
-import fleet.tweet_watch.worker as worker
-from fleet.tweet_watch import Tweet
+from fleet.tweet_watch import Tweet, worker
 from fleet.tweet_watch.reply_files import list_recent, read_reply_text
 from fleet.tweet_watch.worker import is_duplicate
 
@@ -65,9 +68,7 @@ def test_f17_run_proposes_first_of_two_identical_drafts_only(
     monkeypatch.setattr(worker, "score_tweet", lambda *a, **k: "HIGH")
     monkeypatch.setattr(worker, "compose_draft", lambda *a, **k: SAME_PARAGRAPH)
     calls: list[str] = []
-    monkeypatch.setattr(
-        worker, "propose_tweet", lambda *a, **k: calls.append("x") or "declined"
-    )
+    monkeypatch.setattr(worker, "propose_tweet", lambda *a, **k: calls.append("x") or "declined")
     monkeypatch.setattr(worker, "parse_confirmation", lambda *a, **k: None)
     persisted: list[str] = []
     monkeypatch.setattr(
@@ -106,6 +107,4 @@ def test_f20_snapshot_list_is_caller_owned() -> None:
     # either way the decision below never sees a half-written body.
     snapshot = [VERIFIER_BODY]
     assert is_duplicate(SAME_PARAGRAPH, snapshot) is True
-    assert is_duplicate(
-        "Brand new observation with a concrete number: 42.", snapshot
-    ) is False
+    assert is_duplicate("Brand new observation with a concrete number: 42.", snapshot) is False

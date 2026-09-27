@@ -12,6 +12,7 @@ import json
 from fleet.schedules.model import OverlapPolicy
 
 from .conftest import (
+    SCHEDULE_NAME,
     TODAY,
     AskLog,
     canned_fetch,
@@ -19,7 +20,6 @@ from .conftest import (
     run_or_fail_scaffold,
     write_interests,
     write_watchlist,
-    SCHEDULE_NAME,
 )
 
 

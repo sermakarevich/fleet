@@ -76,9 +76,7 @@ def _default_runner(argv: tuple[str, ...], timeout: float) -> str:
     except FileNotFoundError as exc:
         raise FetchError("x", f"x: command not found: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise FetchError(
-            "check", f"check: timed out after {timeout}s: {' '.join(argv)}"
-        ) from exc
+        raise FetchError("check", f"check: timed out after {timeout}s: {' '.join(argv)}") from exc
     except OSError as exc:
         raise FetchError("x", f"x: cannot run {' '.join(argv)}: {exc}") from exc
     if proc.returncode != 0:
@@ -143,9 +141,7 @@ def _register_handles(
             raise FetchError("x", f"x: cannot run x watch add for {handle}: {exc}") from exc
 
 
-def _run_check(
-    invoke: Callable[[tuple[str, ...]], str], command_timeout: float
-) -> str:
+def _run_check(invoke: Callable[[tuple[str, ...]], str], command_timeout: float) -> str:
     """Run the single ``x watch check`` stage and return its stdout."""
     try:
         return invoke(CHECK_ARGV)
@@ -170,14 +166,11 @@ def _parse_check_output(stdout: str) -> list[dict[str, object]]:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise FetchError(
-            "check", f"check: invalid JSON from x watch check: {exc}"
-        ) from exc
+        raise FetchError("check", f"check: invalid JSON from x watch check: {exc}") from exc
     if not isinstance(data, list):
         raise FetchError(
             "check",
-            "check: expected JSON list from x watch check, "
-            f"got {type(data).__name__}",
+            f"check: expected JSON list from x watch check, got {type(data).__name__}",
         )
     for item in data:
         if not isinstance(item, dict):

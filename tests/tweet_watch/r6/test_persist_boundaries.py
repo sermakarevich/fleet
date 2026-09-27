@@ -28,7 +28,9 @@ def test_f11_reconfirm_same_id_overwrites_same_path(
 def test_f12_same_id_new_text_overwrites_with_new_text(
     replies_dir: Path, source_url: str, source_body: str
 ) -> None:
-    persist_reply(source_url, source_body, "first confirmed wording", "123", "2026-09-26", replies_dir)
+    persist_reply(
+        source_url, source_body, "first confirmed wording", "123", "2026-09-26", replies_dir
+    )
     target = persist_reply(
         source_url, source_body, "reposted with edits wording", "123", "2026-09-26", replies_dir
     )

@@ -85,7 +85,9 @@ def test_f19_persist_touches_neither_watchlist_nor_state(
     state = tmp_path / "watch_state.json"
     state.write_text('{"omarsar0": "1"}', encoding="utf-8")
     before_watch, before_state = watchlist.read_bytes(), state.read_bytes()
-    persist_reply(source_url, source_body, posted_text, reply_id, "2026-09-26", tmp_path / "replies")
+    persist_reply(
+        source_url, source_body, posted_text, reply_id, "2026-09-26", tmp_path / "replies"
+    )
     assert watchlist.read_bytes() == before_watch
     assert state.read_bytes() == before_state
 
@@ -93,7 +95,9 @@ def test_f19_persist_touches_neither_watchlist_nor_state(
 def test_f21_f22_write_is_atomic_and_complete(
     replies_dir: Path, source_url: str, source_body: str, posted_text: str, reply_id: str
 ) -> None:
-    target = persist_reply(source_url, source_body, posted_text, reply_id, "2026-09-26", replies_dir)
+    target = persist_reply(
+        source_url, source_body, posted_text, reply_id, "2026-09-26", replies_dir
+    )
     names = [p.name for p in replies_dir.iterdir()]
     assert names == [target.name]
     assert posted_text in target.read_text(encoding="utf-8")

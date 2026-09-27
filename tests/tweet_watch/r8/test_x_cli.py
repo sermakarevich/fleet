@@ -11,7 +11,11 @@ def test_watch_check_invocation_exact(runbook_text: str) -> None:
 
 def test_no_ad_hoc_text_munging_substitute(runbook_lower: str) -> None:
     assert "json" in runbook_lower
-    assert "text-munging" in runbook_lower or "instead of json parsing" in runbook_lower or "json parsing" in runbook_lower
+    assert (
+        "text-munging" in runbook_lower
+        or "instead of json parsing" in runbook_lower
+        or "json parsing" in runbook_lower
+    )
 
 
 def test_cli_failure_fails_loud_with_handle_named(runbook_lower: str) -> None:
@@ -25,4 +29,6 @@ def test_failed_scope_leaves_state_untouched(runbook_lower: str) -> None:
 
 
 def test_never_fabricates_tweets(runbook_lower: str) -> None:
-    assert "fabricat" in runbook_lower or "invent" in runbook_lower or "cached tweets" in runbook_lower
+    assert (
+        "fabricat" in runbook_lower or "invent" in runbook_lower or "cached tweets" in runbook_lower
+    )

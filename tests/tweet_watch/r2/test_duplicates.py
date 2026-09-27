@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_duplicate_id_in_one_payload_emitted_once(fake, make_tweet, write_state):
@@ -32,9 +31,7 @@ def test_single_new_tweet_exactly_once_across_runs(fake, make_tweet, write_state
     assert second == []
 
 
-def test_same_id_under_two_handles_tracked_independently(
-    fake, make_tweet, write_state
-):
+def test_same_id_under_two_handles_tracked_independently(fake, make_tweet, write_state):
     """M2 F10 at R2 level: id 50 for both alice and bob are separate records;
     per-handle state dedupes each side independently."""
     path = write_state({"alice": "49", "bob": "50"})

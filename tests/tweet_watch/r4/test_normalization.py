@@ -1,4 +1,7 @@
-"""R4 recency dedupe, normalization (F4-F6). Unit under test: fleet.tweet_watch.worker.is_duplicate."""
+"""R4 recency dedupe, normalization (F4-F6).
+
+Unit under test: fleet.tweet_watch.worker.is_duplicate.
+"""
 
 from __future__ import annotations
 

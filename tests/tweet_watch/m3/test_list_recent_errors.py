@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import os
 import time
 from datetime import date
@@ -73,9 +74,7 @@ def test_large_backlog_filters_by_prefix(tmp_path: Path) -> None:
     replies = tmp_path / "replies"
     replies.mkdir()
     for i in range(500):
-        (replies / f"2026-01-{(i % 28) + 1:02d}-{i}.md").write_text(
-            "stale", encoding="utf-8"
-        )
+        (replies / f"2026-01-{(i % 28) + 1:02d}-{i}.md").write_text("stale", encoding="utf-8")
     (replies / "2026-09-26-aaa.md").write_text("new", encoding="utf-8")
     (replies / "2026-09-24-bbb.md").write_text("new", encoding="utf-8")
     start = time.monotonic()
@@ -88,22 +87,16 @@ def test_large_backlog_opens_only_in_window_bodies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # F12: bodies outside the window are never opened.
-    import builtins
-
     replies = tmp_path / "replies"
     replies.mkdir()
     for i in range(100):
-        (replies / f"2026-01-{(i % 28) + 1:02d}-{i}.md").write_text(
-            "stale", encoding="utf-8"
-        )
+        (replies / f"2026-01-{(i % 28) + 1:02d}-{i}.md").write_text("stale", encoding="utf-8")
     (replies / "2026-09-26-aaa.md").write_text("new", encoding="utf-8")
     opened: list[str] = []
     real_open = builtins.open
 
     def counting_open(file, *args, **kwargs):  # type: ignore[no-untyped-def]
-        if isinstance(file, (str, os.PathLike)) and str(file).startswith(
-            str(replies)
-        ):
+        if isinstance(file, (str, os.PathLike)) and str(file).startswith(str(replies)):
             opened.append(Path(file).name)
         return real_open(file, *args, **kwargs)
 

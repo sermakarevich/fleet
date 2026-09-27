@@ -72,6 +72,13 @@ def test_f20_same_source_new_reply_id_writes_second_file(
     replies_dir: Path, source_url: str, source_body: str, posted_text: str
 ) -> None:
     persist_reply(source_url, source_body, posted_text, "666", "2026-09-26", replies_dir)
-    persist_reply(source_url, source_body, "second reply, different angle", "777", "2026-09-26", replies_dir)
+    persist_reply(
+        source_url,
+        source_body,
+        "second reply, different angle",
+        "777",
+        "2026-09-26",
+        replies_dir,
+    )
     names = sorted(p.name for p in replies_dir.iterdir())
     assert names == ["2026-09-26-666.md", "2026-09-26-777.md"]

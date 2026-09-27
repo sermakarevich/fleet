@@ -79,7 +79,9 @@ def test_stderr_warnings_do_not_break_valid_stdout(
 ) -> None:
     """F16: only stdout is parsed; stderr warnings ride along to the run log."""
     _check_payload(
-        tmp_path, monkeypatch, [{"id": "1", "handle": "a", "text": "t", "url": "u", "created_at": "c"}]
+        tmp_path,
+        monkeypatch,
+        [{"id": "1", "handle": "a", "text": "t", "url": "u", "created_at": "c"}],
     )
     out = fetch_tweets(["a"])
     assert [t.id for t in out] == ["1"]
@@ -93,9 +95,7 @@ def test_missing_binary_aborts_naming_x(tmp_path: Path, monkeypatch: pytest.Monk
     assert "x" in f"{excinfo.value.handle} {excinfo.value}"
 
 
-def test_hung_binary_killed_after_timeout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_hung_binary_killed_after_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """F15: a wedged x is killed after command_timeout and maps to a stage error."""
     bindir = tmp_path / "bin"
     bindir.mkdir()

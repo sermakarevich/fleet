@@ -2,8 +2,17 @@
 
 
 def test_backlog_emits_everything_once(runbook_lower: str) -> None:
-    assert "backlog" in runbook_lower or "missed runs" in runbook_lower or "new tweets" in runbook_lower
-    assert "no batching" in runbook_lower or "no sampling" in runbook_lower or "each" in runbook_lower and "proposal" in runbook_lower
+    assert (
+        "backlog" in runbook_lower
+        or "missed runs" in runbook_lower
+        or "new tweets" in runbook_lower
+    )
+    assert (
+        "no batching" in runbook_lower
+        or "no sampling" in runbook_lower
+        or "each" in runbook_lower
+        and "proposal" in runbook_lower
+    )
 
 
 def test_backlog_never_skips_via_state_edits(runbook_lower: str) -> None:

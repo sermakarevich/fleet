@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 
-from fleet.tweet_watch.worker import find_new_tweets
-
 from conftest import read_state_json
+from fleet.tweet_watch.worker import find_new_tweets
 
 
 def test_empty_handles_emit_nothing_and_touch_nothing(fake, write_state):

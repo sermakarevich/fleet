@@ -25,4 +25,8 @@ def test_missed_run_triggers_exactly_one_manual_run(runbook_lower: str) -> None:
 
 
 def test_missed_run_forbids_replay_per_tick(runbook_lower: str) -> None:
-    assert "missed tick" in runbook_lower or "per missed" in runbook_lower or "catch up" in runbook_lower
+    assert (
+        "missed tick" in runbook_lower
+        or "per missed" in runbook_lower
+        or "catch up" in runbook_lower
+    )

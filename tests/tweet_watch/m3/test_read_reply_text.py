@@ -47,7 +47,7 @@ def test_format_drift_still_read(tmp_path: Path) -> None:
     p = _write(
         replies,
         "2026-09-26-1.md",
-        "# hand-edited note\n\njust a plain body line\n".encode("utf-8"),
+        b"# hand-edited note\n\njust a plain body line\n",
     )
     assert "just a plain body line" in read_reply_text(p)
 
@@ -76,7 +76,5 @@ def test_hand_edited_content_reported_as_is(tmp_path: Path) -> None:
     # F19: M3 has no ground truth; dedupe compares against the files.
     replies = tmp_path / "replies"
     replies.mkdir()
-    p = _write(
-        replies, "2026-09-26-1.md", "edited after posting\n".encode("utf-8")
-    )
+    p = _write(replies, "2026-09-26-1.md", b"edited after posting\n")
     assert read_reply_text(p) == "edited after posting\n"

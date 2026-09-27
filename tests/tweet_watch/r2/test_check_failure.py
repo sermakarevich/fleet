@@ -6,10 +6,9 @@ import subprocess
 
 import pytest
 
+from conftest import read_state_json
 from fleet.tweet_watch import FetchError
 from fleet.tweet_watch.worker import find_new_tweets
-
-from conftest import read_state_json
 
 
 def test_check_nonzero_exit_emits_nothing(fake, make_tweet, write_state):

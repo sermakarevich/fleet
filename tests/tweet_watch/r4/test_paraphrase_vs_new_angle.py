@@ -1,4 +1,7 @@
-"""R4 recency dedupe, paraphrase vs new angle (F7/F10/F11). Unit under test: fleet.tweet_watch.worker.is_duplicate."""
+"""R4 recency dedupe, paraphrase vs new angle (F7/F10/F11).
+
+Unit under test: fleet.tweet_watch.worker.is_duplicate.
+"""
 
 from __future__ import annotations
 
@@ -39,8 +42,7 @@ def test_f10_shared_generic_words_do_not_block() -> None:
 def test_f11_old_point_plus_new_material_flagged_for_rewrite() -> None:
     # Must not pass as-is (cut the repeated paragraph), not dropped outright.
     draft = (
-        VERIFIER_BODY
-        + "\n\nNew number on top: p95 verification latency is 1.8s "
+        VERIFIER_BODY + "\n\nNew number on top: p95 verification latency is 1.8s "
         "per task at our volume."
     )
     assert is_duplicate(draft, [VERIFIER_BODY]) is True

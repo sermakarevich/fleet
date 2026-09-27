@@ -47,9 +47,7 @@ def list_recent(replies_dir: Path, today: date, window_days: int = 3) -> list[Pa
     directory = Path(replies_dir)
     if not directory.exists():
         return []
-    if directory.stat().st_mode & 0o555 == 0 or not os.access(
-        directory, os.R_OK | os.X_OK
-    ):
+    if directory.stat().st_mode & 0o555 == 0 or not os.access(directory, os.R_OK | os.X_OK):
         raise OSError(f"{directory}: replies dir is not readable")
     try:
         entries = sorted(directory.iterdir(), key=lambda p: p.name)
@@ -103,9 +101,7 @@ def _check_post_date(post_date: str) -> None:
     try:
         parsed = date.fromisoformat(post_date)
     except ValueError:
-        raise ValueError(
-            f"invalid post date {post_date!r}: expected YYYY-MM-DD"
-        ) from None
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD") from None
     if parsed.isoformat() != post_date:
         raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
 
@@ -114,9 +110,7 @@ def _check_reply_id(reply_id: str) -> None:
     if not isinstance(reply_id, str) or not reply_id.strip():
         raise ValueError(f"invalid reply id {reply_id!r}: expected non-empty id")
     if "/" in reply_id or "\\" in reply_id or reply_id.strip() in (".", ".."):
-        raise ValueError(
-            f"invalid reply id {reply_id!r}: must be a plain filename segment"
-        )
+        raise ValueError(f"invalid reply id {reply_id!r}: must be a plain filename segment")
 
 
 def write_reply(
@@ -152,9 +146,7 @@ def write_reply(
         f"likes 0 · retweets 0 · replies 0 · views 0\n"
     )
     try:
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(directory), prefix=target.name + ".", suffix=".tmp"
-        )
+        fd, tmp_name = tempfile.mkstemp(dir=str(directory), prefix=target.name + ".", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
                 tmp_file.write(text)

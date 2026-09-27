@@ -56,34 +56,22 @@ def load_state(state_path: Path) -> dict[str, str]:
         raise ValueError(f"{path}: invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(
-            f"{path}: expected object of {{handle: id-string}}, "
-            f"got {type(data).__name__}"
+            f"{path}: expected object of {{handle: id-string}}, got {type(data).__name__}"
         )
     state: dict[str, str] = {}
     for handle, value in data.items():
         if isinstance(value, str):
             state[handle] = value
-        elif isinstance(value, bool) or value is None or isinstance(
-            value, (list, dict)
-        ):
-            raise ValueError(
-                f"{path}: invalid value for handle {handle!r}: "
-                "expected id string"
-            )
+        elif isinstance(value, bool) or value is None or isinstance(value, (list, dict)):
+            raise ValueError(f"{path}: invalid value for handle {handle!r}: expected id string")
         elif isinstance(value, int):
             state[handle] = str(value)
         elif isinstance(value, float):
             if not value.is_integer():
-                raise ValueError(
-                    f"{path}: invalid value for handle {handle!r}: "
-                    "expected id string"
-                )
+                raise ValueError(f"{path}: invalid value for handle {handle!r}: expected id string")
             state[handle] = str(int(value))
         else:
-            raise ValueError(
-                f"{path}: invalid value for handle {handle!r}: "
-                "expected id string"
-            )
+            raise ValueError(f"{path}: invalid value for handle {handle!r}: expected id string")
     return state
 
 
@@ -98,9 +86,7 @@ def save_state(state_path: Path, state: Mapping[str, str]) -> None:
         if path.exists() and not os.access(path, os.W_OK):
             raise OSError(f"{path}: state file is not writable")
         payload = json.dumps(dict(state), ensure_ascii=False, indent=2) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
-        )
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
                 tmp_file.write(payload)

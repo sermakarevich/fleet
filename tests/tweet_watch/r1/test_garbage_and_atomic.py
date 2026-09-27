@@ -39,7 +39,7 @@ def test_killed_seed_write_leaves_no_half_written_file(tmp_path: Path, monkeypat
     monkeypatch.setattr(os, "rename", boom)
     monkeypatch.setattr(Path, "rename", boom)
     monkeypatch.setattr(shutil, "move", boom)
-    with pytest.raises(Exception):  # noqa: BLE001, PT011
+    with pytest.raises(Exception):  # noqa: BLE001, B017, PT011
         ensure_watchlist(path)
     assert attempts, "seed write must go through atomic temp file + rename (F12)"
     assert not path.exists()

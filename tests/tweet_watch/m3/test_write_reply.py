@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import re
 from datetime import date
+from pathlib import Path
+
 import pytest
 
 from fleet.tweet_watch.reply_files import list_recent, read_reply_text, write_reply
@@ -54,9 +56,7 @@ def test_overwrite_same_path_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("bad_date", ["2026-9-5", "not-a-date", "", "2026/09/26"])
-def test_bad_date_rejected_before_touching_fs(
-    tmp_path: Path, bad_date: str
-) -> None:
+def test_bad_date_rejected_before_touching_fs(tmp_path: Path, bad_date: str) -> None:
     # F17: error names the bad value; no file written.
     replies = tmp_path / "replies"
     replies.mkdir()

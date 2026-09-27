@@ -1,4 +1,7 @@
-"""R4 recency dedupe, bad or missing input (F1-F3). Unit under test: fleet.tweet_watch.worker.is_duplicate."""
+"""R4 recency dedupe, bad or missing input (F1-F3).
+
+Unit under test: fleet.tweet_watch.worker.is_duplicate.
+"""
 
 from __future__ import annotations
 
