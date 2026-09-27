@@ -35,6 +35,8 @@ from fleet.core.task import AttemptKind, Task, TaskOutcome, TaskOutcomeRecord, T
 # stopped (restart, deploy). It is re-queued at once and never counts as a
 # round, nor breaks a streak, so a redeploy cannot push a task into BLOCK.
 SHUTDOWN_REASON = "supervisor_shutdown"
+# Job phases whose PARTIAL ending is a normal hand-off to the next phase.
+_JOB_HANDOFF_WORKERS = frozenset({"job.research", "job.design", "job.gate", "job.spawn"})
 FAILURE_WAIT_SEC = (60, 300, 900)
 FAILURE_JITTER_SEC = 30
 # WAITING releases carry a short delay so a not-yet-ready epic does not
@@ -309,7 +311,8 @@ def trailing_streak(history: list[dict], category: str) -> int:
 
     Rows with ``kind == "compact"`` (the compaction job, which journals its
     own attempt row for visibility) never count toward — or break — a streak:
-    they are skipped, since they are not worker outcomes.
+    they are skipped, since they are not worker outcomes. PARTIAL rows from
+    the job research/design/gate/spawn phases are skipped the same way.
     """
     count = 0
     for entry in reversed(history):
@@ -325,6 +328,13 @@ def trailing_streak(history: list[dict], category: str) -> int:
             continue
         if entry.get("outcome") is None:
             # Attempt started but never ended: ignore it, keep scanning back.
+            continue
+        if (
+            entry.get("outcome") == TaskOutcome.PARTIAL.value
+            and entry.get("worker") in _JOB_HANDOFF_WORKERS
+        ):
+            # A job phase finished and handed off to the next phase: progress,
+            # not a round. Neither counts nor breaks (see phase_failures).
             continue
         cat = _category_of(entry.get("outcome"), entry.get("reason"), action=entry.get("action"))
         if cat == category:

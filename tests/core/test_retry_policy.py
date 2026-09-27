@@ -248,6 +248,26 @@ def test_unblock_row_resets_failure_streak() -> None:
     assert 60 <= (d.wait_sec or 0) <= 90
 
 
+def test_job_phase_handoff_partials_do_not_count() -> None:
+    """research/design/spawn PARTIALs are phase hand-offs, not partial rounds
+    (fleet-8ziez was blocked at "partial 5/5" with only 2 real observe partials)."""
+    history = [
+        {"n": 1, "worker": "job.research", "outcome": "partial", "reason": "design"},
+        {"n": 2, "worker": "job.design", "outcome": "partial", "reason": "gate"},
+        {"n": 3, "worker": "job.spawn", "outcome": "partial", "reason": "observe"},
+        {"n": 4, "worker": "job.observe", "outcome": "waiting", "reason": "1 running"},
+        {"n": 5, "worker": "job.observe", "outcome": "partial", "reason": "follow-up"},
+    ]
+    assert rounds_for_history(history)["partial"] == 1
+    rec = _record(TaskOutcome.PARTIAL, reason="again")
+    d = decide(rec, history, "in_progress", RuntimeConfig())
+    assert d.action == Action.RELEASE
+    # Hand-off rows do not break a streak either.
+    history.insert(0, {"n": 0, "worker": "job.observe", "outcome": "partial", "reason": "x"})
+    history.insert(3, {"n": 2, "worker": "job.observe", "outcome": "partial", "reason": "y"})
+    assert rounds_for_history(history)["partial"] == 3
+
+
 def _epic(task_id: str = "e-1") -> Task:
     return Task(id=task_id, title="Epic", description=None, status="in_progress", type="epic")
 
