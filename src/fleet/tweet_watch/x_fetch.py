@@ -8,10 +8,13 @@ the candidate records, filtered down to handles on the watchlist.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 CHECK_ARGV: tuple[str, ...] = ("x", "watch", "check", "--format", "json")
 
@@ -165,6 +168,7 @@ def fetch_tweets(
     for item in data:
         raw_id = item.get("id")
         if raw_id is None or isinstance(raw_id, bool):
+            logger.warning("x watch check: record missing id, skipping: %r", item)
             continue
         if isinstance(raw_id, str):
             if not raw_id:
