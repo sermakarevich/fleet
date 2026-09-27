@@ -20,9 +20,7 @@ def test_template_names_all_three_labels() -> None:
 
 def test_template_forbids_medium_low_proposals() -> None:
     lowered = template_text().lower()
-    assert "never" in lowered, (
-        "template must state MEDIUM/LOW never trigger a proposal (R7-F6)"
-    )
+    assert "never" in lowered, "template must state MEDIUM/LOW never trigger a proposal (R7-F6)"
 
 
 def test_template_states_quiet_exit() -> None:

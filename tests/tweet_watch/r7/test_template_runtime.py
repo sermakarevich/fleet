@@ -9,9 +9,9 @@ from tests.tweet_watch.r7.conftest import template_text
 def test_template_aborts_proposals_when_interests_missing() -> None:
     lowered = template_text().lower()
     assert "missing" in lowered
-    assert any(
-        word in lowered for word in ("abort", "stop", "error")
-    ), "without INTERESTS.md the run aborts proposals, never scores by gut feel (R7-F17)"
+    assert any(word in lowered for word in ("abort", "stop", "error")), (
+        "without INTERESTS.md the run aborts proposals, never scores by gut feel (R7-F17)"
+    )
 
 
 def test_template_continues_batch_on_ask_human_failure() -> None:
@@ -25,8 +25,7 @@ def test_template_continues_batch_on_ask_human_failure() -> None:
 def test_template_covers_single_pass_no_schedule_reinstall() -> None:
     lowered = template_text().lower()
     assert any(
-        phrase in lowered
-        for phrase in ("one pass", "single pass", "exactly once", "exactly one")
+        phrase in lowered for phrase in ("one pass", "single pass", "exactly once", "exactly one")
     ), "the template covers one run R1->R6, not the schedule (R7-F20)"
 
 
@@ -39,7 +38,6 @@ def test_template_notes_deleted_source_tweet() -> None:
 
 def test_template_states_manual_reply_still_proposes() -> None:
     lowered = template_text().lower()
-    assert any(
-        phrase in lowered
-        for phrase in ("manual", "outside", "already replied")
-    ), "an outside reply still proposes; no invented liveness check (R7-F24)"
+    assert any(phrase in lowered for phrase in ("manual", "outside", "already replied")), (
+        "an outside reply still proposes; no invented liveness check (R7-F24)"
+    )

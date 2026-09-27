@@ -44,9 +44,7 @@ class FakeX:
             if self.on_add is not None:
                 self.on_add(handle)
             if handle in self.fail_add_for:
-                raise subprocess.CalledProcessError(
-                    1, argv, stderr=f"no such user: {handle}"
-                )
+                raise subprocess.CalledProcessError(1, argv, stderr=f"no such user: {handle}")
             return ""
         if list(argv[:3]) == ["x", "watch", "check"]:
             if self.on_check is not None:

@@ -131,11 +131,39 @@ def is_praise_only(draft: str) -> bool:
         return False
     content = {w.casefold() for w in words}
     praise = {
-        "great", "point", "points", "nice", "awesome", "love", "loved",
-        "thanks", "thank", "true", "agree", "agreed", "exactly", "wow",
-        "cool", "interesting", "fascinating", "post", "take", "this",
-        "that", "it", "is", "so", "very", "much", "such", "a", "an",
-        "the", "well", "said", "yes",
+        "great",
+        "point",
+        "points",
+        "nice",
+        "awesome",
+        "love",
+        "loved",
+        "thanks",
+        "thank",
+        "true",
+        "agree",
+        "agreed",
+        "exactly",
+        "wow",
+        "cool",
+        "interesting",
+        "fascinating",
+        "post",
+        "take",
+        "this",
+        "that",
+        "it",
+        "is",
+        "so",
+        "very",
+        "much",
+        "such",
+        "a",
+        "an",
+        "the",
+        "well",
+        "said",
+        "yes",
     }
     return content <= praise
 
@@ -147,7 +175,7 @@ def unexplained_abbreviations(draft: str) -> list[str]:
         token = match.group(1)
         if token in PLAIN_CAPS:
             continue
-        rest = draft[match.end():]
+        rest = draft[match.end() :]
         if not re.match(r"\s*\([^)]{3,80}\)", rest):
             bad.append(token)
     return bad

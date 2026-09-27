@@ -7,9 +7,9 @@ from tests.tweet_watch.r7.conftest import template_text
 
 def test_template_states_overlap_semantics() -> None:
     lowered = template_text().lower()
-    assert any(
-        word in lowered for word in ("overlap", "concurrent", "collid")
-    ), "overlapping runs may propose independently; no de-duping the other run (R7-F26)"
+    assert any(word in lowered for word in ("overlap", "concurrent", "collid")), (
+        "overlapping runs may propose independently; no de-duping the other run (R7-F26)"
+    )
 
 
 def test_template_forbids_lockfiles() -> None:
@@ -27,6 +27,6 @@ def test_template_states_idempotent_reply_writes() -> None:
 
 def test_template_avoids_read_modify_write_index() -> None:
     lowered = template_text().lower()
-    assert any(
-        word in lowered for word in ("atomic", "rename", "one file per")
-    ), "one file per reply, one rename per write; no index appends (R7-F27)"
+    assert any(word in lowered for word in ("atomic", "rename", "one file per")), (
+        "one file per reply, one rename per write; no index appends (R7-F27)"
+    )

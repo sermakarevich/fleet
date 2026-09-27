@@ -51,9 +51,7 @@ def test_f16_scoring_takes_no_reply_history(interests_text: str) -> None:
     assert score_tweet(CORE_TWEET, interests_text) == "HIGH"
 
 
-def test_f16_no_reply_dir_reads(
-    interests_text: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_f16_no_reply_dir_reads(interests_text: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(self: pathlib.Path, *args: object, **kwargs: object) -> object:
         raise AssertionError("score_tweet must never read the replies dir")
 

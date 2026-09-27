@@ -86,8 +86,7 @@ def test_overlong_draft_never_proposed_over_limit() -> None:
     assert len(long_draft) > X_POST_LIMIT
     result = _attempt(tweet, long_draft)
     assert result is None or (
-        long_draft not in result[0]
-        and len(result[0]) <= X_POST_LIMIT + len(tweet.url) + 64
+        long_draft not in result[0] and len(result[0]) <= X_POST_LIMIT + len(tweet.url) + 64
     )
 
 

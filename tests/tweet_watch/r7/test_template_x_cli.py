@@ -18,13 +18,13 @@ def test_template_documents_check_with_json_format() -> None:
 
 def test_template_instructs_fail_loud_on_cli_error() -> None:
     lowered = template_text().lower()
-    assert any(
-        word in lowered for word in ("fail", "error", "abort", "non-zero", "stop")
-    ), "template must instruct fail-loud with the handle named (R7-F16)"
+    assert any(word in lowered for word in ("fail", "error", "abort", "non-zero", "stop")), (
+        "template must instruct fail-loud with the handle named (R7-F16)"
+    )
 
 
 def test_template_forbids_inventing_tweets() -> None:
     lowered = template_text().lower()
-    assert any(
-        word in lowered for word in ("fabricat", "invent", "never guess", "make up")
-    ), "template must forbid cached/invented candidates (R7-F16)"
+    assert any(word in lowered for word in ("fabricat", "invent", "never guess", "make up")), (
+        "template must forbid cached/invented candidates (R7-F16)"
+    )

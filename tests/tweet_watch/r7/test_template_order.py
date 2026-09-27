@@ -16,9 +16,9 @@ def test_template_lists_r1_through_r6_in_order() -> None:
 def test_template_states_requirements_win_over_stale_copy() -> None:
     lowered = template_text().lower()
     assert "requirement" in lowered or "REQUIREMENTS" in template_text()
-    assert any(
-        word in lowered for word in ("wins", "mismatch", "stale", "drift")
-    ), "the numbered requirement wins over the template copy (R7-F15)"
+    assert any(word in lowered for word in ("wins", "mismatch", "stale", "drift")), (
+        "the numbered requirement wins over the template copy (R7-F15)"
+    )
 
 
 def test_template_instructs_working_r1_snapshot() -> None:

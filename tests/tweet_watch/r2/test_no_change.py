@@ -8,9 +8,7 @@ from __future__ import annotations
 from fleet.tweet_watch.worker import find_new_tweets
 
 
-def test_all_older_or_equal_emits_nothing_without_rewrite(
-    fake, make_tweet, write_state
-):
+def test_all_older_or_equal_emits_nothing_without_rewrite(fake, make_tweet, write_state):
     """F6: candidate ids <= stored entry -> [] and no rewrite, no mtime touch."""
     path = write_state({"alice": "10"})
     fake.records = [make_tweet("alice", "8"), make_tweet("alice", "10")]

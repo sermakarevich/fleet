@@ -15,9 +15,7 @@ def test_template_states_three_day_dedupe_window() -> None:
 
 def test_template_mentions_dedupe_check() -> None:
     lowered = template_text().lower()
-    assert any(
-        word in lowered for word in ("dedup", "near-identical", "duplicate")
-    )
+    assert any(word in lowered for word in ("dedup", "near-identical", "duplicate"))
 
 
 def test_template_fails_closed_without_dedupe_verdict() -> None:

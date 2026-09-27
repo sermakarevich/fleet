@@ -18,8 +18,9 @@ from .conftest import (
 )
 
 
-def _matching(entry, *, name=SCHEDULE_NAME, cron=SCHEDULE_CRON,
-              overlap=SCHEDULE_OVERLAP, coder=SCHEDULE_CODER) -> bool:
+def _matching(
+    entry, *, name=SCHEDULE_NAME, cron=SCHEDULE_CRON, overlap=SCHEDULE_OVERLAP, coder=SCHEDULE_CODER
+) -> bool:
     return (
         entry.name == name
         and entry.cron == cron
@@ -81,5 +82,8 @@ def test_retry_uses_the_identical_spec(make_schedule) -> None:
     first = make_schedule(schedule_id="sch-1")
     second = make_schedule(schedule_id="sch-2")
     assert (second.name, second.cron, second.overlap, second.coder) == (
-        first.name, first.cron, first.overlap, first.coder,
+        first.name,
+        first.cron,
+        first.overlap,
+        first.coder,
     )

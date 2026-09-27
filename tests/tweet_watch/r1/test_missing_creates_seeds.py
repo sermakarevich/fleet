@@ -13,13 +13,17 @@ EXPECTED_BYTES = b"omarsar0\ntypesafeai\ncloneisjun\ngoodhartproof\nSakanaAILabs
 def test_missing_file_created_with_five_seeds_in_order(tmp_path: Path) -> None:
     path = tmp_path / "x" / "watchlist.md"
     path.parent.mkdir(parents=True)
-    assert ensure_watchlist(path) == list(SEED_HANDLES) == [
-        "omarsar0",
-        "typesafeai",
-        "cloneisjun",
-        "goodhartproof",
-        "SakanaAILabs",
-    ]
+    assert (
+        ensure_watchlist(path)
+        == list(SEED_HANDLES)
+        == [
+            "omarsar0",
+            "typesafeai",
+            "cloneisjun",
+            "goodhartproof",
+            "SakanaAILabs",
+        ]
+    )
     assert path.read_bytes() == EXPECTED_BYTES
 
 

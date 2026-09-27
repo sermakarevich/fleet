@@ -8,8 +8,7 @@ from tests.tweet_watch.r7.conftest import template_text
 
 def test_template_instructs_state_persist() -> None:
     assert "persist" in template_text().lower(), (
-        "without the R2 write-back every run re-emits the same tweets "
-        "(R7-F5)"
+        "without the R2 write-back every run re-emits the same tweets (R7-F5)"
     )
 
 
