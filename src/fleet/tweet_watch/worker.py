@@ -971,8 +971,7 @@ def run(
         try:
             interests_text = interests_path.read_text(encoding="utf-8")
         except OSError as exc:
-            logger.warning("INTERESTS.md unreadable, aborting proposals: %s", exc)
-            return
+            raise OSError(f"{interests_path}: cannot read INTERESTS.md: {exc}") from exc
 
     handles = ensure_watchlist(Path(WATCHLIST_PATH))
     tweets = find_new_tweets(list(handles), Path(STATE_PATH))
