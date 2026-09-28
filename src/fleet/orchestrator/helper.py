@@ -44,10 +44,11 @@ if TYPE_CHECKING:
     from .state import SupervisorState
 
 HELPER_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "HELPER_INVESTIGATE.md"
-_STDERR_TAIL_CHARS = 1500
+STDERR_TAIL_CHARS = 1500
+"""Longest ``stderr_tail`` kept for a blocked bead (also used by `fleet blocked`)."""
 
 
-def _read_meta(fleet_home: Path, task_id: str) -> dict:
+def read_meta(fleet_home: Path, task_id: str) -> dict:
     """Read task.json; {} when missing or unparsable."""
     try:
         data = json.loads((state_paths.task_dir(fleet_home, task_id) / "task.json").read_text())
@@ -97,7 +98,7 @@ def collect_targets(
     targets: list[dict] = []
     for bead in blocked:
         try:
-            meta = _read_meta(fleet_home, bead.id)
+            meta = read_meta(fleet_home, bead.id)
             blocked_reason = meta.get("blocked_reason")
             if not blocked_reason:
                 continue
@@ -135,7 +136,7 @@ def _chain_beads(queue: Queue, fleet_home: Path, root_id: str) -> list[tuple[int
     beads = queue.list_by_metadata("chain_root", root_id)
     seqs: list[tuple[int, str]] = []
     for bead in beads:
-        seq = _read_meta(fleet_home, bead.id).get("chain_seq", 0)
+        seq = read_meta(fleet_home, bead.id).get("chain_seq", 0)
         seqs.append((seq if isinstance(seq, int) else 0, bead.id))
     return sorted(seqs)
 
@@ -171,7 +172,7 @@ def _prior_reports_text(reports: list[HelperReport]) -> str:
     return "\n\n".join(blocks)
 
 
-def _stderr_tail(task_dir: Path) -> str | None:
+def stderr_tail_text(task_dir: Path) -> str | None:
     """Tail of the latest attempt's derived summary, if any."""
     attempt_dir = latest_attempt_dir(task_dir)
     if attempt_dir is None:
@@ -184,7 +185,7 @@ def _stderr_tail(task_dir: Path) -> str | None:
         text = render_markdown(summarize(task_dir, n))
     except (OSError, ValueError):
         return None
-    tail = text.strip()[-_STDERR_TAIL_CHARS:]
+    tail = text.strip()[-STDERR_TAIL_CHARS:]
     return tail or None
 
 
@@ -201,7 +202,7 @@ def _render_description(
         cwd=cand["cwd"],
         task_dir=str(task_dir),
         rounds=rounds_for_history(load_attempts(task_dir)),
-        stderr_tail=_stderr_tail(task_dir) or "(none)",
+        stderr_tail=stderr_tail_text(task_dir) or "(none)",
         prior_reports=_prior_reports_text(reports) or "(none — this is the first helper)",
         chain_root_id=chain_root_id,
     )
@@ -265,7 +266,7 @@ def chain_summary_text(reports: list[HelperReport]) -> str:
 
 def _stop_chain(st: SupervisorState, store: QuestionStore, root_id: str, reports) -> bool:
     """Ask the operator once per stopped chain; True when a question was posted."""
-    if _read_meta(st.fleet_home, root_id).get("chain_stopped"):
+    if read_meta(st.fleet_home, root_id).get("chain_stopped"):
         return False
     store.ask(
         chain_summary_text(reports),

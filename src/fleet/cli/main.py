@@ -11,6 +11,7 @@ import typer
 from fleet.cli import (
     ask_human,
     beads,
+    blocked,
     config,
     daemons,
     doctor,
@@ -43,6 +44,7 @@ app = typer.Typer(
 
 tasks.register(app)
 beads.register(app)
+blocked.register(app)
 daemons.register(app)
 doctor.register(app)
 config.register(app)

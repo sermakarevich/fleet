@@ -1,0 +1,170 @@
+fleet_flow: 2
+description: >-
+  Blocked-bead helper: investigate one block event, ask the human which fix
+  to apply, then implement it. Polled from `fleet_blocked`; one run per bead
+  and block event. Replaces orchestrator/helper.py once `helper_enabled` is
+  switched off.
+# Disabled until the helper cutover: while `helper_enabled` is still true,
+# an enabled helper flow would open two helpers per bead. Enable it when
+# `helper_enabled` is switched off.
+enabled: false
+"on": # quoted: bare `on:` parses as boolean True under YAML 1.1
+  tool:
+    name: fleet_blocked
+    every: 1m
+    key: "{{ item.id }}@{{ item.blocked_at }}"
+  manual: true
+inputs:
+  id:
+    description: Blocked bead id (run key, investigated and unblocked).
+    required: true
+  title:
+    description: Blocked bead title.
+    required: true
+  blocked_reason:
+    description: Fleet's blocked reason from the bead's task.json.
+    required: true
+  blocked_at:
+    description: ISO timestamp of the block event (run key, re-checked before apply).
+    required: true
+  cwd:
+    description: Repository the bead worked in.
+    default: ""
+  coder:
+    description: Coder recorded for the bead; "" means unset.
+    default: ""
+  model:
+    description: Model recorded for the bead; "" means unset.
+    default: ""
+  rounds:
+    description: Attempt rounds so far, as rendered by the blocked listing.
+    default: ""
+  result_status:
+    description: Declared RESULT.json status of the bead; "" when none.
+    default: ""
+  task_dir:
+    description: Absolute task folder of the bead (read-only for this flow).
+    default: ""
+  stderr_tail:
+    description: Tail of the latest attempt summary fleet saw.
+    default: ""
+defaults:
+  coder: claude
+  model: opus
+  cwd: "{{ inputs.cwd }}"
+  isolation: worktree
+steps:
+  investigate:
+    needs: []
+    prompt: |
+      You are a fleet "helper": investigate why bead {{ inputs.id }} ("{{ inputs.title }}")
+      got blocked and propose a fix specific to this block. A later step asks
+      the human to approve a fix and another step implements it; you only
+      investigate and report.
+
+      Blocked at: {{ inputs.blocked_at }}
+      Fleet's reason: {{ inputs.blocked_reason }}
+      Attempt rounds so far: {{ inputs.rounds }}
+      Declared result status: {{ inputs.result_status }}
+      Task folder (read-only for {{ inputs.id }}, do not write inside it): {{ inputs.task_dir }}
+      Repository the bead worked in: {{ inputs.cwd }}
+
+      Last stderr/summary tail fleet saw:
+      {{ inputs.stderr_tail }}
+
+      Earlier helper reports for this bead, if any, are in `~/.fleet/runs/*/investigate/`
+      for runs of flow helper with the same bead id (`fleet flow runs --flow helper`).
+
+      Read, in this order:
+      1. {{ inputs.task_dir }}/task.json (routing, blocked_reason, attempts).
+      2. {{ inputs.task_dir }}/attempts.jsonl and the newest attempt folder under
+         {{ inputs.task_dir }}/attempts/ (run.json, log.stderr, tail of events.jsonl,
+         prompt.md).
+      3. `bd show {{ inputs.id }}` for the bead's own description and history.
+      4. Only then look at the repository at {{ inputs.cwd }} (git log -5, git status,
+         the files the bead touched).
+
+      If the earlier-helper runs above hold reports, read them BEFORE forming
+      your own theory — do not repeat their investigation blind. Build on what
+      they already ruled out.
+
+      Write $FLEET_TASK_DIR/artifacts/HELPER_REPORT.md (max 8 KB) with exactly
+      these headings, in this order:
+
+      ## Root cause
+      One paragraph, plain language, specific to {{ inputs.id }}.
+
+      ## Evidence
+      The exact log lines / files / commands that prove it.
+
+      ## Same as previous root cause
+      `yes` or `no`, plus one sentence why. Answer `no` when there are no
+      earlier helper reports (there is nothing to compare against).
+
+      ## Proposed fixes
+      One or more fixes, specific to this block — not a generic "retry" unless
+      retrying is genuinely the right fix and you say why.
+
+      Also write outputs/outputs.json with
+      {"root_cause": "<one line>", "fixes": ["<fix 1>", "<fix 2>", ...],
+      "same_as_previous": "yes|no"}.
+
+      Do NOT change bead {{ inputs.id }}, its repository, fleet's own config, or
+      any other bead. Do NOT ask the human anything — approval happens in a
+      later step. Investigation and report writing only.
+    outputs: [root_cause, fixes, same_as_previous]
+  approve:
+    kind: human
+    needs: [investigate]
+    prompt: |
+      Bead {{ inputs.id }} ("{{ inputs.title }}") is blocked since {{ inputs.blocked_at }}.
+      Fleet's reason: {{ inputs.blocked_reason }}
+
+      The helper's investigation found:
+      Root cause: {{ steps.investigate.outputs.root_cause }}
+
+      Proposed fixes:
+      {% for fix in steps.investigate.outputs.fixes %}{{ loop.index }}. {{ fix }}
+      {% endfor %}{{ steps.investigate.outputs.fixes | length + 1 }}. close the original task
+      {{ steps.investigate.outputs.fixes | length + 2 }}. ignore (suppress helper triage for 24h)
+
+      Which option should the apply step carry out for bead {{ inputs.id }}?
+      Reply with the option text (or your own fix). Any note you add is
+      authoritative: it may replace or refine the offered options, or correct a
+      premise of the investigation.
+    outputs: [answer, note]
+  apply:
+    needs: [approve]
+    cwd: "{{ inputs.cwd }}"
+    prompt: |
+      Bead {{ inputs.id }} ("{{ inputs.title }}") was blocked at {{ inputs.blocked_at }}.
+      Fleet's reason: {{ inputs.blocked_reason }}
+      Repository the bead worked in: {{ inputs.cwd }}
+      Investigation root cause: {{ steps.investigate.outputs.root_cause }}
+
+      The human approved: {{ steps.approve.outputs.answer }}
+      Human note (authoritative — follow it over the literal chosen option):
+      {{ steps.approve.outputs.note }}
+
+      Before acting on the answer, re-read {{ inputs.id }}'s current state (e.g.
+      `bd show {{ inputs.id }}`) and confirm it is still blocked with the same
+      `blocked_at` value ({{ inputs.blocked_at }}). If it changed — a human already
+      unblocked it, closed it, or edited it — make no change at all, and finish
+      by writing a note in $FLEET_TASK_DIR/artifacts/HELPER_REPORT.md explaining
+      that the bead moved out from under you and nothing was done.
+
+      Otherwise, act on the answer:
+      - "close the original task": run
+        `bd close {{ inputs.id }} --reason "<why>"` and do nothing else.
+      - "ignore": run `fleet ignore {{ inputs.id }} --hours 24` (fleet's task
+        queue ignore mechanism for this bead) and do nothing else.
+      - any other approved fix: implement it — this may mean editing
+        {{ inputs.id }}'s text/coder/model/priority via `bd update`, creating new
+        follow-up tasks, changing code in {{ inputs.cwd }}, or changing fleet's own
+        code or config, whatever the approved fix actually requires — then unblock
+        {{ inputs.id }} so it can run again (`bd update {{ inputs.id }} --status open`).
+
+      When done, append a final section to $FLEET_TASK_DIR/artifacts/HELPER_REPORT.md
+      describing what was found, what the human approved, and what you did. Then run
+      `bd comment {{ inputs.id }} "<one-line summary of root cause, approval, and
+      action taken>"`.
