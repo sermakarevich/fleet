@@ -1,0 +1,120 @@
+# autocode as a flow (proposed format, see DESIGN.md).
+# Same 11 steps as docs/workflows/autocode.yaml (715 lines, generated),
+# written by hand. Per-unit steps use `for_each`; approval is a `human` step.
+# Prompts are shortened here; the real file carries the full rule blocks.
+
+fleet_flow: 2
+description: Autonomous coding of one feature in a repo, from spec to reviewed code.
+
+on:
+  manual: true
+
+inputs:
+  repo:    {required: true,  description: Absolute path of the target git repo.}
+  feature: {required: true,  description: Short slug; names docs/<feature>/, tests/<feature>/, branch autocode/<feature>.}
+  spec:    {required: true,  description: Spec text or absolute file path.}
+  auto:    {default: "off",  description: '"on" skips the human gates.'}
+
+defaults:
+  coder: opencode
+  model: opencode-go/muse-spark-1.3-contributor
+  cwd: "{{ inputs.repo }}"          # rendered; no `cd` in prompts any more
+  retries: 2
+
+steps:
+
+  requirements:
+    prompt: |
+      Create branch autocode/{{ inputs.feature }} from main and check it out.
+      Read the spec ({{ inputs.spec }}). Write docs/{{ inputs.feature }}/requirements.md:
+      shared modules M1.. and numbered requirements R1.., each testable.
+      Write outputs/outputs.json:
+        {"units": [{"unit": "M1"}, {"unit": "R1", "after": ["M1"], "model": "opus"}, ...],
+         "implement_parallel": false}
+      `after` lists the units this one builds on; `model` is optional and
+      picks a bigger model for a hard unit; `implement_parallel` says whether
+      implementation may run units at the same time (only if they touch
+      separate files). Commit.
+    outputs: [units, implement_parallel]
+
+  confirm-units:
+    needs: [requirements]
+    kind: human
+    skip_if: "{{ inputs.auto == 'on' }}"
+    prompt: |
+      Units for {{ inputs.feature }}: {{ steps.requirements.outputs.units | map(attribute="unit") | list }}.
+      Continue?
+
+  failures:
+    needs: [confirm-units]
+    for_each: "{{ steps.requirements.outputs.units }}"
+    parallel: true
+    prompt: |
+      Write docs/{{ inputs.feature }}/failures/{{ item.unit }}.md: every way unit
+      {{ item.unit }} can fail, how each is detected, what the user sees.
+      Write only that file. Never run git; the next step commits.
+
+  commit-failures:
+    needs: [failures]
+    prompt: |
+      git add docs/{{ inputs.feature }}/failures/*.md and commit
+      "autocode({{ inputs.feature }}): failure modes (all units)".
+
+  baseline:
+    needs: [commit-failures]
+    prompt: |
+      Run the repo's test suite. Write outputs/outputs.json:
+      {"command": "...", "passed": N, "failed": N}. Fix nothing.
+    outputs: [command, passed, failed]
+
+  scaffold:
+    needs: [baseline]
+    prompt: |
+      Create tests/{{ inputs.feature }}/ with conftest and one package per
+      unit, empty. Make `{{ steps.baseline.outputs.command }}` still pass. Commit.
+
+  unittests:
+    needs: [scaffold]
+    for_each: "{{ steps.requirements.outputs.units }}"
+    parallel: true
+    prompt: |
+      Write failing tests for unit {{ item.unit }} in tests/{{ inputs.feature }}/{{ item.unit | lower }}/,
+      one per failure mode in docs/{{ inputs.feature }}/failures/{{ item.unit }}.md.
+      Write only that folder. Never run git.
+
+  commit-tests:
+    needs: [unittests]
+    prompt: Commit tests/{{ inputs.feature }}/ as "autocode({{ inputs.feature }}): unit tests (all units)".
+
+  implement:
+    needs: [commit-tests]
+    for_each: "{{ steps.requirements.outputs.units }}"
+    key:      "{{ item.unit }}"
+    after:    "{{ item.after | default([]) }}"          # R* wait for the M* they build on
+    parallel: "{{ steps.requirements.outputs.implement_parallel }}"
+    model:    "{{ item.model | default(defaults.model) }}"
+    prompt: |
+      Implement unit {{ item.unit }} until tests/{{ inputs.feature }}/{{ item.unit | lower }}/ passes
+      and `{{ steps.baseline.outputs.command }}` stays green.
+      Commit "autocode({{ inputs.feature }}): implement {{ item.unit }}".
+
+  e2e:
+    needs: [implement]
+    prompt: Write and run end-to-end tests for the feature as a whole. Commit.
+
+  review:
+    needs: [e2e]
+    coder: claude
+    model: opus
+    prompt: |
+      Review branch autocode/{{ inputs.feature }} against the requirements.
+      Write docs/{{ inputs.feature }}/review.md. Write outputs/outputs.json:
+      {"verdict": "merge" | "fix", "summary": "..."}.
+    outputs: [verdict, summary]
+
+  gate:
+    needs: [review]
+    kind: human
+    prompt: |
+      Review says "{{ steps.review.outputs.verdict }}": {{ steps.review.outputs.summary }}
+      Merge autocode/{{ inputs.feature }} into main?
