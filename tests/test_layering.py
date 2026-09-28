@@ -18,6 +18,11 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "fleet"
 ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "state": {"core"},
+    # Fleet 2 (docs/27_sep_upgrade/DESIGN.md §4): flows imports nothing of
+    # fleet but core; runs needs the flow model; pool needs coders + tools.
+    "flows": {"core"},
+    "runs": {"core", "state", "flows"},
+    "pool": {"core", "state", "coders", "flows"},
     "beads": {"core", "state"},
     "schedules": {"core", "state", "beads", "workflows"},
     "triggers": {"core", "state", "beads"},
@@ -26,6 +31,9 @@ ALLOWED: dict[str, set[str]] = {
     "workers": {"core", "state", "beads", "coders"},
     "orchestrator": {
         "core",
+        "flows",
+        "runs",
+        "pool",
         "state",
         "beads",
         "schedules",
@@ -43,6 +51,9 @@ ALLOWED: dict[str, set[str]] = {
     "integrations": {"core", "state", "beads", "observability"},
     "serve": {
         "core",
+        "flows",
+        "runs",
+        "pool",
         "state",
         "beads",
         "schedules",
@@ -56,6 +67,9 @@ ALLOWED: dict[str, set[str]] = {
     },
     "cli": {
         "core",
+        "flows",
+        "runs",
+        "pool",
         "state",
         "beads",
         "schedules",
