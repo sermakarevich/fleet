@@ -1,0 +1,9 @@
+fleet_tool: 2
+description: Mark a bead blocked (flag verified against `bd update --help`).
+command: ["bd", "update", "{{ args.id }}", "--status", "blocked"]
+args:
+  id:
+    description: Bead id to mark blocked.
+    required: true
+output: text
+timeout: 60
