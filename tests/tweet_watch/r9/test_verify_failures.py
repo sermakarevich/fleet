@@ -63,7 +63,9 @@ def test_missing_interests_aborts_proposals(kb, monkeypatch) -> None:
     assert not kb.interests.exists()
     canned_fetch(monkeypatch, [make_tweet()])
     ask = AskLog()
-    run_or_fail_scaffold(ask=ask, today=TODAY, interests_text=None, recent_texts=[])
+    # Fail closed: the run raises (see r5) and nothing is proposed.
+    with pytest.raises(OSError, match="INTERESTS.md"):
+        worker.run(ask=ask, today=TODAY, interests_text=None, recent_texts=[])
     assert ask.messages == []
 
 
