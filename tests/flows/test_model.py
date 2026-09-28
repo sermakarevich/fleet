@@ -7,7 +7,16 @@ from typing import Any
 import pytest
 
 from fleet.core.errors import FlowInvalid
-from fleet.flows.model import FLOW_VERSION, STEP_KINDS, flow_from_dict, flow_to_dict
+from fleet.flows.model import (
+    FLOW_VERSION,
+    STEP_KINDS,
+    STEP_WHEN,
+    WHEN_FAILED,
+    WHEN_FINISHED,
+    WHEN_OK,
+    flow_from_dict,
+    flow_to_dict,
+)
 
 
 def _valid_data() -> dict[str, Any]:
@@ -310,3 +319,54 @@ def test_step_order_follows_dict_order() -> None:
     }
     flow = flow_from_dict(data, "ordered")
     assert [step.name for step in flow.steps] == ["zzz", "mmm", "aaa"]
+
+
+def test_when_values_match_spec() -> None:
+    """The when constants are exactly ok, failed and finished."""
+    assert WHEN_OK == "ok"
+    assert WHEN_FAILED == "failed"
+    assert WHEN_FINISHED == "finished"
+    assert STEP_WHEN == ("ok", "failed", "finished")
+
+
+def test_when_defaults_to_ok() -> None:
+    """A step without when parses as ok."""
+    flow = flow_from_dict({"fleet_flow": 2, "steps": {"build": {"prompt": "Do it."}}}, "tiny")
+    assert flow.step("build").when == "ok"
+
+
+def test_when_parses_and_round_trips() -> None:
+    """Non-default when values survive parsing and the dict round-trip."""
+    data = _valid_data()
+    data["steps"]["gate"]["needs"] = ["requirements"]
+    data["steps"]["gate"]["when"] = "failed"
+    data["steps"]["commit"]["when"] = "finished"
+    flow = flow_from_dict(data, "autocode")
+    assert flow.step("gate").when == "failed"
+    assert flow.step("commit").when == "finished"
+    refeeds = flow_from_dict(flow_to_dict(flow), "autocode")
+    assert refeeds.steps == flow.steps
+    assert flow_to_dict(flow)["steps"]["gate"]["when"] == "failed"
+
+
+def test_when_ok_omitted_from_dict() -> None:
+    """The default when is omitted when a step is serialized."""
+    flow = flow_from_dict({"fleet_flow": 2, "steps": {"build": {"prompt": "Do it."}}}, "tiny")
+    assert "when" not in flow_to_dict(flow)["steps"]["build"]
+
+
+def test_bad_when_value() -> None:
+    """A when outside ok, failed, finished is rejected."""
+    data = _valid_data()
+    data["steps"]["gate"]["needs"] = ["requirements"]
+    data["steps"]["gate"]["when"] = "sometimes"
+    assert "step gate: when must be one of ok, failed, finished" in _problems(data)
+
+
+def test_when_failed_without_needs() -> None:
+    """when failed or finished with no needs is rejected."""
+    data = _valid_data()
+    data["steps"]["requirements"]["when"] = "failed"
+    assert "step requirements: when needs at least one need" in _problems(data)
+    data["steps"]["requirements"]["when"] = "finished"
+    assert "step requirements: when needs at least one need" in _problems(data)

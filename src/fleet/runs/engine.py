@@ -17,7 +17,7 @@ from typing import Any
 from fleet.core.errors import TemplateError
 from fleet.flows import graph
 from fleet.flows.graph import Item
-from fleet.flows.model import Flow, Step
+from fleet.flows.model import WHEN_FAILED, Flow, Step
 from fleet.flows.templates import is_template, render, render_bool, render_mapping
 from fleet.runs.run_dir import (
     NO_ITEM,
@@ -122,6 +122,7 @@ def advance(
     """Move a run forward one tick, returning fresh launches and skips."""
     now_iso = now.isoformat()
     skipped = _promote_ready_steps(store, flow, run, run_dir, now_iso)
+    _settle_dead_steps(store, flow, run, now_iso)
     _gate_item_steps(store, flow, run, run_dir, now_iso)
     launches = _launch_ready(store, flow, run, run_dir, now_iso, defaults)
 
@@ -157,6 +158,32 @@ def _promote_ready_steps(
         else:
             store.set_step_status(run.id, step.name, NO_ITEM, StepStatus.ready, now_iso)
     return skipped
+
+
+def _settle_dead_steps(store: RunStore, flow: Flow, run: Run, now_iso: str) -> None:
+    """Settle unreachable steps on their NO_ITEM row so the run can fold.
+
+    A dead ``when: ok`` step becomes ``cancelled`` with reason
+    ``need <name> <status>`` naming the first failed/cancelled need; a dead
+    ``when: failed`` step becomes ``skipped`` with reason ``no need failed``.
+    """
+    step_status, started = _summarize(flow, store.step_runs(run.id))
+    effective = dict(step_status)
+    for step in graph.dead_steps(flow, step_status, started):
+        if step.when == WHEN_FAILED:
+            store.set_step_status(
+                run.id, step.name, NO_ITEM, StepStatus.skipped, now_iso, "no need failed"
+            )
+            effective[step.name] = StepStatus.skipped.value
+            continue
+        reason = "no need failed"
+        for need in step.needs:
+            status = effective.get(need)
+            if status in graph.FAILED:
+                reason = f"need {need} {status}"
+                break
+        store.set_step_status(run.id, step.name, NO_ITEM, StepStatus.cancelled, now_iso, reason)
+        effective[step.name] = StepStatus.cancelled.value
 
 
 def _expand_step(

@@ -9,7 +9,7 @@ from pathlib import Path
 from fleet.flows.model import Flow, Input, Step
 from fleet.runs import engine
 from fleet.runs.run_dir import NO_ITEM, create_step_dir, outputs_file
-from fleet.runs.store import RunStore, StepRun, StepStatus
+from fleet.runs.store import RunStatus, RunStore, StepRun, StepStatus
 
 NOW = datetime(2026, 9, 28, 7, 0, 0, tzinfo=UTC)
 
@@ -154,7 +154,10 @@ def test_aggregate_failed_when_one_item_fails(tmp_path: Path) -> None:
     summary = store.get_step_run(run_id, "work", NO_ITEM)
     assert summary is not None and summary.status is StepStatus.failed
     assert tick.launches == ()
-    assert tick.run_status is None  # "done" can never run, so the run stays open
+    done_row = store.get_step_run(run_id, "done", NO_ITEM)
+    assert done_row is not None and done_row.status is StepStatus.cancelled
+    assert done_row.reason == "need work failed"
+    assert tick.run_status is RunStatus.failed
 
 
 def test_template_error_on_for_each_fails_summary_row(tmp_path: Path) -> None:

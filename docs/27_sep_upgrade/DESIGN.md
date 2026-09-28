@@ -145,6 +145,14 @@ Rules:
 - `needs` is the only edge. A step is ready when every step it needs has
   finished. There are no stages; stages were only a way to say "these run
   together", which `needs` already says.
+- `when` picks which finished needs unblock a step: `ok` (the default) needs
+  every need `succeeded` or `skipped`; `failed` needs every need finished
+  with at least one `failed` or `cancelled` (a clean-up step); `finished`
+  needs every need finished, whatever their outcome. `failed` and `finished`
+  require at least one need. A step that can never become ready is settled
+  at once: an unreachable `ok` step is `cancelled` (`need <name> <status>`),
+  an unreachable `failed` step is `skipped` (`no need failed`), so the run
+  folds to `failed` when any step failed instead of hanging.
 - `for_each` is the one dynamic construct. When the step becomes ready, the
   list is rendered from earlier outputs and the step runs once per item, with
   `{{ item }}` and `{{ index }}` in its templates. A step that `needs` a

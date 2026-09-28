@@ -12,14 +12,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from fleet.core.errors import TemplateError
-from fleet.flows.model import Flow, Step
+from fleet.flows.model import WHEN_FAILED, WHEN_FINISHED, Flow, Step
 from fleet.flows.templates import render, render_bool, render_value
 
 FINISHED: frozenset[str] = frozenset({"succeeded", "failed", "skipped", "cancelled"})
 """Statuses after which a step or item never runs again."""
 
 OK: frozenset[str] = frozenset({"succeeded", "skipped"})
-"""Statuses whose dependents may proceed; failed/cancelled block forever."""
+"""Statuses whose ``when: ok`` dependents may proceed."""
+
+FAILED: frozenset[str] = frozenset({"failed", "cancelled"})
+"""Statuses that count as a failed need for ``when: failed`` steps."""
 
 
 @dataclass(frozen=True)
@@ -33,18 +36,62 @@ class Item:
 
 
 def ready_steps(flow: Flow, step_status: Mapping[str, str], started: Collection[str]) -> list[Step]:
-    """Return steps not in ``started`` whose every need has status in OK.
+    """Return steps not in ``started`` whose needs satisfy their ``when`` rule.
 
-    Flow order is preserved. A need that is missing, unfinished, failed or
-    cancelled keeps the step unready; failed/cancelled never become OK.
+    Flow order is preserved. ``when: ok`` needs every need in OK;
+    ``when: failed`` needs every need finished with at least one failed or
+    cancelled; ``when: finished`` needs every need finished. A need that is
+    missing or unfinished keeps the step unready in every mode.
     """
     ready: list[Step] = []
     for flow_step in flow.steps:
         if flow_step.name in started:
             continue
-        if all(step_status.get(need) in OK for need in flow_step.needs):
+        needs = [step_status.get(need) for need in flow_step.needs]
+        if flow_step.when == WHEN_FAILED:
+            finished = bool(needs) and all(status in FINISHED for status in needs)
+            if finished and any(status in FAILED for status in needs):
+                ready.append(flow_step)
+        elif flow_step.when == WHEN_FINISHED:
+            if all(status in FINISHED for status in needs):
+                ready.append(flow_step)
+        elif all(status in OK for status in needs):  # WHEN_OK (or unvalidated).
             ready.append(flow_step)
     return ready
+
+
+def dead_steps(flow: Flow, step_status: Mapping[str, str], started: Collection[str]) -> list[Step]:
+    """Return steps not in ``started`` that can never become ready.
+
+    ``when: ok`` is dead when any need failed or cancelled; ``when: failed``
+    is dead when every need finished with none failed or cancelled;
+    ``when: finished`` is never dead on its own. Computed to a fixpoint: a
+    dead step counts as ``cancelled`` for its own dependents, so one call
+    marks a whole unreachable chain. Flow order is preserved.
+    """
+    effective = dict(step_status)
+    dead: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for flow_step in flow.steps:
+            if flow_step.name in started or flow_step.name in dead:
+                continue
+            needs = [effective.get(need) for need in flow_step.needs]
+            is_dead = False
+            if flow_step.when == WHEN_FAILED:
+                finished = bool(needs) and all(status in FINISHED for status in needs)
+                if finished and not any(status in FAILED for status in needs):
+                    is_dead = True
+            elif flow_step.when == WHEN_FINISHED:
+                is_dead = False
+            elif any(status in FAILED for status in needs):
+                is_dead = True
+            if is_dead:
+                dead.add(flow_step.name)
+                effective[flow_step.name] = "cancelled"
+                changed = True
+    return [flow_step for flow_step in flow.steps if flow_step.name in dead]
 
 
 def expand(step: Step, ctx: Mapping[str, Any]) -> list[Item]:

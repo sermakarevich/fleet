@@ -23,6 +23,18 @@ CHECK_KINDS: tuple[str, ...] = ("tool", "coder", "human")
 CHECK_WHEN: tuple[str, ...] = ("before", "after")
 """Allowed ``Check.when`` values (DESIGN.md §3.8)."""
 
+WHEN_OK = "ok"
+"""Step runs when every need succeeded or was skipped (the default)."""
+
+WHEN_FAILED = "failed"
+"""Step runs when every need finished and at least one failed or cancelled."""
+
+WHEN_FINISHED = "finished"
+"""Step runs when every need finished, whatever their outcome."""
+
+STEP_WHEN: tuple[str, ...] = (WHEN_OK, WHEN_FAILED, WHEN_FINISHED)
+"""Allowed ``Step.when`` values (DESIGN.md §3.2)."""
+
 ON_FAIL: tuple[str, ...] = ("retry", "fail", "skip", "stop")
 """Allowed ``Check.on_fail`` values (DESIGN.md §3.8)."""
 
@@ -57,6 +69,7 @@ _STEP_FIELDS = frozenset(
         "skip_if",
         "outputs",
         "checks",
+        "when",
     }
 )
 
@@ -153,6 +166,7 @@ class Step:
     outputs: tuple[str, ...] = ()
     checks: tuple[Check, ...] = ()
     checks_set: bool = False
+    when: str = WHEN_OK
 
 
 @dataclass(frozen=True)
@@ -426,6 +440,12 @@ def _parse_step(
         problems.append(f"step {label}: kind must be one of coder, human, tool")
     needs = _parse_needs(label, step_name, raw_step.get("needs", []), step_names, problems)
     needs_map[label] = needs
+    when = raw_step.get("when", WHEN_OK)
+    if when not in STEP_WHEN:
+        problems.append(f"step {label}: when must be one of ok, failed, finished")
+        when = WHEN_OK
+    elif when in (WHEN_FAILED, WHEN_FINISHED) and not needs:
+        problems.append(f"step {label}: when needs at least one need")
     prompt = raw_step.get("prompt", "")
     if not isinstance(prompt, str):
         problems.append(f"step {label}: prompt must be a string")
@@ -467,6 +487,7 @@ def _parse_step(
         outputs=_parse_str_list(raw_step.get("outputs"), f"step {label}: outputs", problems),
         checks=checks,
         checks_set=checks_set,
+        when=when if isinstance(when, str) else WHEN_OK,
     )
 
 
@@ -719,6 +740,8 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
             data[field_name] = value
     if step.parallel is not True:
         data["parallel"] = step.parallel
+    if step.when != WHEN_OK:
+        data["when"] = step.when
     if step.outputs:
         data["outputs"] = list(step.outputs)
     if step.checks or step.checks_set:

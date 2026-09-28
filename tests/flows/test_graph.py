@@ -67,6 +67,119 @@ def test_ready_steps_started_are_excluded() -> None:
     assert [step.name for step in ready] == ["beta"]
 
 
+def test_ready_steps_when_truth_table() -> None:
+    """Each when mode unblocks only on its own finished-need combination."""
+    flow = _flow(
+        {
+            "need": {"prompt": "n"},
+            "on_ok": {"prompt": "a", "needs": ["need"]},
+            "on_failed": {"prompt": "b", "needs": ["need"], "when": "failed"},
+            "on_finished": {"prompt": "c", "needs": ["need"], "when": "finished"},
+        }
+    )
+
+    def names(status: str) -> list[str]:
+        """Steps ready when the single need carries this status."""
+        tick = graph.ready_steps(flow, {"need": status}, {"need"})
+        return [step.name for step in tick]
+
+    assert names("succeeded") == ["on_ok", "on_finished"]
+    assert names("skipped") == ["on_ok", "on_finished"]
+    assert names("failed") == ["on_failed", "on_finished"]
+    assert names("cancelled") == ["on_failed", "on_finished"]
+    assert names("running") == []
+    assert names("ready") == []
+    flow_unfinished = _flow(
+        {
+            "need": {"prompt": "n"},
+            "late": {"prompt": "x", "needs": ["need"], "when": "finished"},
+        }
+    )
+    assert [step.name for step in graph.ready_steps(flow_unfinished, {}, set())] == ["need"]
+
+
+def test_ready_steps_failed_needs_all_finished() -> None:
+    """when failed waits while any need is unfinished, even a doomed one."""
+    flow = _flow(
+        {
+            "left": {"prompt": "l"},
+            "right": {"prompt": "r"},
+            "cleanup": {"prompt": "c", "needs": ["left", "right"], "when": "failed"},
+        }
+    )
+    started = {"left", "right"}
+    assert graph.ready_steps(flow, {"left": "failed", "right": "running"}, started) == []
+    ready = graph.ready_steps(flow, {"left": "failed", "right": "succeeded"}, started)
+    assert [step.name for step in ready] == ["cleanup"]
+    assert graph.ready_steps(flow, {"left": "succeeded", "right": "succeeded"}, started) == []
+
+
+def test_dead_steps_linear_chain() -> None:
+    """A failed step marks its ok dependent dead, in flow order."""
+    flow = _flow(
+        {
+            "first": {"prompt": "one"},
+            "second": {"prompt": "two", "needs": ["first"]},
+        }
+    )
+    dead = graph.dead_steps(flow, {"first": "failed"}, {"first"})
+    assert [step.name for step in dead] == ["second"]
+    assert graph.dead_steps(flow, {"first": "cancelled"}, {"first"}) == [flow.step("second")]
+    assert graph.dead_steps(flow, {"first": "succeeded"}, {"first"}) == []
+
+
+def test_dead_steps_diamond_one_failed_side() -> None:
+    """A join dies as soon as one side fails, even while the other runs."""
+    flow = _flow(
+        {
+            "left": {"prompt": "l"},
+            "right": {"prompt": "r"},
+            "join": {"prompt": "j", "needs": ["left", "right"]},
+        }
+    )
+    dead = graph.dead_steps(flow, {"left": "failed"}, {"left"})
+    assert [step.name for step in dead] == ["join"]
+    dead = graph.dead_steps(flow, {"left": "failed", "right": "succeeded"}, {"left", "right"})
+    assert [step.name for step in dead] == ["join"]
+    assert graph.dead_steps(flow, {"left": "succeeded", "right": "running"}, {"left"}) == []
+
+
+def test_dead_steps_failed_mode_needs_all_succeeded() -> None:
+    """A when failed step whose needs all succeeded can never run."""
+    flow = _flow(
+        {
+            "work": {"prompt": "w"},
+            "cleanup": {"prompt": "c", "needs": ["work"], "when": "failed"},
+        }
+    )
+    assert graph.dead_steps(flow, {"work": "succeeded"}, {"work"}) == [flow.step("cleanup")]
+    assert graph.dead_steps(flow, {"work": "running"}, {"work"}) == []
+    assert graph.dead_steps(flow, {"work": "failed"}, {"work"}) == []
+
+
+def test_dead_steps_finished_never_dead() -> None:
+    """A when finished step is never dead, even when its needs failed."""
+    flow = _flow(
+        {
+            "work": {"prompt": "w"},
+            "report": {"prompt": "r", "needs": ["work"], "when": "finished"},
+        }
+    )
+    assert graph.dead_steps(flow, {"work": "failed"}, {"work"}) == []
+    assert graph.dead_steps(flow, {"work": "succeeded"}, {"work"}) == []
+
+
+def test_dead_steps_fixpoint_marks_chain() -> None:
+    """One call marks the whole unreachable chain via cancelled dead steps."""
+    flow = _chain_flow()
+    dead = graph.dead_steps(flow, {"first": "failed"}, {"first"})
+    assert [step.name for step in dead] == ["second", "third"]
+    settled = graph.dead_steps(
+        flow, {"first": "failed", "second": "cancelled"}, {"first", "second"}
+    )
+    assert [step.name for step in settled] == ["third"]
+
+
 def _fan_step(extra: dict[str, Any] | None = None) -> Step:
     """Build a for_each step over steps.units.outputs.units."""
     fields: dict[str, Any] = {

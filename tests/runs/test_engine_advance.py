@@ -110,7 +110,8 @@ def test_failed_step_fails_run(tmp_path: Path) -> None:
     assert finished is not None and finished.status is RunStatus.failed
 
 
-def test_blocked_downstream_leaves_run_running(tmp_path: Path) -> None:
+def test_failed_downstream_is_cancelled_and_run_fails(tmp_path: Path) -> None:
+    """After b fails, c is cancelled (need b failed) and the run is failed."""
     store, flow, run_id, run_dir = _start(tmp_path, _linear_steps())
     run = store.get_run(run_id)
     assert run is not None
@@ -122,7 +123,64 @@ def test_blocked_downstream_leaves_run_running(tmp_path: Path) -> None:
     )
     done = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
     assert done.launches == ()
-    assert done.run_status is None  # "c" can never run; flow_status stays unfinished
+    assert _get(store, run_id, "c").status is StepStatus.cancelled
+    assert _get(store, run_id, "c").reason == "need b failed"
+    assert done.run_status is RunStatus.failed
+    finished = store.get_run(run_id)
+    assert finished is not None and finished.status is RunStatus.failed
+
+
+def test_when_failed_cleanup_launches_after_failure(tmp_path: Path) -> None:
+    """A when failed cleanup runs after b fails; the run still ends failed."""
+    steps = (
+        Step(name="b", prompt="do b"),
+        Step(name="cleanup", prompt="clean up", needs=("b",), when="failed"),
+    )
+    store, flow, run_id, run_dir = _start(tmp_path, steps)
+    run = store.get_run(run_id)
+    assert run is not None
+    first = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+    engine.finish_step_run(store, first.launches[0].step_run, StepStatus.failed, NOW)
+    tick = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+    assert [launch.step.name for launch in tick.launches] == ["cleanup"]
+    assert tick.run_status is None
+    engine.finish_step_run(store, tick.launches[0].step_run, StepStatus.succeeded, NOW)
+    done = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+    assert done.run_status is RunStatus.failed
+
+
+def test_when_failed_cleanup_skipped_when_needs_succeed(tmp_path: Path) -> None:
+    """A when failed cleanup is skipped when b succeeds; the run succeeds."""
+    steps = (
+        Step(name="b", prompt="do b"),
+        Step(name="cleanup", prompt="clean up", needs=("b",), when="failed"),
+    )
+    store, flow, run_id, run_dir = _start(tmp_path, steps)
+    run = store.get_run(run_id)
+    assert run is not None
+    first = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+    engine.finish_step_run(store, first.launches[0].step_run, StepStatus.succeeded, NOW)
+    done = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+    assert done.launches == ()
+    assert _get(store, run_id, "cleanup").status is StepStatus.skipped
+    assert _get(store, run_id, "cleanup").reason == "no need failed"
+    assert done.run_status is RunStatus.succeeded
+
+
+def test_when_finished_launches_on_success_and_failure(tmp_path: Path) -> None:
+    """A when finished step launches whether its need succeeded or failed."""
+    steps = (
+        Step(name="b", prompt="do b"),
+        Step(name="report", prompt="report", needs=("b",), when="finished"),
+    )
+    for terminal in (StepStatus.succeeded, StepStatus.failed):
+        store, flow, run_id, run_dir = _start(tmp_path, steps)
+        run = store.get_run(run_id)
+        assert run is not None
+        first = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+        engine.finish_step_run(store, first.launches[0].step_run, terminal, NOW)
+        tick = engine.advance(store, flow, run, run_dir, NOW, defaults=DEFAULTS)
+        assert [launch.step.name for launch in tick.launches] == ["report"]
 
 
 def test_skip_if_marks_skipped_and_continues(tmp_path: Path) -> None:
