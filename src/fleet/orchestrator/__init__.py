@@ -11,6 +11,7 @@ from fleet.integrations.ask_human.store import QuestionStore
 
 from .claim import Claim
 from .config_reload import make_config_reload
+from .flow_service import make_flow_service
 from .helper import HelperSpawn
 from .kill_sentinel import make_kill_sentinel
 from .leases import LeaseReconcile
@@ -54,6 +55,7 @@ def default_services(question_store: QuestionStore | None = None) -> list[Servic
         make_trigger_service(),
         Claim(),
         MergeValidation(),
+        make_flow_service(),
         Reap(),
         make_workflow_refresh(),
         StallWatch(),

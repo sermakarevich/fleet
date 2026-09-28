@@ -29,6 +29,7 @@ class ServiceOrder(IntEnum):
     Schedule = 15
     Trigger = 17
     Claim = 20
+    Flows = 25
     Reap = 30
     WorkflowRefresh = 35
     Stall = 40
@@ -136,6 +137,7 @@ class PeriodicService:
     interval_sec: float
     tick: Callable[[SupervisorState], Awaitable[None]]
     on_start: Callable[[SupervisorState], Awaitable[None]] | None = None
+    on_stop: Callable[[SupervisorState], Awaitable[None]] | None = None
 
     async def serve(self, st: SupervisorState) -> None:
         """Sleep, tick, and log tick failures until shutdown."""

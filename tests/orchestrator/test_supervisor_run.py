@@ -75,6 +75,7 @@ def test_default_services_cover_all_concerns(tmp_path) -> None:  # type: ignore[
             "triggers",
             "workflow_refresh",
             "claim",
+            "flows",
             "merge_validation",
             "reap",
             "stall_watch",

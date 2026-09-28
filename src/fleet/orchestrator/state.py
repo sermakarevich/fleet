@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -70,6 +70,9 @@ class SupervisorState:
     # Owner: StallWatch adds supervised kill tasks; the supervisor drains
     # them on shutdown so no kill is garbage-collected mid-flight.
     background: set[asyncio.Task] = field(default_factory=set)
+    # Writer: flow service on_start. Any-typed so this module never imports
+    # the orchestrator flow modules (import cycle); the service casts.
+    flows: Any = None
 
     def task_dir_for(self, task_id: str) -> Path:
         """Return the task directory for a task id."""
