@@ -19,10 +19,11 @@ import contextlib
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from fleet.core.config import RuntimeConfig
-from fleet.core.errors import FlowNotFound
+from fleet.core.errors import FlowInvalid, FlowNotFound
 from fleet.flows.folders import Catalog, load_catalog
 from fleet.flows.model import Check, Flow, effective_checks
 from fleet.flows.templates import render
@@ -35,6 +36,7 @@ from fleet.orchestrator.flow_coder import (
     step_task_id,
 )
 from fleet.orchestrator.service import PeriodicService, ServiceOrder
+from fleet.orchestrator.starts import StartClock, due_cron, parse_every, poll_tool_start
 from fleet.pool.checks import Verdict, decide, retry_feedback, run_checks
 from fleet.pool.human_run import ask_human, write_human_outputs
 from fleet.pool.tool_run import run_tool, write_step_outputs
@@ -59,6 +61,7 @@ class FlowState:
     waiting: list[Launch] = field(default_factory=list)  # capped coder launches
     feedback: dict[str, str] = field(default_factory=dict)  # check retry text, by task id
     pending: dict[str, tuple[Launch, str]] = field(default_factory=dict)  # tool/human ctx
+    starts: StartClock = field(default_factory=StartClock)  # last cron fire / tool poll
 
 
 def _defaults(config: RuntimeConfig) -> dict[str, Any]:
@@ -88,6 +91,7 @@ async def on_start(st: SupervisorState) -> None:
         coders={},
         tools={},
         humans={},
+        starts=StartClock(),
     )
 
 
@@ -105,15 +109,64 @@ async def on_stop(st: SupervisorState) -> None:
 
 
 async def tick(st: SupervisorState) -> None:
-    """Reap finished steps, dispatch held launches, advance every running run."""
+    """Start due flows, then reap finished steps, dispatch held launches, advance runs."""
     fs = cast(FlowState | None, st.flows)
     if fs is None or st.shutting_down:
         return
+    await _run_starts(st, fs)
     await _reap_coders(st, fs)
     await _reap_tasks(st, fs, fs.tools, "tool")
     await _reap_tasks(st, fs, fs.humans, "human")
     await _dispatch_waiting(st, fs)
     await _advance_runs(st, fs)
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+async def _run_starts(st: SupervisorState, fs: FlowState) -> None:
+    """Step 0: for every enabled flow, fire due cron starts and due tool polls."""
+    now = st.clock.now()
+    for flow in fs.catalog.flows.values():
+        if not flow.enabled:
+            continue
+        if flow.on.cron is not None:
+            try:
+                due = due_cron(flow, fs.starts.cron_last.get(flow.name), now)
+            except Exception as exc:  # noqa: BLE001 - a bad expr skips until next due
+                st.log.warning("start_cron_invalid", flow=flow.name, reason=str(exc))
+                fs.starts.cron_last[flow.name] = now
+                due = False
+            if due:
+                try:
+                    engine.start_run(fs.store, st.fleet_home, flow, {}, now)
+                except FlowInvalid as exc:
+                    st.log.warning("start_cron_invalid", flow=flow.name, reason=str(exc))
+                fs.starts.cron_last[flow.name] = now
+        if flow.on.tool is not None:
+            try:
+                interval = parse_every(flow.on.tool.every)
+            except ValueError as exc:
+                st.log.warning("start_tool_bad_every", flow=flow.name, reason=str(exc))
+                continue
+            last_poll = fs.starts.tool_last.get(flow.name, _EPOCH)
+            if (now - last_poll).total_seconds() < interval:
+                continue
+            try:
+                tool = fs.catalog.tool(flow.on.tool.name)
+            except Exception:  # noqa: BLE001 - KeyError/FlowNotFound both mean unknown
+                st.log.warning("start_tool_unknown", flow=flow.name, tool=flow.on.tool.name)
+                continue
+            await poll_tool_start(
+                flow,
+                tool,
+                fs.store,
+                st.fleet_home,
+                now,
+                environ=os.environ,
+                log=st.log,
+            )
+            fs.starts.tool_last[flow.name] = now
 
 
 async def _reap_coders(st: SupervisorState, fs: FlowState) -> None:
