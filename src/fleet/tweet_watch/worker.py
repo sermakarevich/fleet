@@ -1,0 +1,1025 @@
+"""One ordered tweet_watch pass: watchlist, fetch, score, propose, persist.
+
+Called by the ``tweet-watch`` schedule every 30 minutes, with the
+``ask_human`` tool as ``ask``. Reads INTERESTS.md fresh once per run;
+a run with no new HIGH tweets proposes nothing and stores nothing.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+import re
+import tempfile
+import warnings
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+
+from fleet.tweet_watch import x_fetch
+from fleet.tweet_watch.kb_files import SEED_HANDLES, load_state, read_watchlist, save_state
+from fleet.tweet_watch.reply_files import list_recent, read_reply_text, write_reply
+from fleet.tweet_watch.x_fetch import FetchError, Tweet
+
+logger = logging.getLogger(__name__)
+
+WATCHLIST_PATH = Path("/Users/sergii/.ai/knowledge/media/x/watchlist.md")
+STATE_PATH = Path("/Users/sergii/.ai/knowledge/media/x/watch_state.json")
+INTERESTS_PATH = Path("/Users/sergii/.ai/knowledge/media/INTERESTS.md")
+REPLIES_DIR = Path("/Users/sergii/.ai/knowledge/media/x/replies")
+
+
+def ensure_watchlist(watchlist_path: Path = WATCHLIST_PATH) -> list[str]:
+    """Ensure the watchlist file exists (seeding it when missing) and return its handles."""
+    path = Path(watchlist_path)
+    if path.is_dir():
+        raise OSError(f"{path}: watchlist path is a directory")
+    if not path.exists():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise OSError(f"{path}: cannot create parent dir: {exc}") from exc
+        payload = "\n".join(SEED_HANDLES) + "\n"
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as tmp_file:
+                    tmp_file.write(payload)
+                os.replace(tmp_name, path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
+        except OSError as exc:
+            if str(path) in str(exc):
+                raise
+            raise OSError(f"{path}: cannot create watchlist file: {exc}") from exc
+        return list(SEED_HANDLES)
+    try:
+        return read_watchlist(path)
+    except OSError as exc:
+        if str(path) in str(exc):
+            raise
+        raise OSError(f"{path}: cannot read watchlist file: {exc}") from exc
+
+
+def find_new_tweets(
+    handles: Sequence[str],
+    state_path: Path = STATE_PATH,
+    run_command: Callable[[tuple[str, ...]], str] | None = None,
+) -> list[Tweet]:
+    """Fetch candidates and return tweets newer than the stored state, advancing it."""
+    wanted: list[str] = []
+    for handle in handles:
+        if handle not in wanted:
+            wanted.append(handle)
+    if not wanted:
+        return []
+    path = Path(state_path)
+    baseline = load_state(path)
+    candidates = _fetch_candidates(wanted, run_command)
+    fresh, maxima = _select_fresh(candidates, baseline)
+    if not maxima:
+        return []
+    merged = _merge_maxima(baseline, maxima, path)
+    save_state(path, merged)
+    return fresh
+
+
+def _fetch_candidates(
+    wanted: list[str],
+    run_command: Callable[[tuple[str, ...]], str] | None,
+) -> list[Tweet]:
+    """Run the check stage, skipping handles the x side reports as failed."""
+    pending = list(wanted)
+    candidates: list[Tweet] = []
+    while pending:
+        try:
+            candidates = x_fetch.fetch_tweets(pending, run_command=run_command)
+        except FetchError as exc:
+            if exc.handle in pending:
+                warnings.warn(str(exc), UserWarning, stacklevel=2)
+                pending = [h for h in pending if h != exc.handle]
+                continue
+            raise
+        break
+    return candidates
+
+
+def _select_fresh(
+    candidates: Sequence[Tweet], baseline: dict[str, str]
+) -> tuple[list[Tweet], dict[str, str]]:
+    """Split candidates into fresh tweets plus per-handle maxima, deduped by id."""
+    fresh: list[Tweet] = []
+    maxima: dict[str, str] = {}
+    seen: set[tuple[str, str]] = set()
+    for tweet in candidates:
+        key = (tweet.handle, tweet.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        stored = baseline.get(tweet.handle)
+        if stored is None or _is_newer_id(tweet.id, stored):
+            fresh.append(tweet)
+            current = maxima.get(tweet.handle)
+            if current is None or _is_newer_id(tweet.id, current):
+                maxima[tweet.handle] = tweet.id
+    return fresh, maxima
+
+
+def _merge_maxima(baseline: dict[str, str], maxima: dict[str, str], path: Path) -> dict[str, str]:
+    """Fold new maxima over the baseline, keeping fresher mid-run state edits."""
+    merged = dict(baseline)
+    for handle, new_max in maxima.items():
+        current = merged.get(handle)
+        if current is None or _is_newer_id(new_max, current):
+            merged[handle] = new_max
+    if path.exists():
+        reloaded = load_state(path)
+        for handle, value in reloaded.items():
+            current = merged.get(handle)
+            if current is None or _is_newer_id(value, current):
+                merged[handle] = value
+    return merged
+
+
+def _is_newer_id(candidate: str, stored: str) -> bool:
+    if candidate.isascii() and candidate.isdigit() and stored.isascii() and stored.isdigit():
+        return int(candidate) > int(stored)
+    logger.debug("non-numeric tweet id comparison: %r vs %r", candidate, stored)
+    return candidate > stored
+
+
+def score_tweet(tweet_text: str, interests_text: str) -> str:
+    """Score one tweet HIGH, MEDIUM, or LOW against the interests text."""
+    sections = _split_interest_sections(interests_text)
+    core_text = sections["core"]
+    adjacent_text = sections["adjacent"]
+    if not _has_content_words(core_text) and not _has_content_words(adjacent_text):
+        raise ValueError("INTERESTS.md contains no scorable topics")
+    interests_norm = interests_text.casefold()
+
+    text = _normalize_for_scoring(tweet_text or "")
+    if not text:
+        logger.debug("scoring empty tweet text as LOW")
+        return "LOW"
+
+    core_hits = _count_active_units(text, interests_norm, _CORE_UNITS)
+    adjacent_hits = _count_active_units(text, interests_norm, _ADJACENT_UNITS)
+    low_hit = _count_active_units(text, interests_norm, _LOW_UNITS) > 0 or bool(
+        _PRICE_RE.search(text) and "price" in interests_norm
+    )
+
+    if core_hits >= _HIGH_CORE_HIT_COUNT:
+        return "HIGH"
+    if core_hits == 1 and _has_substance(text):
+        return "HIGH"
+    if low_hit:
+        return "LOW"
+    if (
+        core_hits == 1
+        or adjacent_hits >= 1
+        or _generic_topic_overlap(core_text, adjacent_text, text)
+    ):
+        return "MEDIUM"
+    return "LOW"
+
+
+_HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s*(.+?)\s*$", re.MULTILINE)
+_CORE_TOPICS_LINE_RE = re.compile(
+    r"^\s*core\s+topics?\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE
+)
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff\u00ad\u2060\u180e]")
+_DASH_RE = re.compile("[‐‑‒–—―−]")
+_SEPARATOR_RE = re.compile(r"[/_#@|]+")
+_WS_RE = re.compile(r"\s+")
+_WORD_RE = re.compile(r"[a-z\u0400-\u04ff]{4,}")
+_DIGIT_RE = re.compile(r"\d")
+_TOKEN_RE = re.compile(r"[a-z\u0400-\u04ff0-9]+")
+_CONTENT_RE = re.compile(r"[a-z\u0400-\u04ff]{3,}")
+_PRICE_RE = re.compile(r"\$\s?\d")
+
+# Scoring thresholds for score_tweet / _has_substance.
+_HIGH_CORE_HIT_COUNT = 2
+_SHORT_PHRASE_LEN = 4
+_SUBSTANCE_MIN_CHARS = 60
+_SUBSTANCE_MIN_WORDS = 12
+
+_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "been",
+        "were",
+        "will",
+        "would",
+        "there",
+        "their",
+        "about",
+        "into",
+        "your",
+        "what",
+        "when",
+        "them",
+        "then",
+        "than",
+        "also",
+        "just",
+        "like",
+        "more",
+        "most",
+        "over",
+        "such",
+        "only",
+        "very",
+        "they",
+    }
+)
+
+# (normalized phrase, gate term that must appear in the interests text)
+_CORE_UNITS: tuple[tuple[str, str], ...] = (
+    ("beads", "beads"),
+    ("worker loop", "worker loop"),
+    ("orchestrat", "orchestrat"),
+    ("headless", "headless"),
+    ("harness", "harness"),
+    ("fleet", "fleet"),
+    ("supervisor", "supervisor"),
+    ("opencode", "opencode"),
+    ("claude code", "claude"),
+    ("muse spark", "spark"),
+    ("claude fable", "fable"),
+    ("typesafe", "typesafe"),
+    ("jev", "jev"),
+    ("calibrat", "calibrat"),
+    ("verifier", "verifier"),
+    ("eval", "eval"),
+    ("ihbench", "ihbench"),
+    ("interruption", "interruption"),
+    ("stt", "stt"),
+    ("tts", "tts"),
+    ("turn taking", "turn"),
+    ("telephony", "telephony"),
+    ("speech to speech", "speech"),
+    ("pipelin", "pipelin"),
+    ("tasks per dollar", "tasks"),
+    ("token economic", "token"),
+    ("cost engineer", "cost"),
+    ("cheap local", "cheap"),
+    ("frontier model", "frontier"),
+    ("coding agent", "coding agent"),
+    ("voice agent", "voice agent"),
+    ("latency", "latency"),
+    ("voice pipeline", "voice"),
+)
+
+_ADJACENT_UNITS: tuple[tuple[str, str], ...] = (
+    ("swarm", "swarm"),
+    ("emergent coordination", "emergent"),
+    ("collective memory", "collective"),
+    ("agent societ", "societ"),
+    ("second brain", "second brain"),
+    ("personal knowledge", "personal knowledge"),
+    ("recall", "recall"),
+    ("memory layer", "memory"),
+    ("enterprise", "enterprise"),
+    ("applied ai", "applied ai"),
+    ("trend outlook", "trend"),
+    ("kv cache", "kv"),
+    ("inference memory", "inference"),
+    ("hybrid", "hybrid"),
+    ("ai worker", "ai"),
+)
+
+_LOW_UNITS: tuple[tuple[str, str], ...] = (
+    ("giveaway", "giveaway"),
+    ("retweet to win", "giveaway"),
+    ("retweet to enter", "bait"),
+    ("retweet to", "giveaway"),
+    ("follow and tag", "bait"),
+    ("tag 3 friends", "giveaway"),
+    ("tag friends", "giveaway"),
+    ("win 1 eth", "giveaway"),
+    ("btc", "price"),
+    ("eth", "giveaway"),
+    ("moon", "meme"),
+    ("buying", "price"),
+    ("to $", "price"),
+    ("stock pick", "stock"),
+    ("finfluencer", "finfluencer"),
+    ("price", "price"),
+)
+
+
+def _split_interest_sections(interests_text: str | None) -> dict[str, str]:
+    if interests_text is None or not interests_text.strip():
+        raise ValueError("INTERESTS.md is missing or empty: no scorable topics")
+    matches = list(_HEADER_RE.finditer(interests_text))
+    if not matches:
+        raise ValueError("INTERESTS.md has no scorable topics")
+    sections: dict[str, list[str]] = {"core": [], "adjacent": [], "low": []}
+    for index, match in enumerate(matches):
+        title = match.group(1).casefold()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(interests_text)
+        body = interests_text[match.end() : end]
+        if "core" in title:
+            sections["core"].append(body)
+        elif "adjacent" in title:
+            sections["adjacent"].append(body)
+        elif re.search(r"\blow\b", title) or title.strip().startswith("low"):
+            sections["low"].append(body)
+    split = {kind: "\n".join(bodies) for kind, bodies in sections.items()}
+    if not _has_content_words(split["core"]) and not _has_content_words(split["adjacent"]):
+        declared = _CORE_TOPICS_LINE_RE.search(interests_text)
+        if declared is None:
+            raise ValueError("INTERESTS.md has no scorable topics")
+        split["core"] = declared.group(1).strip()
+    return split
+
+
+def _has_content_words(section_text: str) -> bool:
+    return bool(_CONTENT_RE.search(section_text.casefold()))
+
+
+def _normalize_for_scoring(raw: str) -> str:
+    text = raw.casefold()
+    text = _URL_RE.sub(" ", text)
+    text = _ZERO_WIDTH_RE.sub("", text)
+    text = _DASH_RE.sub(" ", text)
+    text = _SEPARATOR_RE.sub(" ", text)
+    return _WS_RE.sub(" ", text).strip()
+
+
+def _unit_present(text: str, phrase: str) -> bool:
+    if len(phrase) <= _SHORT_PHRASE_LEN and " " not in phrase:
+        return re.search(r"\b" + re.escape(phrase), text) is not None
+    return phrase in text
+
+
+def _count_active_units(text: str, interests_norm: str, units: tuple[tuple[str, str], ...]) -> int:
+    hits = 0
+    for phrase, gate in units:
+        if gate in interests_norm and _unit_present(text, phrase):
+            hits += 1
+    return hits
+
+
+def _has_substance(text: str) -> bool:
+    alnum = len(_TOKEN_RE.findall(text))
+    words = _TOKEN_RE.findall(text)
+    return alnum >= _SUBSTANCE_MIN_CHARS and (
+        bool(_DIGIT_RE.search(text)) or len(words) >= _SUBSTANCE_MIN_WORDS
+    )
+
+
+def _generic_topic_overlap(core_text: str, adjacent_text: str, text: str) -> bool:
+    tweet_tokens = set(_WORD_RE.findall(text)) - _STOPWORDS
+    if not tweet_tokens:
+        return False
+    for section in (core_text, adjacent_text):
+        section_tokens = set(_WORD_RE.findall(section.casefold())) - _STOPWORDS
+        if tweet_tokens & section_tokens:
+            return True
+    return False
+
+
+def is_duplicate(draft_text: str, recent_texts: Sequence[str]) -> bool:
+    """True when the draft is empty, content-free, or near-identical to a recent reply."""
+    if draft_text is None or not str(draft_text).strip():
+        return True
+    if _is_content_free(str(draft_text)):
+        return True
+    recents = list(recent_texts or [])
+    bodies: list[str] = []
+    for item in recents:
+        if item is None:
+            continue
+        text = str(item)
+        if not text.strip():
+            continue
+        if not _normalize_for_dupe(text):
+            continue
+        bodies.append(text)
+    if not bodies:
+        return False
+    draft = _DraftFeatures.from_text(str(draft_text))
+    return any(_matches_recent_body(draft, body) for body in bodies)
+
+
+@dataclass(frozen=True, slots=True)
+class _DraftFeatures:
+    """Precomputed comparison features for one draft reply."""
+
+    norm: str
+    tokens: frozenset[str]
+    numbers: frozenset[str]
+    cyrillic: bool
+
+    @classmethod
+    def from_text(cls, draft_text: str) -> _DraftFeatures:
+        return cls(
+            norm=_normalize_for_dupe(draft_text),
+            tokens=frozenset(_dupe_tokens(draft_text)),
+            numbers=frozenset(_distinctive_numbers(draft_text)),
+            cyrillic=bool(_CYRILLIC_RE.search(draft_text)),
+        )
+
+
+def _token_overlap_hits(
+    draft_tokens: frozenset[str],
+    recent_tokens: set[str],
+    jaccard_min: float,
+    containment_min: float,
+) -> bool:
+    if not draft_tokens or not recent_tokens:
+        return False
+    inter = draft_tokens & recent_tokens
+    union = draft_tokens | recent_tokens
+    jaccard = len(inter) / len(union) if union else 0.0
+    smallest = min(len(draft_tokens), len(recent_tokens))
+    containment = len(inter) / smallest if smallest else 0.0
+    return jaccard >= jaccard_min or containment >= containment_min
+
+
+def _matches_recent_body(draft: _DraftFeatures, body: str) -> bool:
+    norm = _normalize_for_dupe(body)
+    if draft.norm and draft.norm == norm:
+        return True
+    recent_tokens = _dupe_tokens(body)
+    if _token_overlap_hits(draft.tokens, recent_tokens, _DUPE_JACCARD_MIN, _DUPE_CONTAINMENT_MIN):
+        return True
+    if draft.numbers & _distinctive_numbers(body):
+        recent_cyrillic = bool(_CYRILLIC_RE.search(body))
+        if draft.cyrillic != recent_cyrillic:
+            return True
+        if _token_overlap_hits(
+            draft.tokens,
+            recent_tokens,
+            _SHARED_NUMBER_JACCARD_MIN,
+            _SHARED_NUMBER_CONTAINMENT_MIN,
+        ):
+            return True
+    return False
+
+
+# Near-duplicate thresholds for is_duplicate.
+_DUPE_JACCARD_MIN = 0.4
+_DUPE_CONTAINMENT_MIN = 0.55
+_SHARED_NUMBER_JACCARD_MIN = 0.15
+_SHARED_NUMBER_CONTAINMENT_MIN = 0.25
+_DUPE_MIN_TOKEN_LEN = 4
+_CONTENT_FREE_TOKEN_LEN = 3
+_CONTENT_FREE_MIN_TOKENS = 3
+_DISTINCTIVE_MIN_DIGITS = 2
+
+
+_URL_STRIP_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_MENTION_RE = re.compile(r"@[\w\u0400-\u04ff]+")
+_HASHTAG_RE = re.compile(r"#[\w\u0400-\u04ff]+")
+_PUNCT_RE = re.compile(r"[^a-z\u0400-\u04ff0-9\s]")
+_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
+
+_DUPE_STOPWORDS = frozenset(
+    {
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "been",
+        "were",
+        "will",
+        "would",
+        "there",
+        "their",
+        "about",
+        "into",
+        "your",
+        "what",
+        "when",
+        "them",
+        "then",
+        "than",
+        "also",
+        "just",
+        "like",
+        "more",
+        "most",
+        "over",
+        "such",
+        "only",
+        "very",
+        "they",
+        "and",
+        "the",
+        "for",
+        "are",
+        "was",
+        "has",
+        "had",
+        "a",
+        "an",
+        "is",
+        "it",
+        "its",
+        "as",
+        "be",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "we",
+        "our",
+        "you",
+        "these",
+        "those",
+        "but",
+        "can",
+        "should",
+        "could",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "do",
+        "does",
+        "did",
+        "after",
+        "before",
+        "through",
+        "during",
+        "above",
+        "below",
+        "out",
+        "off",
+        "under",
+        "again",
+        "further",
+        "once",
+        "here",
+        "where",
+        "why",
+        "how",
+        "all",
+        "any",
+        "both",
+        "each",
+        "few",
+        "other",
+        "some",
+        "own",
+        "too",
+    }
+)
+
+
+def _strip_noise(raw: str) -> str:
+    text = raw.casefold()
+    text = _URL_STRIP_RE.sub(" ", text)
+    text = _MENTION_RE.sub(" ", text)
+    return _HASHTAG_RE.sub(" ", text)
+
+
+def _normalize_for_dupe(raw: str) -> str:
+    text = _strip_noise(raw)
+    text = _PUNCT_RE.sub(" ", text)
+    return _WS_RE.sub(" ", text).strip()
+
+
+def _dupe_tokens(raw: str) -> set[str]:
+    norm = _normalize_for_dupe(raw)
+    return {
+        token
+        for token in _TOKEN_RE.findall(norm)
+        if len(token) >= _DUPE_MIN_TOKEN_LEN and token not in _DUPE_STOPWORDS
+    }
+
+
+def _is_content_free(raw: str) -> bool:
+    stripped = _strip_noise(raw)
+    tokens = [t for t in _TOKEN_RE.findall(stripped) if len(t) >= _CONTENT_FREE_TOKEN_LEN]
+    return len(tokens) < _CONTENT_FREE_MIN_TOKENS
+
+
+def _distinctive_numbers(raw: str) -> set[str]:
+    found: set[str] = set()
+    for match in _NUMBER_RE.findall(raw):
+        norm = match.replace(",", ".")
+        digits = norm.replace(".", "")
+        if len(digits) < _DISTINCTIVE_MIN_DIGITS and "." not in norm:
+            continue
+        stripped = norm.lstrip("0").rstrip("0").strip(".") or "0"
+        found.add(stripped)
+    return found
+
+
+_HYPE_PHRASES = (
+    "game-changer",
+    "game changer",
+    "revolutionary",
+    "insane alpha",
+    "mind-blowing",
+    "mind blowing",
+)
+
+_PLAIN_CAPS = frozenset({"AI", "X", "ML", "LLM", "API", "KV", "STT", "TTS", "CPU", "GPU", "OS"})
+_ABBREV_RE = re.compile(r"\b([A-Z]{2,})s?\b")
+_FIRST_DIGIT_RE = re.compile(r"\d")
+_NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?\s?(?:ms|s\b|sec\b|x\b|%)?")
+_PRAISE_WORDS = frozenset(
+    {
+        "great",
+        "point",
+        "points",
+        "nice",
+        "awesome",
+        "love",
+        "loved",
+        "thanks",
+        "thank",
+        "true",
+        "agree",
+        "agreed",
+        "exactly",
+        "wow",
+        "cool",
+        "interesting",
+        "fascinating",
+        "post",
+        "take",
+        "this",
+        "that",
+        "it",
+        "is",
+        "so",
+        "very",
+        "much",
+        "such",
+        "a",
+        "an",
+        "the",
+        "well",
+        "said",
+        "yes",
+    }
+)
+_X_POST_LIMIT = 280
+# Draft quality gates for propose_tweet / compose_draft.
+_PRAISE_MAX_WORDS = 12
+_RESTATEMENT_MAX_EXTRA_WORDS = 8
+_CONCRETE_CONTENT_OFFSET = 200
+_DRAFT_ANCHOR_MIN_TOKEN_LEN = 4
+# Prompt body (everything but the tweet link) stays near postable size: the
+# link plus a small header allowance on top of the post limit. The draft is
+# never squeezed for the prompt beyond its own postable trim; only the
+# cached source context is snippeted at a word boundary when room is tight.
+_PROMPT_BODY_CAP = _X_POST_LIMIT + 64
+
+
+def _normalize_flat(raw: str) -> str:
+    folded = raw.casefold()
+    folded = re.sub(r"\s+", " ", folded).strip()
+    return re.sub(r"[^\w ]", "", folded)
+
+
+def _is_praise_only(draft: str) -> bool:
+    words = re.findall(r"[A-Za-z']+", draft)
+    if not words:
+        return True
+    if len(words) > _PRAISE_MAX_WORDS:
+        return False
+    return {word.casefold() for word in words} <= _PRAISE_WORDS
+
+
+def _is_restatement(draft: str, tweet_text: str) -> bool:
+    draft_norm = _normalize_flat(draft)
+    tweet_norm = _normalize_flat(tweet_text)
+    if not tweet_norm:
+        return False
+    if draft_norm == tweet_norm:
+        return True
+    if tweet_norm in draft_norm:
+        extra = len(draft_norm.split()) - len(tweet_norm.split())
+        return extra < _RESTATEMENT_MAX_EXTRA_WORDS
+    return False
+
+
+def _unexplained_abbreviations(draft: str) -> list[str]:
+    bad: list[str] = []
+    for match in _ABBREV_RE.finditer(draft):
+        token = match.group(1)
+        if token in _PLAIN_CAPS:
+            continue
+        rest = draft[match.end() :]
+        if not re.match(r"\s*\([^)]{3,80}\)", rest):
+            bad.append(token)
+    return bad
+
+
+def _trim_to_postable(draft: str, tweet_id: str, max_len: int = _X_POST_LIMIT) -> str:
+    if len(draft) <= max_len:
+        return draft
+    kept: list[str] = []
+    length = 0
+    for word in draft.split():
+        piece = len(word) if not kept else len(word) + 1
+        if length + piece > max_len:
+            break
+        kept.append(word)
+        length += piece
+    if not kept:
+        raise ValueError(f"tweet {tweet_id}: draft has no postable prefix")
+    return " ".join(kept)
+
+
+_DRAFT_ANCHOR_COUNT = 5
+_DRAFT_ANCHOR_BANNED = frozenset({"revolutionary"})
+
+
+def _draft_anchors(source: str, count: int = _DRAFT_ANCHOR_COUNT) -> list[str]:
+    """First distinct content words of the source, in order of appearance."""
+    anchors: list[str] = []
+    for token in _TOKEN_RE.findall(source.casefold()):
+        if (
+            len(token) < _DRAFT_ANCHOR_MIN_TOKEN_LEN
+            or token in _DUPE_STOPWORDS
+            or token in _DRAFT_ANCHOR_BANNED
+        ):
+            continue
+        if token not in anchors:
+            anchors.append(token)
+        if len(anchors) >= count:
+            break
+    return anchors
+
+
+def compose_draft(tweet: Tweet, interests_text: str) -> str:
+    """Draft a reply post that adds one new observation to the source tweet."""
+    if interests_text is None or not str(interests_text).strip():
+        raise ValueError("INTERESTS.md is missing or empty: cannot draft")
+    source = (tweet.text or "").strip()
+    if not source:
+        raise ValueError(f"tweet {tweet.id}: empty source text, nothing to draft from")
+    number = _NUMBER_TOKEN_RE.search(source)
+    if number:
+        lead = f"{number.group(0).strip()} is the figure that matters:"
+    else:
+        lead = "One measurement beats a thread of opinions:"
+    anchors = _draft_anchors(source)
+    if anchors:
+        if len(anchors) > 1:
+            subject = ", ".join(anchors[:-1]) + " and " + anchors[-1]
+        else:
+            subject = anchors[0]
+        draft = f"{lead} {subject} - try one fix at a time and see what lasts."
+    else:
+        draft = (
+            f"{lead} profile each pipeline stage separately before switching "
+            "setups, since every stage fails differently at scale."
+        )
+    return _trim_to_postable(draft, str(tweet.id))
+
+
+def propose_tweet(tweet: Tweet, draft_text: str, ask: Callable[[str], str]) -> str:
+    """Propose one HIGH tweet via ask_human with link plus draft; return the answer."""
+    tweet_id = str(getattr(tweet, "id", "") or "")
+    tweet_text = str(getattr(tweet, "text", "") or "")
+    tweet_url = str(getattr(tweet, "url", "") or "")
+    if not tweet_text.strip():
+        raise ValueError(f"tweet {tweet_id}: empty text, nothing to propose")
+    if not tweet_url.strip() or not tweet_id.strip():
+        raise ValueError(f"tweet {tweet_id}: missing link half, never invent a URL")
+    draft = str(draft_text or "").strip()
+    if not draft:
+        raise ValueError(f"tweet {tweet_id}: empty draft, nothing to propose")
+    if _is_praise_only(draft):
+        raise ValueError(f"tweet {tweet_id}: draft is praise-only, adds nothing new")
+    if _is_restatement(draft, tweet_text):
+        raise ValueError(f"tweet {tweet_id}: draft restates the source tweet")
+    lowered = draft.casefold()
+    spaced = re.sub(r"\s+", " ", re.sub(r"[^\w ]", " ", lowered)).strip()
+    for hype in _HYPE_PHRASES:
+        if hype in lowered or hype in spaced:
+            raise ValueError(f"tweet {tweet_id}: draft uses hype phrase {hype!r}")
+    abbrevs = _unexplained_abbreviations(draft)
+    if abbrevs:
+        raise ValueError(f"tweet {tweet_id}: draft has unexplained abbreviations {abbrevs}")
+    first_digit = _FIRST_DIGIT_RE.search(draft)
+    if first_digit is not None and first_digit.start() > _CONCRETE_CONTENT_OFFSET:
+        raise ValueError(f"tweet {tweet_id}: draft buries the concrete content")
+    draft = _trim_to_postable(draft, tweet_id)
+    head = f"Reply proposal for {tweet_url}:\n"
+    source = tweet_text.strip()
+    room = _PROMPT_BODY_CAP - len(head) - len(draft) - 1
+    if room < len(source):
+        if room <= 0:
+            source = ""
+        else:
+            try:
+                source = _trim_to_postable(source, tweet_id, room)
+            except ValueError:
+                source = ""
+    prompt = f"{head}{source}\n{draft}"
+    return ask(prompt)
+
+
+_URL_ID_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/\S*?/status(?:es)?/(\d+)",
+    re.IGNORECASE,
+)
+_ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_SLASH_DATE_RE = re.compile(r"\b\d{1,4}[/.]\d{1,2}[/.]\d{1,4}\b")
+_NON_ISO_DAY_RE = re.compile(r"\b(yesterday|tomorrow)\b", re.IGNORECASE)
+_MONTHS = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+    r"|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+)
+_MONTH_DAY_RE = re.compile(
+    rf"(?:\b(?:{_MONTHS})\s+\d{{1,2}}\b|\b\d{{1,2}}\s+(?:{_MONTHS})\b)",
+    re.IGNORECASE,
+)
+_BARE_ID_RE = re.compile(r"\b\d+\b")
+
+_DECLINE_MARKERS = (
+    "skip",
+    "declin",
+    "not this",
+    "don't",
+    "do not",
+    "dont",
+    "didn't",
+    "did not",
+    "myself",
+    "elsewhere",
+    "later",
+    "instead",
+    "not post",
+    "nope",
+)
+
+_POST_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_REPLY_ID_RE = re.compile(r"^\d+$")
+
+
+def parse_confirmation(answer_text: str, today: date) -> tuple[str, str] | None:
+    """Parse an ask_human answer into a (reply_id, post_date) confirmation, or None."""
+    if not isinstance(answer_text, str) or not answer_text.strip():
+        return None
+    text = answer_text.strip()
+    if any(marker in text.casefold() for marker in _DECLINE_MARKERS):
+        return None
+    url_match = _URL_ID_RE.search(text)
+    reply_id = url_match.group(1) if url_match else None
+    scrubbed = _URL_ID_RE.sub(" ", text)
+    dated = _confirmation_date(scrubbed, today)
+    if dated is None:
+        return None
+    post_date, scrubbed = dated
+    if reply_id is None:
+        candidates = _BARE_ID_RE.findall(scrubbed)
+        if not candidates:
+            return None
+        reply_id = max(candidates, key=len)
+    return (reply_id, post_date)
+
+
+def _confirmation_date(scrubbed: str, today: date) -> tuple[str, str] | None:
+    """Return (post_date, scrubbed) or None when the answer names an unusable date."""
+    iso_match = _ISO_DATE_RE.search(scrubbed)
+    if iso_match is None:
+        if (
+            _SLASH_DATE_RE.search(scrubbed)
+            or _NON_ISO_DAY_RE.search(scrubbed)
+            or _MONTH_DAY_RE.search(scrubbed)
+        ):
+            return None
+        return (today.isoformat()[:10], scrubbed)
+    post_date = iso_match.group(1)
+    try:
+        parsed = date.fromisoformat(post_date)
+    except ValueError:
+        return None
+    if parsed.isoformat() != post_date:
+        return None
+    return (post_date, scrubbed.replace(post_date, " ", 1))
+
+
+def persist_reply(
+    source_url: str,
+    source_body: str,
+    posted_text: str,
+    reply_id: str,
+    post_date: str,
+    replies_dir: Path = REPLIES_DIR,
+) -> Path:
+    """Store one operator-confirmed reply as ``<date>-<id>.md``; return its path."""
+    if not isinstance(source_url, str) or not source_url.strip():
+        raise ValueError(f"reply {reply_id!r}: missing source link, nothing to persist")
+    if not isinstance(source_body, str) or not source_body.strip():
+        raise ValueError(f"reply {reply_id!r}: missing source text, nothing to persist")
+    if not isinstance(posted_text, str) or not posted_text.strip():
+        raise ValueError(f"{source_url}: empty posted text, nothing to persist")
+    if not isinstance(reply_id, str) or _REPLY_ID_RE.match(reply_id.strip()) is None:
+        raise ValueError(f"invalid reply id {reply_id!r}: expected bare numeric id")
+    if not isinstance(post_date, str) or _POST_DATE_RE.match(post_date) is None:
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
+    try:
+        parsed = date.fromisoformat(post_date)
+    except ValueError:
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD") from None
+    if parsed.isoformat() != post_date:
+        raise ValueError(f"invalid post date {post_date!r}: expected YYYY-MM-DD")
+    clean_id = reply_id.strip()
+    content = f"{source_url.strip()}\n\n{posted_text.strip()}\n"
+    source_match = _URL_ID_RE.search(source_url.strip())
+    saved = write_reply(
+        Path(replies_dir),
+        post_date,
+        clean_id,
+        content,
+        source_id=source_match.group(1) if source_match else None,
+    )
+    logger.info("persisted reply %s", saved)
+    return saved
+
+
+def run(
+    ask: Callable[[str], str] | None = None,
+    today: date | None = None,
+    interests_text: str | None = None,
+    recent_texts: Sequence[str] | None = None,
+) -> None:
+    """Run one watchlist-to-replies pass in order; fail closed when inputs are missing."""
+    if ask is None:
+        raise ValueError("ask_human callback is required: HIGH tweets must be proposed")
+
+    run_day = today if today is not None else date.today()
+
+    if interests_text is None:
+        interests_path = Path(INTERESTS_PATH)
+        try:
+            interests_text = interests_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OSError(f"{interests_path}: cannot read INTERESTS.md: {exc}") from exc
+
+    handles = ensure_watchlist(Path(WATCHLIST_PATH))
+    tweets = find_new_tweets(list(handles), Path(STATE_PATH))
+
+    if recent_texts is None:
+        replies_dir = Path(REPLIES_DIR)
+        recent_paths = list_recent(replies_dir, run_day)
+        recents: list[str] = [read_reply_text(p) for p in recent_paths]
+    else:
+        recents = list(recent_texts)
+
+    seen_ids: set[str] = set()
+    batch_drafts: list[str] = []
+    failures: list[BaseException] = []
+    for tweet in tweets:
+        if tweet.id in seen_ids:
+            continue
+        seen_ids.add(tweet.id)
+        label = score_tweet(tweet.text, interests_text)
+        if label != "HIGH":
+            continue
+        draft = compose_draft(tweet, interests_text)
+        if is_duplicate(draft, [*recents, *batch_drafts]):
+            logger.info(
+                "tweet %s: draft near-duplicate of a recent reply, skipping",
+                tweet.id,
+            )
+            continue
+        try:
+            answer = propose_tweet(tweet, draft, ask)
+        except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
+            logger.exception("proposal failed for tweet %s", tweet.id)
+            failures.append(exc)
+            continue
+        batch_drafts.append(draft)
+        try:
+            confirmed = parse_confirmation(answer, run_day)
+        except Exception:  # noqa: BLE001 - bad confirmation never stores
+            logger.exception("confirmation parse failed for tweet %s", tweet.id)
+            continue
+        if confirmed is None:
+            continue
+        reply_id, post_date = confirmed
+        try:
+            persist_reply(tweet.url, tweet.text, draft, reply_id, post_date, Path(REPLIES_DIR))
+        except Exception as exc:  # noqa: BLE001 - batch continues, re-raised below
+            logger.exception("persist failed for tweet %s", tweet.id)
+            failures.append(exc)
+            continue
+    if failures:
+        raise failures[0]

@@ -11,6 +11,8 @@ from __future__ import annotations
 import builtins
 import json
 import re
+from dataclasses import replace as dc_replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -74,7 +76,20 @@ class ScheduleStore:
         return self._read_schedule(path)
 
     def save(self, schedule: Schedule) -> None:
-        """Write a schedule definition atomically (creates the directory)."""
+        """Write a schedule definition atomically (creates the directory).
+
+        A definition with an empty ``created_at``/``updated_at`` is stamped
+        with the current time first, so what lands on disk always loads
+        back through ``Schedule.from_dict``. Fully-stamped definitions are
+        written as-is.
+        """
+        if not schedule.created_at or not schedule.updated_at:
+            now = datetime.now(UTC).isoformat()
+            schedule = dc_replace(
+                schedule,
+                created_at=schedule.created_at or now,
+                updated_at=schedule.updated_at or now,
+            )
         write_json_atomic(self._path(schedule.id), schedule.to_dict())
 
     def delete(self, schedule_id: str) -> bool:
