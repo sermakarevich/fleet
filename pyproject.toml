@@ -26,7 +26,7 @@ where = ["src"]
 include = ["fleet*"]
 
 [tool.setuptools.package-data]
-fleet = ["templates/*", "coders/hooks/*"]
+fleet = ["templates/*", "coders/hooks/*", "builtin/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
