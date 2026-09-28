@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 
-from fleet.flows import tools
 from fleet.flows.tools import Tool, ToolArg
 from fleet.pool.tool_run import ToolResult, run_tool, write_step_outputs
 
@@ -71,27 +70,26 @@ def test_nonzero_exit_has_no_output(tmp_path: Path) -> None:
     assert not result.timed_out
 
 
-def test_stdin_delivered_when_declared(tmp_path: Path, monkeypatch) -> None:
+def test_stdin_delivered_when_declared(tmp_path: Path) -> None:
     """A rendered stdin body reaches the child on its stdin."""
-    monkeypatch.setattr(tools, "stdin_for", lambda tool, given: "hello-stdin", raising=False)
     tool = Tool(
         name="catter",
         command=("python3", "-c", "import sys; print('got:' + sys.stdin.read())"),
         output="text",
+        stdin="hello-{{ args.who }}",
+        args=(ToolArg(name="who"),),
     )
-    try:
-        result = asyncio.run(
-            run_tool(tool, {}, cwd=tmp_path, attempt_dir=tmp_path / "a", environ=_environ())
+    result = asyncio.run(
+        run_tool(
+            tool, {"who": "stdin"}, cwd=tmp_path, attempt_dir=tmp_path / "a", environ=_environ()
         )
-    finally:
-        monkeypatch.undo()
+    )
     assert result.ok
     assert "got:hello-stdin" in result.stdout
 
 
 def test_stdin_closed_when_absent(tmp_path: Path) -> None:
     """Without a stdin body the child reads EOF at once."""
-    assert getattr(tools, "stdin_for", None) is None
     tool = Tool(
         name="reader",
         command=("python3", "-c", "import sys; print(repr(sys.stdin.read()))"),

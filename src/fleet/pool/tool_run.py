@@ -16,8 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fleet.flows import tools as _tools
-from fleet.flows.tools import Tool, command_for, missing_env, parse_output
+from fleet.flows.tools import Tool, command_for, missing_env, parse_output, stdin_for
 
 
 @dataclass(frozen=True)
@@ -35,18 +34,6 @@ class ToolResult:
     def ok(self) -> bool:
         """True when the process exited 0."""
         return self.exit_code == 0
-
-
-def _stdin_text(tool: Tool, given: Mapping[str, str]) -> str | None:
-    """Render the tool's stdin body, or None when the tool declares none.
-
-    ``stdin_for`` lives in ``fleet.flows.tools`` once tools declare a
-    ``stdin`` template (DESIGN.md §3.7); until then stdin stays closed.
-    """
-    stdin_for = getattr(_tools, "stdin_for", None)
-    if stdin_for is None:
-        return None
-    return stdin_for(tool, given)
 
 
 def _write_attempt(attempt_dir: Path, command: list[str], result: ToolResult) -> None:
@@ -106,7 +93,7 @@ async def run_tool(
         return refused
 
     command = command_for(tool, given)
-    stdin_text = _stdin_text(tool, given)
+    stdin_text = stdin_for(tool, given)
     timeout = tool.timeout if timeout_s is None else timeout_s
 
     start = time.monotonic()
