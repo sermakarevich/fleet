@@ -12,6 +12,7 @@ UTC string. Called by `cli/main.py`.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ from fleet.flows.tools import tool_from_dict
 from fleet.runs import engine
 from fleet.runs import run_dir as run_dir_mod
 from fleet.runs.run_dir import NO_ITEM, read_outputs, step_dir
+from fleet.runs.state import resolve_inputs
 from fleet.runs.store import (
     FINISHED,
     Run,
@@ -234,18 +236,136 @@ def run_validate(path: Path) -> None:
     typer.echo("ok")
 
 
-def run_run(fleet_home: Path, now: datetime, name: str, raw_inputs: list[str]) -> None:
-    """Start a manual run and print the run id."""
+def _parse_inputs_json(raw: str | None) -> dict[str, str]:
+    """Decode --inputs-json into string pairs, exiting USAGE when malformed."""
+    if raw is None:
+        return {}
+    try:
+        decoded = json.loads(raw)
+    except ValueError:
+        fail("inputs-json: must be a JSON object of strings", ExitCode.USAGE)
+    if not isinstance(decoded, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in decoded.items()
+    ):
+        fail("inputs-json: must be a JSON object of strings", ExitCode.USAGE)
+    return dict(decoded)
+
+
+def _find_reusable_run(store: RunStore, flow: Flow, resolved: dict[str, Any]) -> Run | None:
+    """Newest live or succeeded run of *flow* with inputs equal to *resolved*."""
+    for candidate in store.list_runs(flow=flow.name, limit=500):
+        if candidate.inputs == resolved and candidate.status not in (
+            RunStatus.failed,
+            RunStatus.cancelled,
+        ):
+            return candidate
+    return None
+
+
+def _run_result_json(fleet_home: Path, store: RunStore, run: Run, reused: bool) -> dict[str, Any]:
+    """One JSON document for a run: status plus finished steps' outputs."""
+    base = _run_json(run)
+    rows = store.step_runs(run.id)
+    directory = run_dir_mod.run_dir(fleet_home, run.id)
+    outputs: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row.status in FINISHED:
+            step_path = step_dir(directory, row.step, row.item_index)
+            outputs[_output_key(row)] = read_outputs(step_path)
+    return {
+        "id": base["id"],
+        "flow": base["flow"],
+        "status": base["status"],
+        "reason": base["reason"],
+        "reused": reused,
+        "inputs": base["inputs"],
+        "started_at": base["started_at"],
+        "finished_at": base["finished_at"],
+        "steps": [_step_json(row) for row in rows],
+        "outputs": outputs,
+    }
+
+
+def _wait_for_run(store: RunStore, run: Run, poll_seconds: float, timeout_seconds: float) -> Run:
+    """Poll the store until *run* finishes; exit 124 past the timeout."""
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
+    current = run
+    while True:
+        fresh = store.get_run(current.id)
+        if fresh is not None:
+            current = fresh
+        if current.status in FINISHED:
+            return current
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _RunTimeout(current)
+        delay = poll_seconds
+        if deadline is not None:
+            delay = min(delay, max(0.0, deadline - time.monotonic()))
+        time.sleep(delay)
+
+
+class _RunTimeout(Exception):
+    """The --timeout deadline passed while waiting for a run to finish."""
+
+    def __init__(self, run: Run) -> None:
+        """Remember the last known run row for the timeout report."""
+        super().__init__(f"run {run.id} did not finish in time")
+        self.run = run
+
+
+def run_run(  # noqa: PLR0913, PLR0917  # one run, one call shape
+    fleet_home: Path,
+    now: datetime,
+    name: str,
+    raw_inputs: list[str],
+    inputs_json: str | None = None,
+    wait: bool = False,
+    json_output: bool = False,
+    reuse: bool = False,
+    poll_seconds: float = 15.0,
+    timeout_seconds: float = 0.0,
+) -> None:
+    """Start a manual run and print the run id (optionally wait, reuse, JSON)."""
     flow = _resolve(_catalog(fleet_home), name)
     if not flow.on.manual:
         _report_invalid(FlowInvalid(f"flow {flow.name}: manual start is disabled"))
-    given = dict(_parse_input_pair(raw) for raw in raw_inputs)
-    store = _store(fleet_home)
+    given: dict[str, str] = dict(_parse_input_pair(raw) for raw in raw_inputs)
+    given.update(_parse_inputs_json(inputs_json))
     try:
-        run = engine.start_run(store, fleet_home, flow, given, now)
+        resolved = resolve_inputs(flow, given)
     except FlowInvalid as exc:
         _report_invalid(exc)
+    store = _store(fleet_home)
+    reused = False
+    run: Run | None = _find_reusable_run(store, flow, resolved) if reuse else None
+    if run is not None:
+        reused = True
+    else:
+        try:
+            run = engine.start_run(store, fleet_home, flow, given, now)
+        except FlowInvalid as exc:
+            _report_invalid(exc)
+    if json_output:
+        try:
+            finished = _wait_for_run(store, run, poll_seconds, timeout_seconds) if wait else run
+        except _RunTimeout as exc:
+            typer.echo(json.dumps(_run_result_json(fleet_home, store, exc.run, reused)))
+            raise typer.Exit(124) from None
+        typer.echo(json.dumps(_run_result_json(fleet_home, store, finished, reused)))
+        if wait and finished.status in (RunStatus.failed, RunStatus.cancelled):
+            raise typer.Exit(int(ExitCode.ERROR))
+        return
     typer.echo(run.id)
+    if not wait:
+        return
+    try:
+        finished = _wait_for_run(store, run, poll_seconds, timeout_seconds)
+    except _RunTimeout as exc:
+        typer.echo(f"run {exc.run.id} {exc.run.status.value}")
+        raise typer.Exit(124) from None
+    typer.echo(f"run {finished.id} {finished.status.value}")
+    if finished.status in (RunStatus.failed, RunStatus.cancelled):
+        raise typer.Exit(int(ExitCode.ERROR))
 
 
 def run_runs(
@@ -414,9 +534,54 @@ def register(app: typer.Typer) -> None:
             list[str] | None,
             typer.Option("--input", help="Run input as name=value (repeatable)."),
         ] = None,
+        inputs_json: Annotated[
+            str | None,
+            typer.Option(
+                "--inputs-json",
+                help="Run inputs as a JSON object of strings (merged over --input).",
+            ),
+        ] = None,
+        wait: Annotated[
+            bool,
+            typer.Option(
+                "--wait",
+                help="Block until the run finishes; the supervisor's flow "
+                "service must be running to advance runs.",
+            ),
+        ] = False,
+        json_output: Annotated[
+            bool,
+            typer.Option("--json", help="Print the run and its outputs as one JSON object."),
+        ] = False,
+        reuse: Annotated[
+            bool,
+            typer.Option(
+                "--reuse",
+                help="Attach to an existing live or succeeded run with identical "
+                "inputs instead of starting one.",
+            ),
+        ] = False,
+        poll_seconds: Annotated[
+            float, typer.Option("--poll", help="Seconds between status polls with --wait.")
+        ] = 15.0,
+        timeout_seconds: Annotated[
+            float,
+            typer.Option("--timeout", help="Give up waiting after N seconds (0 waits forever)."),
+        ] = 0.0,
     ) -> None:
         """Start a manual run and print the run id."""
-        run_run(bootstrap.fleet_home(), datetime.now(UTC), name, raw_inputs or [])
+        run_run(
+            bootstrap.fleet_home(),
+            datetime.now(UTC),
+            name,
+            raw_inputs or [],
+            inputs_json,
+            wait,
+            json_output,
+            reuse,
+            poll_seconds,
+            timeout_seconds,
+        )
 
     @flow_app.command("runs")
     def runs_cmd(

@@ -1,0 +1,23 @@
+fleet_tool: 2
+description: >-
+  Start a child flow run (or attach to a live one with the same inputs) and
+  wait for it; prints the run's status and step outputs as JSON. Exit 1 when
+  the child run failed.
+command:
+  - fleet
+  - flow
+  - run
+  - "{{ args.flow }}"
+  - --inputs-json
+  - "{{ args.inputs }}"
+  - --wait
+  - --json
+  - --reuse
+  - --poll
+  - "{{ args.poll }}"
+args:
+  flow: {required: true, description: Name of the flow to run.}
+  inputs: {required: true, description: JSON object of run inputs (string values).}
+  poll: {default: "15", description: Seconds between status polls.}
+output: json
+timeout: 14400
