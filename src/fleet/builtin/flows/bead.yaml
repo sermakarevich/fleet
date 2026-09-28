@@ -5,6 +5,11 @@ description: >-
   bead title and description, then the close step closes the bead.
   `coder`, `model`, `cwd` and `isolation` render to "" when the bead
   carries no override; the engine treats "" as unset.
+# Disabled until the beads cutover (DESIGN §7 step 3): while the old
+# claim loop still runs, an enabled bead flow would execute every ready
+# bead twice. Copy this file into a private flows folder with
+# `enabled: true` to try it on one machine.
+enabled: false
 "on": # quoted: bare `on:` parses as boolean True under YAML 1.1
   tool:
     name: bd_ready
