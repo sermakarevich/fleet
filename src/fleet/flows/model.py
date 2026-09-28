@@ -17,6 +17,15 @@ from fleet.core.errors import FlowInvalid
 STEP_KINDS: tuple[str, ...] = ("coder", "human", "tool")
 """Allowed ``Step.kind`` values (DESIGN.md §3.1)."""
 
+CHECK_KINDS: tuple[str, ...] = ("tool", "coder", "human")
+"""Allowed ``Check.kind`` values (DESIGN.md §3.8)."""
+
+CHECK_WHEN: tuple[str, ...] = ("before", "after")
+"""Allowed ``Check.when`` values (DESIGN.md §3.8)."""
+
+ON_FAIL: tuple[str, ...] = ("retry", "fail", "skip", "stop")
+"""Allowed ``Check.on_fail`` values (DESIGN.md §3.8)."""
+
 FLOW_VERSION = 2
 """Value the ``fleet_flow`` key must carry."""
 
@@ -47,6 +56,22 @@ _STEP_FIELDS = frozenset(
         "parallel",
         "skip_if",
         "outputs",
+        "checks",
+    }
+)
+
+_CHECK_FIELDS = frozenset(
+    {
+        "name",
+        "kind",
+        "when",
+        "tool",
+        "args",
+        "prompt",
+        "coder",
+        "model",
+        "skip_if",
+        "on_fail",
     }
 )
 
@@ -89,6 +114,22 @@ class On:
 
 
 @dataclass(frozen=True)
+class Check:
+    """One validation hook on a step (DESIGN.md §3.8)."""
+
+    name: str
+    kind: str = "tool"
+    when: str = "after"
+    tool: str | None = None
+    args: dict[str, str] = field(default_factory=dict)
+    prompt: str = ""
+    coder: str | None = None
+    model: str | None = None
+    skip_if: str | None = None
+    on_fail: str = "fail"
+
+
+@dataclass(frozen=True)
 class Step:
     """One step of a flow: a coder launch, a human question, or a tool run."""
 
@@ -110,6 +151,8 @@ class Step:
     parallel: bool | str = True
     skip_if: str | None = None
     outputs: tuple[str, ...] = ()
+    checks: tuple[Check, ...] = ()
+    checks_set: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +164,7 @@ class Flow:
     on: On = field(default_factory=On)
     inputs: tuple[Input, ...] = ()
     defaults: dict[str, Any] = field(default_factory=dict)
+    default_checks: tuple[Check, ...] = ()
     steps: tuple[Step, ...] = ()
     enabled: bool = True
     source: str = ""
@@ -149,7 +193,7 @@ def flow_from_dict(data: Mapping[str, Any], name: str, source: str = "") -> Flow
     enabled = _parse_enabled(data.get("enabled", True), problems)
     flow_on = _parse_on(data.get("on"), problems)
     inputs = _parse_inputs(data.get("inputs"), problems)
-    defaults = _parse_defaults(data.get("defaults"), problems)
+    defaults, default_checks = _parse_defaults(data.get("defaults"), problems)
     steps = _parse_steps(data.get("steps"), problems)
     if problems:
         raise FlowInvalid(problems)
@@ -159,10 +203,20 @@ def flow_from_dict(data: Mapping[str, Any], name: str, source: str = "") -> Flow
         on=flow_on,
         inputs=inputs,
         defaults=defaults,
+        default_checks=default_checks,
         steps=steps,
         enabled=enabled,
         source=source,
     )
+
+
+def effective_checks(flow: Flow, step: Step) -> tuple[Check, ...]:
+    """Return the checks that run for a step (DESIGN.md §3.8)."""
+    if step.kind != "coder":
+        return step.checks
+    if step.checks_set and not step.checks:
+        return ()
+    return flow.default_checks + step.checks
 
 
 def flow_to_dict(flow: Flow) -> dict[str, Any]:
@@ -176,8 +230,11 @@ def flow_to_dict(flow: Flow) -> dict[str, Any]:
         data["on"] = _on_to_dict(flow.on)
     if flow.inputs:
         data["inputs"] = {item.name: _input_to_dict(item) for item in flow.inputs}
-    if flow.defaults:
-        data["defaults"] = dict(flow.defaults)
+    if flow.defaults or flow.default_checks:
+        merged = dict(flow.defaults)
+        if flow.default_checks:
+            merged["checks"] = [_check_to_dict(check) for check in flow.default_checks]
+        data["defaults"] = merged
     data["steps"] = {step.name: _step_to_dict(step) for step in flow.steps}
     return data
 
@@ -313,14 +370,20 @@ def _parse_input(input_name: Any, raw_item: Any, problems: list[str]) -> Input:
     return Input(name=resolved, description=description, required=required, default=default)
 
 
-def _parse_defaults(raw_defaults: Any, problems: list[str]) -> dict[str, Any]:
-    """Read the `defaults:` mapping, defaulting to empty on misuse."""
+def _parse_defaults(
+    raw_defaults: Any, problems: list[str]
+) -> tuple[dict[str, Any], tuple[Check, ...]]:
+    """Read the `defaults:` mapping, splitting out `checks` for coder steps."""
     if raw_defaults is None:
-        return {}
+        return {}, ()
     if not isinstance(raw_defaults, Mapping):
         problems.append("defaults: must be a mapping")
-        return {}
-    return dict(raw_defaults)
+        return {}, ()
+    defaults = dict(raw_defaults)
+    raw_checks = defaults.pop("checks", None)
+    if raw_checks is None:
+        return defaults, ()
+    return defaults, _parse_checks("defaults", raw_checks, problems)
 
 
 def _parse_steps(raw_steps: Any, problems: list[str]) -> tuple[Step, ...]:
@@ -379,6 +442,8 @@ def _parse_step(
         problems.append(f"step {label}: key requires for_each")
     if after is not None and for_each is None:
         problems.append(f"step {label}: after requires for_each")
+    checks_set = "checks" in raw_step
+    checks = _parse_checks(f"step {label}", raw_step.get("checks"), problems) if checks_set else ()
     return Step(
         name=str(label),
         kind=kind if isinstance(kind, str) else "coder",
@@ -400,6 +465,95 @@ def _parse_step(
         parallel=_parse_parallel(raw_step.get("parallel", True), f"step {label}", problems),
         skip_if=_parse_optional_str(raw_step.get("skip_if"), f"step {label}", "skip_if", problems),
         outputs=_parse_str_list(raw_step.get("outputs"), f"step {label}: outputs", problems),
+        checks=checks,
+        checks_set=checks_set,
+    )
+
+
+def _parse_checks(label: str, raw_checks: Any, problems: list[str]) -> tuple[Check, ...]:
+    """Validate a checks list for one step (or defaults), recording problems."""
+    if raw_checks is None:
+        return ()
+    if not isinstance(raw_checks, (list, tuple)):
+        problems.append(f"{label}: checks must be a list")
+        return ()
+    parsed: list[Check] = []
+    seen: set[str] = set()
+    duplicate = False
+    for index, raw_check in enumerate(raw_checks):
+        check = _parse_check(f"{label} check {index}", raw_check, problems)
+        if check is None:
+            continue
+        if check.name in seen:
+            duplicate = True
+        else:
+            seen.add(check.name)
+        parsed.append(check)
+    if duplicate:
+        problems.append(f"{label}: check names must be unique")
+    return tuple(parsed)
+
+
+def _infer_check_kind(raw: Mapping[str, Any]) -> str:
+    """Infer a check kind from `tool:` / `coder:` / `model:` / `prompt:`."""
+    if isinstance(raw.get("tool"), str) and raw.get("tool"):
+        return "tool"
+    prompt = raw.get("prompt")
+    has_prompt = isinstance(prompt, str) and bool(prompt.strip())
+    has_coder = isinstance(raw.get("coder"), str) and bool(raw.get("coder"))
+    has_model = isinstance(raw.get("model"), str) and bool(raw.get("model"))
+    if (has_coder or has_model) and has_prompt:
+        return "coder"
+    if has_prompt:
+        return "human"
+    return "tool"
+
+
+def _parse_check(label: str, raw: Any, problems: list[str]) -> Check | None:
+    """Validate one check mapping, recording problems."""
+    if not isinstance(raw, Mapping):
+        problems.append(f"{label}: must be a mapping")
+        return None
+    for check_key in raw:
+        if check_key not in _CHECK_FIELDS:
+            problems.append(f"{label}: unknown field {check_key}")
+    name = raw.get("name")
+    if not isinstance(name, str) or not name:
+        problems.append(f"{label}: name is required")
+        name = f"check-{label.rsplit(' ', maxsplit=1)[-1]}"
+    raw_kind = raw.get("kind")
+    if raw_kind is None:
+        kind = _infer_check_kind(raw)
+    elif raw_kind not in CHECK_KINDS:
+        problems.append(f"{label}: kind must be one of tool, coder, human")
+        kind = raw_kind if isinstance(raw_kind, str) else "tool"
+    else:
+        kind = raw_kind
+    when = raw.get("when", "after")
+    if when not in CHECK_WHEN:
+        problems.append(f"{label}: when must be one of before, after")
+    on_fail = raw.get("on_fail", "fail")
+    if on_fail not in ON_FAIL:
+        problems.append(f"{label}: on_fail must be one of retry, fail, skip, stop")
+    tool_name = raw.get("tool")
+    if kind == "tool" and (not isinstance(tool_name, str) or not tool_name):
+        problems.append(f"{label}: tool is required for kind tool")
+    prompt = raw.get("prompt", "")
+    if kind in ("coder", "human") and (not isinstance(prompt, str) or not prompt.strip()):
+        problems.append(f"{label}: prompt is required for kind {kind}")
+    if when == "before" and on_fail == "retry":
+        problems.append(f"{label}: before checks cannot retry")
+    return Check(
+        name=name,
+        kind=kind if isinstance(kind, str) else "tool",
+        when=when if isinstance(when, str) else "after",
+        tool=tool_name if isinstance(tool_name, str) and tool_name else None,
+        args=_parse_str_map(raw.get("args"), f"{label}: args", problems),
+        prompt=prompt if isinstance(prompt, str) else "",
+        coder=_parse_optional_str(raw.get("coder"), label, "coder", problems),
+        model=_parse_optional_str(raw.get("model"), label, "model", problems),
+        skip_if=_parse_optional_str(raw.get("skip_if"), label, "skip_if", problems),
+        on_fail=on_fail if isinstance(on_fail, str) else "fail",
     )
 
 
@@ -567,4 +721,30 @@ def _step_to_dict(step: Step) -> dict[str, Any]:
         data["parallel"] = step.parallel
     if step.outputs:
         data["outputs"] = list(step.outputs)
+    if step.checks or step.checks_set:
+        data["checks"] = [_check_to_dict(check) for check in step.checks]
+    return data
+
+
+def _check_to_dict(check: Check) -> dict[str, Any]:
+    """Serialize a Check back to its mapping form, omitting defaults."""
+    data: dict[str, Any] = {"name": check.name}
+    if check.kind != "tool":
+        data["kind"] = check.kind
+    if check.when != "after":
+        data["when"] = check.when
+    if check.tool is not None:
+        data["tool"] = check.tool
+    if check.args:
+        data["args"] = dict(check.args)
+    if check.prompt:
+        data["prompt"] = check.prompt
+    if check.coder is not None:
+        data["coder"] = check.coder
+    if check.model is not None:
+        data["model"] = check.model
+    if check.skip_if is not None:
+        data["skip_if"] = check.skip_if
+    if check.on_fail != "fail":
+        data["on_fail"] = check.on_fail
     return data
