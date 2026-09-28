@@ -97,8 +97,9 @@ A step has three kinds:
 Step fields: `name`, `kind`, `needs`, `prompt`, `coder`, `model`, `cwd`,
 `isolation`, `retries`, `for_each`, `key`, `after`, `parallel`, `skip_if`
 (a rendered condition; a skipped step counts as finished with empty
-outputs), `outputs` (declared keys, for templates and validation). Every
-field except `name`, `kind` and `needs` may be a template.
+outputs), `outputs` (declared keys, for templates and validation), `checks`
+(validation hooks, §3.8). Every field except `name`, `kind`, `needs` and
+`checks` may be a template.
 
 ### 3.2 Flow
 
@@ -180,7 +181,11 @@ Rules:
   model:    "{{ item.model | default(defaults.model) }}"
   ```
 - Templates use `{{ inputs.x }}`, `{{ steps.x.outputs.y }}`, `{{ item }}`,
-  `{{ run.id }}`, `{{ run.date }}`. They render into `prompt` **and** `cwd`
+  `{{ run.id }}`, `{{ run.date }}`, `{{ steps.x.status }}` (succeeded,
+  failed, skipped) and `{{ steps.x.checks.name }}` (a check's verdict,
+  §3.8). Inside a check, `{{ outputs }}` is the step's fresh outputs.
+  `{{ read_file(path) }}` reads a text file (for a prompt that needs a
+  knowledge-base file). Templates render into `prompt` **and** `cwd`
   (today `cwd` is not rendered, which forced every autocode step to `cd`).
 - `on:` declares starts:
   ```yaml
@@ -304,14 +309,105 @@ A tool is used in three places:
    wrapping.
 
 Built-in tools ship with fleet: `bd_ready`, `bd_close`, `bd_block`,
-`git_commit_paths`, `pytest`. Everything else lives in the public or
-private folder. A tool's `command` is a list, never a shell string, so
+`git_commit_paths`, `pytest`, `jev_choose` (classify text into given
+labels), `jev_check` (a 0-1 yes/no, usable as a check). Everything else
+lives in the public or private folder. A tool may declare
+`stdin: "{{ args.state }}"` for commands that read their input from stdin,
+and `{{ tool.dir }}` in `command` is the folder of the tool file, for a
+script shipped next to it. A tool's `command` is a list, never a shell string, so
 templates cannot inject shell.
 
 Package: `flows/tools.py` (model, folder loading) and `pool/tool_run.py`
 (run with timeout, parse output). The pool treats a tool step like a coder
 step: a step run id, a directory, a command; `stdout` and `stderr` are kept
 in `attempts/<n>/` as for coders.
+
+### 3.8 Check
+
+A check is a validation attached to a step, the way a Keras callback is
+attached to `fit()`: the step does the work, the checks watch it at fixed
+hook points and decide what happens next (retry, skip, stop). A check never
+does the work itself and never edits files. It reads the step's outputs and
+answers **pass or fail, with a message**. Anything that produces data is a
+step; anything that judges data is a check.
+
+```yaml
+steps:
+  draft:
+    tools: [x_tweet]
+    prompt: Draft a reply to {{ inputs.url }} ...
+    outputs: [reply]
+    checks:
+      - name: fresh                       # tool check: exit 0 = pass
+        tool: reply_dedupe
+        args: {reply: "{{ outputs.reply }}", days: "3"}
+        on_fail: retry                    # message goes back into the prompt
+      - name: voice
+        tool: reply_voice
+        args: {reply: "{{ outputs.reply }}", tweet: "{{ inputs.text }}"}
+        on_fail: retry
+      - name: post
+        kind: human
+        prompt: "Post this reply to {{ inputs.url }}?\n\n{{ outputs.reply }}"
+        on_fail: skip                     # "no" skips the step, run goes on
+```
+
+Check fields: `name`, `kind` (`tool` | `coder` | `human`, inferred from
+`tool:` or `prompt:` when left out), `when` (`after`, the default, or
+`before`), `tool`, `args`, `prompt`, `coder`, `model`, `skip_if`,
+`on_fail` (`retry` | `fail` | `skip` | `stop`, default `fail`).
+
+Hook points, per step run (per item for `for_each`):
+
+- `before`: runs before the coder is launched. A failing `before` check
+  costs no LLM call; with `on_fail: skip` it is a guard ("only HIGH tweets
+  get a draft"), with `fail` a precondition.
+- `after`: runs once the step has written its outputs. Checks run in the
+  listed order and the first failure decides.
+
+Verdict contract, one per kind:
+
+- **tool**: exit code 0 is pass, anything else is fail; stdout (parsed as
+  the tool declares) is the message. A JSON object is kept as the check's
+  outputs, so `{{ steps.draft.checks.voice.problems }}` works later.
+- **coder**: the coder writes `outputs/outputs.json` with
+  `{"ok": true|false, "message": "..."}`. This is the LLM-judge case
+  (review a diff against requirements); `jev` as a tool check is cheaper
+  and preferred for yes/no questions.
+- **human**: one `ask_human` question with options `yes` / `no`; `yes` is
+  pass. The operator's note is the message, so a "yes" can carry the posted
+  reply URL and a "no" the reason.
+
+`on_fail` decides the step run's fate:
+
+- `retry`: the attempt fails with reason `check <name>: <message>`. The next
+  attempt's prompt gets a "Previous attempt failed check `<name>`" section
+  with the message, so the coder fixes exactly that. Counts against
+  `retries`; after the last retry the step fails.
+- `fail`: the step run fails at once. The run fails when nothing else can run.
+- `skip`: the step run counts as skipped with empty outputs; later steps
+  see `steps.x.status == "skipped"`.
+- `stop`: the whole run is cancelled (Keras `EarlyStopping`).
+
+`defaults.checks` is a list prepended to every coder step's checks, so an
+autocode flow can say "run `pytest` and `ruff` after every step, retry on
+failure" once. A step opts out with `checks: []`.
+
+What this replaces: `job_gate` and the "confirm with ask_human at the end"
+prompt rules (a `human` check), `orchestrator/merge_validation.py` (a
+`pytest` tool check with `on_fail: retry` before the commit step), the
+prompt lines "verify X before you finish" in summarise and autocode
+(a tool check that actually verifies), and the hand-written scoring, dedupe
+and voice heuristics in `tweet_watch/worker.py` (a `jev` tool step plus two
+tool checks; see `example-tweet-watch.yaml`).
+
+Verdicts live in the step run's attempt folder,
+`attempts/<n>/checks/<name>.json` (`ok`, `message`, `outputs`, `duration`),
+and `state.context()` exposes the last attempt's verdicts as
+`steps.<step>.checks.<name>`. Package: the `Check` dataclass in
+`flows/model.py`, and `pool/checks.py` runs a step run's checks after
+`reap` and before the step run is marked finished, reusing `tool_run.py`,
+`human_run.py` and the coder launch for the three kinds.
 
 ## 4. Package layout (imports point down only)
 
@@ -321,12 +417,13 @@ fleet/
   serve/         web: Flows page, Runs page, Run page (steps, items, attempts)
   supervisor/    the tick loop: starts → runs.advance() → pool.fill()
     starts/      cron.py, tool.py, manual.py
-  flows/         model.py, folders.py (read+override), graph.py (ready steps,
-                 for_each expansion), templates.py, tools.py (tool model)
+  flows/         model.py (Flow, Step, Check), folders.py (read+override),
+                 graph.py (ready steps, for_each expansion), templates.py,
+                 tools.py (tool model)
   runs/          store.py (two tables), run_dir.py, state.py (inputs+outputs)
   pool/          claim.py, spawn.py, reap.py, leases.py, retry_policy.py,
                  worktree.py, rate_gauge.py, prompt.py, result.py,
-                 tool_run.py, human_run.py
+                 tool_run.py, human_run.py, checks.py (§3.8)
     coders/      unchanged
   builtin/       flows/bead.yaml, flows/helper.yaml, tools/bd_*.yaml, ...
   beads/         deleted; `bd` is called only through builtin/tools/bd_*.yaml
@@ -350,6 +447,8 @@ the layer docstring.
 | `workers/research*.py`, research templates | ~600 | become `research.yaml` in built-in flows |
 | `orchestrator/helper.py`, `triggers/sources/blocked_task.py` triage | ~400 | `helper.yaml` flow with `on: tool: bd_blocked` |
 | `beads/` (client, queue, task_store, reconcile, status_cache), labels/metadata in `planning.py` | ~1 600 | deleted; `bd` is a tool |
+| `orchestrator/merge_validation.py` | ~200 | a `pytest` tool check on the step (§3.8) |
+| `tweet_watch/` (worker, x_fetch, kb_files, reply_files) | ~1 550 | `tweet-watch.yaml` in the private folder: `on: tool: x_watch_check`, a `jev` tool step, one coder step with the `x_tweet` tool and three checks (§3.8) |
 | `workflow_run_steps`, `workflows`, `workflow_runs`, schedule and trigger tables | | replaced by `runs`, `step_runs` |
 | UI: Schedules, Triggers, Workflows, Tasks pages | | → Flows, Runs |
 
@@ -378,8 +477,11 @@ the layer docstring.
 2. **Runs and pool on `step_runs`.** New `runs/` store and `flows/graph.py`.
    The supervisor advances runs and hands ready step runs to the existing
    spawn/reap code through a thin adapter, next to the beads claim loop.
+   Checks (§3.8) ship here: `pool/checks.py` runs after `reap`.
    Move `autocode` and `summarise` to the new format; they no longer create
-   beads.
+   beads. Move `tweet-watch` to a private-folder flow
+   (`example-tweet-watch.yaml`) and delete `tweet_watch/`; its schedule
+   becomes `on: tool`.
 3. **Starts.** `on: cron` and `on: tool` in flow files; the `bd_ready` tool
    source with `bead.yaml`. Remove the beads claim loop, schedule and
    trigger stores and their UI pages.
