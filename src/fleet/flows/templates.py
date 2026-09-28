@@ -10,13 +10,17 @@ Renders flow-file templates over a run context built in
 One module-level :class:`jinja2.sandbox.SandboxedEnvironment` with
 ``StrictUndefined`` backs every function; only Jinja built-in filters
 (``default``, ``lower``, ``upper``, ``map``, ``list``, ``join``,
-``tojson``, ``length``) are available. Every Jinja failure surfaces as
+``tojson``, ``length``) are available, plus the ``read_file(path)``
+global (absolute paths only, UTF-8 text, capped at
+``READ_FILE_MAX_BYTES`` bytes). Every Jinja failure surfaces as
 ``fleet.core.errors.TemplateError`` naming the offending template.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import jinja2.sandbox
@@ -41,6 +45,35 @@ _ENV = jinja2.sandbox.SandboxedEnvironment(
     autoescape=False,
     keep_trailing_newline=True,
 )
+
+READ_FILE_MAX_BYTES = 200_000
+"""Largest file ``read_file`` will return, in bytes."""
+
+
+def read_file(path: str) -> str:
+    """Read the UTF-8 text file at absolute ``path`` for use in a template.
+
+    Relative paths are rejected; a missing, unreadable, or undecodable
+    file and an oversized file all raise :class:`TemplateError`. This is
+    the only filesystem access available inside templates.
+    """
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise TemplateError(f"read_file: path must be absolute: {path}")
+    try:
+        if os.path.getsize(path) > READ_FILE_MAX_BYTES:
+            raise TemplateError(f"read_file: {path} is larger than {READ_FILE_MAX_BYTES} bytes")
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        raise TemplateError(f"read_file: cannot read {path}: {exc.strerror or exc}") from exc
+    if len(data) > READ_FILE_MAX_BYTES:
+        raise TemplateError(f"read_file: {path} is larger than {READ_FILE_MAX_BYTES} bytes")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise TemplateError(f"read_file: cannot read {path}: {exc}") from exc
+
+
+_ENV.globals["read_file"] = read_file
 
 
 def _describe(template_text: str) -> str:

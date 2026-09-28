@@ -11,6 +11,7 @@ model and validation; running a tool step lives in ``pool/tool_run.py``.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -25,7 +26,7 @@ OUTPUT_KINDS: tuple[str, ...] = ("json", "lines", "text")
 _NAME_RE = re.compile(r"[a-z][a-z0-9_-]*\Z")
 
 _KNOWN_FIELDS = frozenset(
-    {"fleet_tool", "description", "command", "args", "env", "output", "timeout"}
+    {"fleet_tool", "description", "command", "args", "env", "output", "timeout", "stdin"}
 )
 _KNOWN_ARG_FIELDS = frozenset({"description", "required", "default"})
 
@@ -52,6 +53,8 @@ class Tool:
     output: str = "text"
     timeout: int = 120
     source: str = ""
+    stdin: str | None = None
+    dir: str = ""
 
 
 def _valid_name(value: str) -> bool:
@@ -174,6 +177,11 @@ def tool_from_dict(data: Mapping[str, Any], name: str, source: str = "") -> Tool
     timeout, timeout_problems = _timeout_parts(data.get("timeout", 120))
     problems.extend(timeout_problems)
 
+    raw_stdin = data.get("stdin", None)
+    if raw_stdin is not None and not isinstance(raw_stdin, str):
+        problems.append("stdin: must be a string")
+        raw_stdin = None
+
     if problems:
         raise FlowInvalid(problems)
     return Tool(
@@ -185,6 +193,8 @@ def tool_from_dict(data: Mapping[str, Any], name: str, source: str = "") -> Tool
         output=output,
         timeout=timeout,
         source=source,
+        stdin=raw_stdin,
+        dir=os.path.dirname(source) if source else "",
     )
 
 
@@ -199,7 +209,7 @@ def tool_to_dict(tool: Tool) -> dict[str, Any]:
         if arg.default is not None:
             entry["default"] = arg.default
         arg_map[arg.name] = entry
-    return {
+    result: dict[str, Any] = {
         "fleet_tool": TOOL_VERSION,
         "description": tool.description,
         "command": list(tool.command),
@@ -208,6 +218,9 @@ def tool_to_dict(tool: Tool) -> dict[str, Any]:
         "output": tool.output,
         "timeout": tool.timeout,
     }
+    if tool.stdin is not None:
+        result["stdin"] = tool.stdin
+    return result
 
 
 def missing_env(tool: Tool, environ: Mapping[str, str]) -> list[str]:
@@ -240,15 +253,32 @@ def resolve_args(tool: Tool, given: Mapping[str, str]) -> dict[str, str]:
     return resolved
 
 
+def _tool_context(tool: Tool, resolved: Mapping[str, str]) -> dict[str, Any]:
+    """Build the template context for ``command`` and ``stdin`` rendering."""
+    return {"args": dict(resolved), "tool": {"name": tool.name, "dir": tool.dir}}
+
+
 def command_for(tool: Tool, given: Mapping[str, str]) -> list[str]:
     """Resolve ``given`` args and render each command element over them.
 
-    Every argv element is rendered separately with ``{"args": resolved}``;
-    an argument value containing spaces stays one element (no shell split).
+    Every argv element is rendered separately with ``{"args": resolved,
+    "tool": {"name": ..., "dir": ...}}``; an argument value containing
+    spaces stays one element (no shell split).
     """
     resolved = resolve_args(tool, given)
-    context: dict[str, Any] = {"args": resolved}
+    context = _tool_context(tool, resolved)
     return [render(element, context) for element in tool.command]
+
+
+def stdin_for(tool: Tool, given: Mapping[str, str]) -> str | None:
+    """Render the tool's ``stdin`` template over the resolved args.
+
+    Returns None when the tool declares no ``stdin``.
+    """
+    if tool.stdin is None:
+        return None
+    resolved = resolve_args(tool, given)
+    return render(tool.stdin, _tool_context(tool, resolved))
 
 
 def parse_output(tool: Tool, stdout: str) -> Any:
@@ -271,6 +301,8 @@ def describe_for_prompt(tool: Tool) -> str:
         parts.append(f"Args: {rendered_args}")
     else:
         parts.append("Args: none")
+    if tool.stdin is not None:
+        parts.append(f"Input: {tool.stdin}")
     return "\n".join(parts) + "\n"
 
 
