@@ -66,6 +66,7 @@ metadata and regenerate.
 | `serve_cors_origins` | `list[str]` | `[]` | Browser origins allowed cross-origin; empty is same-origin only. | `fleet config set serve_cors_origins=https://fleet.example.com` |
 | `serve_host` | `str` | `"0.0.0.0"` | UI server bind address; 0.0.0.0 exposes LAN, 127.0.0.1 local only. | `fleet config set serve_host=127.0.0.1` |
 | `serve_port` | `int` | `7890` | UI server port. | `fleet config set serve_port=8080` |
+| `flows_folders` | `list[str]` | `["builtin"]` | Flow and tool folders, later ones override earlier by name; 'builtin' is the shipped set. | `fleet config set flows_folders=builtin,/Users/me/git/fleet-flows,~/.fleet/private` |
 <!-- END GENERATED:SETTINGS -->
 
 ## Environment variables

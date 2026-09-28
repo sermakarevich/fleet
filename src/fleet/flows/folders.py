@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 import fleet
+from fleet.core.config import RuntimeConfig, expand_folders
 from fleet.core.errors import FlowInvalid, FlowNotFound
 from fleet.flows.model import Flow, flow_from_dict
 from fleet.flows.tools import Tool, tool_from_dict
@@ -107,6 +108,11 @@ def load(folders: Sequence[str]) -> Catalog:
     flows = _build_flows(raw[_FLOW_DIR], sources[_FLOW_DIR], problems)
     tools = _build_tools(raw[_TOOL_DIR], sources[_TOOL_DIR], problems)
     return Catalog(flows=flows, tools=tools, problems=problems)
+
+
+def load_catalog(config: RuntimeConfig) -> Catalog:
+    """Load the flow/tool catalog from the folders listed in ``config``."""
+    return load(expand_folders(config.flows_folders))
 
 
 def _read_base_files(

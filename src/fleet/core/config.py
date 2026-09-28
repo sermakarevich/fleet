@@ -313,6 +313,14 @@ class RuntimeConfig:
         default=7890,
         metadata=_meta("UI server port.", "8080"),
     )
+    flows_folders: list[str] = field(
+        default_factory=lambda: ["builtin"],
+        metadata=_meta(
+            "Flow and tool folders, later ones override earlier by name;"
+            " 'builtin' is the shipped set.",
+            "builtin,/Users/me/git/fleet-flows,~/.fleet/private",
+        ),
+    )
 
 
 #: RuntimeConfig fields that need a `fleet serve` restart to take effect.
@@ -322,6 +330,7 @@ RESTART_REQUIRED_FIELDS: tuple[str, ...] = (
     "serve_host",
     "serve_port",
     "serve_cors_origins",
+    "flows_folders",
 )
 
 
@@ -440,6 +449,11 @@ def _coerce_list(key: str, value: object) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(item).strip() for item in value if str(item).strip()]
     raise ConfigError(f"Invalid list for {key}: {value!r}")
+
+
+def expand_folders(values: list[str]) -> list[str]:
+    """Expand `~` in folder specs; `builtin` passes through unchanged."""
+    return [str(Path(value).expanduser()) if value != "builtin" else value for value in values]
 
 
 def coerce(key: str, value: object) -> object:

@@ -138,3 +138,6 @@
 #
 # serve_port: UI server port.
 #   Default 7890; e.g. fleet config set serve_port=8080
+#
+# flows_folders: Flow and tool folders, later ones override earlier by name; 'builtin' is the shipped set.
+#   Default ["builtin"]; e.g. fleet config set flows_folders=builtin,/Users/me/git/fleet-flows,~/.fleet/private
