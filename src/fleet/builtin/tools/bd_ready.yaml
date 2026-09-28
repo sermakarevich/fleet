@@ -1,0 +1,8 @@
+fleet_tool: 2
+description: >-
+  List ready beads (open issues with no active blockers) as JSON.
+  Polled by the bead flow start: each listed item whose key has not
+  been seen starts a run.
+command: ["bd", "ready", "--json"]
+output: json
+timeout: 30

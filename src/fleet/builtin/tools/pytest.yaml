@@ -1,0 +1,11 @@
+fleet_tool: 2
+description: >-
+  Run the pytest suite as a check: the exit code is the verdict
+  (0 = pass, anything else = fail).
+command: ["uv", "run", "pytest", "-q", "-x", "{{ args.path }}"]
+args:
+  path:
+    description: Path to test or test directory to run.
+    default: tests
+output: text
+timeout: 1800

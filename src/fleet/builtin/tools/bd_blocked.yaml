@@ -1,0 +1,7 @@
+fleet_tool: 2
+description: >-
+  List blocked beads as JSON. Polled by helper-style flows that
+  triage beads waiting on a human.
+command: ["bd", "list", "--status", "blocked", "--json"]
+output: json
+timeout: 30

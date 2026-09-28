@@ -1,0 +1,26 @@
+fleet_tool: 2
+description: >-
+  Classify text into one of two labels with jev (two-way choice only:
+  `jev choose --help` documents no ignoring of an empty option, so no
+  third label is declared). The judged text arrives on stdin.
+  Assumed output shape (could not verify live here: no valid
+  TYPESAFE_API_KEY in this environment):
+  {"answer": ..., "confidence": ...}.
+command: ["jev", "choose", "{{ args.question }}", "-o", "{{ args.a }}", "-o", "{{ args.b }}", "-s", "-", "--format", "json"]
+args:
+  question:
+    description: Classification question, e.g. which team handles this ticket.
+    required: true
+  a:
+    description: First label (or label=description).
+    required: true
+  b:
+    description: Second label (or label=description).
+    required: true
+  state:
+    description: Text jev judges, sent on stdin.
+    required: true
+stdin: "{{ args.state }}"
+env: [TYPESAFE_API_KEY]
+output: json
+timeout: 120

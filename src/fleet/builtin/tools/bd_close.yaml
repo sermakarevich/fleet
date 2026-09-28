@@ -1,0 +1,12 @@
+fleet_tool: 2
+description: Close a bead with a reason. Last step of the bead flow.
+command: ["bd", "close", "{{ args.id }}", "--reason", "{{ args.reason }}"]
+args:
+  id:
+    description: Bead id to close.
+    required: true
+  reason:
+    description: Close reason.
+    default: done
+output: text
+timeout: 60

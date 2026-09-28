@@ -1,0 +1,19 @@
+fleet_tool: 2
+description: >-
+  Ask jev a yes/no question (0-1 truth value) over text on stdin.
+  This jev version's `check` has NO `--min-confidence` flag (only
+  `choose` has it), so no threshold arg is declared and there is no
+  exit-2-unsure contract: the exit code is the verdict and stdout is
+  the CLI's JSON verdict (see `jev check --help`).
+command: ["jev", "check", "{{ args.question }}", "-s", "-", "--format", "json"]
+args:
+  question:
+    description: Yes/no question, e.g. does the reply answer the question.
+    required: true
+  state:
+    description: Text jev judges, sent on stdin.
+    required: true
+stdin: "{{ args.state }}"
+env: [TYPESAFE_API_KEY]
+output: json
+timeout: 120

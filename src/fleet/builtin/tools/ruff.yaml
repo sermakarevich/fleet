@@ -1,0 +1,13 @@
+fleet_tool: 2
+description: >-
+  Run ruff check as a validation hook: the exit code is the verdict
+  (0 = pass, anything else = fail).
+command: ["uv", "run", "ruff", "check", "{{ args.path }}"]
+args:
+  path:
+    description: >-
+      One path to lint. A command list cannot split one arg into two,
+      so this is a single path; use "." for the whole repo.
+    default: .
+output: text
+timeout: 300

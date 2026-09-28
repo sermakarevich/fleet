@@ -1,0 +1,15 @@
+fleet_tool: 2
+description: >-
+  Commit files with git. A command list cannot split one arg into two,
+  so `paths` is ONE path (pass a directory to commit a tree);
+  use one step per path when several must be committed separately.
+command: ["git", "commit", "-m", "{{ args.message }}", "--", "{{ args.paths }}"]
+args:
+  message:
+    description: Commit message.
+    required: true
+  paths:
+    description: Single path to commit (a file or a directory).
+    required: true
+output: text
+timeout: 120
