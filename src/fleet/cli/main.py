@@ -21,6 +21,7 @@ from fleet.cli import (
     telegram,
     trigger,
     workflow,
+    worktree,
 )
 
 app = typer.Typer(
@@ -54,3 +55,4 @@ schedule.register(app)
 trigger.register(app)
 workflow.register(app)
 flow.register(app)
+worktree.register(app)

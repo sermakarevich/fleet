@@ -1,0 +1,14 @@
+fleet_tool: 2
+description: >-
+  Merge the worktree branch of a finished coder step into its base branch and
+  remove the worktree. `task` is the step's task id: "<run id>.<step>" (add
+  ".<index>" for for_each items). Fails (exit 1) on a dirty base repo, a
+  worktree with no commits ahead of the base, a merge conflict (branch kept)
+  or a failing post_merge_command.
+command: ["fleet", "worktree", "merge", "{{ args.task }}", "--json"]
+args:
+  task:
+    required: true
+    description: "Task id of the coder step: {{ run.id }}.<step>."
+output: json
+timeout: 900

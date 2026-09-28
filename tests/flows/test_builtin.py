@@ -15,6 +15,8 @@ _EXPECTED_OUTPUTS = {
     "bd_blocked": "json",
     "bd_close": "text",
     "bd_block": "text",
+    "worktree_merge": "json",
+    "worktree_drop": "json",
 }
 
 

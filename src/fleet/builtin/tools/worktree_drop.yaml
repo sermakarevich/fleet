@@ -1,0 +1,13 @@
+fleet_tool: 2
+description: >-
+  Remove a coder step's worktree and branch without merging; used on the
+  failure path. `task` is the step's task id: "<run id>.<step>" (add
+  ".<index>" for for_each items). Always succeeds (exit 0), even when the
+  step was never isolated.
+command: ["fleet", "worktree", "drop", "{{ args.task }}", "--json"]
+args:
+  task:
+    required: true
+    description: "Task id of the coder step: {{ run.id }}.<step>."
+output: json
+timeout: 900
