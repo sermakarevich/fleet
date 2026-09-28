@@ -46,6 +46,11 @@ class CoderProcess:
         stderr: int | IO[bytes] | None = asyncio.subprocess.DEVNULL,
     ) -> CoderProcess:
         """Spawn the coder CLI in its own process group with piped stdout."""
+        if cwd is not None:
+            # Some CLIs (opencode v2 `run`) take their workdir from $PWD, not
+            # the process cwd; an inherited supervisor PWD sends them to the
+            # wrong repo.
+            env = {**env, "PWD": str(cwd)}
         proc = await asyncio.create_subprocess_exec(
             *argv,
             env=env,

@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fleet.coders.base import Workspace
 from fleet.core.task import Task
 from fleet.flows.folders import Catalog
 from fleet.flows.model import Flow, Step
@@ -227,3 +228,32 @@ def test_settle_marks_succeeded(tmp_path: Path, monkeypatch) -> None:
     assert row is not None and row.status is StepStatus.succeeded
     assert store.get_run(run.id) is not None
     assert store.get_run(run.id).status is RunStatus.running
+
+
+def test_start_coder_step_marks_worktree_for_prompt(tmp_path: Path, monkeypatch) -> None:
+    """An isolated step writes a .worktree marker so the prompt names the worktree."""
+    _, run, _, launch = _launch(tmp_path)
+    st = _state(tmp_path)
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    monkeypatch.setattr(flow_coder_mod.spawn, "prepare_workdir", lambda st, task: wt)
+    _install_fake_worker(monkeypatch, {})
+
+    async def _run():
+        await start_coder_step(st, launch, run).future
+
+    asyncio.run(_run())
+    assert Workspace(task_dir=launch.step_dir, cwd=str(launch.cwd)).workdir == str(wt)
+
+
+def test_start_coder_step_no_marker_without_isolation(tmp_path: Path, monkeypatch) -> None:
+    """A step running in its own cwd gets no .worktree marker."""
+    _, run, _, launch = _launch(tmp_path)
+    st = _state(tmp_path)
+    _install_fake_worker(monkeypatch, {})
+
+    async def _run():
+        await start_coder_step(st, launch, run).future
+
+    asyncio.run(_run())
+    assert not (launch.step_dir / ".worktree").exists()

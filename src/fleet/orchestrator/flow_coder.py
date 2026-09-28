@@ -93,6 +93,11 @@ def start_coder_step(
     task_root = spawn.prepare_workdir(st, task)
     if task_root is None:
         raise RuntimeError(f"terminal: cannot prepare workdir for {task.id}")
+    base_cwd = Path(task.cwd) if task.cwd else st.fleet_home
+    if task_root.resolve() != base_cwd.resolve():
+        # The isolation info lands in the store's task dir, but the worker
+        # reads launch.step_dir; the marker lets its prompt name the worktree.
+        (launch.step_dir / ".worktree").write_text(str(task_root), encoding="utf-8")
     adir = run_paths.attempt_dir(launch.step_dir, launch.attempt)
     adir.mkdir(parents=True, exist_ok=True)
     prompt = launch.prompt if not feedback else f"{launch.prompt}\n\n{feedback}"

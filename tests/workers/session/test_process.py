@@ -90,3 +90,18 @@ def test_terminate_group_idempotent(tmp_path: Path) -> None:
 
     asyncio.run(_run())
     assert signals == [signal.SIGTERM]
+
+
+def test_start_sets_pwd_to_cwd(tmp_path: Path) -> None:
+    """The child's $PWD is its cwd, not the supervisor's inherited PWD."""
+
+    async def _run() -> bytes:
+        env = {**os.environ, "PWD": "/somewhere/else"}
+        argv = [sys.executable, "-c", "import os; print(os.environ['PWD'])"]
+        proc = await CoderProcess.start(argv, env, tmp_path)
+        assert proc._proc.stdout is not None
+        out = await proc._proc.stdout.read()
+        await proc._proc.wait()
+        return out
+
+    assert asyncio.run(_run()).decode().strip() == str(tmp_path)
