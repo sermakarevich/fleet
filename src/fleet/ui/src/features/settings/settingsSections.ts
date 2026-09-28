@@ -77,6 +77,7 @@ export const FIELD_DEFS: Record<SettingKey, FieldDef> = {
   post_merge_command: { section: 'isolation-merge', kind: 'text', label: 'Post-merge command', help: 'Shell command after a clean worktree merge; empty skips.', placeholder: 'make ui-build' },
   observer_max_followups: { section: 'triage', kind: 'number', label: 'Observer max follow-ups', help: 'Follow-up tasks opened per observer validation round.' },
   observer_max_rounds: { section: 'triage', kind: 'number', label: 'Observer max rounds', help: 'Partial observer rounds before human review.' },
+  claim_enabled: { section: 'triage', kind: 'boolean', label: 'Old claim loop', help: 'Claim ready beads with the old claim loop. Switch off once the bead flow is enabled.' },
   helper_enabled: { section: 'triage', kind: 'boolean', label: 'Blocked-task helper', help: 'Create a priority-0 LLM helper task for each automatic block.' },
   helper_coder: { section: 'triage', kind: 'coder', label: 'Helper coder', help: 'Coder for blocked-task helper tasks.' },
   helper_model: { section: 'triage', kind: 'model', label: 'Helper model', help: 'Model for blocked-task helper tasks.' },
@@ -105,6 +106,7 @@ export const FIELD_DEFS: Record<SettingKey, FieldDef> = {
   serve_host: { section: 'server', kind: 'text', label: 'Bind address', help: '0.0.0.0 exposes LAN; 127.0.0.1 is local only.' },
   serve_port: { section: 'server', kind: 'number', label: 'Port', help: 'UI server port.' },
   serve_cors_origins: { section: 'server', kind: 'cors', label: 'CORS origins', help: 'Browser origins allowed cross-origin; empty is same-origin only.', placeholder: 'https://fleet.example.com' },
+  flows_folders: { section: 'server', kind: 'cors', label: 'Flow folders', help: 'Comma-separated folders of flows and tools; later ones override earlier by name. builtin is the shipped set.', placeholder: 'builtin, /Users/me/git/fleet-flows' },
 };
 
 // Fields of one section, in table order.

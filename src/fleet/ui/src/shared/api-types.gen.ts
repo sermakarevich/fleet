@@ -1789,6 +1789,8 @@ export interface components {
             isolation_exclude: string;
             /** Post Merge Command */
             post_merge_command: string;
+            /** Claim Enabled */
+            claim_enabled: boolean;
             /** Helper Enabled */
             helper_enabled: boolean;
             /** Helper Coder */
@@ -1821,6 +1823,8 @@ export interface components {
             serve_cors_origins: string[];
             /** Serve Host */
             serve_host: string;
+            /** Flows Folders */
+            flows_folders: string[];
             /** Serve Port */
             serve_port: number;
             /** Restart Required */

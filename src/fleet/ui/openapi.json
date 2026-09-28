@@ -4065,6 +4065,10 @@
             "type": "string",
             "title": "Post Merge Command"
           },
+          "claim_enabled": {
+            "type": "boolean",
+            "title": "Claim Enabled"
+          },
           "helper_enabled": {
             "type": "boolean",
             "title": "Helper Enabled"
@@ -4132,6 +4136,13 @@
             "type": "string",
             "title": "Serve Host"
           },
+          "flows_folders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Flows Folders"
+          },
           "serve_port": {
             "type": "integer",
             "title": "Serve Port"
@@ -4173,6 +4184,7 @@
           "isolation",
           "isolation_exclude",
           "post_merge_command",
+          "claim_enabled",
           "helper_enabled",
           "helper_coder",
           "helper_model",
@@ -4189,6 +4201,7 @@
           "job_max_phase_attempts",
           "serve_cors_origins",
           "serve_host",
+          "flows_folders",
           "serve_port"
         ],
         "title": "ConfigView",

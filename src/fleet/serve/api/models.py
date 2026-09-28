@@ -371,6 +371,7 @@ class ConfigView(BaseModel):
     isolation: str
     isolation_exclude: str
     post_merge_command: str
+    claim_enabled: bool
     helper_enabled: bool
     helper_coder: str
     helper_model: str
