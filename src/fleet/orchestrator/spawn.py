@@ -168,6 +168,20 @@ def _ensure_isolation(
     return task_root
 
 
+def prepare_workdir(st: SupervisorState, task: Task) -> Path | None:
+    """Resolve the task cwd and apply worktree isolation; None when terminal.
+
+    Public wrapper over :func:`resolve_workdir` plus :func:`_ensure_isolation`
+    so flow step runs (which have no bead to block) can reuse the exact
+    spawn workdir semantics. Terminal failures still journal/block through
+    the shared helpers; callers without a bead treat None as "cannot start".
+    """
+    resolved = resolve_workdir(st, task)
+    if resolved is None:
+        return None
+    return _ensure_isolation(st, task, resolved.base_cwd, resolved.repo_root)
+
+
 def _build_step_context(
     st: SupervisorState,
     task: Task,
@@ -227,19 +241,15 @@ def spawn_worker(st: SupervisorState, task: Task) -> RunningWorker | None:
     the caller can release the bead back to the queue.
     """
     _purge_stale_kill_marker(st, task)
-    resolved = resolve_workdir(st, task)
-    if resolved is None:
-        return None
-    base_cwd, repo_root = resolved.base_cwd, resolved.repo_root
     coder_triple = _resolve_coder_or_block(st, task)
     if coder_triple is None:
+        return None
+    task_root = prepare_workdir(st, task)
+    if task_root is None:
         return None
     coder, coder_name, model = coder_triple
     if st.coder_factory is None:
         st.queue.freeze_coder_model(task.id, coder_name, model)
     st.log.info("task_coder_selected", task_id=task.id, coder=coder_name, model=model)
-    task_root = _ensure_isolation(st, task, base_cwd, repo_root)
-    if task_root is None:
-        return None
     ctx = _build_step_context(st, task, coder, coder_name, model, task_root)
     return _start_worker_run(st, task, ctx)
