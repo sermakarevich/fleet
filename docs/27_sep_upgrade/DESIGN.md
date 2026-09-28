@@ -491,7 +491,8 @@ the layer docstring.
    (`example-tweet-watch.yaml`) and delete `tweet_watch/`; its schedule
    becomes `on: tool`.
 3. **Starts.** `on: cron` and `on: tool` in flow files; the `bd_ready` tool
-   source with `bead.yaml`. Remove the beads claim loop, schedule and
+   source with `bead.yaml`. Set `claim_enabled=false` to stop the old claim
+   loop and hand beads to the built-in bead flow. Remove the beads claim loop, schedule and
    trigger stores and their UI pages.
 4. **Delete** the `job` worker, builders, research worker, helper triage,
    `workflows/`, `beads/queue.py` and friends. Rewrite the Runs UI on the two

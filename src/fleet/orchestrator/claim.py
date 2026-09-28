@@ -87,9 +87,15 @@ class Claim:
 
     def __init__(self, interval_sec: float | None = None) -> None:
         self.interval_sec = interval_sec if interval_sec is not None else CLAIM_POLL_INTERVAL_SEC
+        self._disabled_logged = False
 
     async def tick(self, st: SupervisorState) -> None:
         """Claim one bead and spawn its worker, or do nothing this tick."""
+        if not st.config.claim_enabled:
+            if not self._disabled_logged:
+                st.log.info("claim_disabled")
+                self._disabled_logged = True
+            return
         if is_paused(st):
             return
         # bd is a subprocess; run it in a worker thread

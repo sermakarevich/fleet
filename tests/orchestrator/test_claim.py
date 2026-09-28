@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import types
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -190,3 +191,26 @@ def test_tick_happy_path_registers_and_emits(tmp_path: Path, monkeypatch) -> Non
     asyncio.run(Claim(interval_sec=0.01).tick(sup.state))
     assert sup.state.running["t-new"] is worker
     assert started == ["t-new"]
+
+
+def test_tick_claim_disabled_spawns_nothing(tmp_path: Path, monkeypatch) -> None:
+    """With claim_enabled=False a tick never touches the queue."""
+    queue = StubQueue(_task("t-new"))
+    sup = make_supervisor(tmp_path, queue=queue, services=[], checks=[])
+    sup.state.config = replace(sup.state.config, claim_enabled=False)
+    spawned: list[str] = []
+    monkeypatch.setattr(claim_mod, "spawn_worker", lambda st, t: spawned.append(t.id))
+    infos: list[str] = []
+
+    class _Log:
+        def info(self, event: str, **kwargs: object) -> None:
+            infos.append(event)
+
+    sup.state.log = _Log()  # type: ignore[assignment]
+    claim = Claim(interval_sec=0.01)
+    asyncio.run(claim.tick(sup.state))
+    asyncio.run(claim.tick(sup.state))
+    assert queue.claims == 0
+    assert spawned == []
+    assert sup.state.running == {}
+    assert infos == ["claim_disabled"]

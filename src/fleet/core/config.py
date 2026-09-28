@@ -202,6 +202,14 @@ class RuntimeConfig:
             "make ui-build",
         ),
     )
+    claim_enabled: bool = field(
+        default=True,
+        metadata=_meta(
+            "Run the old claim loop that spawns one worker per ready bead; "
+            "false hands beads to the built-in bead flow.",
+            "false",
+        ),
+    )
     helper_enabled: bool = field(
         default=True,
         metadata=_meta(

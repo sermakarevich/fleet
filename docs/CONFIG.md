@@ -49,6 +49,7 @@ metadata and regenerate.
 | `isolation` | `str` | `"worktree"` | Git worktree isolation: worktree isolates repo tasks, none runs in place. | `fleet config set isolation=none` |
 | `isolation_exclude` | `str` | `""` | Repo roots that never get a worktree; empty excludes none. | `fleet config set isolation_exclude=/Users/me/.ai` |
 | `post_merge_command` | `str` | `""` | Shell command after a clean worktree merge; empty skips. | `fleet config set post_merge_command=make ui-build` |
+| `claim_enabled` | `bool` | `true` | Run the old claim loop that spawns one worker per ready bead; false hands beads to the built-in bead flow. | `fleet config set claim_enabled=false` |
 | `helper_enabled` | `bool` | `true` | Create a priority-0 LLM helper task for each automatic block. | `fleet config set helper_enabled=false` |
 | `helper_coder` | `str` | `"claude"` | Coder for blocked-task helper tasks. | `fleet config set helper_coder=opencode` |
 | `helper_model` | `str` | `"opus"` | Model for blocked-task helper tasks. | `fleet config set helper_model=sonnet` |

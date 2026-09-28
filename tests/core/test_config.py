@@ -101,3 +101,21 @@ def test_helper_config_defaults() -> None:
     assert config.helper_enabled is True
     assert config.helper_coder == "claude"
     assert config.helper_model == "opus"
+
+
+def test_claim_enabled_defaults_true() -> None:
+    """The old claim loop runs unless explicitly switched off."""
+    assert RuntimeConfig().claim_enabled is True
+
+
+def test_parse_claim_enabled_false() -> None:
+    """`claim_enabled = false` in runtime.toml parses to False."""
+    assert parse({"claim_enabled": False}).claim_enabled is False
+
+
+def test_merge_claim_enabled_round_trips() -> None:
+    """`claim_enabled=false` merges like `fleet config set claim_enabled=false`."""
+    merged = merge({}, {"claim_enabled": "false"})
+
+    assert merged["claim_enabled"] is False
+    assert RuntimeConfig(**merged).claim_enabled is False

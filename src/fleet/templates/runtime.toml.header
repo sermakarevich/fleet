@@ -88,6 +88,9 @@
 # post_merge_command: Shell command after a clean worktree merge; empty skips.
 #   Default ""; e.g. fleet config set post_merge_command=make ui-build
 #
+# claim_enabled: Run the old claim loop that spawns one worker per ready bead; false hands beads to the built-in bead flow.
+#   Default true; e.g. fleet config set claim_enabled=false
+#
 # helper_enabled: Create a priority-0 LLM helper task for each automatic block.
 #   Default true; e.g. fleet config set helper_enabled=false
 #
