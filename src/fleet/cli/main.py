@@ -14,6 +14,7 @@ from fleet.cli import (
     config,
     daemons,
     doctor,
+    flow,
     schedule,
     tasks,
     telegram,
@@ -50,3 +51,4 @@ ask_human.register(app)
 schedule.register(app)
 trigger.register(app)
 workflow.register(app)
+flow.register(app)
