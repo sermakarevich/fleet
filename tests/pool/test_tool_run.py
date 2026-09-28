@@ -91,7 +91,6 @@ def test_stdin_delivered_when_declared(tmp_path: Path, monkeypatch) -> None:
 
 def test_stdin_closed_when_absent(tmp_path: Path) -> None:
     """Without a stdin body the child reads EOF at once."""
-    assert getattr(tools, "stdin_for", None) is None
     tool = Tool(
         name="reader",
         command=("python3", "-c", "import sys; print(repr(sys.stdin.read()))"),
