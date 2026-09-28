@@ -27,9 +27,9 @@ def test_help_lists_required_commands() -> None:
 def test_help_does_not_list_forbidden_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    # No `fleet block` verb command (blocking is supervisor-internal); the
-    # `fleet blocked` listing is allowed, so match on word boundaries.
-    assert " block " not in f" {result.output} "
+    # `fleet block` is a real command (the bead flow's failure step); only
+    # supervisor-internal verbs stay hidden.
+    assert " block " in f" {result.output} "
     assert "answer" not in result.output
 
 

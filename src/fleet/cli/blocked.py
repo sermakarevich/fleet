@@ -1,11 +1,16 @@
-"""`fleet blocked` and `fleet ignore` — blocked-bead triage from the terminal.
+"""`fleet blocked`, `fleet ready`, `fleet block` and `fleet ignore` — bead triage from the terminal.
 
 `fleet blocked --json` lists blocked beads the way
 ``orchestrator/helper.py`` selects them (blocked in the queue snapshot,
 non-empty ``blocked_reason`` in task.json, no active ``ignore_until``), one
 object per bead with the task-folder context the helper flow polls through
-the ``fleet_blocked`` tool. `fleet ignore <id> --hours N` suppresses triage
-for one bead through ``Queue.set_ignore``.
+the ``fleet_blocked`` tool. `fleet ready --json` lists startable beads with
+the routing context the bead flow polls through the ``bd_ready`` tool
+(``fleet ready``, not ``bd ready``: ``bd ready`` carries no
+``cwd``/``coder``/``model``/``isolation`` — those live in task.json).
+`fleet block <id> --reason <text>` marks a bead blocked with a reason
+``fleet blocked`` and the helper flow pick up. `fleet ignore <id> --hours N`
+suppresses triage for one bead through ``Queue.set_ignore``.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from fleet.cli import bootstrap
 from fleet.cli.errors import ExitCode, fail
 from fleet.cli.options import TaskIdArgument
 from fleet.core.ignore_policy import ignore_active
+from fleet.core.iso import parse_iso
 from fleet.core.retry_policy import rounds_for_history
 from fleet.orchestrator.helper import STDERR_TAIL_CHARS, read_meta, stderr_tail_text
 from fleet.state import paths as state_paths
@@ -36,6 +42,9 @@ if TYPE_CHECKING:
 
 #: Queue snapshot cap, mirroring ``collect_targets`` in orchestrator/helper.py.
 _BLOCKED_LIMIT = 100
+
+#: Ready snapshot cap for the bead-flow start poll.
+_READY_LIMIT = 100
 
 #: Reason characters shown per row of the human-readable table.
 _REASON_PREVIEW_CHARS = 60
@@ -169,8 +178,112 @@ def run_ignore(fleet_home: Path, task_id: str, hours: float) -> None:
     typer.echo(f"Ignored {task_id} until {ignore_until}.")
 
 
+@dataclass(frozen=True)
+class ReadyItem:
+    """One startable bead with the routing context the bead flow needs."""
+
+    id: str
+    title: str
+    description: str
+    coder: str
+    model: str
+    cwd: str
+    isolation: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Render as a flat string mapping for ``--json`` output."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "coder": self.coder,
+            "model": self.model,
+            "cwd": self.cwd,
+            "isolation": self.isolation,
+        }
+
+
+def _retry_after_active(raw: str | None, now: datetime) -> bool:
+    """True when a task.json ``retry_after`` stamp still lies in the future."""
+    parsed = parse_iso(raw)
+    return parsed is not None and parsed > now
+
+
+def collect_ready(queue: Queue, now: datetime) -> list[ReadyItem]:
+    """Every startable bead for the current queue snapshot, in snapshot order.
+
+    Skips beads whose ``retry_after`` is still in the future and beads with
+    an active ``ignore_until`` — the same filters the claim loop applies
+    before spawning a worker. Values are strings only, "" when unset.
+    """
+    try:
+        beads = queue.list_ready(limit=_READY_LIMIT)
+    except Exception as exc:
+        fail(f"cannot list ready beads: {exc}", ExitCode.BACKEND)
+    items: list[ReadyItem] = []
+    for bead in beads:
+        if _retry_after_active(bead.retry_after, now):
+            continue
+        if ignore_active(bead.ignore_until, now):
+            continue
+        items.append(
+            ReadyItem(
+                id=bead.id,
+                title=str(bead.title or ""),
+                description=str(bead.description or ""),
+                coder=str(bead.coder or ""),
+                model=str(bead.model or ""),
+                cwd=str(bead.cwd or ""),
+                isolation=str(bead.isolation or ""),
+            )
+        )
+    return items
+
+
+def run_ready(fleet_home: Path, json_output: bool) -> None:
+    """Print startable beads with bead-flow inputs (JSON with --json, else a table)."""
+    items = collect_ready(bootstrap.queue(fleet_home), datetime.now(tz=UTC))
+    if json_output:
+        typer.echo(json.dumps([item.to_dict() for item in items], indent=2))
+        return
+    if not items:
+        typer.echo("No ready beads.")
+        return
+    table = Table(
+        title="Fleet — ready beads",
+        title_style="bold",
+        header_style="bold cyan",
+        border_style="cyan",
+        show_lines=False,
+        pad_edge=False,
+    )
+    table.add_column("ID", style="bold cyan", no_wrap=True)
+    table.add_column("Coder", no_wrap=True)
+    table.add_column("CWD", overflow="fold")
+    table.add_column("Title", overflow="fold")
+    for item in items:
+        table.add_row(item.id, item.coder or "-", item.cwd or "-", item.title)
+    Console(soft_wrap=False).print(table)
+
+
+def run_block(fleet_home: Path, task_id: str, reason: str) -> None:
+    """Mark *task_id* blocked with *reason* (bd notes plus task.json)."""
+    if not reason.strip():
+        fail("--reason must be a non-empty reason.", ExitCode.USAGE)
+    queue = bootstrap.queue(fleet_home)
+    try:
+        queue.get(task_id)
+    except Exception:
+        fail(f"Task {task_id} not found.", ExitCode.NOT_FOUND)
+    try:
+        queue.set_blocked(task_id, reason)
+    except Exception as exc:
+        fail(f"cannot block {task_id}: {exc}", ExitCode.BACKEND)
+    typer.echo(f"Blocked {task_id}: {reason}")
+
+
 def register(app: typer.Typer) -> None:
-    """Wire `fleet blocked` and `fleet ignore` as thin closures over the helpers above."""
+    """Wire `fleet blocked`, `fleet ready`, `fleet block` and `fleet ignore` as thin closures."""
 
     @app.command("blocked")
     def blocked_cmd(
@@ -180,6 +293,23 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """List blocked beads with fleet's task-folder context (reason, cwd, stderr tail)."""
         run_blocked(bootstrap.fleet_home(), json_output)
+
+    @app.command("ready")
+    def ready_cmd(
+        json_output: Annotated[
+            bool, typer.Option("--json", help="Emit ready beads as JSON.")
+        ] = False,
+    ) -> None:
+        """List startable beads with bead-flow inputs (coder, model, cwd, isolation)."""
+        run_ready(bootstrap.fleet_home(), json_output)
+
+    @app.command("block")
+    def block_cmd(
+        task_id: TaskIdArgument,
+        reason: Annotated[str, typer.Option("--reason", help="Why the bead is blocked.")] = "",
+    ) -> None:
+        """Mark a bead blocked with a reason the helper flow can read."""
+        run_block(bootstrap.fleet_home(), task_id, reason)
 
     @app.command("ignore")
     def ignore_cmd(

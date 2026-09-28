@@ -1,9 +1,12 @@
-"""Tests for `fleet blocked` and `fleet ignore` (unit under test: cli/blocked.py).
+"""Tests for `fleet blocked`, `fleet ready`, `fleet block` and `fleet ignore`.
 
 Tmp fleet home holds two task folders (one blocked with a reason, one
 blocked without) plus a FakeQueue snapshot; `fleet blocked --json` lists only
 the first with the eleven expected keys, and `fleet ignore` writes
-`ignore_until` into task.json.
+`ignore_until` into task.json. The fake queue also holds three ready beads
+(one routable, one with a future `retry_after`, one ignored); `fleet ready
+--json` lists only the first with the seven bead-flow keys, and `fleet block`
+records the reason through `set_blocked`.
 """
 
 from __future__ import annotations
@@ -31,14 +34,44 @@ class FakeQueue:
 
     def __init__(self, fleet_home: Path) -> None:
         self.fleet_home = fleet_home
+        self.blocked_calls: list[tuple[str, str]] = []
+        future = (datetime.now(tz=UTC) + timedelta(hours=1)).isoformat()
         self.tasks = {
             "t1": Task(id="t1", title="Bead t1", description=None, status="blocked"),
             "t2": Task(id="t2", title="Bead t2", description=None, status="blocked"),
+            "r1": Task(
+                id="r1",
+                title="Bead r1",
+                description="Do the thing",
+                status="open",
+                cwd="/repo",
+                coder="opencode",
+                model="muse-spark",
+                isolation="worktree",
+            ),
+            "r2": Task(
+                id="r2",
+                title="Bead r2",
+                description="Waiting",
+                status="open",
+                retry_after=future,
+            ),
+            "r3": Task(
+                id="r3",
+                title="Bead r3",
+                description="Ignored",
+                status="open",
+                ignore_until="forever",
+            ),
         }
 
     def list_blocked(self, limit: int = 100) -> list[Task]:
         """Blocked beads in snapshot order."""
         return [t for t in self.tasks.values() if t.status == "blocked"][:limit]
+
+    def list_ready(self, limit: int = 100) -> list[Task]:
+        """Open beads in snapshot order (retry/ignore filtering lives in cli/blocked.py)."""
+        return [t for t in self.tasks.values() if t.status == "open"][:limit]
 
     def get(self, task_id: str) -> Task:
         """One bead, raising BdError when unknown."""
@@ -51,6 +84,11 @@ class FakeQueue:
         """Persist the ignore stamp into the bead's task.json."""
         self.get(task_id)
         TaskMeta.update(self.fleet_home / "tasks" / task_id, ignore_until=ignore_until)
+
+    def set_blocked(self, task_id: str, reason: str) -> None:
+        """Record the block reason for later assertion."""
+        self.get(task_id)
+        self.blocked_calls.append((task_id, reason))
 
 
 def _task(tmp_path: Path, task_id: str, **meta) -> None:
@@ -158,3 +196,58 @@ def test_ignore_non_positive_hours_is_usage(tmp_path: Path, monkeypatch) -> None
     assert result.exit_code == 2
     raw = json.loads((tmp_path / "tasks" / "t1" / "task.json").read_text(encoding="utf-8"))
     assert "ignore_until" not in raw
+
+
+def test_ready_json_lists_ready_bead_with_seven_keys(tmp_path: Path, monkeypatch) -> None:
+    """--json lists r1 with the seven bead-flow keys, skipping r2 (retry) and r3 (ignore)."""
+    _use_home(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["ready", "--json"])
+    assert result.exit_code == 0, result.output
+    [item] = json.loads(result.stdout)
+    assert set(item) == {"id", "title", "description", "coder", "model", "cwd", "isolation"}
+    assert item["id"] == "r1"
+    assert item["title"] == "Bead r1"
+    assert item["description"] == "Do the thing"
+    assert item["coder"] == "opencode"
+    assert item["model"] == "muse-spark"
+    assert item["cwd"] == "/repo"
+    assert item["isolation"] == "worktree"
+    assert all(isinstance(value, str) for value in item.values())
+
+
+def test_ready_table_shows_coder_cwd_title(tmp_path: Path, monkeypatch) -> None:
+    """Human table shows r1 with coder/cwd/title, not the skipped beads."""
+    _use_home(tmp_path, monkeypatch)
+    wide = CliRunner(env={"COLUMNS": "200"})
+    result = wide.invoke(app, ["ready"])
+    assert result.exit_code == 0, result.output
+    assert "r1" in result.output
+    assert "opencode" in result.output
+    assert "/repo" in result.output
+    assert "Bead r1" in result.output
+    assert "r2" not in result.output
+    assert "r3" not in result.output
+
+
+def test_block_calls_set_blocked_with_reason(tmp_path: Path, monkeypatch) -> None:
+    """`fleet block r1 --reason x` records the reason and prints the confirmation."""
+    fake = _use_home(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["block", "r1", "--reason", "stuck on review"])
+    assert result.exit_code == 0, result.output
+    assert fake.blocked_calls == [("r1", "stuck on review")]
+    assert "Blocked r1: stuck on review" in result.output
+
+
+def test_block_empty_reason_is_usage(tmp_path: Path, monkeypatch) -> None:
+    """An empty --reason exits USAGE without calling set_blocked."""
+    fake = _use_home(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["block", "r1", "--reason", ""])
+    assert result.exit_code == 2
+    assert fake.blocked_calls == []
+
+
+def test_block_unknown_bead_is_not_found(tmp_path: Path, monkeypatch) -> None:
+    """Blocking an unknown bead exits NOT_FOUND."""
+    _use_home(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["block", "nope", "--reason", "x"])
+    assert result.exit_code == 3

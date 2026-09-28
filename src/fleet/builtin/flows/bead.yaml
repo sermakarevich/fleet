@@ -1,10 +1,13 @@
 fleet_flow: 2
 description: >-
   Compatibility flow: turn each ready bead into a run. Polled from
-  `bd_ready`; one run per bead id. The work step runs a coder on the
-  bead title and description, then the close step closes the bead.
-  `coder`, `model`, `cwd` and `isolation` render to "" when the bead
-  carries no override; the engine treats "" as unset.
+  `bd_ready`; one run per bead id. The claim step takes the bead out of
+  `bd ready`, the work step runs a coder on the bead title and description,
+  the merge step folds its worktree branch back, and the close step closes
+  the bead. On failure the drop step removes the worktree and the block step
+  records a reason the helper flow can read. `coder`, `model`, `cwd` and
+  `isolation` render to "" when the bead carries no override; the engine
+  treats "" as unset.
 # Disabled until the beads cutover (DESIGN §7 step 3): while the old
 # claim loop still runs, an enabled bead flow would execute every ready
 # bead twice. Copy this file into a private flows folder with
@@ -38,20 +41,57 @@ inputs:
   isolation:
     description: Isolation override from bead metadata (fleet_isolation); "" means unset.
     default: ""
+defaults:
+  isolation: worktree
+  retries: 2
 steps:
+  claim:
+    kind: tool
+    tool: bd_claim
+    args:
+      id: "{{ inputs.id }}"
   work:
-    needs: []
+    needs: [claim]
     prompt: |
       Bead {{ inputs.id }}: {{ inputs.title }}
 
       {{ inputs.description }}
+
+      Work in the current checkout only; write nothing outside it.
+      If you changed files in a git checkout, commit them on the current
+      branch by named path; the merge step needs commits to pick up.
+      Do not push, merge, or switch branches.
     coder: "{{ inputs.coder }}"
     model: "{{ inputs.model }}"
     cwd: "{{ inputs.cwd }}"
-    isolation: "{{ inputs.isolation }}"
+    isolation: "{{ inputs.isolation or defaults.isolation }}"
+  merge:
+    kind: tool
+    tool: worktree_merge
+    needs: [work]
+    skip_if: "{{ (inputs.isolation or defaults.isolation) != 'worktree' }}"
+    args:
+      task: "{{ run.id }}.work"
   close:
     kind: tool
     tool: bd_close
+    needs: [merge]
     args:
       id: "{{ inputs.id }}"
+      reason: "flow run {{ run.id }}"
+  drop:
+    kind: tool
+    tool: worktree_drop
     needs: [work]
+    when: failed
+    skip_if: "{{ (inputs.isolation or defaults.isolation) != 'worktree' }}"
+    args:
+      task: "{{ run.id }}.work"
+  block:
+    kind: tool
+    tool: bd_block
+    needs: [work, merge]
+    when: failed
+    args:
+      id: "{{ inputs.id }}"
+      reason: "fleet flow run {{ run.id }} failed: work {{ steps.work.status }}, merge {{ steps.merge.status }}. See `fleet flow status {{ run.id }}`."

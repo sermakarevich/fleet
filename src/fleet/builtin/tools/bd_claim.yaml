@@ -1,0 +1,9 @@
+fleet_tool: 2
+description: Mark a bead in_progress so it leaves `bd ready`. First step of the bead flow.
+command: ["bd", "update", "{{ args.id }}", "--claim"]
+args:
+  id:
+    description: Bead id to claim.
+    required: true
+output: text
+timeout: 60

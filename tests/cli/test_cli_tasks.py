@@ -39,7 +39,7 @@ def test_ready_no_tasks_prints_message() -> None:
         mock_q.list_ready.return_value = []
         result = runner.invoke(app, ["ready"])
     assert result.exit_code == 0
-    assert "No ready tasks" in result.output
+    assert "No ready beads" in result.output
 
 
 def test_log_prints_full_file_when_no_argument(tmp_path, monkeypatch) -> None:

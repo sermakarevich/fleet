@@ -1,9 +1,15 @@
 fleet_tool: 2
-description: Mark a bead blocked (flag verified against `bd update --help`).
-command: ["bd", "update", "{{ args.id }}", "--status", "blocked"]
+description: >-
+  Mark a bead blocked with a reason. Failure step of the bead flow: writes the
+  bd notes and the task.json blocked_reason/blocked_at, so `fleet blocked`
+  and the helper flow pick the bead up.
+command: ["fleet", "block", "{{ args.id }}", "--reason", "{{ args.reason }}"]
 args:
   id:
     description: Bead id to mark blocked.
+    required: true
+  reason:
+    description: Block reason, readable by the helper flow.
     required: true
 output: text
 timeout: 60

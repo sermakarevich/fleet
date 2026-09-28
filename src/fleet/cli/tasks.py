@@ -1,9 +1,11 @@
-"""Task-management commands: init, ready, show, tasks, task, kill, gc, tail, log, job.
+"""Task-management commands: init, show, tasks, task, kill, gc, tail, log, job.
 
 Every command is a thin closure (at most a few lines): it parses input via
 typer, calls a module-level helper that computes, and prints through
 ``cli/render.py``. Artifact paths come from ``state/artifact_locator``;
 fleet-fleet_home/queue/config dependencies come from ``cli/bootstrap``.
+(`fleet ready` lives in ``cli/blocked.py`` next to `fleet blocked`: it
+emits the bead-flow inputs `bd ready` cannot provide.)
 """
 
 from __future__ import annotations
@@ -48,14 +50,6 @@ class TaskAction(StrEnum):
     log = "log"
     state = "state"
     result = "result"
-
-
-def _fetch_ready(queue: BeadsQueue, limit: int) -> list[Task]:
-    """Ready tasks, exiting BACKEND when the queue is unreadable."""
-    try:
-        return queue.list_ready(limit=limit)
-    except BdError as exc:
-        fail(str(exc), ExitCode.BACKEND)
 
 
 def _fetch_in_progress(queue: BeadsQueue, limit: int) -> list[Task]:
@@ -490,13 +484,6 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Initialize the fleet home directory (beads + defaults)."""
         run_init(bootstrap.fleet_home(), force)
-
-    @app.command()
-    def ready(
-        limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum tasks to list.")] = 50,
-    ) -> None:
-        """List ready tasks."""
-        render.print_ready_tasks(_fetch_ready(bootstrap.queue(bootstrap.fleet_home()), limit))
 
     @app.command()
     def show(

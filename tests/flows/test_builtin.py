@@ -15,6 +15,7 @@ _EXPECTED_OUTPUTS = {
     "bd_blocked": "json",
     "bd_close": "text",
     "bd_block": "text",
+    "bd_claim": "text",
     "worktree_merge": "json",
     "worktree_drop": "json",
 }
@@ -34,14 +35,25 @@ def test_builtin_tools_present_with_declared_outputs() -> None:
         assert catalog.tools[name].output == output
 
 
-def test_bead_flow_parses_with_work_and_close() -> None:
-    """The bead flow has work and close steps started by the bd_ready tool."""
+def test_bead_flow_parses_with_claim_work_merge_close_drop_block() -> None:
+    """The bead flow claims, works, merges, closes, and drops/blocks on failure."""
     catalog = folders.load(["builtin"])
     flow = catalog.flows["bead"]
     assert flow.on.tool is not None
     assert flow.on.tool.name == "bd_ready"
-    assert [step.name for step in flow.steps] == ["work", "close"]
+    assert [step.name for step in flow.steps] == [
+        "claim",
+        "work",
+        "merge",
+        "close",
+        "drop",
+        "block",
+    ]
+    assert flow.step("claim").tool == "bd_claim"
+    assert flow.step("merge").tool == "worktree_merge"
     assert flow.step("close").tool == "bd_close"
+    assert flow.step("drop").tool == "worktree_drop"
+    assert flow.step("block").tool == "bd_block"
 
 
 def test_jev_choose_renders_without_templates() -> None:

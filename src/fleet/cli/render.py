@@ -197,17 +197,6 @@ def print_tasks_table(
     Console(soft_wrap=False).print(table)
 
 
-def print_ready_tasks(tasks: list[Task]) -> None:
-    """Print one ready task per line, or the empty message."""
-    if not tasks:
-        typer.echo("No ready tasks.")
-        return
-    width = max(len(t.id) for t in tasks) + 2
-    for t in tasks:
-        cwd_suffix = f"  [{t.cwd}]" if t.cwd else ""
-        typer.echo(f"{t.id:<{width}}{t.title}{cwd_suffix}")
-
-
 def print_ignored_tasks(rows: list[tuple[Task, str]]) -> None:
     """Print triage-ignored tasks with their ignore-until stamps, or the empty message."""
     if not rows:

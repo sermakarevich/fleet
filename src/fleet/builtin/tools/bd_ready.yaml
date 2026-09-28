@@ -1,8 +1,10 @@
 fleet_tool: 2
 description: >-
-  List ready beads (open issues with no active blockers) as JSON.
-  Polled by the bead flow start: each listed item whose key has not
-  been seen starts a run.
-command: ["bd", "ready", "--json"]
+  Ready beads with fleet's task-folder context (coder, model, cwd, isolation).
+  Polled by the bead flow start: each listed item whose key has not been seen
+  starts a run. This wraps `fleet ready --json`, not `bd ready --json`,
+  because `bd ready` carries no cwd/coder/model/isolation — those live in
+  task.json, so every run would use config defaults in the run dir.
+command: ["fleet", "ready", "--json"]
 output: json
 timeout: 30

@@ -491,9 +491,15 @@ the layer docstring.
    (`example-tweet-watch.yaml`) and delete `tweet_watch/`; its schedule
    becomes `on: tool`.
 3. **Starts.** `on: cron` and `on: tool` in flow files; the `bd_ready` tool
-   source with `bead.yaml`. Set `claim_enabled=false` to stop the old claim
-   loop and hand beads to the built-in bead flow. Remove the beads claim loop, schedule and
-   trigger stores and their UI pages.
+   source with `bead.yaml`. The final `bead.yaml` step list is `claim`
+   (`bd_claim`), `work` (coder), `merge` (`worktree_merge`, skipped when
+   isolation is not worktree), `close` (`bd_close`), plus `drop`
+   (`worktree_drop`) and `block` (`bd_block`) on the failure path
+   (`when: failed`). Switch order: C4 adds the claim switch
+   (`claim_enabled`); flip it to stop the old claim loop and hand beads to
+   the built-in bead flow only afterwards, so no bead runs twice. Then
+   remove the beads claim loop, schedule and trigger stores and their UI
+   pages.
 4. **Delete** the `job` worker, builders, research worker, helper triage,
    `workflows/`, `beads/queue.py` and friends. Rewrite the Runs UI on the two
    tables.
