@@ -90,3 +90,26 @@ class SubprocessTimeout(FleetError, TimeoutError):
         super().__init__(f"{' '.join(argv)} timed out after {timeout_s}s")
         self.argv = argv
         self.timeout_s = timeout_s
+
+
+class FlowInvalid(FleetError, ValueError):
+    """A flow or tool definition breaks one or more validation rules."""
+
+    def __init__(self, problems: list[str] | str) -> None:
+        """Remember every human-readable problem found."""
+        items = [problems] if isinstance(problems, str) else list(problems)
+        super().__init__("; ".join(items))
+        self.problems = items
+
+
+class FlowNotFound(FleetError, KeyError):
+    """No flow (or tool) with this name in the loaded folders."""
+
+    def __init__(self, name: str) -> None:
+        """Remember the missing name."""
+        super().__init__(name)
+        self.name = name
+
+
+class TemplateError(FleetError, ValueError):
+    """A `{{ ... }}` template failed to render (bad syntax or missing value)."""
