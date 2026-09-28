@@ -54,27 +54,28 @@ framework.
 
 ## 3. The abstractions
 
-There are five. Everything in fleet is one of them.
+There are six. Everything in fleet is one of them.
 
 | Concept | One sentence | Lives in |
 |---|---|---|
 | **Step** | One coder launch: a prompt, a working directory, an outputs folder. | `pool/` |
 | **Flow** | A YAML file: named steps, `needs` edges, inputs, and `on:` (what starts it). | `flows/` |
 | **Run** | One execution of a flow: its inputs plus every step's outputs. | `runs/` |
-| **Start** | Something that starts a run: a cron time, an event, or a person. | `supervisor/starts/` |
+| **Start** | Something that starts a run: a cron time, a tool that reports new items, or a person. | `supervisor/starts/` |
 | **Pool** | The one place that executes steps under a concurrency cap, with retries and worktrees. | `pool/` |
+| **Tool** | A declared executable (`x`, `yt`, `jev`, `bd`, a script) that a step can run instead of a coder, a start can poll, or a coder step can be told about. | `flows/tools.py`, `pool/tool_run.py` |
 
-What disappears as a *concept*: workflow, stage, schedule, trigger, job,
-job child, builder, helper, worker family, task family. Each of them is
-now either a flow or a start.
+What disappears as a *concept*: workflow, stage, schedule, trigger, event
+source, job, job child, builder, helper, worker family, task family. Each of
+them is now a flow, a start, or a tool.
 
 - A **scheduled worker** is a flow with one step and `on: cron`.
-- A **triggered worker** is a flow with one step and `on: event`.
+- A **triggered worker** is a flow with one step and `on: tool` (the tool is polled; each new item starts a run).
 - A **workflow** is a flow with several steps.
 - A **job** (one worker per unit) is a step with `for_each`.
-- The **blocked-task helper** is a flow with `on: event: bead_blocked`.
+- The **blocked-task helper** is a flow with `on: tool: bd_blocked`.
 - A **hand-added bead** is started by the built-in `bead.yaml` flow
-  (`on: event: bead_ready`), which runs one step and closes the bead.
+  (`on: tool: bd_ready`), which runs one step and closes the bead with `bd_close`.
 
 ### 3.1 Step
 
@@ -84,12 +85,14 @@ A step is exactly what the worker contract already describes
 `RESULT.json` and `outputs/outputs.json` when the coder exits. Nothing
 changes for coders or templates.
 
-A step has two kinds:
+A step has three kinds:
 
 - `coder` (default): run a coder with the rendered prompt.
 - `human`: ask one question through `ask_human`, store the answer as the
   step's outputs. This replaces `job_gate` and the "confirm with ask_human at
   the end" prompt rules.
+- `tool`: run a declared tool (§3.7) with rendered `args`; its parsed output
+  becomes the step's outputs. No coder, no prompt, no LLM cost.
 
 Step fields: `name`, `kind`, `needs`, `prompt`, `coder`, `model`, `cwd`,
 `isolation`, `retries`, `for_each`, `key`, `after`, `parallel`, `skip_if`
@@ -183,7 +186,7 @@ Rules:
   ```yaml
   on:
     cron: {expr: "0 7 * * 1-5", tz: Europe/Berlin}
-    event: {source: bead_blocked}
+    tool: {name: bd_blocked, every: 1m, key: "{{ item.id }}"}
     manual: true
   ```
   A flow can have several. `enabled: false` turns the whole flow off.
@@ -240,18 +243,20 @@ mark them for retry", which the pool's lease logic already does.
 
 - `cron.py`: every tick, for every flow with `on.cron`, start a run if due
   (today's `schedules/cron.py`, minus the store).
-- `events.py`: every tick, ask each **source** for events, start a run per
-  new event, remember the event key so it fires once (today's
-  `triggers/sources/*`, minus the store). Sources: `bead_ready`,
-  `bead_blocked`, `tweet` (from `tweet_watch`), and later others.
+- `tool.py`: every `every` interval, run the flow's `on.tool` (§3.7); the
+  tool must print a list; each item whose `key` has not been seen starts a
+  run with the item as inputs. Seen keys live in `runs` (a run remembers
+  the key that started it), so there is no separate firing store. This
+  replaces `triggers/sources/*.py`: a tweet watch is `x watch check --json`,
+  a ready bead is `bd ready --json`, a blocked bead is `bd list --status
+  blocked --json`.
 - `manual.py`: `fleet run <flow> --input k=v` and the UI button.
 
-The `bead_ready` source is the whole beads integration on the input side:
-it turns a ready bead into a run of the built-in `bead.yaml` flow, with the
-bead's title, description, coder, model and isolation as inputs. When that
-run finishes, the same module closes or blocks the bead. Beads is thus a
-*source* and a *sink*, in one file, and nothing else in fleet knows about
-`bd`.
+The built-in `bead.yaml` flow is the whole beads integration:
+`on: tool: bd_ready` turns a ready bead into a run, with the bead's title,
+description, coder, model and isolation as inputs; its last step is
+`kind: tool, tool: bd_close`. Beads is thus one tool used by one flow, and
+nothing else in fleet knows about `bd`.
 
 ### 3.6 Pool
 
@@ -265,6 +270,49 @@ retry up to `retries`, record attempts. Modules keep their names
 The pool does not know what a flow is. It gets a step run id, a rendered
 prompt, a directory and launch options.
 
+### 3.7 Tool
+
+A tool is an executable fleet knows by name. It is one YAML file in a
+`tools/` folder, read with the same folder rules as flows (§3.3):
+
+```yaml
+# tools/x_tweet.yaml
+fleet_tool: 2
+description: Parse a tweet or thread with the x CLI.
+command: ["x", "tweet", "{{ args.url }}", "--thread", "--format", "json"]
+args:
+  url: {required: true}
+env: [TWITTERAPI_IO_KEY]        # must be set, or the tool is "unavailable"
+output: json                    # json | lines | text
+timeout: 120
+```
+
+A tool is used in three places:
+
+1. **As a processor** (a step): `kind: tool`, `tool: x_tweet`,
+   `args: {url: "{{ inputs.url }}"}`. Fleet runs the command in the step's
+   `cwd`, parses stdout as declared, and stores it as the step's outputs.
+   A non-zero exit is a failed attempt, retried like a coder step. Every
+   deterministic step (run the tests, commit the files, fetch a page,
+   score with `jev`) should be a tool step, not a coder step.
+2. **As a trigger** (a start): `on: tool: {name: x_watch, args: {...},
+   every: 5m, key: "{{ item.id }}"}`. See §3.5.
+3. **Attached to a coder step**: `tools: [x_tweet, yt_transcript]`. Fleet
+   appends a "Tools" section to the prompt with each tool's description,
+   command and args, so the coder uses the right command instead of
+   guessing. This is the only way tools reach an LLM; there is no MCP
+   wrapping.
+
+Built-in tools ship with fleet: `bd_ready`, `bd_close`, `bd_block`,
+`git_commit_paths`, `pytest`. Everything else lives in the public or
+private folder. A tool's `command` is a list, never a shell string, so
+templates cannot inject shell.
+
+Package: `flows/tools.py` (model, folder loading) and `pool/tool_run.py`
+(run with timeout, parse output). The pool treats a tool step like a coder
+step: a step run id, a directory, a command; `stdout` and `stderr` are kept
+in `attempts/<n>/` as for coders.
+
 ## 4. Package layout (imports point down only)
 
 ```
@@ -272,22 +320,23 @@ fleet/
   cli/           fleet run <flow>, fleet flows, fleet runs, fleet serve
   serve/         web: Flows page, Runs page, Run page (steps, items, attempts)
   supervisor/    the tick loop: starts → runs.advance() → pool.fill()
-    starts/      cron.py, events.py, manual.py
-      sources/   bead_ready.py, bead_blocked.py, tweet.py
+    starts/      cron.py, tool.py, manual.py
   flows/         model.py, folders.py (read+override), graph.py (ready steps,
-                 for_each expansion), templates.py
+                 for_each expansion), templates.py, tools.py (tool model)
   runs/          store.py (two tables), run_dir.py, state.py (inputs+outputs)
   pool/          claim.py, spawn.py, reap.py, leases.py, retry_policy.py,
-                 worktree.py, rate_gauge.py, prompt.py, result.py
+                 worktree.py, rate_gauge.py, prompt.py, result.py,
+                 tool_run.py, human_run.py
     coders/      unchanged
-  beads/         client.py only; used solely by supervisor/starts/sources/bead_*.py
+  builtin/       flows/bead.yaml, flows/helper.yaml, tools/bd_*.yaml, ...
+  beads/         deleted; `bd` is called only through builtin/tools/bd_*.yaml
   integrations/  ask_human, telegram, mcp_servers — unchanged
   templates/     unchanged
 ```
 
 `supervisor` imports `flows`, `runs`, `pool`. `runs` imports `flows`
-(the model). `pool` imports `coders`. `flows` imports nothing of fleet.
-`beads` is imported by one folder. Every `__init__.py` is empty except for
+(the model). `pool` imports `coders` and `flows.tools`. `flows` imports
+nothing of fleet. No module imports `beads`. Every `__init__.py` is empty except for
 the layer docstring.
 
 ## 5. What gets deleted
@@ -295,12 +344,12 @@ the layer docstring.
 | Today | Lines (approx.) | Fate |
 |---|---|---|
 | `workflows/` (model, planning, runs, store, templates, yaml_io, builtins, builders) | 4 900 | → `flows/` + `runs/`, about a quarter of the size |
-| `triggers/` (model, store, firing, render) | 950 | → `starts/events.py`; sources move as they are |
+| `triggers/` (model, store, firing, render, sources) | 950 | → `starts/tool.py`; each source becomes a tool YAML |
 | `schedules/` (model, store, firing) | ~1 100 | → `starts/cron.py` |
 | `workers/job.py`, `observe.py`, `core/job_*.py`, `state/spawn_journal.py` | ~1 700 | deleted; `for_each` |
 | `workers/research*.py`, research templates | ~600 | become `research.yaml` in built-in flows |
-| `orchestrator/helper.py`, `triggers/sources/blocked_task.py` triage | ~400 | `helper.yaml` flow with `on: event: bead_blocked` |
-| `beads/queue.py`, `task_store.py`, `reconcile.py`, `status_cache.py`, labels/metadata in `planning.py` | ~1 200 | deleted; `client.py` stays |
+| `orchestrator/helper.py`, `triggers/sources/blocked_task.py` triage | ~400 | `helper.yaml` flow with `on: tool: bd_blocked` |
+| `beads/` (client, queue, task_store, reconcile, status_cache), labels/metadata in `planning.py` | ~1 600 | deleted; `bd` is a tool |
 | `workflow_run_steps`, `workflows`, `workflow_runs`, schedule and trigger tables | | replaced by `runs`, `step_runs` |
 | UI: Schedules, Triggers, Workflows, Tasks pages | | → Flows, Runs |
 
@@ -312,9 +361,9 @@ the layer docstring.
    `isolation: worktree`.** Flow authors choose: shared checkout with
    "never commit" prompts plus a commit step, or one worktree per item and a
    merge step. Fleet does not merge for them.
-3. **Two step kinds only**, `coder` and `human`. A `shell` kind (run a
-   command, no coder) is an obvious later addition and is left out on
-   purpose. A sub-flow step is left out; nest with `for_each` first.
+3. **Three step kinds only**, `coder`, `human` and `tool`. A sub-flow step
+   is left out; nest with `for_each` first. Tools reach coders only through
+   the prompt, never as MCP servers.
 4. **The bead flow is the compatibility layer.** `bd create` keeps working
    exactly as today. Bead metadata keys (`fleet_coder`, `fleet_model`,
    `fleet_isolation`) become inputs of `bead.yaml`. All other metadata keys
@@ -331,7 +380,7 @@ the layer docstring.
    spawn/reap code through a thin adapter, next to the beads claim loop.
    Move `autocode` and `summarise` to the new format; they no longer create
    beads.
-3. **Starts.** `on: cron` and `on: event` in flow files; the `bead_ready`
+3. **Starts.** `on: cron` and `on: tool` in flow files; the `bd_ready` tool
    source with `bead.yaml`. Remove the beads claim loop, schedule and
    trigger stores and their UI pages.
 4. **Delete** the `job` worker, builders, research worker, helper triage,
