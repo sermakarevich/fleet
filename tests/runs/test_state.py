@@ -106,8 +106,20 @@ def test_context_items_ordered_by_index(tmp_path: Path) -> None:
 
 def test_context_step_without_runs_has_empty_outputs(tmp_path: Path) -> None:
     found = context(_flow(), _run(), tmp_path / "run-20260928-aaaaaa", [])
-    assert found["steps"]["a"] == {"outputs": {}, "items": []}
-    assert found["steps"]["b"] == {"outputs": {}, "items": []}
+    assert found["steps"]["a"] == {
+        "outputs": {},
+        "items": [],
+        "status": "pending",
+        "checks": {},
+        "item_checks": [],
+    }
+    assert found["steps"]["b"] == {
+        "outputs": {},
+        "items": [],
+        "status": "pending",
+        "checks": {},
+        "item_checks": [],
+    }
 
 
 def test_context_item_and_index_only_when_given(tmp_path: Path) -> None:
