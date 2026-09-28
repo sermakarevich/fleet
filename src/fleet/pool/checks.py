@@ -173,7 +173,7 @@ async def _run_human_check(
 ) -> Verdict:
     """Ask one yes/no question; yes passes, the note (else answer) is the message."""
     if ask_store is None:
-        return Verdict(name=check.name, ok=False, message="no question store", kind="human")
+        return Verdict(name=check.name, ok=False, message="no question store", kind=check.kind)
     start = time.monotonic()
     answer = await ask_human(
         ask_store,
@@ -187,7 +187,7 @@ async def _run_human_check(
         ok=is_yes(answer),
         message=answer.note or answer.answer,
         duration_s=time.monotonic() - start,
-        kind="human",
+        kind=check.kind,
     )
 
 
@@ -229,7 +229,7 @@ async def run_checks(  # noqa: PLR0913
                 )
             elif run_coder_check is None:
                 verdict = Verdict(
-                    name=check.name, ok=False, message="coder checks unavailable", kind="coder"
+                    name=check.name, ok=False, message="coder checks unavailable", kind=check.kind
                 )
             else:
                 verdict = await run_coder_check(check, ctx)

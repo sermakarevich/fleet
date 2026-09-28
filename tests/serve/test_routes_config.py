@@ -101,6 +101,7 @@ def test_config_get_includes_restart_required(
         "serve_host",
         "serve_port",
         "serve_cors_origins",
+        "flows_folders",
     }
 
 

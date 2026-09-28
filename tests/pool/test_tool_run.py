@@ -106,7 +106,7 @@ def test_timeout_kills(tmp_path: Path) -> None:
     """A slow command is killed: timed_out with no exit code."""
     tool = Tool(
         name="sleeper",
-        command=("python3", "-c", "import time; time.sleep(5)"),
+        command=("python3", "-c", "import signal; signal.pause()"),
         output="text",
         timeout=120,
     )

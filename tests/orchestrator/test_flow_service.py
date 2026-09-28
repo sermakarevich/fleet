@@ -103,7 +103,13 @@ async def _drive(st, run_id: str, limit: int = 60):
     """Tick until the run finishes; let in-flight tasks progress between ticks."""
     for _ in range(limit):
         await tick(st)
-        await asyncio.sleep(0.05)
+        inflight = [
+            *st.flows.tools.values(),
+            *st.flows.humans.values(),
+            *(worker.future for worker in st.flows.coders.values()),
+        ]
+        if inflight:
+            await asyncio.wait(inflight)
         run = st.flows.store.get_run(run_id)
         if run is not None and run.status is not RunStatus.running:
             return run

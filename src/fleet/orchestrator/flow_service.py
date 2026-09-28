@@ -450,26 +450,26 @@ def _coder_check_runner(st: SupervisorState, launch: Launch, run: Run):  # noqa:
             )
             worker = start_coder_step(st, check_launch, run)
         except Exception as exc:  # noqa: BLE001 - a bad checker fails the check, not the tick
-            return Verdict(name=check.name, ok=False, message=str(exc), kind="coder")
+            return Verdict(name=check.name, ok=False, message=str(exc), kind=check.kind)
         try:
             record = await worker.future
         except Exception as exc:  # noqa: BLE001 - a crashed checker fails the check
             return Verdict(
-                name=check.name, ok=False, message=f"checker failed: {exc}", kind="coder"
+                name=check.name, ok=False, message=f"checker failed: {exc}", kind=check.kind
             )
         _ = record
         copy_declared_outputs(check_dir, worker.attempt_dir)
         outputs = run_paths.read_outputs(check_dir)
         if not outputs:
             return Verdict(
-                name=check.name, ok=False, message="checker wrote no outputs", kind="coder"
+                name=check.name, ok=False, message="checker wrote no outputs", kind=check.kind
             )
         return Verdict(
             name=check.name,
             ok=outputs.get("ok") is True,
             message=str(outputs.get("message", "")),
             outputs=outputs,
-            kind="coder",
+            kind=check.kind,
         )
 
     return _run

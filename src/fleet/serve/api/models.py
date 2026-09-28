@@ -387,6 +387,7 @@ class ConfigView(BaseModel):
     job_max_phase_attempts: int
     serve_cors_origins: list[str]
     serve_host: str
+    flows_folders: list[str]
     serve_port: int
     # Names of RuntimeConfig fields that need a serve restart to take
     # effect (core.config.RESTART_REQUIRED_FIELDS). Optional so older

@@ -252,8 +252,6 @@ def test_tick_starts_due_cron_once(tmp_path: Path) -> None:
         first = st.flows.store.list_runs()
         await tick(st)
         second = st.flows.store.list_runs()
-        await asyncio.sleep(0.3)
-        await tick(st)
         return first, second
 
     first, second = asyncio.run(_main())

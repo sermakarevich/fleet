@@ -217,7 +217,7 @@ def test_human_live_question_wiring(tmp_path: Path) -> None:
 
     async def _main() -> CheckOutcome:
         async def _answer() -> None:
-            await asyncio.sleep(0.1)
+            # runs at run_checks' first await, which is the poll after ask()
             pending = store.find_pending("run1.draft", "check:gate:1")
             assert pending is not None
             assert pending.get("prompt") == "Post hello?"
