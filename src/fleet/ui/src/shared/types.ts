@@ -23,7 +23,6 @@ export type Bead = Schemas['Bead'];
 export type BeadDependency = Schemas['BeadDependency'];
 export type BeadComment = Schemas['BeadComment'];
 export type BeadDetail = Schemas['BeadDetail'];
-export type StreamEvent = Schemas['StreamEvent'];
 export type SupervisorStatus = Schemas['SupervisorResponse'];
 export type HealthzStatus = Schemas['HealthResponse'];
 export type RuntimeConfig = Schemas['ConfigView'];
@@ -40,7 +39,6 @@ export type AnalyticsToolRow = Schemas['AnalyticsToolRow'];
 export type AnalyticsErrorRecent = Schemas['AnalyticsErrorRecent'];
 export type AnalyticsRateLimit = Schemas['AnalyticsRateLimit'];
 export type SearchResult = Schemas['SearchHit'];
-export type LogLine = Schemas['LogLine'];
 export type FileOp = Schemas['FileOp'];
 export type ArtifactBundle = Schemas['ArtifactBundle'];
 export type ArtifactDoc = Schemas['ArtifactDoc'];
@@ -72,8 +70,7 @@ export type WorkflowValidate = Schemas['WorkflowValidateResponse'];
 
 // --- UI-only types (never cross the API boundary) ---
 
-// One event pushed over the websocket: the raw row plus broker metadata.
-// (The HTTP /events endpoint returns StreamEvent instead.)
+// One event pushed over the global websocket: the raw row plus broker metadata.
 export interface FleetEvent {
   kind: string;
   ts: string;

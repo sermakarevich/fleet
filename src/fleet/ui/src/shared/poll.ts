@@ -1,10 +1,10 @@
 /**
  * Polling cadences for every react-query refetchInterval in the UI.
- * Detail tabs (Events/Log/Stderr/Files/Diff) disable polling while the
- * events socket is connected (see usePoll below) because the socket
- * already streams the same updates. List queries that the socket only
- * patches (tasks list: lease, beads status) keep a slow fallback poll
- * while connected — see usePollWithSocketFallback.
+ * Detail queries (task, children, bundle) disable polling while the
+ * global events socket is connected (see usePoll below) because the
+ * socket already streams the same updates. List queries that the socket
+ * only patches (tasks list: lease, beads status) keep a slow fallback
+ * poll while connected — see usePollWithSocketFallback.
  */
 import { useSocketStatus } from './hooks/useEventSocket';
 

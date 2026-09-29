@@ -1,61 +1,31 @@
-"""Artifact file reads for the task artifact routes.
+"""Artifact file reads for the task artifact bundle and detail routes.
 
-Called by serve/api/tasks_artifacts.py (and the templates route) via
-`asyncio.to_thread` (the blocking-I/O rule in serve/api/__init__.py):
-handlers never read the filesystem on the event-loop thread. Every helper
-here is sync and returns plain data or a JSONResponse.
+Called by serve/api/tasks_artifacts.py (bundle) and tasks_detail.py
+(children) via `asyncio.to_thread` (the blocking-I/O rule in
+serve/api/__init__.py): handlers never read the filesystem on the
+event-loop thread. Every helper here is sync and returns plain data.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.responses import JSONResponse
-
-from fleet.serve.errors import not_found
 from fleet.serve.state import AppState
 from fleet.state.artifact_locator import locate
+from fleet.state.events import EventScanCache, event_stats_cached
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_summary import read_declared_result
 
-
-def read_artifact(path: Path) -> tuple[str, float, str]:
-    """(content, mtime, resolved path) for one artifact file."""
-    return (path.read_text(encoding="utf-8"), path.stat().st_mtime, str(path.resolve()))
+_events_cache = EventScanCache()
 
 
-def file_response(content: str, mtime: float, resolved: str) -> JSONResponse:
-    """Artifact payload for already-read file content."""
-    return JSONResponse({"content": content, "mtime": mtime, "path": resolved})
-
-
-def list_output_names(outputs: Path) -> list[str]:
-    """Deliverable file names under outputs/, [] when missing/unreadable."""
-    if not outputs.is_dir():
-        return []
-    try:
-        return sorted(p.name for p in outputs.iterdir() if p.is_file())
-    except OSError:
-        return []
-
-
-def read_named_artifact(path: Path) -> tuple[str, float, str] | None:
-    """(content, mtime, resolved) for a named artifact, None when missing."""
-    if not path.exists():
-        return None
-    try:
-        return read_artifact(path)
-    except OSError:
-        return None
-
-
-def named_artifact(task_id: str, state: AppState, filename: str) -> JSONResponse:
-    """Named artifact response for one task (RESEARCH.md, DESIGN.md, ...)."""
-    task_path = resolve_task_dir(state.fleet_home, task_id) / "artifacts" / filename
-    snapshot = read_named_artifact(task_path)
-    if snapshot is None:
-        raise not_found("artifact", filename)
-    return file_response(*snapshot)
+def files_payload(task_path: Path) -> list[dict]:
+    """Per-file read/edit/write counts from the event scan."""
+    counts = event_stats_cached(task_path, _events_cache).files_touched
+    return [
+        {"path": path, "read": fc.read, "edit": fc.edit, "write": fc.write}
+        for path, fc in sorted(counts.items())
+    ]
 
 
 def read_children_md(digest_file: Path) -> str | None:
@@ -91,16 +61,6 @@ def _child_row(dep: dict, state: AppState) -> dict:
     }
 
 
-def read_text_or_empty(path: Path) -> str:
-    """Whole file text, "" when missing/unreadable."""
-    if not path.exists():
-        return ""
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-
-
 #: Artifact doc truncation: content past this is cut, `truncated` says so.
 ARTIFACT_DOC_LIMIT = 200_000
 
@@ -125,10 +85,6 @@ def _doc_payload(name: str, path: Path) -> dict | None:
 
 def bundle_payload(task_dir: Path, raw_task_json: dict | None) -> dict:
     """One artifact bundle: result/state docs, outputs, docs, files, worktree."""
-    # Local import: stream_reads imports this module (read_text_or_empty),
-    # so a top-level import would be circular.
-    from fleet.serve.api.stream_reads import files_payload  # noqa: PLC0415
-
     fleet_home = task_dir.parent.parent
     task_id = task_dir.name
     result_path = locate(fleet_home, task_id, "result")

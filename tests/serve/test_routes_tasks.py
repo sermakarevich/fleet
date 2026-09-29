@@ -211,57 +211,6 @@ def test_beads_status_map_cache_prevents_duplicate_subprocesses(
     )
 
 
-def test_files_returns_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /api/tasks/{id}/files returns per-file read/edit/write counts (FR-20)."""
-    monkeypatch.setenv("FLEET_HOME", str(tmp_path))
-    task_dir = _make_task_dir(tmp_path / "tasks", "task-files")
-    events = [
-        {
-            "kind": "tool_use",
-            "tool_name": "Read",
-            "raw": {"input": {"file_path": "/foo.py"}},
-        },
-        {
-            "kind": "tool_use",
-            "tool_name": "Edit",
-            "raw": {"input": {"file_path": "/foo.py"}},
-        },
-        {
-            "kind": "tool_use",
-            "tool_name": "Write",
-            "raw": {"input": {"file_path": "/bar.py"}},
-        },
-        {
-            "kind": "tool_use",
-            "tool_name": "Read",
-            "raw": {"input": {"file_path": "/foo.py"}},
-        },
-        {"kind": "tool_result", "tool_name": None, "raw": {}},  # non-tool_use, ignored
-    ]
-    attempt_dir = task_dir / "attempts" / "1"
-    attempt_dir.mkdir(parents=True, exist_ok=True)
-    (attempt_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events))
-
-    app = create_app()
-
-    async def _run() -> httpx.Response:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            return await client.get("/api/tasks/task-files/files")
-
-    resp = asyncio.run(_run())
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "files" in data
-    files_map = {f["path"]: f for f in data["files"]}
-    assert "/foo.py" in files_map
-    assert files_map["/foo.py"]["read"] == 2
-    assert files_map["/foo.py"]["edit"] == 1
-    assert "/bar.py" in files_map
-    assert files_map["/bar.py"]["write"] == 1
-
-
 def test_list_tasks_fills_missing_title_from_beads(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

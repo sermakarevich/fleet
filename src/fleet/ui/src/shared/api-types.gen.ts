@@ -276,146 +276,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/{task_id}/artifacts/state": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact State
-         * @description STATE.md, or the legacy view for old task dirs without one.
-         */
-        get: operations["get_artifact_state_api_tasks__task_id__artifacts_state_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/result": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Result
-         * @description Live RESULT.json, else the latest attempt snapshot, else legacy.
-         */
-        get: operations["get_artifact_result_api_tasks__task_id__artifacts_result_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/outputs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Outputs
-         * @description Deliverables under tasks/<id>/outputs/.
-         */
-        get: operations["get_artifact_outputs_api_tasks__task_id__artifacts_outputs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/research": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Research
-         * @description Job worker's RESEARCH.md (see workers/job.py).
-         */
-        get: operations["get_artifact_research_api_tasks__task_id__artifacts_research_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/design": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Design
-         * @description Job worker's DESIGN.md (see workers/job.py).
-         */
-        get: operations["get_artifact_design_api_tasks__task_id__artifacts_design_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Candidates
-         * @description Research worker's scored shortlist, candidates.json (see workers/research.py, ADR 0015).
-         */
-        get: operations["get_artifact_candidates_api_tasks__task_id__artifacts_candidates_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/artifacts/children_runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Artifact Children Runs
-         * @description Job worker's workflow-run journal, children_runs.json (see workers/job.py).
-         */
-        get: operations["get_artifact_children_runs_api_tasks__task_id__artifacts_children_runs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tasks/{task_id}/artifacts": {
         parameters: {
             query?: never;
@@ -468,86 +328,6 @@ export interface paths {
          * @description git diff against the worktree base ref, else the task cwd (ADR 0017).
          */
         get: operations["get_task_diff_api_tasks__task_id__diff_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Task Logs
-         * @description Parsed log.jsonl lines, optionally filtered by level (FR-17).
-         */
-        get: operations["get_task_logs_api_tasks__task_id__logs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/stderr": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Task Stderr
-         * @description Raw stderr content, empty when absent (FR-18).
-         */
-        get: operations["get_task_stderr_api_tasks__task_id__stderr_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Task Files
-         * @description Per-file read/edit/write counts from the event scan (FR-20).
-         */
-        get: operations["get_task_files_api_tasks__task_id__files_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Task Events
-         * @description Whole-task event history across attempts, paged (tail by default).
-         */
-        get: operations["get_task_events_api_tasks__task_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1672,18 +1452,6 @@ export interface components {
             truncated: boolean;
         };
         /**
-         * ArtifactResponse
-         * @description File content envelope for the artifact routes.
-         */
-        ArtifactResponse: {
-            /** Content */
-            content: string;
-            /** Mtime */
-            mtime: number;
-            /** Path */
-            path: string;
-        };
-        /**
          * Bead
          * @description One beads-DB row for the BD portal list.
          */
@@ -1957,7 +1725,7 @@ export interface components {
         };
         /**
          * ContentResponse
-         * @description Single-text envelope (attempt summary/prompt/log/state, stderr).
+         * @description Single-text envelope (attempt summary/prompt/log/state).
          */
         ContentResponse: {
             /** Content */
@@ -1995,14 +1763,6 @@ export interface components {
              * @default
              */
             note: string;
-        };
-        /**
-         * FileListResponse
-         * @description Envelope for GET /api/tasks/{id}/files.
-         */
-        FileListResponse: {
-            /** Files */
-            files: components["schemas"]["FileOp"][];
         };
         /**
          * FileOp
@@ -2104,30 +1864,6 @@ export interface components {
             result: string;
         };
         /**
-         * LogLine
-         * @description One parsed log.jsonl line.
-         */
-        LogLine: {
-            /** Ts */
-            ts: string;
-            /** Level */
-            level: string;
-            /** Message */
-            message: string;
-            /** Extra */
-            extra: {
-                [key: string]: unknown;
-            };
-        };
-        /**
-         * LogListResponse
-         * @description Envelope for GET /api/tasks/{id}/logs.
-         */
-        LogListResponse: {
-            /** Lines */
-            lines: components["schemas"]["LogLine"][];
-        };
-        /**
          * OkResponse
          * @description Generic mutation acknowledgement ({"ok": true}).
          */
@@ -2146,14 +1882,6 @@ export interface components {
             path: string;
             /** Size */
             size: number;
-        };
-        /**
-         * OutputsResponse
-         * @description Deliverable names for GET /api/tasks/{id}/artifacts/outputs.
-         */
-        OutputsResponse: {
-            /** Files */
-            files: string[];
         };
         /**
          * PauseResponse
@@ -2572,32 +2300,6 @@ export interface components {
             children: components["schemas"]["StepChildren"];
         };
         /**
-         * StreamEvent
-         * @description One shaped event row for GET /api/tasks/{id}/events.
-         */
-        StreamEvent: {
-            /** I */
-            i: number;
-            /** Ts */
-            ts: string;
-            /** Kind */
-            kind: string;
-            /** Session Id */
-            session_id: string | null;
-            /** Tool Name */
-            tool_name: string | null;
-            /** Usage */
-            usage: {
-                [key: string]: number;
-            } | null;
-            /** Summary */
-            summary: string;
-            /** Raw */
-            raw: {
-                [key: string]: unknown;
-            };
-        };
-        /**
          * SupervisorResponse
          * @description Supervisor liveness, slots, pause flag and code staleness.
          */
@@ -2787,18 +2489,6 @@ export interface components {
             has_task_dir: boolean;
             /** Attempts */
             attempts: components["schemas"]["TaskAttempt"][];
-        };
-        /**
-         * TaskEventsResponse
-         * @description Paged envelope for GET /api/tasks/{id}/events.
-         */
-        TaskEventsResponse: {
-            /** Total */
-            total: number;
-            /** Offset */
-            offset: number;
-            /** Events */
-            events: components["schemas"]["StreamEvent"][];
         };
         /**
          * TaskLease
@@ -3601,223 +3291,6 @@ export interface operations {
             };
         };
     };
-    get_artifact_state_api_tasks__task_id__artifacts_state_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_result_api_tasks__task_id__artifacts_result_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_outputs_api_tasks__task_id__artifacts_outputs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutputsResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_research_api_tasks__task_id__artifacts_research_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_design_api_tasks__task_id__artifacts_design_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_candidates_api_tasks__task_id__artifacts_candidates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_children_runs_api_tasks__task_id__artifacts_children_runs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_artifact_bundle_api_tasks__task_id__artifacts_get: {
         parameters: {
             query?: never;
@@ -3903,136 +3376,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiffResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_task_logs_api_tasks__task_id__logs_get: {
-        parameters: {
-            query?: {
-                level?: string | null;
-            };
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LogListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_task_stderr_api_tasks__task_id__stderr_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ContentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_task_files_api_tasks__task_id__files_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FileListResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_task_events_api_tasks__task_id__events_get: {
-        parameters: {
-            query?: {
-                offset?: number | null;
-                limit?: number;
-                kind?: string[];
-            };
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TaskEventsResponse"];
                 };
             };
             /** @description Validation Error */

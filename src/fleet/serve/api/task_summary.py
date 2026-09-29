@@ -1,6 +1,6 @@
 """Task view helpers for the serve API routers, one fleet_home.
 
-Called by serve/api/tasks_list.py, tasks_detail.py and tasks_stream.py:
+Called by serve/api/tasks_list.py and tasks_detail.py:
 summary building (with caller-resolved context limit and blocked notes),
 beads overlays, and event-row shaping. Routers stay thin: parse input,
 call here, format output.

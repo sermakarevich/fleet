@@ -11,14 +11,12 @@ import type {
   DiffResponse,
   EventTrigger,
   HealthzStatus,
-  LogLine,
   RuntimeConfig,
   Schedule,
   ScheduleDetail,
   ScheduleInput,
   ScheduleRun,
   SearchResult,
-  StreamEvent,
   SupervisorStatus,
   TaskChildren,
   TaskDetail,
@@ -265,14 +263,6 @@ export const api = {
     return request(`/api/tasks/${id}/artifacts`);
   },
 
-  getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {
-    return request(`/api/tasks/${id}/logs${qs({ level })}`);
-  },
-
-  getStderr(id: string): Promise<{ content: string }> {
-    return request(`/api/tasks/${id}/stderr`);
-  },
-
   // --- Attempts timeline ---------------------------------------------------
 
   getAttemptSummary(id: string, n: number): Promise<{ content: string }> {
@@ -283,19 +273,8 @@ export const api = {
     return request(`/api/tasks/${id}/attempts/${n}/prompt`);
   },
 
-  getAttemptLog(id: string, n: number): Promise<{ content: string }> {
-    return request(`/api/tasks/${id}/attempts/${n}/log`);
-  },
-
   getDiff(id: string): Promise<DiffResponse> {
     return request(`/api/tasks/${id}/diff`);
-  },
-
-  getTaskEvents(
-    id: string,
-    opts?: { offset?: number; limit?: number; kind?: string },
-  ): Promise<{ total: number; offset: number; events: StreamEvent[] }> {
-    return request(`/api/tasks/${id}/events${qs({ offset: opts?.offset, limit: opts?.limit, kind: opts?.kind })}`);
   },
 
   getActivity(

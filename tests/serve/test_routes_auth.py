@@ -48,8 +48,10 @@ def test_websocket_rejects_missing_token_when_set(
     assert code == 4401
 
 
-def test_events_limit_out_of_range_is_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /api/tasks/{id}/events?limit=999999 returns 422 (bounded query)."""
+def test_activity_limit_out_of_range_is_422(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/tasks/{id}/activity?limit=999999 returns 422 (bounded query)."""
     monkeypatch.setenv("FLEET_HOME", str(tmp_path))
     _make_task_dir(tmp_path / "tasks", "task-evlimit")
 
@@ -59,7 +61,7 @@ def test_events_limit_out_of_range_is_422(tmp_path: Path, monkeypatch: pytest.Mo
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            return await client.get("/api/tasks/task-evlimit/events?limit=999999")
+            return await client.get("/api/tasks/task-evlimit/activity?limit=999999")
 
     resp = asyncio.run(_run())
     assert resp.status_code == 422

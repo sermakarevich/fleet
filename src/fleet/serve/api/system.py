@@ -33,14 +33,10 @@ async def healthz() -> JSONResponse:
     )
 
 
-async def _ws_loop(websocket: WebSocket, task_id: str | None, state: AppState) -> None:
-    """Accept the socket and relay until disconnect; 4004 for an unknown task."""
-    if task_id is not None and not state_paths.task_dir(state.fleet_home, task_id).is_dir():
-        await websocket.accept()
-        await websocket.close(code=4004)
-        return
+async def _ws_loop(websocket: WebSocket, state: AppState) -> None:
+    """Accept the socket and relay until disconnect."""
     mgr = state.connection_manager
-    await mgr.connect(websocket, task_id=task_id)
+    await mgr.connect(websocket)
     try:
         while True:
             await websocket.receive_text()
@@ -59,17 +55,4 @@ async def ws_events(
     """Global event stream for all tasks."""
     if not allowed:
         return
-    await _ws_loop(websocket, None, state)
-
-
-@ws_router.websocket("/ws/tasks/{task_id}/events")
-async def ws_task_events(
-    websocket: WebSocket,
-    task_id: str,
-    state: StateDep,
-    allowed: bool = Depends(require_ws_token),
-) -> None:
-    """Event stream for one task; 4004 when the task does not exist."""
-    if not allowed:
-        return
-    await _ws_loop(websocket, task_id, state)
+    await _ws_loop(websocket, state)

@@ -32,40 +32,26 @@ class _TailState:
 class WebSocketBroadcaster:
     def __init__(self) -> None:
         self._global: set[WebSocket] = set()
-        self._per_task: dict[str, set[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket, task_id: str | None = None) -> None:
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
-        if task_id is None:
-            self._global.add(websocket)
-        else:
-            self._per_task.setdefault(task_id, set()).add(websocket)
+        self._global.add(websocket)
 
     async def disconnect(self, websocket: WebSocket) -> None:
         self._global.discard(websocket)
-        for s in self._per_task.values():
-            s.discard(websocket)
 
     async def broadcast(self, task_id: str, payload: dict) -> None:
         """Send payload to all subscribers. Silently removes disconnected clients.
 
         Global subscribers receive {"task_id": ..., "event": payload}.
-        Per-task subscribers receive {"event": payload}.
         """
         global_msg = {"task_id": task_id, "event": payload}
-        task_msg = {"event": payload}
         dead: set[WebSocket] = set()
         for ws in list(self._global):
             try:
                 await ws.send_json(global_msg)
             except Exception as exc:
                 logger.debug("watcher send failed (global subscriber)", exc_info=exc)
-                dead.add(ws)
-        for ws in list(self._per_task.get(task_id, set())):
-            try:
-                await ws.send_json(task_msg)
-            except Exception as exc:
-                logger.debug("watcher send failed", exc_info=exc, extra={"task_id": task_id})
                 dead.add(ws)
         for ws in dead:
             await self.disconnect(ws)

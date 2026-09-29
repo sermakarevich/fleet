@@ -4,6 +4,8 @@
 
 Accepted
 
+The Research, Design and Shortlist tabs were folded into the Result tab by ADR 0017.
+
 ## Date
 
 2026-09-22

@@ -33,7 +33,6 @@ from fleet.serve.api.tasks_attempts import router as tasks_attempts_router
 from fleet.serve.api.tasks_detail import router as tasks_detail_router
 from fleet.serve.api.tasks_diff import router as tasks_diff_router
 from fleet.serve.api.tasks_list import router as tasks_list_router
-from fleet.serve.api.tasks_stream import router as tasks_stream_router
 from fleet.serve.api.triggers import router as triggers_router
 from fleet.serve.api.workflows import router as workflows_router
 
@@ -45,7 +44,6 @@ ROUTERS: list[APIRouter] = [
     tasks_artifacts_router,
     tasks_activity_router,
     tasks_diff_router,
-    tasks_stream_router,
     beads_router,
     supervisor_router,
     system_router,

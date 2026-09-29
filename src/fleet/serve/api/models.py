@@ -249,42 +249,6 @@ class BeadListResponse(BaseModel):
     beads: list[Bead]
 
 
-class StreamEvent(BaseModel):
-    """One shaped event row for GET /api/tasks/{id}/events."""
-
-    i: int
-    ts: str
-    kind: str
-    session_id: str | None
-    tool_name: str | None
-    usage: dict[str, int] | None
-    summary: str
-    raw: dict[str, Any]
-
-
-class TaskEventsResponse(BaseModel):
-    """Paged envelope for GET /api/tasks/{id}/events."""
-
-    total: int
-    offset: int
-    events: list[StreamEvent]
-
-
-class LogLine(BaseModel):
-    """One parsed log.jsonl line."""
-
-    ts: str
-    level: str
-    message: str
-    extra: dict[str, Any]
-
-
-class LogListResponse(BaseModel):
-    """Envelope for GET /api/tasks/{id}/logs."""
-
-    lines: list[LogLine]
-
-
 class FileOp(BaseModel):
     """Per-file read/edit/write counts from the event scan."""
 
@@ -292,12 +256,6 @@ class FileOp(BaseModel):
     read: int
     edit: int
     write: int
-
-
-class FileListResponse(BaseModel):
-    """Envelope for GET /api/tasks/{id}/files."""
-
-    files: list[FileOp]
 
 
 class SupervisorResponse(BaseModel):
@@ -626,22 +584,8 @@ class AnswerResponse(BaseModel):
     status: str
 
 
-class ArtifactResponse(BaseModel):
-    """File content envelope for the artifact routes."""
-
-    content: str
-    mtime: float
-    path: str
-
-
-class OutputsResponse(BaseModel):
-    """Deliverable names for GET /api/tasks/{id}/artifacts/outputs."""
-
-    files: list[str]
-
-
 class ContentResponse(BaseModel):
-    """Single-text envelope (attempt summary/prompt/log/state, stderr)."""
+    """Single-text envelope (attempt summary/prompt/log/state)."""
 
     content: str
 
