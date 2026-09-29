@@ -280,7 +280,10 @@ def _act_on_lease(
     if facts.gap is _LeaseGap.NO_PID:
         st.log.warning("lease_no_pid", task_id=task.id)
         return
-    if facts.gap in (_LeaseGap.NO_ATTEMPT_DIR, _LeaseGap.NO_RUN):
+    # The orphan-claim release covers the old claim loop's claim -> spawn gap.
+    # With claim_enabled=False the bead flow owns claims: its steps live under
+    # ~/.fleet/runs/<run>/, so an attempt-less task dir proves nothing.
+    if facts.gap in (_LeaseGap.NO_ATTEMPT_DIR, _LeaseGap.NO_RUN) and st.config.claim_enabled:
         age = _claim_age_sec(st, task)
         if age is not None and age > LEASE_NO_ATTEMPT_GRACE_SEC:
             _reclaim_lease(

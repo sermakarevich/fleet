@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -260,6 +261,22 @@ def test_orphan_claim_within_grace_untouched(tmp_path: Path) -> None:
     task_dir = s.state.task_dir_for(task.id)
     task_dir.mkdir(parents=True)
     _age_task_dir(task_dir, 60)
+    reconcile_leases(s.state)
+    assert queue.released == []
+    assert any(evt == "lease_no_attempt_dir" for _, evt, _ in log.events)
+
+
+def test_orphan_claim_untouched_when_claim_loop_off(tmp_path: Path) -> None:
+    """claim_enabled=False: a flow-claimed bead with no attempt dir is never released."""
+    task = _task("t-lease-orphan-flow")
+    queue = LeaseQueue([task])
+    s = _make_supervisor(tmp_path, queue)
+    s.state.config = replace(s.state.config, claim_enabled=False)
+    log = FakeLog()
+    s.state.log = log  # type: ignore[assignment]
+    task_dir = s.state.task_dir_for(task.id)
+    task_dir.mkdir(parents=True)
+    _age_task_dir(task_dir, 600)
     reconcile_leases(s.state)
     assert queue.released == []
     assert any(evt == "lease_no_attempt_dir" for _, evt, _ in log.events)
