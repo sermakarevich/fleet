@@ -315,3 +315,32 @@ class TestConflictFiles:
         result = worktree.merge_to_base(git_repo, "cf-2", base_ref="main")
         assert result.ok is True
         assert result.conflict_files == ()
+
+
+def _write_scaffolding(wt: Path) -> None:
+    """Mimic ClaudeCoder.write_runtime_config inside a worktree (no .gitignore)."""
+    claude_dir = wt / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    (claude_dir / "settings.json").write_text('{"hooks": {}}\n')
+    hooks_dir = wt / ".fleet" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    (hooks_dir / "precompact.sh").write_text("#!/bin/sh\n")
+
+
+class TestScaffoldingIgnored:
+    def test_scaffolding_alone_is_not_uncommitted(self, git_repo: Path, fleet_home: Path):
+        wt = worktree.create_worktree(git_repo, "sc-1", base_ref="main", fleet_home=fleet_home)
+        _write_scaffolding(wt)
+        assert has_uncommitted_changes(wt) is False
+
+    def test_scaffolding_alongside_real_work_is_uncommitted(self, git_repo: Path, fleet_home: Path):
+        wt = worktree.create_worktree(git_repo, "sc-2", base_ref="main", fleet_home=fleet_home)
+        _write_scaffolding(wt)
+        (wt / "real-work.txt").write_text("work")
+        assert has_uncommitted_changes(wt) is True
+
+    def test_committed_clean_with_scaffolding_present(self, git_repo: Path, fleet_home: Path):
+        wt = worktree.create_worktree(git_repo, "sc-3", base_ref="main", fleet_home=fleet_home)
+        _write_scaffolding(wt)
+        _commit(wt, "feature.txt", "feature content")
+        assert worktree.is_committed_clean(wt, base_ref="main") is True

@@ -23,7 +23,13 @@ from enum import StrEnum
 from pathlib import Path
 
 from fleet.core.errors import WorktreeError
-from fleet.core.git_status import RepoStatus, classify_status, is_ahead, is_merge_conflict
+from fleet.core.git_status import (
+    RepoStatus,
+    classify_status,
+    is_ahead,
+    is_merge_conflict,
+    strip_scaffold_lines,
+)
 from fleet.state.paths import fleet_home as resolve_fleet_home
 
 from .git import GitRepo
@@ -269,6 +275,7 @@ def has_uncommitted_changes(worktree_path_arg: Path | str) -> bool:
 
     Anything unknown (not a git checkout, git failed) counts as dirty so a
     worker's uncommitted work is never treated as "nothing to keep".
+    Fleet scaffolding (``.claude/``, ``.fleet/``) is ignored.
     """
     try:
         result = GitRepo(Path(worktree_path_arg)).run("status", "--porcelain")
@@ -276,15 +283,18 @@ def has_uncommitted_changes(worktree_path_arg: Path | str) -> bool:
         return True
     if result.returncode != 0:
         return True
-    return bool(result.stdout.strip())
+    return bool(strip_scaffold_lines(result.stdout).strip())
 
 
 def is_committed_clean(worktree_path_arg: Path | str, base_ref: str = "main") -> bool:
-    """True when the worktree is clean AND its HEAD advanced past *base_ref*."""
+    """True when the worktree is clean AND its HEAD advanced past *base_ref*.
+
+    Fleet scaffolding (``.claude/``, ``.fleet/``) does not count as dirt.
+    """
     try:
         wt = GitRepo(Path(worktree_path_arg))
         porcelain = wt.status_porcelain()
-        if porcelain.strip():
+        if strip_scaffold_lines(porcelain).strip():
             return False
         head = wt.rev_parse("HEAD").strip()
         base = wt.rev_parse(base_ref).strip()
