@@ -1,87 +1,39 @@
-// Worker detail page (/workers/:id): header plus the full tab set —
-// live views, attempts, artifacts and the absorbed bead tabs
-// (Dependencies, Comments, Bead). Rendered by App's /workers/:id route;
-// legacy /tasks/:id URLs redirect here.
-import { useState, useCallback, useRef } from 'react';
+// Worker detail page (/workers/:id): header plus the four ADR 0017 tabs
+// (Activity, Attempts, Result, Bead). Rendered by App's /workers/:id route
+// (keyed by task id so state resets between tasks); legacy /tasks/:id URLs
+// redirect here.
+import { useState } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { useTask, useBead, useConfig } from '../../../shared/hooks/useApi';
-import { useEventSocket } from '../../../shared/hooks/useEventSocket';
+import { ApiError, errorMessage } from '../../../shared/api';
 import { useIsMobile } from '../../../shared/hooks/useIsMobile';
+import type { BeadDetail, TaskDetail } from '../../../shared/types';
 import { TaskDetailHeader } from './TaskDetailHeader';
 import { LoadingState } from '../../../shared/ui/LoadingState';
 import { Tabs } from '../../../shared/ui/Tabs';
-import { LiveTab } from './tabs/LiveTab';
+import { ActivityTab } from './tabs/ActivityTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
-import { ChildrenTab } from './tabs/ChildrenTab';
 import { StateTab } from './tabs/StateTab';
-import { JobDocTab } from './tabs/JobDocTab';
-import { ShortlistTab } from './tabs/ShortlistTab';
-import { LogTab } from './tabs/LogTab';
-import { StderrTab } from './tabs/StderrTab';
-import { DiffTab } from './tabs/DiffTab';
-import { FilesTab } from './tabs/FilesTab';
-import { EventsTab } from './tabs/EventsTab';
-import { DependenciesTab } from './tabs/DependenciesTab';
-import { CommentsTab } from './tabs/CommentsTab';
 import { BeadJsonTab } from './tabs/BeadJsonTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
-import type { FleetEvent } from '../../../shared/types';
+import { useActivity } from './useActivity';
 import { merge } from '../../../shared/styles/recipes';
 import * as T from '../../../shared/styles/tokens';
 
-type TabId = 'live' | 'attempts' | 'children' | 'artifacts' | 'research' | 'design' | 'shortlist' | 'log' | 'events' | 'stderr' | 'diff' | 'files' | 'dependencies' | 'comments' | 'bead';
+type TabId = 'activity' | 'attempts' | 'artifacts' | 'bead';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'live', label: 'Live' },
+  { id: 'activity', label: 'Activity' },
   { id: 'attempts', label: 'Attempts' },
-  { id: 'children', label: 'Children' },
-  { id: 'artifacts', label: 'Artifacts' },
-  { id: 'research', label: 'Research' },
-  { id: 'design', label: 'Design' },
-  { id: 'shortlist', label: 'Shortlist' },
-  { id: 'log', label: 'Log' },
-  { id: 'events', label: 'Events' },
-  { id: 'stderr', label: 'Stderr' },
-  { id: 'diff', label: 'Diff' },
-  { id: 'files', label: 'Files' },
-  { id: 'dependencies', label: 'Dependencies' },
-  { id: 'comments', label: 'Comments' },
+  { id: 'artifacts', label: 'Result' },
   { id: 'bead', label: 'Bead' },
 ];
 
-// Research beads run a `research.*` phase worker while discovering/designing,
-// then fall back to the shared `job.*` gate/spawn/observe phases (ADR 0015)
-// — so `research.` is a sufficient, not fully complete, signal, but it's the
-// only per-task field distinguishing a research job from a plain job.
-function isResearchWorker(worker: string | null | undefined): boolean {
-  return !!worker && worker.startsWith('research');
-}
-
 export function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const isMobile = useIsMobile();
-  const [activeTab, setActiveTab] = useState<TabId>('live');
-  const [events, setEvents] = useState<FleetEvent[]>([]);
   const { data: task, isLoading, error } = useTask(id!);
   const { data: bead, isLoading: beadLoading, error: beadError } = useBead(id ?? null);
   const { data: config } = useConfig();
-
-  // GET /api/tasks/{id} already returns the beads-reconciled status, so no
-  // client-side overlay is needed here.
-  const taskWithStatus = task;
-
-  const seenKeys = useRef(new Set<string>());
-
-  const onEvent = useCallback((event: FleetEvent) => {
-    const key = `${event.ts}|${event.kind}`;
-    if (seenKeys.current.has(key)) return;
-    seenKeys.current.add(key);
-    setEvents(prev => [...prev, event]);
-  }, []);
-
-  useEventSocket<{ event: FleetEvent }>(`/ws/tasks/${id}/events`, ({ event }) => {
-    onEvent(event);
-  }, { noReconnectCodes: [4004] });
 
   if (!id) return <Navigate to="/" replace />;
 
@@ -90,39 +42,68 @@ export function TaskDetailPage() {
   }
 
   if (error || !task) {
+    if (error && (!(error instanceof ApiError) || error.status !== 404)) {
+      return (
+        <p style={merge(styles.msg, { color: T.colors.danger })}>
+          Could not load task: {errorMessage(error)}
+        </p>
+      );
+    }
     return <p style={merge(styles.msg, { color: T.colors.danger })}>Task not found.</p>;
   }
 
+  return (
+    <TaskDetailLoaded task={task} bead={bead} beadLoading={beadLoading} beadError={beadError} config={config} />
+  );
+}
+
+// Loaded view: owns the activity feed so ActivityTab and ActivityGutter
+// share one subscription. Split out so useActivity runs only when the task
+// exists (hooks stay unconditional).
+function TaskDetailLoaded({
+  task,
+  bead,
+  beadLoading,
+  beadError,
+  config,
+}: {
+  task: TaskDetail;
+  bead: BeadDetail | undefined;
+  beadLoading: boolean;
+  beadError: unknown;
+  config: ReturnType<typeof useConfig>['data'];
+}) {
+  const isMobile = useIsMobile();
+  const [activeTab, setActiveTab] = useState<TabId>('activity');
+  const feed = useActivity(task.id, task.status);
+
+  // The Bead tab shows while its query loads; it hides once the query
+  // errored or returned null (flow steps have no bead).
+  const showBead = !beadError && (beadLoading || bead != null);
+  const tabs = showBead ? TABS : TABS.filter((t) => t.id !== 'bead');
+  const effectiveTab = tabs.some((t) => t.id === activeTab) ? activeTab : 'activity';
+
   function renderTab() {
-    switch (activeTab) {
-      case 'live': return <LiveTab events={events} />;
-      case 'attempts': return <AttemptsTab taskId={task!.id} attempts={task?.attempts ?? []} />;
-      case 'children': return <ChildrenTab taskId={task!.id} />;
-      case 'artifacts': return <StateTab taskId={task!.id} result={task!.result} />;
-      case 'research': return <JobDocTab taskId={task!.id} kind="research" />;
-      case 'design': return <JobDocTab taskId={task!.id} kind="design" />;
-      case 'shortlist': return <ShortlistTab taskId={task!.id} />;
-      case 'log': return <LogTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
-      case 'events': return <EventsTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
-      case 'stderr': return <StderrTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
-      case 'diff': return <DiffTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
-      case 'files': return <FilesTab taskId={task!.id} status={(taskWithStatus ?? task)!.status} />;
-      case 'dependencies': return <DependenciesTab bead={bead} isLoading={beadLoading} error={beadError} />;
-      case 'comments': return <CommentsTab bead={bead} isLoading={beadLoading} error={beadError} />;
-      case 'bead': return <BeadJsonTab bead={bead} isLoading={beadLoading} error={beadError} />;
+    switch (effectiveTab) {
+      case 'activity':
+        return <ActivityTab taskId={task.id} status={task.status} feed={feed} />;
+      case 'attempts':
+        return <AttemptsTab taskId={task.id} attempts={task.attempts ?? []} />;
+      case 'artifacts':
+        return <StateTab taskId={task.id} result={task.result} />;
+      case 'bead':
+        return <BeadJsonTab bead={bead} isLoading={beadLoading} error={beadError} />;
     }
   }
 
-  const tabs = TABS.filter(t => t.id !== 'shortlist' || isResearchWorker(task!.worker));
-
   return (
     <div style={styles.page}>
-      <TaskDetailHeader task={taskWithStatus ?? task} config={config} bead={bead} />
+      <TaskDetailHeader task={task} config={config} bead={bead} />
       <div style={styles.body}>
         <div style={styles.main}>
           <Tabs
             tabs={tabs}
-            activeTab={activeTab}
+            activeTab={effectiveTab}
             onTabChange={(id) => setActiveTab(id as TabId)}
             label="Task views"
             panelStyle={styles.tabContent}
@@ -130,7 +111,7 @@ export function TaskDetailPage() {
             {renderTab()}
           </Tabs>
         </div>
-        {!isMobile && <ActivityGutter task={taskWithStatus ?? task} events={events} />}
+        {!isMobile && <ActivityGutter task={task} feed={feed} />}
       </div>
     </div>
   );
