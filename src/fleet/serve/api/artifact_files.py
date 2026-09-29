@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from fleet.serve.errors import not_found
 from fleet.serve.state import AppState
+from fleet.state.artifact_locator import locate
 from fleet.state.paths import task_dir as resolve_task_dir
 from fleet.state.task_summary import read_declared_result
 
@@ -98,6 +99,93 @@ def read_text_or_empty(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError:
         return ""
+
+
+#: Artifact doc truncation: content past this is cut, `truncated` says so.
+ARTIFACT_DOC_LIMIT = 200_000
+
+#: Worktree pointer keys read from task.json for the bundle (ADR 0017 U1).
+_WORKTREE_KEYS = ("repo_root", "base_ref", "worktree_path")
+
+
+def _doc_payload(name: str, path: Path) -> dict | None:
+    """ArtifactDoc dict for one file, None when missing/unreadable."""
+    try:
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    truncated = len(text) > ARTIFACT_DOC_LIMIT
+    if truncated:
+        text = text[:ARTIFACT_DOC_LIMIT]
+    return {"name": name, "content": text, "mtime": mtime, "truncated": truncated}
+
+
+def bundle_payload(task_dir: Path, raw_task_json: dict | None) -> dict:
+    """One artifact bundle: result/state docs, outputs, docs, files, worktree."""
+    # Local import: stream_reads imports this module (read_text_or_empty),
+    # so a top-level import would be circular.
+    from fleet.serve.api.stream_reads import files_payload  # noqa: PLC0415
+
+    fleet_home = task_dir.parent.parent
+    task_id = task_dir.name
+    result_path = locate(fleet_home, task_id, "result")
+    result = _doc_payload(result_path.name, result_path)
+    state_path = locate(fleet_home, task_id, "state")
+    state = _doc_payload(state_path.name, state_path)
+
+    outputs: list[dict] = []
+    outputs_dir = task_dir / "outputs"
+    try:
+        names = sorted(p.name for p in outputs_dir.iterdir() if p.is_file())
+    except OSError:
+        names = []
+    for name in names:
+        if name == "outputs.json":
+            continue
+        try:
+            st = (outputs_dir / name).stat()
+        except OSError:
+            continue
+        outputs.append(
+            {"name": name, "path": str((outputs_dir / name).resolve()), "size": st.st_size}
+        )
+
+    docs: list[dict] = []
+    artifacts_dir = task_dir / "artifacts"
+    try:
+        doc_names = sorted(
+            p.name
+            for p in artifacts_dir.iterdir()
+            if p.is_file() and p.suffix in (".md", ".json") and p.name != "RESULT.json"
+        )
+    except OSError:
+        doc_names = []
+    for name in doc_names:
+        doc = _doc_payload(name, artifacts_dir / name)
+        if doc is not None:
+            docs.append(doc)
+
+    raw = raw_task_json or {}
+    worktree = None
+    if any(key in raw for key in _WORKTREE_KEYS):
+        wt_path = raw.get("worktree_path")
+        worktree = {
+            "repo_root": raw.get("repo_root"),
+            "base_ref": raw.get("base_ref"),
+            "worktree_path": wt_path,
+            "exists": bool(wt_path) and Path(str(wt_path)).is_dir(),
+        }
+    return {
+        "result": result,
+        "state": state,
+        "outputs": outputs,
+        "docs": docs,
+        "files": files_payload(task_dir),
+        "worktree": worktree,
+    }
 
 
 def read_templates(templates_dir: Path) -> list[dict]:

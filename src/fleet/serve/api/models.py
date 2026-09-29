@@ -650,6 +650,76 @@ class DiffResponse(BaseModel):
     """git diff envelope for GET /api/tasks/{id}/diff."""
 
     diff: str
+    # Empty when a diff was produced or is genuinely empty; otherwise why not.
+    note: str = ""
+
+
+class ActivityItem(BaseModel):
+    """One row of the merged activity feed (ADR 0017 U1)."""
+
+    seq: int
+    ts: str
+    attempt: int
+    source: Literal["event", "log"]
+    kind: str
+    tool_name: str | None
+    usage: dict[str, int] | None
+    summary: str
+    raw: dict[str, Any]
+
+
+class ActivityStderr(BaseModel):
+    """Latest attempt's stderr tail for the activity feed."""
+
+    attempt: int
+    lines: list[str]
+
+
+class ActivityResponse(BaseModel):
+    """Envelope for GET /api/tasks/{id}/activity."""
+
+    items: list[ActivityItem]
+    total: int
+    has_earlier: bool
+    latest_attempt: int
+    stderr: ActivityStderr | None
+
+
+class ArtifactDoc(BaseModel):
+    """One task document with truncation flag (ADR 0017 U1)."""
+
+    name: str
+    content: str
+    mtime: float
+    truncated: bool
+
+
+class OutputFile(BaseModel):
+    """One deliverable file under tasks/<id>/outputs/."""
+
+    name: str
+    path: str
+    size: int
+
+
+class WorktreeInfo(BaseModel):
+    """Worktree pointers from task.json and whether the dir still exists."""
+
+    repo_root: str | None
+    base_ref: str | None
+    worktree_path: str | None
+    exists: bool
+
+
+class ArtifactBundle(BaseModel):
+    """Envelope for GET /api/tasks/{id}/artifacts (ADR 0017 U1)."""
+
+    result: ArtifactDoc | None
+    state: ArtifactDoc | None
+    outputs: list[OutputFile]
+    docs: list[ArtifactDoc]
+    files: list[FileOp]
+    worktree: WorktreeInfo | None
 
 
 class CreateTaskResponse(BaseModel):

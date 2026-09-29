@@ -64,6 +64,11 @@ def _attempt_dirs_sorted(task_dir: Path) -> list[Path]:
     return [p for _, p in numbered]
 
 
+def attempt_dirs_sorted(task_dir: Path) -> list[Path]:
+    """Public alias of the numeric attempts/<n> listing (serve activity feed)."""
+    return _attempt_dirs_sorted(task_dir)
+
+
 def _iter_events_file(events_file: Path) -> Iterator[dict]:
     """Yield each parsed JSON object from one events.jsonl file."""
     if not events_file.exists():

@@ -839,10 +839,146 @@
         }
       }
     },
+    "/api/tasks/{task_id}/artifacts": {
+      "get": {
+        "summary": "Get Artifact Bundle",
+        "description": "Everything the task produced, in one payload (ADR 0017 U1).",
+        "operationId": "get_artifact_bundle_api_tasks__task_id__artifacts_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactBundle"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/activity": {
+      "get": {
+        "summary": "Get Task Activity",
+        "description": "Merged coder-events + fleet-log feed across attempts, cursor-paged.",
+        "operationId": "get_task_activity_api_tasks__task_id__activity_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "min_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "warning",
+              "title": "Min Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tasks/{task_id}/diff": {
       "get": {
         "summary": "Get Task Diff",
-        "description": "git diff of the task's cwd (empty when not a git repo).",
+        "description": "git diff against the worktree base ref, else the task cwd (ADR 0017).",
         "operationId": "get_task_diff_api_tasks__task_id__diff_get",
         "parameters": [
           {
@@ -2703,6 +2839,147 @@
   },
   "components": {
     "schemas": {
+      "ActivityItem": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "event",
+              "log"
+            ],
+            "title": "Source"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "raw": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "attempt",
+          "source",
+          "kind",
+          "tool_name",
+          "usage",
+          "summary",
+          "raw"
+        ],
+        "title": "ActivityItem",
+        "description": "One row of the merged activity feed (ADR 0017 U1)."
+      },
+      "ActivityResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "has_earlier": {
+            "type": "boolean",
+            "title": "Has Earlier"
+          },
+          "latest_attempt": {
+            "type": "integer",
+            "title": "Latest Attempt"
+          },
+          "stderr": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityStderr"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "has_earlier",
+          "latest_attempt",
+          "stderr"
+        ],
+        "title": "ActivityResponse",
+        "description": "Envelope for GET /api/tasks/{id}/activity."
+      },
+      "ActivityStderr": {
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt"
+          },
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt",
+          "lines"
+        ],
+        "title": "ActivityStderr",
+        "description": "Latest attempt's stderr tail for the activity feed."
+      },
       "AnalyticsByModelRow": {
         "properties": {
           "coder": {
@@ -3350,6 +3627,101 @@
         ],
         "title": "AnswerResponse",
         "description": "Outcome envelope for POST /api/chat/questions/{id}/answer."
+      },
+      "ArtifactBundle": {
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactDoc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactDoc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/OutputFile"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "docs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactDoc"
+            },
+            "type": "array",
+            "title": "Docs"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileOp"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "worktree": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorktreeInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "result",
+          "state",
+          "outputs",
+          "docs",
+          "files",
+          "worktree"
+        ],
+        "title": "ArtifactBundle",
+        "description": "Envelope for GET /api/tasks/{id}/artifacts (ADR 0017 U1)."
+      },
+      "ArtifactDoc": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "mtime": {
+            "type": "number",
+            "title": "Mtime"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content",
+          "mtime",
+          "truncated"
+        ],
+        "title": "ArtifactDoc",
+        "description": "One task document with truncation flag (ADR 0017 U1)."
       },
       "ArtifactResponse": {
         "properties": {
@@ -4274,6 +4646,11 @@
           "diff": {
             "type": "string",
             "title": "Diff"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
           }
         },
         "type": "object",
@@ -4588,6 +4965,30 @@
         ],
         "title": "OkResponse",
         "description": "Generic mutation acknowledgement ({\"ok\": true})."
+      },
+      "OutputFile": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "size"
+        ],
+        "title": "OutputFile",
+        "description": "One deliverable file under tasks/<id>/outputs/."
       },
       "OutputsResponse": {
         "properties": {
@@ -7488,6 +7889,56 @@
         ],
         "title": "WorkflowView",
         "description": "One saved workflow with counts and its latest run."
+      },
+      "WorktreeInfo": {
+        "properties": {
+          "repo_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Root"
+          },
+          "base_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Ref"
+          },
+          "worktree_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree Path"
+          },
+          "exists": {
+            "type": "boolean",
+            "title": "Exists"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repo_root",
+          "base_ref",
+          "worktree_path",
+          "exists"
+        ],
+        "title": "WorktreeInfo",
+        "description": "Worktree pointers from task.json and whether the dir still exists."
       }
     }
   }

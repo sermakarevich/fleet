@@ -416,6 +416,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Artifact Bundle
+         * @description Everything the task produced, in one payload (ADR 0017 U1).
+         */
+        get: operations["get_artifact_bundle_api_tasks__task_id__artifacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{task_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Task Activity
+         * @description Merged coder-events + fleet-log feed across attempts, cursor-paged.
+         */
+        get: operations["get_task_activity_api_tasks__task_id__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{task_id}/diff": {
         parameters: {
             query?: never;
@@ -425,7 +465,7 @@ export interface paths {
         };
         /**
          * Get Task Diff
-         * @description git diff of the task's cwd (empty when not a git repo).
+         * @description git diff against the worktree base ref, else the task cwd (ADR 0017).
          */
         get: operations["get_task_diff_api_tasks__task_id__diff_get"];
         put?: never;
@@ -1321,6 +1361,62 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ActivityItem
+         * @description One row of the merged activity feed (ADR 0017 U1).
+         */
+        ActivityItem: {
+            /** Seq */
+            seq: number;
+            /** Ts */
+            ts: string;
+            /** Attempt */
+            attempt: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "event" | "log";
+            /** Kind */
+            kind: string;
+            /** Tool Name */
+            tool_name: string | null;
+            /** Usage */
+            usage: {
+                [key: string]: number;
+            } | null;
+            /** Summary */
+            summary: string;
+            /** Raw */
+            raw: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ActivityResponse
+         * @description Envelope for GET /api/tasks/{id}/activity.
+         */
+        ActivityResponse: {
+            /** Items */
+            items: components["schemas"]["ActivityItem"][];
+            /** Total */
+            total: number;
+            /** Has Earlier */
+            has_earlier: boolean;
+            /** Latest Attempt */
+            latest_attempt: number;
+            stderr: components["schemas"]["ActivityStderr"] | null;
+        };
+        /**
+         * ActivityStderr
+         * @description Latest attempt's stderr tail for the activity feed.
+         */
+        ActivityStderr: {
+            /** Attempt */
+            attempt: number;
+            /** Lines */
+            lines: string[];
+        };
+        /**
          * AnalyticsByModelRow
          * @description One per-(coder, model) breakdown row.
          */
@@ -1545,6 +1641,35 @@ export interface components {
             ok: boolean;
             /** Status */
             status: string;
+        };
+        /**
+         * ArtifactBundle
+         * @description Envelope for GET /api/tasks/{id}/artifacts (ADR 0017 U1).
+         */
+        ArtifactBundle: {
+            result: components["schemas"]["ArtifactDoc"] | null;
+            state: components["schemas"]["ArtifactDoc"] | null;
+            /** Outputs */
+            outputs: components["schemas"]["OutputFile"][];
+            /** Docs */
+            docs: components["schemas"]["ArtifactDoc"][];
+            /** Files */
+            files: components["schemas"]["FileOp"][];
+            worktree: components["schemas"]["WorktreeInfo"] | null;
+        };
+        /**
+         * ArtifactDoc
+         * @description One task document with truncation flag (ADR 0017 U1).
+         */
+        ArtifactDoc: {
+            /** Name */
+            name: string;
+            /** Content */
+            content: string;
+            /** Mtime */
+            mtime: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * ArtifactResponse
@@ -1865,6 +1990,11 @@ export interface components {
         DiffResponse: {
             /** Diff */
             diff: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /**
          * FileListResponse
@@ -2004,6 +2134,18 @@ export interface components {
         OkResponse: {
             /** Ok */
             ok: boolean;
+        };
+        /**
+         * OutputFile
+         * @description One deliverable file under tasks/<id>/outputs/.
+         */
+        OutputFile: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Size */
+            size: number;
         };
         /**
          * OutputsResponse
@@ -3002,6 +3144,20 @@ export interface components {
             run_count: number;
             last_run: components["schemas"]["WorkflowRunView"] | null;
         };
+        /**
+         * WorktreeInfo
+         * @description Worktree pointers from task.json and whether the dir still exists.
+         */
+        WorktreeInfo: {
+            /** Repo Root */
+            repo_root: string | null;
+            /** Base Ref */
+            base_ref: string | null;
+            /** Worktree Path */
+            worktree_path: string | null;
+            /** Exists */
+            exists: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -3649,6 +3805,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArtifactResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_bundle_api_tasks__task_id__artifacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactBundle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_activity_api_tasks__task_id__activity_get: {
+        parameters: {
+            query?: {
+                after?: number | null;
+                before?: number | null;
+                limit?: number;
+                min_level?: string;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityResponse"];
                 };
             };
             /** @description Validation Error */

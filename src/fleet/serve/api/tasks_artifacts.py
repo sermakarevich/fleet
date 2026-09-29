@@ -8,14 +8,15 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from fleet.serve.api.artifact_files import (
+    bundle_payload,
     file_response,
     list_output_names,
     named_artifact,
     read_artifact,
 )
 from fleet.serve.api.models import (
+    ArtifactBundle,
     ArtifactResponse,
-    DiffResponse,
     OutputsResponse,
 )
 from fleet.serve.auth import HTTP_AUTH
@@ -96,24 +97,11 @@ async def get_artifact_children_runs(task_id: str, state: StateDep) -> JSONRespo
     return await asyncio.to_thread(named_artifact, task_id, state, "children_runs.json")
 
 
-@router.get("/tasks/{task_id}/diff", response_model=DiffResponse)
-async def get_task_diff(task_id: str, state: StateDep) -> JSONResponse:
-    """git diff of the task's cwd (empty when not a git repo)."""
-    raw = TaskIndex(state.fleet_home).read_raw(task_id) or {}
-    cwd = raw.get("cwd")
-    if not cwd:
-        return JSONResponse({"diff": ""})
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "-C",
-            cwd,
-            "diff",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        diff_text = stdout.decode("utf-8", errors="replace") if stdout else ""
-    except (TimeoutError, OSError):
-        diff_text = ""
-    return JSONResponse({"diff": diff_text})
+@router.get("/tasks/{task_id}/artifacts", response_model=ArtifactBundle)
+async def get_artifact_bundle(task_id: str, state: StateDep) -> JSONResponse:
+    """Everything the task produced, in one payload (ADR 0017 U1)."""
+    task_dir = resolve_task_dir(state.fleet_home, task_id)
+    if not task_dir.is_dir():
+        raise not_found("task", task_id)
+    raw = await asyncio.to_thread(TaskIndex(state.fleet_home).read_raw, task_id)
+    return JSONResponse(await asyncio.to_thread(bundle_payload, task_dir, raw))
