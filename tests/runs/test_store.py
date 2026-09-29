@@ -22,6 +22,7 @@ def _run(
     status: RunStatus = RunStatus.running,
     started: str = "2026-09-27T10:00:00+00:00",
     start_key: str | None = None,
+    finished: str | None = None,
 ) -> Run:
     """One run row with distinct defaults per id."""
     return Run(
@@ -30,6 +31,7 @@ def _run(
         status=status,
         inputs={"feature": run_id},
         started_at=started,
+        finished_at=finished,
         start_key=start_key,
     )
 
@@ -54,11 +56,67 @@ def test_runs_db_path_joins_filename(tmp_path: Path) -> None:
     assert runs_db_path(tmp_path) == tmp_path / "runs.db"
 
 
-def test_schema_version_is_one(tmp_path: Path) -> None:
-    """A fresh database is stamped at schema version 1."""
+def test_schema_version_is_two(tmp_path: Path) -> None:
+    """A fresh database is stamped at schema version 2."""
     store = _store(tmp_path)
     try:
-        assert store.schema_version() == 1
+        assert store.schema_version() == 2
+    finally:
+        store.close()
+
+
+def test_start_key_index_covers_status(tmp_path: Path) -> None:
+    """The flow/start-key index carries status for the live-only lookup."""
+    store = _store(tmp_path)
+    try:
+        raw = sqlite3.connect(store.db_path)
+        try:
+            row = raw.execute(
+                "SELECT sql FROM sqlite_master WHERE name='idx_runs_flow_start_key'"
+            ).fetchone()
+        finally:
+            raw.close()
+        assert row is not None
+        assert "start_key" in row[0] and "status" in row[0]
+    finally:
+        store.close()
+
+
+def test_v1_database_migrates_to_v2(tmp_path: Path) -> None:
+    """A v1 database gains the widened index and the v2 stamp on open."""
+    path = tmp_path / "runs.db"
+    raw = sqlite3.connect(path)
+    try:
+        raw.execute(
+            "CREATE TABLE runs (id TEXT PRIMARY KEY, flow TEXT NOT NULL, "
+            "status TEXT NOT NULL, inputs_json TEXT NOT NULL, "
+            "started_at TEXT NOT NULL, finished_at TEXT, "
+            "reason TEXT NOT NULL DEFAULT '', start_key TEXT)"
+        )
+        raw.execute("CREATE INDEX idx_runs_flow_start_key ON runs(flow, start_key)")
+        raw.execute(
+            "INSERT INTO runs (id, flow, status, inputs_json, started_at, "
+            "finished_at, reason, start_key) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "r1",
+                "autocode",
+                "failed",
+                "{}",
+                "2026-09-27T10:00:00+00:00",
+                "2026-09-27T11:00:00+00:00",
+                "boom",
+                "item-7",
+            ),
+        )
+        raw.execute("PRAGMA user_version=1")
+        raw.commit()
+    finally:
+        raw.close()
+    store = RunStore(path)
+    try:
+        assert store.schema_version() == 2
+        assert store.has_start_key("autocode", "item-7", live_only=False) is True
+        assert store.last_finished_at("autocode", "item-7") == "2026-09-27T11:00:00+00:00"
     finally:
         store.close()
 
@@ -144,6 +202,60 @@ def test_has_start_key_matches_flow_and_key(tmp_path: Path) -> None:
         assert store.has_start_key("autocode", "item-7") is True
         assert store.has_start_key("autocode", "item-8") is False
         assert store.has_start_key("helper", "item-7") is False
+    finally:
+        store.close()
+
+
+def test_has_start_key_live_only_vs_all(tmp_path: Path) -> None:
+    """The default lookup ignores finished runs; live_only=False sees every run."""
+    store = _store(tmp_path)
+    try:
+        store.create_run(_run("live", start_key="item-7"))
+        store.create_run(
+            _run(
+                "old",
+                status=RunStatus.failed,
+                finished="2026-09-27T11:00:00+00:00",
+                start_key="item-8",
+            )
+        )
+        assert store.has_start_key("autocode", "item-7") is True
+        assert store.has_start_key("autocode", "item-8") is False
+        assert store.has_start_key("autocode", "item-8", live_only=False) is True
+        assert store.has_start_key("autocode", "missing", live_only=False) is False
+        store.finish_run("live", RunStatus.succeeded, "done", "2026-09-27T12:00:00+00:00")
+        assert store.has_start_key("autocode", "item-7") is False
+        assert store.has_start_key("autocode", "item-7", live_only=False) is True
+    finally:
+        store.close()
+
+
+def test_last_finished_at_newest_finished(tmp_path: Path) -> None:
+    """last_finished_at returns the newest finished_at for the key, else None."""
+    store = _store(tmp_path)
+    try:
+        assert store.last_finished_at("autocode", "item-7") is None
+        store.create_run(_run("live", start_key="item-7"))
+        assert store.last_finished_at("autocode", "item-7") is None
+        store.create_run(
+            _run(
+                "old",
+                status=RunStatus.failed,
+                finished="2026-09-27T10:00:00+00:00",
+                start_key="item-7",
+            )
+        )
+        store.create_run(
+            _run(
+                "new",
+                status=RunStatus.succeeded,
+                finished="2026-09-27T12:00:00+00:00",
+                start_key="item-7",
+            )
+        )
+        assert store.last_finished_at("autocode", "item-7") == "2026-09-27T12:00:00+00:00"
+        assert store.last_finished_at("autocode", "other") is None
+        assert store.last_finished_at("helper", "item-7") is None
     finally:
         store.close()
 

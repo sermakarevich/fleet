@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,11 +11,12 @@ import pytest
 from fleet.core.clock import FakeClock
 from fleet.core.config import RuntimeConfig
 from fleet.core.errors import FlowInvalid
+from fleet.core.limits import START_KEY_COOLDOWN_SEC
 from fleet.flows.model import Cron, Flow, Input, On, Step, ToolStart
 from fleet.flows.tools import tool_from_dict
 from fleet.orchestrator.flow_service import on_start, tick
 from fleet.orchestrator.starts import due_cron, parse_every, poll_tool_start, start_manual
-from fleet.runs.store import RunStore
+from fleet.runs.store import RunStatus, RunStore
 from tests.conftest import FakeQueue, make_supervisor
 
 NOW = datetime(2026, 9, 28, 7, 0, 0, tzinfo=UTC)
@@ -38,6 +39,9 @@ class FakeLog:
         self.events: list[tuple[str, dict]] = []
 
     def warning(self, event: str, **kw) -> None:
+        self.events.append((event, kw))
+
+    def debug(self, event: str, **kw) -> None:
         self.events.append((event, kw))
 
     def info(self, event: str, **kw) -> None:
@@ -153,6 +157,56 @@ def test_poll_starts_two_runs_then_dedupes(tmp_path: Path) -> None:
     second = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
     assert second == []
     assert len(store.list_runs(flow="demo")) == 2
+    assert "start_key_live" in log.names()
+
+
+def test_poll_restarts_key_with_old_failed_run(tmp_path: Path) -> None:
+    """A key whose run failed before the cooldown starts a new run."""
+    flow, tool = _tool_flow(tmp_path, "[{'id': 'a', 'repo': 'x'}]")
+    fleet_home = _home(tmp_path)
+    store = RunStore(fleet_home / "runs.db")
+    log = FakeLog()
+    first = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
+    assert [run.start_key for run in first] == ["a"]
+    old = (NOW - timedelta(seconds=START_KEY_COOLDOWN_SEC + 1)).isoformat()
+    assert store.finish_run(first[0].id, RunStatus.failed, "boom", old) is True
+    second = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
+    assert [run.start_key for run in second] == ["a"]
+    assert len(store.list_runs(flow="demo")) == 2
+
+
+def test_poll_cooldown_after_success_then_restarts(tmp_path: Path) -> None:
+    """A key finished 10 s ago waits out the cooldown; 61 s later it restarts."""
+    flow, tool = _tool_flow(tmp_path, "[{'id': 'a', 'repo': 'x'}]")
+    fleet_home = _home(tmp_path)
+    store = RunStore(fleet_home / "runs.db")
+    log = FakeLog()
+    begun = NOW - timedelta(seconds=70)
+    first = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, begun, environ={}, log=log))
+    assert [run.start_key for run in first] == ["a"]
+    finished = (begun + timedelta(seconds=60)).isoformat()
+    assert store.finish_run(first[0].id, RunStatus.succeeded, "done", finished) is True
+    waiting = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
+    assert waiting == []
+    later = NOW + timedelta(seconds=61)
+    restarted = asyncio.run(
+        poll_tool_start(flow, tool, store, fleet_home, later, environ={}, log=log)
+    )
+    assert [run.start_key for run in restarted] == ["a"]
+
+
+def test_poll_restarts_key_with_old_cancelled_run(tmp_path: Path) -> None:
+    """A key whose run was cancelled before the cooldown starts a new run."""
+    flow, tool = _tool_flow(tmp_path, "[{'id': 'a', 'repo': 'x'}]")
+    fleet_home = _home(tmp_path)
+    store = RunStore(fleet_home / "runs.db")
+    log = FakeLog()
+    first = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
+    assert [run.start_key for run in first] == ["a"]
+    old = (NOW - timedelta(seconds=START_KEY_COOLDOWN_SEC + 1)).isoformat()
+    assert store.finish_run(first[0].id, RunStatus.cancelled, "operator", old) is True
+    second = asyncio.run(poll_tool_start(flow, tool, store, fleet_home, NOW, environ={}, log=log))
+    assert [run.start_key for run in second] == ["a"]
 
 
 def test_poll_skips_item_missing_required_input(tmp_path: Path) -> None:
