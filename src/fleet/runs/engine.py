@@ -387,6 +387,19 @@ def retry_step_run(store: RunStore, step_run: StepRun, now: datetime, reason: st
     )
 
 
+RESTART_REASON = "supervisor restarted; step re-launched"
+
+
+def recover_running_steps(store: RunStore, now: datetime) -> list[StepRun]:
+    """Send every ``running`` step row back to ``ready`` (nothing owns it after a restart)."""
+    touched: list[StepRun] = []
+    for row in store.running_step_runs():
+        retry_step_run(store, row, now, RESTART_REASON)
+        refreshed = store.get_step_run(row.run_id, row.step, row.item_index)
+        touched.append(refreshed if refreshed is not None else row)
+    return touched
+
+
 def _summarize(flow: Flow, step_runs: list[StepRun]) -> tuple[dict[str, str], set[str]]:
     """Fold step rows into (name → status string, started names), as state.py does."""
     step_status: dict[str, str] = {}
