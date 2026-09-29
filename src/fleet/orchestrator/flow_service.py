@@ -81,7 +81,7 @@ def _defaults(config: RuntimeConfig) -> dict[str, Any]:
 
 
 async def on_start(st: SupervisorState) -> None:
-    """Load the catalog and open the run store; warn once per catalog problem."""
+    """Load the catalog, open the run store, and recover orphaned running steps."""
     catalog = load_catalog(st.config)
     for problem in catalog.problems:
         st.log.warning("flow_catalog_problem", problem=problem)
@@ -93,10 +93,19 @@ async def on_start(st: SupervisorState) -> None:
         humans={},
         starts=StartClock(),
     )
+    recovered = engine.recover_running_steps(st.flows.store, st.clock.now())
+    for row in recovered:
+        st.log.info(
+            "flow_steps_recovered",
+            run_id=row.run_id,
+            step=row.step,
+            item=row.item_index,
+            attempt=row.attempt,
+        )
 
 
 async def on_stop(st: SupervisorState) -> None:
-    """Cancel in-flight step work; rows stay ``running`` (recovery is out of scope)."""
+    """Cancel in-flight step work; rows left running are recovered by the next on_start."""
     fs = cast(FlowState | None, st.flows)
     if fs is None:
         return
@@ -309,8 +318,9 @@ async def dispatch(
         )
     elif launch.kind == "human":
         fs.pending[task_id] = (launch, run.id)
+        context = _reuse_human_context(st.question_store, task_id, launch.attempt)
         fs.humans[task_id] = asyncio.create_task(
-            _run_human_step(st.question_store, launch, task_id),
+            _run_human_step(st.question_store, launch, task_id, context),
             name=f"flow-human:{task_id}",
         )
     else:
@@ -344,8 +354,18 @@ async def _run_tool_step(lookup: Any, launch: Launch) -> tuple[bool, str]:
     return result.ok, (result.stderr or "")
 
 
-async def _run_human_step(question_store: Any, launch: Launch, task_id: str) -> tuple[bool, str]:
-    """Ask one human question, publish the answer, return ``(ok, reason)``."""
+async def _run_human_step(
+    question_store: Any, launch: Launch, task_id: str, context: str
+) -> tuple[bool, str]:
+    """Ask one human question, publish the answer, return ``(ok, reason)``.
+
+    ``context`` comes from :func:`_reuse_human_context`: a re-launched
+    attempt reuses the previous attempt's still-pending question for the
+    same task id instead of asking twice. Answered rows from the previous
+    attempt are ignored (their answer never reached ``outputs.json``, or
+    the step would have finished); :func:`ask_human` still returns a
+    stored answer when the reused question resolves first.
+    """
     if question_store is None:
         return False, "no question store"
     try:
@@ -353,7 +373,7 @@ async def _run_human_step(question_store: Any, launch: Launch, task_id: str) -> 
             question_store,
             launch.prompt,
             task_id=task_id,
-            context=f"step:{launch.attempt}",
+            context=context,
         )
     except Exception as exc:  # noqa: BLE001 - an ask failure fails the step, not the tick
         return False, str(exc) or type(exc).__name__
@@ -361,6 +381,35 @@ async def _run_human_step(question_store: Any, launch: Launch, task_id: str) -> 
     if answer.cancelled:
         return False, "cancelled"
     return True, ""
+
+
+def _reuse_human_context(question_store: Any, task_id: str, attempt: int) -> str:
+    """Ask context for a human launch, reusing a still-pending question.
+
+    Returns the oldest pending question's context for ``task_id`` so the
+    relaunch waits on it instead of asking twice; otherwise
+    ``f"step:{attempt}"``. Runs synchronously inside ``dispatch`` so the
+    decision is settled before the step task starts (nothing can answer
+    in between and cause a duplicate question).
+    """
+    fetch = getattr(question_store, "fetch_pending_for_task", None)
+    if fetch is not None:
+        try:
+            pending = fetch(task_id)
+        except Exception:  # noqa: BLE001 - a store hiccup falls back to a fresh ask
+            pending = []
+        if pending:
+            prev = _pending_context(pending[0])
+            if prev:
+                return prev
+    return f"step:{attempt}"
+
+
+def _pending_context(row: Any) -> str | None:
+    """Read the ``context`` off a pending question row (mapping or attribute)."""
+    getter = getattr(row, "get", None)
+    value = getter("context") if callable(getter) else getattr(row, "context", None)
+    return value if isinstance(value, str) and value else None
 
 
 async def settle(

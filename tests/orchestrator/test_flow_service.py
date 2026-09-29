@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fleet.core.config import RuntimeConfig
 from fleet.orchestrator import flow_coder as flow_coder_mod
 from fleet.orchestrator import flow_service as flow_service_mod
+from fleet.orchestrator import worktree as worktree_mod
 from fleet.orchestrator.flow_service import make_flow_service, on_start, tick
 from fleet.orchestrator.service import ServiceOrder
 from fleet.runs import engine
+from fleet.runs.engine import RESTART_REASON
 from fleet.runs.run_dir import NO_ITEM, outputs_file
 from fleet.runs.store import Run, RunStatus, StepRun, StepStatus
 from fleet.workers.base import FnStep, StepResult, Worker
 from fleet.workers.base import StepStatus as WorkerStepStatus
 from tests.conftest import FakeQueue, make_supervisor
-from tests.pool.conftest import FakeStore
+from tests.pool.conftest import FakeRow, FakeStore
 
 NOW = datetime(2026, 9, 28, 7, 0, 0, tzinfo=UTC)
 
@@ -353,3 +356,151 @@ def test_unknown_tool_fails_step(tmp_path: Path) -> None:
     row = st.flows.store.get_step_run(run.id, "a", NO_ITEM)
     assert row is not None and row.status is StepStatus.failed
     assert "unknown tool nope" in row.reason
+
+
+def _orphan_running(st, run_id: str, step: str) -> None:
+    """Mark one step row running at attempt 1, as a killed supervisor leaves it."""
+    st.flows.store.set_step_status(run_id, step, NO_ITEM, StepStatus.running, NOW.isoformat())
+    st.flows.store.bump_attempt(run_id, step, NO_ITEM)
+
+
+def test_restart_recovers_running_tool_step(tmp_path: Path) -> None:
+    """An orphaned running tool row is ready after on_start, then runs to succeeded."""
+    catalog = _catalog_dir(
+        tmp_path,
+        {"demo": "fleet_flow: 2\nsteps:\n  a:\n    kind: tool\n    tool: echoer\n"},
+        {"echoer": ECHOER_TOOL},
+    )
+    st = _state(tmp_path, catalog)
+    asyncio.run(on_start(st))
+    run = _start(st, "demo")
+    _orphan_running(st, run.id, "a")
+    asyncio.run(on_start(st))
+    row = st.flows.store.get_step_run(run.id, "a", NO_ITEM)
+    assert row is not None and row.status is StepStatus.ready
+    assert row.reason == RESTART_REASON
+    finished = asyncio.run(_drive(st, run.id))
+    assert finished.status is RunStatus.succeeded
+    relaunched = st.flows.store.get_step_run(run.id, "a", NO_ITEM)
+    assert relaunched is not None and relaunched.attempt == 2
+    assert relaunched.status is StepStatus.succeeded
+
+
+def _git(repo: Path, *args: str) -> None:
+    """Run one git command inside *repo*, raising on failure."""
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def test_restart_reuses_coder_step_dir_and_worktree(tmp_path: Path, monkeypatch) -> None:
+    """A relaunched coder attempt runs in the same step dir and the same worktree."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    (repo / "seed.txt").write_text("seed", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "seed")
+    catalog = _catalog_dir(
+        tmp_path,
+        {"demo": f"fleet_flow: 2\nsteps:\n  draft:\n    prompt: Write it\n    cwd: {repo}\n"},
+        {},
+    )
+    config = RuntimeConfig(flows_folders=[str(catalog)], isolation="worktree")
+    st = make_supervisor(
+        tmp_path,
+        queue=FakeQueue(),
+        config=config,
+        coder=StubCoder(),  # type: ignore[arg-type]
+        services=[],
+        checks=[],
+    ).state
+    asyncio.run(on_start(st))
+    run = _start(st, "demo")
+    task_id = f"{run.id}.draft"
+    first_wt = worktree_mod.create_worktree(
+        repo, task_id, base_ref="main", fleet_home=st.fleet_home
+    )
+    step_dir = st.fleet_home / "runs" / run.id / "draft"
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / ".worktree").write_text(str(first_wt), encoding="utf-8")
+    _orphan_running(st, run.id, "draft")
+    captured: dict = {}
+
+    async def _fake(ctx) -> StepResult:
+        captured["workdir"] = ctx.workdir
+        captured["task_dir"] = ctx.task_dir
+        (ctx.task_dir / "outputs.json").write_text(json.dumps({}), encoding="utf-8")
+        (ctx.task_dir / "RESULT.json").write_text(
+            json.dumps({"schema": 1, "status": "done", "summary": "ok"}), encoding="utf-8"
+        )
+        return StepResult(status=WorkerStepStatus.OK, reason="")
+
+    def _select(task, ctx, queue=None) -> Worker:
+        return Worker(name="fake", steps=(FnStep(name="fake", fn=_fake),))
+
+    monkeypatch.setattr(flow_coder_mod, "select_worker", _select)
+    asyncio.run(on_start(st))
+
+    async def _relaunch() -> Run:
+        await tick(st)
+        inflight = [worker.future for worker in st.flows.coders.values()]
+        if inflight:
+            await asyncio.wait(inflight)
+        assert captured["workdir"] == first_wt
+        assert captured["task_dir"] == step_dir
+        assert (step_dir / ".worktree").read_text(encoding="utf-8") == str(first_wt)
+        return await _drive(st, run.id)
+
+    finished = asyncio.run(_relaunch())
+    assert finished.status is RunStatus.succeeded
+    relaunched = st.flows.store.get_step_run(run.id, "draft", NO_ITEM)
+    assert relaunched is not None and relaunched.attempt == 2
+
+
+def test_restart_reuses_pending_human_question(tmp_path: Path, monkeypatch) -> None:
+    """A relaunched human attempt waits on the old pending question, not a new one."""
+    catalog = _catalog_dir(
+        tmp_path,
+        {"demo": "fleet_flow: 2\nsteps:\n  answer:\n    kind: human\n    prompt: Continue?\n"},
+        {},
+    )
+    questions = FakeStore()
+    st = _state(tmp_path, catalog, question_store=questions)
+    asyncio.run(on_start(st))
+    run = _start(st, "demo")
+    task_id = f"{run.id}.answer"
+    qid = questions.ask("Continue?", ["yes", "no"], task_id=task_id, context="step:1")
+
+    def _pending(tid: str, context: str | None = None) -> list:
+        return [
+            FakeRow(row)
+            for row in questions.rows.values()
+            if row["status"] == "pending"
+            and row["task_id"] == tid
+            and (context is None or row["context"] == context)
+        ]
+
+    questions.fetch_pending_for_task = _pending  # type: ignore[attr-defined]
+    _orphan_running(st, run.id, "answer")
+    asyncio.run(on_start(st))
+    row = st.flows.store.get_step_run(run.id, "answer", NO_ITEM)
+    assert row is not None and row.status is StepStatus.ready
+    assert row.reason == RESTART_REASON
+    real_ask = flow_service_mod.ask_human
+
+    async def _fast(store, prompt, *, task_id, context, options=None):
+        return await real_ask(
+            store, prompt, task_id=task_id, context=context, options=options, poll_s=0.01
+        )
+
+    monkeypatch.setattr(flow_service_mod, "ask_human", _fast)
+
+    async def _relaunch() -> Run:
+        await tick(st)
+        assert questions.ask_count == 1
+        questions.answer(qid, "yes", note="go")
+        return await _drive(st, run.id)
+
+    finished = asyncio.run(_relaunch())
+    assert finished.status is RunStatus.succeeded
+    step_dir = st.fleet_home / "runs" / run.id / "answer"
+    assert json.loads(outputs_file(step_dir).read_text(encoding="utf-8"))["question_id"] == qid
