@@ -163,6 +163,88 @@ def test_attempt_budget_quiet_when_fresh_or_disabled(tmp_path: Path) -> None:
     assert monitor.on_tick(datetime.now(tz=UTC), disabled) is None
 
 
+class _QuestionStore:
+    """Minimal QuestionStoreLike double backed by a pending list or a failure."""
+
+    def __init__(self, pending: list | None = None, *, fail: bool = False) -> None:
+        self._pending: list = pending if pending is not None else []
+        self._fail = fail
+        self.lookups: list[str] = []
+
+    def fetch_pending_for_task(self, task_id: str, context: str | None = None) -> list:
+        _ = context
+        self.lookups.append(task_id)
+        if self._fail:
+            raise RuntimeError("db locked")
+        return list(self._pending)
+
+    def fetch_answered_for_task(self, task_id: str, context: str | None = None) -> list:
+        _ = (task_id, context)
+        return []
+
+    def ask(self, prompt: str, options: list[str] | None = None, **kwargs) -> str:
+        _ = (prompt, options, kwargs)
+        return "qid"
+
+
+def _over_budget_ctx(tmp_path: Path, **overrides) -> MonitorContext:
+    now = datetime.now(tz=UTC)
+    base: dict = {
+        "task": Task(id="t", title="T", description=None, status="in_progress"),
+        "attempt_budget_sec": 60.0,
+        "started_at": now - timedelta(hours=2),
+    }
+    base.update(overrides)
+    return _ctx(tmp_path, **base)
+
+
+def test_attempt_budget_skipped_while_waiting_on_human(tmp_path: Path) -> None:
+    store = _QuestionStore(pending=[{"id": "q1"}])
+    ctx = _over_budget_ctx(tmp_path, question_store=store)
+    monitor = AttemptBudget()
+    now = datetime.now(tz=UTC)
+    assert monitor.on_tick(now, ctx) is None
+    assert monitor.on_event(_event("assistant_text"), ctx) is None
+    assert store.lookups == [ctx.task.id, ctx.task.id]
+
+
+def test_attempt_budget_kills_when_no_pending_question(tmp_path: Path) -> None:
+    store = _QuestionStore(pending=[])
+    ctx = _over_budget_ctx(tmp_path, question_store=store)
+    verdict = AttemptBudget().on_tick(datetime.now(tz=UTC), ctx)
+    assert verdict is not None
+    assert verdict.outcome == TaskOutcome.KILLED
+    assert verdict.reason == "timeout"
+
+
+def test_attempt_budget_kills_when_question_lookup_fails(tmp_path: Path) -> None:
+    store = _QuestionStore(fail=True)
+    ctx = _over_budget_ctx(tmp_path, question_store=store)
+    verdict = AttemptBudget().on_tick(datetime.now(tz=UTC), ctx)
+    assert verdict is not None
+    assert verdict.outcome == TaskOutcome.KILLED
+    assert verdict.reason == "timeout"
+
+
+def test_build_monitors_threads_question_store(tmp_path: Path) -> None:
+    store = _QuestionStore()
+    step = StepContext(
+        task=Task(id="t", title="T", description=None, status="in_progress"),
+        task_dir=tmp_path,
+        workdir=tmp_path,
+        fleet_home=tmp_path,
+        coder=_StubCoder(),
+        config=RuntimeConfig(),
+        rate_gauge=_Gauge(),
+        log=structlog.get_logger(),
+        attempt_dir=tmp_path / "attempts" / "1",
+        attempt_n=1,
+        question_store=store,
+    )
+    _, state = build_monitors(step, structlog.get_logger(), step.attempt_dir)
+    assert state.question_store is store
+
+
 def test_context_error_scanner(tmp_path: Path) -> None:
     ctx = _ctx(tmp_path)
     monitor = ContextErrorScanner()

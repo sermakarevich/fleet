@@ -35,7 +35,7 @@ from fleet.core.task import Event, EventKind, Task, TaskOutcome
 from fleet.state.paths import CHECKPOINT_REQUESTED_MARKER
 from fleet.state.run_file import RunRecord
 
-from ..base import RateGaugeLike, StepContext
+from ..base import QuestionStoreLike, RateGaugeLike, StepContext
 from .classify import error_text_of, is_context_error_text
 
 # Tick cadence for on_tick: the existing probe interval, not a new one.
@@ -79,6 +79,10 @@ class MonitorContext:
     last_logged_bucket: int = -1
     checkpoint_written: bool = False
     session_started_logged: bool = False
+    # ask_human question store, threaded through from StepContext (never
+    # built here: workers must not import integrations). None in tests or
+    # when the orchestrator injected nothing.
+    question_store: QuestionStoreLike | None = None
 
 
 class Monitor:
@@ -128,6 +132,27 @@ class RateGaugeFeeder(Monitor):
         return None
 
 
+def _waiting_on_human(ctx: MonitorContext) -> bool:
+    """True when the worker has an unanswered ask_human question.
+
+    Mirrors ``orchestrator/stall.py::_waiting_on_human``: a store lookup
+    failure must never disable the budget, so it logs and falls through
+    to the normal wall-clock check.
+    """
+    store = ctx.question_store
+    if store is None:
+        return False
+    try:
+        return bool(store.fetch_pending_for_task(ctx.task.id))
+    except Exception as exc:  # noqa: BLE001 - a store error must not break the budget
+        ctx.task_log.warning(
+            "attempt_budget_question_lookup_failed",
+            task_id=ctx.task.id,
+            error=str(exc),
+        )
+        return False
+
+
 class AttemptBudget(Monitor):
     """Kills the session past its wall-clock budget (-> KILLED/timeout)."""
 
@@ -144,6 +169,13 @@ class AttemptBudget(Monitor):
         if ctx.attempt_budget_sec is None:
             return None
         if (now - ctx.started_at).total_seconds() <= ctx.attempt_budget_sec:
+            return None
+        if _waiting_on_human(ctx):
+            ctx.task_log.info(
+                "attempt_timeout_skipped_waiting_on_human",
+                task_id=ctx.task.id,
+                budget_sec=int(ctx.attempt_budget_sec),
+            )
             return None
         ctx.task_log.warning(
             "attempt_timeout",
@@ -384,6 +416,7 @@ def build_monitors(
         last_probe_at=started_at,
         clock=clock,
         checkpoint_written=(attempt_dir / CHECKPOINT_REQUESTED_MARKER).exists(),
+        question_store=step.question_store,
     )
     monitors: list[Monitor] = [
         SessionEventLogger(),
