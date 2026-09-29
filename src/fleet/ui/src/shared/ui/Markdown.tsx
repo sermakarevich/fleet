@@ -1,5 +1,5 @@
 // Shared markdown renderer: the one ReactMarkdown idiom (ADR 0009).
-// Docs articles and worker detail tabs (JobDocTab, StateTab) all render
+// Docs articles and the Result tab all render
 // through <Markdown>; callers keep only their own layout chrome.
 import { isValidElement } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
