@@ -179,6 +179,12 @@
       "title": "ADR 0016: Blocked-task helper",
       "section": "Internals",
       "file": "docs/adr/0016-blocked-task-helper.md"
+    },
+    {
+      "slug": "adr-0017",
+      "title": "ADR 0017: Task detail page",
+      "section": "Internals",
+      "file": "docs/adr/0017-task-detail-page.md"
     }
   ]
 }
