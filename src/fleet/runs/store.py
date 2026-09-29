@@ -46,13 +46,13 @@ CREATE TABLE IF NOT EXISTS step_runs (
 CREATE INDEX IF NOT EXISTS idx_runs_flow_started
     ON runs(flow, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_flow_start_key
-    ON runs(flow, start_key);
+    ON runs(flow, start_key, status);
 CREATE INDEX IF NOT EXISTS idx_step_runs_status
     ON step_runs(status);
 """
 
 #: Schema level of a fully migrated database.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class RunStatus(str, Enum):  # noqa: UP042
@@ -75,6 +75,15 @@ class StepStatus(str, Enum):  # noqa: UP042
     skipped = "skipped"
     cancelled = "cancelled"
 
+
+#: Run states that end a run (they stamp ``finished_at``); anything else is live.
+RUN_FINISHED: frozenset[RunStatus] = frozenset(
+    {
+        RunStatus.succeeded,
+        RunStatus.failed,
+        RunStatus.cancelled,
+    }
+)
 
 #: Step states that end a step run (they stamp ``finished_at``).
 FINISHED: frozenset[StepStatus] = frozenset(
@@ -130,6 +139,11 @@ def _user_version(conn: sqlite3.Connection) -> int:
 
 def _apply_migrations(conn: sqlite3.Connection) -> None:
     """Create the schema at SCHEMA_VERSION, stamping the version last."""
+    version = _user_version(conn)
+    if 0 < version < SCHEMA_VERSION:
+        # v2 widened idx_runs_flow_start_key with the status column: the old
+        # index under the same name would otherwise survive untouched.
+        conn.execute("DROP INDEX IF EXISTS idx_runs_flow_start_key")
     conn.executescript(_SCHEMA_BASE)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
@@ -279,14 +293,48 @@ class RunStore:
             )
             return cur.rowcount > 0
 
-    def has_start_key(self, flow: str, start_key: str) -> bool:
-        """Whether a run of *flow* was already started by *start_key*."""
+    def has_start_key(self, flow: str, start_key: str, *, live_only: bool = True) -> bool:
+        """Whether a run of *flow* was already started by *start_key*.
+
+        With *live_only* (the default) only a still-``running`` run counts,
+        so a key may start again once its previous run has finished; with
+        ``live_only=False`` any run ever started by the key counts.
+        """
+        with self._conn() as conn:
+            if live_only:
+                row = conn.execute(
+                    "SELECT 1 FROM runs WHERE flow=? AND start_key=? AND status=? LIMIT 1",
+                    (flow, start_key, RunStatus.running.value),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT 1 FROM runs WHERE flow=? AND start_key=? LIMIT 1",
+                    (flow, start_key),
+                ).fetchone()
+        return row is not None
+
+    def last_finished_at(self, flow: str, start_key: str) -> str | None:
+        """Newest ``finished_at`` of a finished run of *flow* started by *start_key*.
+
+        None when no finished run exists for the key (never started, or only
+        live runs). The ISO 8601 string compares with ``datetime.fromisoformat``.
+        """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM runs WHERE flow=? AND start_key=? LIMIT 1",
-                (flow, start_key),
+                "SELECT MAX(finished_at) AS last FROM runs "
+                "WHERE flow=? AND start_key=? AND status IN (?,?,?) "
+                "AND finished_at IS NOT NULL",
+                (
+                    flow,
+                    start_key,
+                    RunStatus.succeeded.value,
+                    RunStatus.failed.value,
+                    RunStatus.cancelled.value,
+                ),
             ).fetchone()
-        return row is not None
+        if row is None or row["last"] is None:
+            return None
+        return str(row["last"])
 
     def add_step_runs(self, step_runs: Sequence[StepRun]) -> None:
         """Insert step rows, ignoring ones already present."""

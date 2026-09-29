@@ -137,6 +137,7 @@ runtime (unlike Settings, they need a code change + `fleet run restart`).
 | `QUESTION_POLL_SEC` | `2.0` | Idle tick between Telegram notify rounds. |
 | `QUESTION_BACKOFF_MAX_SEC` | `60.0` | Backoff ceiling after Telegram failures. |
 | `WS_REPLAY_LINES` | `50` | Replay window for in-progress tasks on serve restart. |
+| `START_KEY_COOLDOWN_SEC` | `60` | Cooldown before a finished tool-start key may start again. |
 <!-- END GENERATED:TUNABLES -->
 
 ### Other cadences

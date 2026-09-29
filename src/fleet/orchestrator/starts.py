@@ -2,7 +2,8 @@
 
 Evaluates each enabled flow's ``on:`` declaration once per flow-service tick:
 a due cron expression starts a run with empty inputs, a due tool poll runs
-the declared tool and starts one run per unseen item key, and a person
+the declared tool and starts one live run per item key (a key may start again
+once its previous run has finished, after a short cooldown), and a person
 starts a run through ``start_manual`` (CLI now, UI later).
 """
 
@@ -11,11 +12,12 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from fleet.core.errors import FlowInvalid
+from fleet.core.limits import START_KEY_COOLDOWN_SEC
 from fleet.flows.model import Flow
 from fleet.flows.templates import render, render_mapping
 from fleet.flows.tools import Tool
@@ -64,6 +66,20 @@ def _as_list(output: Any) -> list[Any] | None:
     return None
 
 
+def _in_cooldown(store: RunStore, flow_name: str, key: str, now: datetime) -> bool:
+    """Whether the key's newest finished run ended less than the cooldown ago."""
+    last = store.last_finished_at(flow_name, key)
+    if last is None:
+        return False
+    try:
+        finished = datetime.fromisoformat(last)
+    except ValueError:
+        return False
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=UTC)
+    return (now - finished).total_seconds() < START_KEY_COOLDOWN_SEC
+
+
 async def poll_tool_start(
     flow: Flow,
     tool: Tool,
@@ -74,7 +90,7 @@ async def poll_tool_start(
     environ: Mapping[str, str],
     log: Any,
 ) -> list[Run]:
-    """Poll one flow's ``on.tool``; start a run per unseen item key."""
+    """Poll one flow's ``on.tool``; start one live run per item key."""
     spec = flow.on.tool
     if spec is None:
         return []
@@ -124,6 +140,10 @@ async def poll_tool_start(
             log.warning("start_tool_bad_output", flow=flow.name, tool=tool.name, reason=str(exc))
             continue
         if store.has_start_key(flow.name, key):
+            log.debug("start_key_live", flow=flow.name, key=key)
+            continue
+        if _in_cooldown(store, flow.name, key, now):
+            log.debug("start_key_cooldown", flow=flow.name, key=key)
             continue
         try:
             run = engine.start_run(

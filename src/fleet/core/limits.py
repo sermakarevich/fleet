@@ -94,6 +94,11 @@ QUESTION_BACKOFF_MAX_SEC: float = 60.0
 # Serve event-stream watcher: replay window for in-progress tasks on serve
 # restart (see serve/event_stream.py::FileWatcher).
 WS_REPLAY_LINES: int = 50
+# Tool-start dedupe (see orchestrator/starts.py::poll_tool_start): a key whose
+# last run finished less than this long ago is not restarted yet. Stops a flow
+# whose tool keeps listing an item (e.g. a close step that failed to close the
+# bead) from restarting a new run on every poll.
+START_KEY_COOLDOWN_SEC: int = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +150,7 @@ TUNABLE_DOCS: dict[str, str] = {
     "QUESTION_POLL_SEC": "Idle tick between Telegram notify rounds.",
     "QUESTION_BACKOFF_MAX_SEC": "Backoff ceiling after Telegram failures.",
     "WS_REPLAY_LINES": "Replay window for in-progress tasks on serve restart.",
+    "START_KEY_COOLDOWN_SEC": "Cooldown before a finished tool-start key may start again.",
 }
 
 

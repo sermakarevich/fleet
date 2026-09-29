@@ -257,8 +257,9 @@ mark them for retry", which the pool's lease logic already does.
 - `cron.py`: every tick, for every flow with `on.cron`, start a run if due
   (today's `schedules/cron.py`, minus the store).
 - `tool.py`: every `every` interval, run the flow's `on.tool` (§3.7); the
-  tool must print a list; each item whose `key` has not been seen starts a
-  run with the item as inputs. Seen keys live in `runs` (a run remembers
+  tool must print a list; each item starts one live run per item key, with
+  the item as inputs. A key may start again once its previous run has
+  finished (after a short cooldown). Seen keys live in `runs` (a run remembers
   the key that started it), so there is no separate firing store. This
   replaces `triggers/sources/*.py`: a tweet watch is `x watch check --json`,
   a ready bead is `bd ready --json`, a blocked bead is `bd list --status
