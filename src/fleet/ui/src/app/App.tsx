@@ -35,6 +35,14 @@ export function TaskIdRedirect() {
   return <Navigate to={`/workers/${id}`} replace />;
 }
 
+// Detail route keyed by task id so every page state (active tab, feed,
+// gutter) resets when navigating between tasks.
+export function TaskDetailRoute() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/workers" replace />;
+  return <TaskDetailPage key={id} />;
+}
+
 // Legacy /schedules/:id URLs redirect into the workers Scheduled sub-tab.
 export function ScheduleIdRedirect() {
   const { id } = useParams();
@@ -108,7 +116,7 @@ function AppInner() {
           */}
           <Route path="/" element={<Navigate to="/workers" replace />} />
           <Route path="/workers" element={<WorkersPage />} />
-          <Route path="/workers/:id" element={<TaskDetailPage />} />
+          <Route path="/workers/:id" element={<TaskDetailRoute />} />
           <Route path="/tasks" element={<Navigate to="/workers" replace />} />
           <Route path="/tasks/:id" element={<TaskIdRedirect />} />
           <Route path="/bd" element={<BdRedirect />} />

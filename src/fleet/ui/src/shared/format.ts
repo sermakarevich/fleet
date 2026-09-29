@@ -120,12 +120,14 @@ export function formatShortDateTime(value: string): string {
   return `${month} ${day} ${formatHourMinute(date)}`;
 }
 
-/** Idle age ("just now", "12s ago", "3m ago"), or "—" for null. */
+/** Idle age ("just now", "12s ago", "3m ago", "2h ago", "2d ago"), or "—" for null. */
 export function formatIdle(seconds: number | null): string {
   if (seconds == null) return '—';
   if (seconds < 5) return 'just now';
   if (seconds < 60) return `${Math.floor(seconds)}s ago`;
-  return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 /** Compact age ("5s", "3m", "2h", "4d") from a unix-epoch-seconds timestamp. */

@@ -113,7 +113,8 @@ export function useConfigConstants() {
 const KILL_MESSAGES: Record<string, string> = {
   killing: 'Kill signal sent — task will stop shortly.',
   'supervisor-not-running': 'Kill signal written, but the supervisor is not running.',
-  'task-not-running': 'Task is not currently running — nothing to kill.',
+  closed: 'Task was not running; its bead was closed.',
+  'no-op': 'Nothing to kill.',
 };
 
 export function useKillTask() {

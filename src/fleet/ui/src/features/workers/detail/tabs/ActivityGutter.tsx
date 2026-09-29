@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sparkline } from '../../../../shared/ui/Sparkline';
-import type { FleetEvent, TaskDetail } from '../../../../shared/types';
+import type { TaskDetail } from '../../../../shared/types';
+import type { ActivityState } from '../useActivity';
 import { formatIdle, formatInteger } from '../../../../shared/format';
 import { useNow } from '../../../../shared/hooks/useNow';
 import { useKillTask } from '../../../../shared/hooks/useApi';
@@ -10,10 +11,10 @@ import * as T from '../../../../shared/styles/tokens';
 
 interface Props {
   task: TaskDetail;
-  events: FleetEvent[];
+  feed: ActivityState;
 }
 
-export function ActivityGutter({ task, events }: Props) {
+export function ActivityGutter({ task, feed }: Props) {
   const { mutate: kill, isPending } = useKillTask();
   const now = useNow();
   const [isStopping, setIsStopping] = useState(false);
@@ -26,18 +27,19 @@ export function ActivityGutter({ task, events }: Props) {
     }
   }, [task.status]);
 
-  const lastEvent = events[events.length - 1] ?? null;
-  const lastEventKind = lastEvent?.kind ?? task.last_event_kind;
+  const items = feed.items;
+  const lastItem = items[items.length - 1] ?? null;
+  const lastEventKind = lastItem?.kind ?? task.last_event_kind;
 
-  // Token count from events (use usage field from api_response events)
-  const lastUsageEvent = [...events].reverse().find(e => e.usage != null);
-  const tokenTotal = lastUsageEvent?.usage
-    ? (lastUsageEvent.usage.input_tokens ?? 0) + (lastUsageEvent.usage.output_tokens ?? 0)
+  // Token count from the feed (use usage field from api_response rows)
+  const lastUsageItem = [...items].reverse().find((i) => i.usage != null);
+  const tokenTotal = lastUsageItem?.usage
+    ? (lastUsageItem.usage.input_tokens ?? 0) + (lastUsageItem.usage.output_tokens ?? 0)
     : task.context_tokens;
 
-  // Idle: compute from last ws event or fallback to task.idle_sec
-  const lastEventTs = lastEvent?.ts ? new Date(lastEvent.ts).getTime() : null;
-  const idleSec = lastEventTs ? (now - lastEventTs) / 1000 : task.idle_sec;
+  // Idle: compute from the last feed row or fallback to task.idle_sec
+  const lastItemTs = lastItem?.ts ? new Date(lastItem.ts).getTime() : null;
+  const idleSec = lastItemTs ? (now - lastItemTs) / 1000 : task.idle_sec;
 
   const canKill = ['in_progress', 'blocked'].includes(task.status);
 

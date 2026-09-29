@@ -1,8 +1,8 @@
 /**
- * Tests for the worker detail page bead absorption (ADR 0009): header
- * priority/issue-type pills from the bead payload, the Dependencies /
- * Comments / Bead tabs, and Close / Reopen / remove-assignee firing the
- * right hooks through Confirm.
+ * Tests for the worker detail page (ADR 0017 U2): the four-tab shell
+ * (Activity, Attempts, Result, Bead), the Bead tab hiding when the bead
+ * query fails, and Close / Reopen / remove-assignee firing the right
+ * hooks through Confirm.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -10,23 +10,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ToastProvider } from '../../../shared/contexts/ToastContext';
-import { api } from '../../../shared/api';
+import { api, ApiError } from '../../../shared/api';
 import type { BeadDetail, RuntimeConfig, TaskDetail } from '../../../shared/types';
 import { TaskDetailPage } from './TaskDetailPage';
 
 afterEach(cleanup);
 
-class QuietSocket {
-  onopen: ((ev: Event) => void) | null = null;
-  onmessage: ((ev: MessageEvent<string>) => void) | null = null;
-  onclose: ((ev: { code: number }) => void) | null = null;
-  onerror: (() => void) | null = null;
-  constructor(readonly url: string) {}
-  close(): void {}
-}
-
 beforeEach(() => {
-  vi.stubGlobal('WebSocket', QuietSocket);
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
     addEventListener: vi.fn(),
@@ -114,6 +104,13 @@ function mockAll(task: TaskDetail, bead: BeadDetail) {
   vi.spyOn(api, 'getTask').mockResolvedValue(task);
   vi.spyOn(api, 'getBead').mockResolvedValue(bead);
   vi.spyOn(api, 'getConfig').mockResolvedValue({} as RuntimeConfig);
+  vi.spyOn(api, 'getActivity').mockResolvedValue({
+    items: [],
+    total: 0,
+    has_earlier: false,
+    latest_attempt: 1,
+    stderr: null,
+  });
 }
 
 function wrapper() {
@@ -139,7 +136,41 @@ async function openTab(name: string) {
   fireEvent.click(screen.getByRole('tab', { name }));
 }
 
-describe('TaskDetailPage bead absorption', () => {
+describe('TaskDetailPage tabs (ADR 0017)', () => {
+  it('shows the four tabs and selects Activity by default', async () => {
+    mockAll(makeTask(), makeBead());
+    render(<TaskDetailPage />, { wrapper: wrapper() });
+    await screen.findByText('worker one');
+
+    for (const name of ['Activity', 'Attempts', 'Result', 'Bead']) {
+      expect(screen.getByRole('tab', { name })).toBeInTheDocument();
+    }
+    for (const name of ['Live', 'Events', 'Log', 'Stderr']) {
+      expect(screen.queryByRole('tab', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+    // Empty finished feed on the default tab.
+    expect(await screen.findByText('No activity recorded.')).toBeInTheDocument();
+  });
+
+  it('hides the Bead tab when the bead query fails', async () => {
+    vi.spyOn(api, 'getTask').mockResolvedValue(makeTask());
+    vi.spyOn(api, 'getBead').mockRejectedValue(new ApiError(404, 'bead w1 not found'));
+    vi.spyOn(api, 'getConfig').mockResolvedValue({} as RuntimeConfig);
+    vi.spyOn(api, 'getActivity').mockResolvedValue({
+      items: [],
+      total: 0,
+      has_earlier: false,
+      latest_attempt: 1,
+      stderr: null,
+    });
+    render(<TaskDetailPage />, { wrapper: wrapper() });
+    await screen.findByText('worker one');
+
+    expect(screen.getByRole('tab', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Bead' })).not.toBeInTheDocument();
+  });
+
   it('shows priority and issue-type pills from the bead payload', async () => {
     mockAll(makeTask(), makeBead());
     render(<TaskDetailPage />, { wrapper: wrapper() });
@@ -148,34 +179,6 @@ describe('TaskDetailPage bead absorption', () => {
     expect(screen.getByText('priority 2')).toBeInTheDocument();
     expect(screen.getByText('bug')).toBeInTheDocument();
     expect(screen.getByText('assignee: coder-a')).toBeInTheDocument();
-  });
-
-  it('Dependencies tab lists type, status, worker links and flags incomplete deps', async () => {
-    mockAll(makeTask(), makeBead());
-    render(<TaskDetailPage />, { wrapper: wrapper() });
-    await screen.findByText('worker one');
-
-    await openTab('Dependencies');
-    // "Why blocked" section reused from the old bead drawer.
-    expect(screen.getByText('Why blocked')).toBeInTheDocument();
-    expect(screen.getByText('blocked on dep-1')).toBeInTheDocument();
-    // Full list with type + status + links (the open dep also shows in
-    // the Why-blocked section, so it renders twice).
-    expect(screen.getAllByText('Dep one')).toHaveLength(2);
-    expect(screen.getAllByText('blocks')).toHaveLength(2);
-    const links = screen.getAllByRole('link', { name: 'dep-1' });
-    expect(links[0]).toHaveAttribute('href', '/workers/dep-1');
-    expect(screen.getByText('waiting')).toBeInTheDocument();
-  });
-
-  it('Comments tab lists the bead thread', async () => {
-    mockAll(makeTask(), makeBead());
-    render(<TaskDetailPage />, { wrapper: wrapper() });
-    await screen.findByText('worker one');
-
-    await openTab('Comments');
-    expect(screen.getByText('first comment')).toBeInTheDocument();
-    expect(screen.getByText('alice')).toBeInTheDocument();
   });
 
   it('Bead tab pretty-prints the raw payload with a copy button', async () => {
@@ -211,6 +214,22 @@ describe('TaskDetailPage bead absorption', () => {
     expect(screen.getByText('Remove assignee?')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(removeSpy).toHaveBeenCalledWith('w1'));
+  });
+
+  it('shows "Task not found." on a 404', async () => {
+    vi.spyOn(api, 'getTask').mockRejectedValue(new ApiError(404, 'task w9 not found'));
+    vi.spyOn(api, 'getBead').mockRejectedValue(new ApiError(404, 'bead w9 not found'));
+    vi.spyOn(api, 'getConfig').mockResolvedValue({} as RuntimeConfig);
+    render(<TaskDetailPage />, { wrapper: wrapper() });
+    expect(await screen.findByText('Task not found.')).toBeInTheDocument();
+  });
+
+  it('shows the load error for non-404 failures', async () => {
+    vi.spyOn(api, 'getTask').mockRejectedValue(new Error('db down'));
+    vi.spyOn(api, 'getBead').mockRejectedValue(new Error('db down'));
+    vi.spyOn(api, 'getConfig').mockResolvedValue({} as RuntimeConfig);
+    render(<TaskDetailPage />, { wrapper: wrapper() });
+    expect(await screen.findByText('Could not load task: db down')).toBeInTheDocument();
   });
 });
 

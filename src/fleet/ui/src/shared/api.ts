@@ -1,4 +1,5 @@
 import type {
+  ActivityResponse,
   AnalyticsSummary,
   BeadDetail,
   ChatQuestion,
@@ -318,6 +319,15 @@ export const api = {
     opts?: { offset?: number; limit?: number; kind?: string },
   ): Promise<{ total: number; offset: number; events: StreamEvent[] }> {
     return request(`/api/tasks/${id}/events${qs({ offset: opts?.offset, limit: opts?.limit, kind: opts?.kind })}`);
+  },
+
+  getActivity(
+    id: string,
+    opts?: { after?: number; before?: number; limit?: number; minLevel?: string },
+  ): Promise<ActivityResponse> {
+    return request(
+      `/api/tasks/${id}/activity${qs({ after: opts?.after, before: opts?.before, limit: opts?.limit, min_level: opts?.minLevel })}`,
+    );
   },
 
   async getChatQuestions(): Promise<{ now: number; pending: ChatQuestion[] }> {
