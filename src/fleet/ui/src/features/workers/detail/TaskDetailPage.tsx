@@ -13,8 +13,8 @@ import { LoadingState } from '../../../shared/ui/LoadingState';
 import { Tabs } from '../../../shared/ui/Tabs';
 import { ActivityTab } from './tabs/ActivityTab';
 import { AttemptsTab } from './tabs/AttemptsTab';
-import { StateTab } from './tabs/StateTab';
-import { BeadJsonTab } from './tabs/BeadJsonTab';
+import { ResultTab } from './tabs/ResultTab';
+import { BeadTab } from './tabs/BeadTab';
 import { ActivityGutter } from './tabs/ActivityGutter';
 import { useActivity } from './useActivity';
 import { merge } from '../../../shared/styles/recipes';
@@ -90,9 +90,9 @@ function TaskDetailLoaded({
       case 'attempts':
         return <AttemptsTab taskId={task.id} attempts={task.attempts ?? []} />;
       case 'artifacts':
-        return <StateTab taskId={task.id} result={task.result} />;
+        return <ResultTab taskId={task.id} status={task.status} result={task.result} />;
       case 'bead':
-        return <BeadJsonTab bead={bead} isLoading={beadLoading} error={beadError} />;
+        return bead ? <BeadTab taskId={task.id} bead={bead} /> : <LoadingState />;
     }
   }
 

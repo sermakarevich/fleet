@@ -111,6 +111,15 @@ function mockAll(task: TaskDetail, bead: BeadDetail) {
     latest_attempt: 1,
     stderr: null,
   });
+  vi.spyOn(api, 'getTaskChildren').mockResolvedValue({ children: [], children_md: null });
+  vi.spyOn(api, 'getArtifactBundle').mockResolvedValue({
+    result: null,
+    state: null,
+    outputs: [],
+    docs: [],
+    files: [],
+    worktree: null,
+  });
 }
 
 function wrapper() {
@@ -181,15 +190,44 @@ describe('TaskDetailPage tabs (ADR 0017)', () => {
     expect(screen.getByText('assignee: coder-a')).toBeInTheDocument();
   });
 
-  it('Bead tab pretty-prints the raw payload with a copy button', async () => {
+  it('Bead tab shows dependencies, comments and the raw payload with a copy button', async () => {
     mockAll(makeTask(), makeBead());
     render(<TaskDetailPage />, { wrapper: wrapper() });
     await screen.findByText('worker one');
 
     await openTab('Bead');
+    expect(await screen.findByRole('heading', { name: 'Dependencies' })).toBeInTheDocument();
+    const depLinks = screen.getAllByRole('link', { name: 'dep-1' });
+    expect(depLinks[0].getAttribute('href')).toBe('/workers/dep-1');
+    expect(screen.getByText('blocked on dep-1')).toBeInTheDocument();
+    expect(screen.getByText('first comment')).toBeInTheDocument();
     const pre = screen.getByText(/"issue_type": "bug"/);
     expect(pre.tagName).toBe('PRE');
     expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+  });
+
+  it('Result tab renders the bundle', async () => {
+    mockAll(makeTask({ status: 'done' }), makeBead());
+    vi.mocked(api.getArtifactBundle).mockResolvedValue({
+      result: {
+        name: 'RESULT.json',
+        content: JSON.stringify({ status: 'done', summary: 'bundle summary' }),
+        mtime: 0,
+        truncated: false,
+      },
+      state: null,
+      outputs: [{ name: 'out.txt', path: '/tmp/w1/outputs/out.txt', size: 10 }],
+      docs: [],
+      files: [],
+      worktree: null,
+    });
+    render(<TaskDetailPage />, { wrapper: wrapper() });
+    await screen.findByText('worker one');
+
+    await openTab('Result');
+    expect(await screen.findByRole('heading', { name: 'Result' })).toBeInTheDocument();
+    expect(screen.getByText('bundle summary')).toBeInTheDocument();
+    expect(screen.getByText('out.txt')).toBeInTheDocument();
   });
 
   it('Close confirms through Confirm and calls closeTask', async () => {

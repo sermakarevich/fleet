@@ -1,14 +1,15 @@
 import type {
   ActivityResponse,
   AnalyticsSummary,
+  ArtifactBundle,
   BeadDetail,
   ChatQuestion,
   CoderInfo,
   ConfigConstant,
   CreateTaskInput,
   CronPreview,
+  DiffResponse,
   EventTrigger,
-  FileOp,
   HealthzStatus,
   LogLine,
   RuntimeConfig,
@@ -260,28 +261,8 @@ export const api = {
     return result.results;
   },
 
-  getArtifactState(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/state`);
-  },
-
-  getArtifactResult(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/result`);
-  },
-
-  getArtifactOutputs(id: string): Promise<{ files: string[] }> {
-    return request(`/api/tasks/${id}/artifacts/outputs`);
-  },
-
-  getArtifactResearch(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/research`);
-  },
-
-  getArtifactDesign(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/design`);
-  },
-
-  getArtifactCandidates(id: string): Promise<{ content: string; mtime: number; path: string }> {
-    return request(`/api/tasks/${id}/artifacts/candidates`);
+  getArtifactBundle(id: string): Promise<ArtifactBundle> {
+    return request(`/api/tasks/${id}/artifacts`);
   },
 
   getLogs(id: string, level?: string): Promise<{ lines: LogLine[] }> {
@@ -306,12 +287,8 @@ export const api = {
     return request(`/api/tasks/${id}/attempts/${n}/log`);
   },
 
-  getDiff(id: string): Promise<{ diff: string }> {
+  getDiff(id: string): Promise<DiffResponse> {
     return request(`/api/tasks/${id}/diff`);
-  },
-
-  getFiles(id: string): Promise<{ files: FileOp[] }> {
-    return request(`/api/tasks/${id}/files`);
   },
 
   getTaskEvents(

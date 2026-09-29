@@ -220,104 +220,26 @@ export function useAnalyticsSummary(days: number) {
   });
 }
 
-// Artifact documents (STATE.md, RESULT.json, outputs/, RESEARCH.md,
-// DESIGN.md): polled while the socket is down so open tabs stay fresh.
-export function useArtifactState(taskId: string) {
+// Result tab bundle (ADR 0017): one payload for everything the task
+// produced. Polled on a normal cadence while in progress so an open tab
+// stays fresh when the socket is down; the bundle is not time-critical.
+export function useArtifactBundle(taskId: string, status: string) {
   return useQuery({
-    queryKey: ['task', taskId, 'artifacts', 'state'],
-    queryFn: () => api.getArtifactState(taskId),
-    refetchInterval: usePoll('normal'),
+    queryKey: ['artifact-bundle', taskId],
+    queryFn: () => api.getArtifactBundle(taskId),
+    refetchInterval: usePoll('normal', status === 'in_progress'),
+    retry: 1,
   });
 }
 
-export function useArtifactResult(taskId: string) {
+// On-demand diff for the Result tab: fetched only after the user clicks
+// "Load diff"; no polling.
+export function useTaskDiff(taskId: string, enabled: boolean) {
   return useQuery({
-    queryKey: ['task', taskId, 'artifacts', 'result'],
-    queryFn: () => api.getArtifactResult(taskId),
-    refetchInterval: usePoll('normal'),
+    queryKey: ['task', taskId, 'diff'],
+    queryFn: () => api.getDiff(taskId),
+    enabled,
   });
-}
-
-export function useArtifactOutputs(taskId: string) {
-  return useQuery({
-    queryKey: ['task', taskId, 'artifacts', 'outputs'],
-    queryFn: () => api.getArtifactOutputs(taskId),
-    refetchInterval: usePoll('normal'),
-  });
-}
-
-export function useArtifactDoc(taskId: string, kind: 'research' | 'design') {
-  return useQuery({
-    queryKey: ['task', taskId, 'artifacts', kind],
-    queryFn: () => kind === 'research' ? api.getArtifactResearch(taskId) : api.getArtifactDesign(taskId),
-    refetchInterval: usePoll('normal'),
-  });
-}
-
-export interface ShortlistRow {
-  rank: number;
-  status: string;
-  kind: string;
-  score: number | null;
-  subtopic: string;
-  title: string;
-  url: string;
-}
-
-const SHORTLIST_STATUSES = new Set(['shortlist', 'reserve', 'in_kb']);
-const SHORTLIST_TITLE_MAX = 60;
-
-// Research worker's scored shortlist (workers/research.py, ADR 0015 candidates.json):
-// shortlist/reserve/in_kb candidates ranked by relevance score. Mirrors the
-// filtering/ranking `fleet research <id>` prints (cli/tasks.py::_candidate_rows).
-export function useShortlist(taskId: string) {
-  const query = useQuery({
-    queryKey: ['task', taskId, 'artifacts', 'candidates'],
-    queryFn: () => api.getArtifactCandidates(taskId),
-    refetchInterval: usePoll('normal'),
-  });
-
-  const rows = (() => {
-    if (!query.data) return null;
-    let doc: unknown;
-    try {
-      doc = JSON.parse(query.data.content);
-    } catch {
-      return null;
-    }
-    if (typeof doc !== 'object' || doc === null || !Array.isArray((doc as { candidates?: unknown }).candidates)) {
-      return null;
-    }
-    const candidates = (doc as { candidates: Record<string, unknown>[] }).candidates;
-    const kept = candidates.filter(
-      c => typeof c === 'object' && c !== null && SHORTLIST_STATUSES.has(String(c.status))
-    );
-    const relevance = (c: Record<string, unknown>): number => {
-      const scores = c.scores as Record<string, unknown> | undefined;
-      const value = scores?.relevance;
-      return typeof value === 'number' ? value : -1;
-    };
-    kept.sort((a, b) => relevance(b) - relevance(a));
-    return kept.map((c, i): ShortlistRow => {
-      const scores = c.scores as Record<string, unknown> | undefined;
-      const score = scores?.relevance;
-      let title = String(c.title ?? '');
-      if (title.length > SHORTLIST_TITLE_MAX) {
-        title = title.slice(0, SHORTLIST_TITLE_MAX - 3) + '...';
-      }
-      return {
-        rank: i + 1,
-        status: String(c.status ?? ''),
-        kind: String(c.kind ?? ''),
-        score: typeof score === 'number' ? score : null,
-        subtopic: String(c.subtopic ?? ''),
-        title,
-        url: String(c.url ?? ''),
-      };
-    });
-  })();
-
-  return { ...query, rows };
 }
 
 // Full-text search for the command palette; disabled for short input.
